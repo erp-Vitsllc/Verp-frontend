@@ -22,16 +22,10 @@ export default function DashboardSalaryEnrollLock({ locked, message }) {
             role="status"
         >
             <div className="max-w-[18rem]">
-                {waitingForProcessingMonth ? null : (
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                        Enroll Status
-                    </p>
-                )}
-                <p
-                    className={`text-sm font-semibold text-slate-800 leading-snug${
-                        waitingForProcessingMonth ? '' : ' mt-1.5'
-                    }`}
-                >
+                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                    {waitingForProcessingMonth ? 'Enrolled' : 'Enroll Status'}
+                </p>
+                <p className="mt-1.5 text-sm font-semibold text-slate-800 leading-snug">
                     {text}
                 </p>
             </div>

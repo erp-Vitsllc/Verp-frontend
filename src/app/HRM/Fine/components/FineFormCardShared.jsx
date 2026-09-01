@@ -57,11 +57,23 @@ export function FineFormCard({ icon: Icon, iconBg, iconColor, title, subtitle, c
     );
 }
 
-export function DetailField({ label, value, valueClassName = 'font-semibold text-gray-800' }) {
+export function DetailField({ label, value, valueClassName = 'font-semibold text-gray-800', emphasize = false }) {
     return (
         <div>
-            <span className="text-xs text-gray-400 block font-medium mb-0.5">{label}</span>
-            <span className={`text-sm block ${valueClassName}`}>{value ?? '—'}</span>
+            <span
+                className={`block font-medium mb-0.5 ${emphasize ? 'text-xs text-red-500' : 'text-xs text-gray-400'}`}
+            >
+                {label}
+            </span>
+            <span
+                className={
+                    emphasize
+                        ? 'text-xl font-bold text-red-600 block leading-tight'
+                        : `text-sm block ${valueClassName}`
+                }
+            >
+                {value ?? '—'}
+            </span>
         </div>
     );
 }

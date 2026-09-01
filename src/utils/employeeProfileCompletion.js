@@ -3,6 +3,7 @@ import {
     employeeRequiresLabourCard,
     employeeRequiresBankDetails,
 } from '@/utils/employeeActivationSections';
+import { isEmployeeUaeNationality } from '@/utils/employeeUaeNationality';
 
 const checkField = (val) => {
     if (val === null || val === undefined) return false;
@@ -93,7 +94,7 @@ export function calculateEmployeeProfileCompletion(employee = {}) {
         });
     }
 
-    {
+    if (!isEmployeeUaeNationality(employee)) {
         const visaTypes = ['visit', 'employment', 'spouse'];
         const visaDetails = employee.visaDetails || {};
         let activeVisaType = null;

@@ -560,7 +560,7 @@ export default function FineFormCardGroupParties({
                             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
                                 {isSingleParty ? 'Total Payable' : 'Total Group Payable'}
                             </span>
-                            <span className="text-xs font-bold text-red-600">{formatMoney(total)} AED</span>
+                            <span className="text-xl font-bold text-red-600 leading-tight">{formatMoney(total)} AED</span>
                         </td>
                         <td className="py-2 pl-4 align-top">
                             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Payable Status</span>

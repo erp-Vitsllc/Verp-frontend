@@ -125,6 +125,12 @@ function n(value) {
     return Number(value) || 0;
 }
 
+/** Pending = salary-policy allowance minus used days, when the policy sets a yearly cap. */
+function policyPendingDays(balance, applied) {
+    if (balance?.allowed == null || balance?.remaining == null) return n(applied);
+    return n(balance.remaining);
+}
+
 function currentDubaiYear() {
     return Number(
         new Intl.DateTimeFormat('en-CA', {
@@ -452,12 +458,6 @@ function AnnualLeaveEligibilityCard({ annualLeave }) {
     );
 }
 
-const WORKFLOW_STEPS = [
-    { title: 'Request raised', detail: 'Employee submits details' },
-    { title: 'HOD review', detail: 'Checks balance & history' },
-    { title: 'HR processing', detail: 'Validate policy & payroll' },
-    { title: 'Record updated', detail: 'Calendar and reports sync' },
-];
 const REQUEST_DOTS = ['bg-[#7C3AED]', 'bg-[#F59E0B]', 'bg-[#EF4444]', 'bg-[#2563EB]'];
 const TASK_AGING_FALLBACK = [
     { label: '1 week', count: 0, color: '#22C55E' },
@@ -466,52 +466,6 @@ const TASK_AGING_FALLBACK = [
     { label: '30 days', count: 0, color: '#FB923C' },
     { label: 'More', count: 0, color: '#EF4444' },
 ];
-
-function WorkflowStepper({ activeIndex }) {
-    return (
-        <div className="flex overflow-hidden rounded-xl border border-slate-200 bg-white">
-            {WORKFLOW_STEPS.map((step, index) => {
-                const done = index < activeIndex;
-                const active = index === activeIndex;
-                return (
-                    <div
-                        key={step.title}
-                        className={`relative flex flex-1 items-center gap-2.5 min-w-0 px-3 py-2.5 ${
-                            active ? 'bg-[#EAF4FC]' : ''
-                        }`}
-                    >
-                        {index > 0 ? (
-                            <span className="absolute left-0 top-2 bottom-2 w-px bg-slate-200" />
-                        ) : null}
-                        <span
-                            className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold shrink-0 ${
-                                done
-                                    ? 'bg-[#D8F5DE] text-[#16A34A]'
-                                    : active
-                                      ? 'bg-[#2563EB] text-white'
-                                      : 'bg-slate-100 text-slate-400'
-                            }`}
-                        >
-                            {done ? <Check size={13} strokeWidth={2.75} /> : index + 1}
-                        </span>
-                        <div className="min-w-0">
-                            <p
-                                className={`text-[12px] font-bold leading-tight truncate ${
-                                    done || active ? 'text-[#1B2A4A]' : 'text-slate-400'
-                                }`}
-                            >
-                                {step.title}
-                            </p>
-                            <p className="mt-0.5 text-[10px] leading-tight text-slate-400 truncate">
-                                {step.detail}
-                            </p>
-                        </div>
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
 
 function Metric({ label, value, accent = false }) {
     return (
@@ -859,7 +813,7 @@ function downloadSummaryCsv(profile) {
             const taken = row.key === 'on_office' ? n(profile?.summary?.presentDays) : n(balance.taken ?? counts[row.key]);
             return [
                 row.label,
-                String(n(applied[row.key])),
+                String(policyPendingDays(balance, applied[row.key])),
                 String(taken),
                 balance.remaining == null ? '' : String(n(balance.remaining)),
                 balance.deductionDays == null ? '' : String(balance.deductionDays),
@@ -985,11 +939,8 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         if (!code) return;
         setAnnualLeaveOpen(false);
         setFinancialModalKey('');
-        const returnHref =
-            typeof window !== 'undefined'
-                ? `${pathname || ''}${window.location.search || ''}`
-                : pathname;
-        navigateFromList(router, `/emp/${encodeURIComponent(code)}?tab=salary`, returnHref);
+        setActiveTab('salary');
+        setSalaryTabVisited(true);
     }
 
     function openFinancialItem(row) {
@@ -1050,11 +1001,6 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         pendingHrRequests.length ||
         Object.values(appliedCounts).reduce((sum, value) => sum + n(value), 0);
     const pendingTaskCount = n(profile?.requests?.workTaskPendingCount);
-    const workflowActiveIndex = Number.isFinite(Number(profile?.requests?.workflowActiveIndex))
-        ? Number(profile.requests.workflowActiveIndex)
-        : pendingHrCount
-          ? 1
-          : 3;
     const taskAging = profile?.requests?.taskAging?.length
         ? profile.requests.taskAging
         : TASK_AGING_FALLBACK;
@@ -1065,7 +1011,9 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     }).filter(Boolean);
 
     const employeeCode = String(employee?.employeeId || '').trim();
-    const salaryHref = employeeCode ? `/emp/${encodeURIComponent(employeeCode)}?tab=salary` : '';
+    const salaryHref = employeeCode
+        ? `/HRM/Salary/enroll/${encodeURIComponent(employeeCode)}`
+        : '';
     const payrollRegisterHref = salaryRegisterHref({ employeeId: employeeCode });
 
     function portalReturnHref() {
@@ -1231,6 +1179,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                         ? presentDays
                                         : n(balance.taken ?? counts[row.key]);
                                 const applied = n(appliedCounts[row.key]);
+                                const pendingDays = policyPendingDays(balance, applied);
                                 const showDeduction =
                                     balance.multiplier != null &&
                                     Number(balance.multiplier) !== 1 &&
@@ -1270,7 +1219,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                                 <Metric label="Used" value={taken} />
                                             ) : (
                                                 <>
-                                                    <Metric label="Pending" value={applied} />
+                                                    <Metric label="Pending" value={pendingDays} />
                                                     <Metric label="Used" value={taken} />
                                                     {showDeduction ? (
                                                         <Metric
@@ -1492,13 +1441,6 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                 </p>
                             </div>
                         </div>
-                    </div>
-
-                    <div className="px-4 pb-4">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 mb-3">
-                            Request approval workflow
-                        </p>
-                        <WorkflowStepper activeIndex={workflowActiveIndex} />
                     </div>
 
                     <div className="px-4 pb-1">

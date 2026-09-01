@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Fuel } from 'lucide-react';
+// import { usePathname } from 'next/navigation';
+// import Link from 'next/link';
+// import { Fuel } from 'lucide-react';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -17,18 +17,18 @@ import {
 import { useIdleSession } from '@/contexts/IdleSessionProvider';
 import { formatIdleCountdown, performLogout } from '@/utils/authSession';
 import ErpBackButton from '@/components/ErpBackButton';
-import {
-    canAccessAddFuel,
-    canAccessVehicleListPage,
-} from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
+// import {
+//     canAccessAddFuel,
+//     canAccessVehicleListPage,
+// } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 
 export default function Navbar() {
-    const pathname = usePathname();
+    // const pathname = usePathname();
     const [userName, setUserName] = useState('Admin');
     const [showLogoutDialog, setShowLogoutDialog] = useState(false);
     const { remainingMs, isIdleTrackingActive } = useIdleSession();
     const [isMounted, setIsMounted] = useState(false);
-    const [showFuelLink, setShowFuelLink] = useState(false);
+    // const [showFuelLink, setShowFuelLink] = useState(false);
     const [greeting, setGreeting] = useState('Good Day');
     const [displayRemainingMs, setDisplayRemainingMs] = useState(remainingMs);
 
@@ -44,7 +44,7 @@ export default function Navbar() {
 
     useEffect(() => {
         setIsMounted(true);
-        setShowFuelLink(canAccessVehicleListPage() || canAccessAddFuel());
+        // setShowFuelLink(canAccessVehicleListPage() || canAccessAddFuel());
         if (typeof window !== 'undefined') {
             const userData = localStorage.getItem('employeeUser');
             if (userData) {
@@ -68,7 +68,7 @@ export default function Navbar() {
     };
 
     const countdownLabel = formatIdleCountdown(displayRemainingMs);
-    const fuelActive = String(pathname || '').startsWith('/HRM/Asset/Vehicle/fuel');
+    // const fuelActive = String(pathname || '').startsWith('/HRM/Asset/Vehicle/fuel');
     const countdownTone =
         displayRemainingMs <= 5 * 60 * 1000
             ? 'text-red-600 bg-red-50 border-red-200'
@@ -98,6 +98,7 @@ export default function Navbar() {
                             </div>
                         )}
                         <div className="mt-2 sm:mt-3 flex items-center justify-end gap-2">
+                            {/* Fuel header button — temporarily hidden
                             {isMounted && showFuelLink ? (
                                 <Link
                                     href="/HRM/Asset/Vehicle/fuel"
@@ -111,6 +112,7 @@ export default function Navbar() {
                                     Fuel
                                 </Link>
                             ) : null}
+                            */}
                             <button
                                 onClick={() => setShowLogoutDialog(true)}
                                 className="px-3 py-1.5 sm:px-4 sm:py-2 bg-red-500 hover:bg-red-600 text-white text-xs sm:text-sm font-semibold rounded-lg transition-colors inline-flex items-center gap-2"

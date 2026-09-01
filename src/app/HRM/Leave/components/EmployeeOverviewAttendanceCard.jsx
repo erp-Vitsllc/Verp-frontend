@@ -13,8 +13,7 @@ import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { normalizeWorkLocationKey } from '@/utils/workLocations';
-import {
-    SALARY_ENROLL_LOCK_MESSAGE,
+import DashboardSalaryEnrollLock, {
     salaryLockFromAttendancePayload,
 } from '@/app/dashboard/components/DashboardSalaryEnrollLock';
 
@@ -455,21 +454,7 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
             </div>
             </div>
 
-            {salaryLocked ? (
-                <div
-                    className="absolute inset-0 z-10 flex items-center justify-center bg-slate-200/80 px-5 text-center"
-                    role="status"
-                >
-                    <div className="max-w-[18rem]">
-                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                            Enroll Status
-                        </p>
-                        <p className="mt-1.5 text-sm font-semibold text-slate-600 leading-snug">
-                            {salaryLockMessage || SALARY_ENROLL_LOCK_MESSAGE}
-                        </p>
-                    </div>
-                </div>
-            ) : null}
+            <DashboardSalaryEnrollLock locked={salaryLocked} message={salaryLockMessage} />
         </div>
     );
 }

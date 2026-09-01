@@ -1,15 +1,19 @@
 'use client';
 
-import { useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { useRouter } from 'next/navigation';
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
+import { shouldUseBlockingNotificationLoader } from '@/utils/notificationModalLoad';
 import { mapPendingInboxToRow } from '@/utils/notificationInboxPresentation';
 import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
 import {
-    pendingEnrollmentInboxItems,
-    pendingEnrollmentMessage,
-} from '../utils/salaryPendingInboxCount';
+    SALARY_PENDING_INBOX_ENDPOINT,
+    fetchSalaryPendingInbox,
+    getCachedPendingInbox,
+} from '@/utils/pendingInboxFetch';
+import { countVisibleSalaryPendingInbox } from '../utils/salaryPendingInboxCount';
 
 function salaryHref(row) {
     const raw = row?.raw || row;
@@ -19,27 +23,76 @@ function salaryHref(row) {
         raw?.employeeId ||
         row?.subjectEmployeeId ||
         '';
-    if (!employeeId) return '';
-    return `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`;
+    if (employeeId) return `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`;
+    const monthKey = raw?.monthKey || '';
+    if (monthKey) return `/HRM/Salary/${encodeURIComponent(monthKey)}`;
+    return '';
 }
 
 export default function PendingSalaryRequestsModal({
     isOpen,
     onClose,
     onRefreshParent,
-    pendingEnrollmentEmployees = [],
+    onPendingInboxCount,
 }) {
     const { toast } = useToast();
     const router = useRouter();
-    const inboxItems = useMemo(
-        () => pendingEnrollmentInboxItems(pendingEnrollmentEmployees),
-        [pendingEnrollmentEmployees],
-    );
+    const [loading, setLoading] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const [items, setItems] = useState([]);
+    const itemsRef = useRef(items);
+    itemsRef.current = items;
+
     const notificationRows = useMemo(
-        () => inboxItems.map((row, index) => mapPendingInboxToRow(row, index)),
-        [inboxItems],
+        () => items.map((row, index) => mapPendingInboxToRow(row, index)),
+        [items],
     );
-    const pendingCount = inboxItems.length;
+
+    const load = useCallback(async ({ force = false } = {}) => {
+        const cached = !force ? getCachedPendingInbox(SALARY_PENDING_INBOX_ENDPOINT) : null;
+        if (cached && itemsRef.current.length === 0) {
+            setItems(cached);
+            const count = countVisibleSalaryPendingInbox(cached);
+            if (typeof onPendingInboxCount === 'function') {
+                onPendingInboxCount(count);
+            }
+        }
+
+        if (cached && !force) {
+            return;
+        }
+
+        const block = shouldUseBlockingNotificationLoader(
+            itemsRef.current.length || (cached?.length ?? 0),
+        );
+        if (block) setLoading(true);
+        else setRefreshing(true);
+        try {
+            const list = await fetchSalaryPendingInbox(axiosInstance, { force });
+            setItems(list);
+            const count = countVisibleSalaryPendingInbox(list);
+            if (typeof onPendingInboxCount === 'function') {
+                onPendingInboxCount(count);
+            }
+        } catch (e) {
+            console.error(e);
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: e?.response?.data?.message || 'Could not load salary notifications.',
+            });
+            if (itemsRef.current.length === 0) setItems([]);
+            if (typeof onPendingInboxCount === 'function') onPendingInboxCount(0);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, [toast, onPendingInboxCount]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        load();
+    }, [isOpen, load]);
 
     const handleRowActivate = (row) => {
         const path = salaryHref(row);
@@ -47,7 +100,7 @@ export default function PendingSalaryRequestsModal({
             toast({
                 variant: 'destructive',
                 title: 'Unable to open',
-                description: 'Could not open this employee salary profile.',
+                description: 'Could not open this salary notification.',
             });
             return;
         }
@@ -61,11 +114,11 @@ export default function PendingSalaryRequestsModal({
             isOpen={isOpen}
             onClose={onClose}
             title="Salary notifications"
-            subtitle={pendingEnrollmentMessage(pendingCount)}
+            subtitle="Salary profile approvals and DMF tasks assigned to you."
             items={notificationRows}
-            loading={false}
-            refreshing={false}
-            emptyMessage="No employees pending for enrollment."
+            loading={loading && items.length === 0}
+            refreshing={refreshing}
+            emptyMessage="No pending salary notifications for you."
             onItemClick={handleRowActivate}
             getItemHref={(row) => salaryHref(row)}
         />

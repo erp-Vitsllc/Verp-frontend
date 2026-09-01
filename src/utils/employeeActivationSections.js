@@ -1,4 +1,5 @@
 import { isAdmin } from '@/utils/permissions';
+import { isEmployeeUaeNationality } from '@/utils/employeeUaeNationality';
 
 function normalizeEmployeeIdCompare(value) {
     return String(value || '')
@@ -179,8 +180,9 @@ const isVisitVisaTypeKey = (type) => {
     return normalized === 'visit' || normalized === 'visiting';
 };
 
-/** Emirates ID / Labour Card / Bank Details are optional only for visit-visa-only employees (no employment/spouse visa). */
+/** Emirates ID / Labour Card / Bank Details are optional only for visit-visa-only employees (no employment/spouse visa). UAE nationals always require them. */
 export function employeeRequiresEmiratesId(employee = {}, pendingVisa = null) {
+    if (isEmployeeUaeNationality(employee)) return true;
     const visaDetails = employee?.visaDetails || {};
     if (hasVisaNumber(visaDetails.employment?.number) || hasVisaNumber(visaDetails.spouse?.number)) {
         return true;

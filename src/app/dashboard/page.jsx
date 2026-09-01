@@ -42,6 +42,7 @@ import { REWARD_PENDING_INBOX_CHANGED } from '@/app/HRM/Reward/utils/rewardPendi
 import { LOAN_PENDING_INBOX_CHANGED } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
 import { ATTENDANCE_PENDING_INBOX_CHANGED } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import { LEAVE_PENDING_INBOX_CHANGED } from '@/app/HRM/Leave/utils/leavePendingInboxCount';
+import { SALARY_PENDING_INBOX_CHANGED } from '@/app/HRM/Salary/utils/salaryPendingInboxCount';
 import DashboardAttendanceCalendar from '@/app/dashboard/components/DashboardAttendanceCalendar';
 import DashboardCheckInOutCard from '@/app/dashboard/components/DashboardCheckInOutCard';
 import DashboardEmployeeHrCards from '@/app/dashboard/components/DashboardEmployeeHrCards';
@@ -414,6 +415,7 @@ function DashboardContent() {
             window.addEventListener(LOAN_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
             window.addEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
             window.addEventListener(LEAVE_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+            window.addEventListener(SALARY_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
         }
 
         return () => {
@@ -427,6 +429,7 @@ function DashboardContent() {
                 window.removeEventListener(LOAN_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
                 window.removeEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
                 window.removeEventListener(LEAVE_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+                window.removeEventListener(SALARY_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
             }
         };
 

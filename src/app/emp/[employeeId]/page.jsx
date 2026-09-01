@@ -113,6 +113,7 @@ import {
     viewerIsEmployeeProfileSubject,
     viewerIsProfileActivationSubmitter,
 } from '@/utils/employeeActivationSections';
+import { isEmployeeUaeNationality } from '@/utils/employeeUaeNationality';
 import { cardDeletedProgressToast } from '@/utils/cardDeletedNotifications';
 import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
 import { isRewardVisibleOnEmployeeProfile } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
@@ -7042,67 +7043,11 @@ function EmployeeProfilePageContent() {
     };
 
     // Check if employee nationality is UAE (handles both code and full name)
-    // Memoize the function so it can be passed to components
-    const isUAENationality = useCallback(() => {
-        if (!employee) return false;
-
-        // Prefer employee master nationality first; fallback to passport nationality.
-        // Passport data can be incomplete or mapped from issuance-country flows.
-        const nationalityValue = (
-            employee.nationality ||
-            employee.country ||
-            employee.passportDetails?.nationality ||
-            ''
-        ).toString().trim();
-        if (!nationalityValue) return false;
-
-        // Normalize: remove extra spaces, convert to lowercase
-        const normalized = nationalityValue.toLowerCase().replace(/\s+/g, ' ').trim();
-
-        // Direct matches
-        if (normalized === 'uae' ||
-            normalized === 'ae' ||
-            normalized === 'united arab emirates' ||
-            normalized === 'united arab emirate' ||
-            normalized === 'unitedarabemirates' ||
-            normalized === 'unitedarabemirate') {
-            return true;
-        }
-
-        // Check if it's a country code that converts to UAE
-        try {
-            // Try uppercase for country code lookup
-            const countryCode = normalized.toUpperCase();
-            if (countryCode.length === 2) {
-                const countryName = getCountryName(countryCode);
-                if (countryName) {
-                    const normalizedCountryName = countryName.toLowerCase().replace(/\s+/g, ' ').trim();
-                    if (normalizedCountryName === 'united arab emirates' ||
-                        normalizedCountryName === 'united arab emirate' ||
-                        normalizedCountryName === 'unitedarabemirates' ||
-                        normalizedCountryName === 'unitedarabemirate') {
-                        return true;
-                    }
-                }
-            }
-
-            // Also try the original value as uppercase
-            const countryNameFromValue = getCountryName(nationalityValue.toUpperCase());
-            if (countryNameFromValue && countryNameFromValue !== nationalityValue) {
-                const normalizedCountryName = countryNameFromValue.toLowerCase().replace(/\s+/g, ' ').trim();
-                if (normalizedCountryName === 'united arab emirates' ||
-                    normalizedCountryName === 'united arab emirate' ||
-                    normalizedCountryName === 'unitedarabemirates' ||
-                    normalizedCountryName === 'unitedarabemirate') {
-                    return true;
-                }
-            }
-        } catch (e) {
-            // If getCountryName fails, continue
-        }
-
-        return false;
-    }, [employee?.nationality, employee?.country, employee?.passportDetails?.nationality, getCountryName]);
+    const isUAENationality = useCallback(() => isEmployeeUaeNationality(employee), [
+        employee?.nationality,
+        employee?.country,
+        employee?.passportDetails?.nationality,
+    ]);
 
     const handleVisaButtonClick = () => {
         setShowVisaDropdown(prev => !prev);
@@ -7722,8 +7667,8 @@ function EmployeeProfilePageContent() {
             });
         }
 
-        // Visa fields — required for all nationalities
-        {
+        // Visa fields — required except UAE nationals (visa is optional for 100%)
+        if (!isEmployeeUaeNationality(employee)) {
             const visaTypes = ['visit', 'employment', 'spouse'];
             const pendingVisa = getPendingSectionData('visa');
             const pendingVisaType = String(pendingVisa?.type || pendingVisa?.visaType || '').toLowerCase();
@@ -9199,12 +9144,14 @@ function EmployeeProfilePageContent() {
         const showExpirySummary = String(employee?.status || '').trim() !== 'Left User';
         if (showExpirySummary) {
         if (!hasVisaNumber) {
-            statusItems.push({
-                type: 'visa-missing',
-                text: employeeHasEmploymentVisaRecord(employee)
-                    ? 'Current employment visa required'
-                    : 'Visa Number required'
-            });
+            if (!isEmployeeUaeNationality(employee)) {
+                statusItems.push({
+                    type: 'visa-missing',
+                    text: employeeHasEmploymentVisaRecord(employee)
+                        ? 'Current employment visa required'
+                        : 'Visa Number required'
+                });
+            }
         } else if (visaExpiryDate) {
             const visaText = getExpiryText('Visa', visaExpiryDate);
             if (visaText) {

@@ -30,7 +30,6 @@ import useWorkLocations from '@/hooks/useWorkLocations';
 import { normalizeWorkLocationKey, workLocationLabel } from '@/utils/workLocations';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
-import { navigateFromList } from '@/utils/listReturnNavigation';
 
 function mapEmployeeRow(emp) {
     return {
@@ -521,25 +520,6 @@ function AnnualLeavePageContent() {
         [router],
     );
 
-    const handleApprovalRowOpenPortal = useCallback(
-        (row) => {
-            const listed = enrolledEmployees.find(
-                (emp) => String(emp._id) === String(row?.employeeMongoId || ''),
-            );
-            const code =
-                String(row?.employeeId || '').trim() ||
-                String(listed?.employeeId || '').trim() ||
-                String(row?.employeeMongoId || '').trim();
-            if (!code) return;
-            navigateFromList(
-                router,
-                `/emp/${encodeURIComponent(code)}`,
-                leaveDashboardReturnHref,
-            );
-        },
-        [enrolledEmployees, leaveDashboardReturnHref, router],
-    );
-
     const leaveBarClickTimerRef = useRef(null);
 
     const handleCalendarLeaveClick = useCallback((span) => {
@@ -708,22 +688,26 @@ function AnnualLeavePageContent() {
                                 onSelectEmployee={handleSelectGroupEmployee}
                                 onReturn={handleReturnToGroups}
                             />
-                            {selectedEmployeeCode ? (
+                            {selectedFilterEmployee ? (
                                 <>
-                                    <NavButton
-                                        href={`/emp/${encodeURIComponent(selectedEmployeeCode)}?tab=salary`}
-                                        listReturnHref={leaveDashboardReturnHref}
-                                        className="inline-flex items-center rounded-lg border border-[#DDE3EA] bg-white px-3 py-2 text-sm font-medium text-[#344054] shadow-sm hover:bg-slate-50"
-                                    >
-                                        Salary History
-                                    </NavButton>
-                                    <NavButton
-                                        href={`/emp/${encodeURIComponent(selectedEmployeeCode)}`}
-                                        listReturnHref={leaveDashboardReturnHref}
-                                        className="inline-flex items-center rounded-lg border border-[#DDE3EA] bg-white px-3 py-2 text-sm font-medium text-[#344054] shadow-sm hover:bg-slate-50"
-                                    >
-                                        Portal
-                                    </NavButton>
+                                    {selectedEmployeeCode ? (
+                                        <NavButton
+                                            href={`/HRM/Salary/enroll/${encodeURIComponent(selectedEmployeeCode)}`}
+                                            listReturnHref={leaveDashboardReturnHref}
+                                            className="inline-flex items-center rounded-lg border border-[#DDE3EA] bg-white px-3 py-2 text-sm font-medium text-[#344054] shadow-sm hover:bg-slate-50"
+                                        >
+                                            Salary History
+                                        </NavButton>
+                                    ) : null}
+                                    {String(selectedFilterEmployee._id || '').trim() ? (
+                                        <NavButton
+                                            href={`/HRM/Leave/${encodeURIComponent(String(selectedFilterEmployee._id).trim())}`}
+                                            listReturnHref={leaveDashboardReturnHref}
+                                            className="inline-flex items-center rounded-lg border border-[#DDE3EA] bg-white px-3 py-2 text-sm font-medium text-[#344054] shadow-sm hover:bg-slate-50"
+                                        >
+                                            Portal
+                                        </NavButton>
+                                    ) : null}
                                 </>
                             ) : null}
                             </div>
@@ -753,7 +737,6 @@ function AnnualLeavePageContent() {
                             refreshKey={dashboardRefreshKey}
                             onDataChanged={() => setDashboardRefreshKey((value) => value + 1)}
                             onApprovalRowSelect={handleApprovalRowSelect}
-                            onApprovalRowOpenPortal={handleApprovalRowOpenPortal}
                             onAcceptRequest={handleAcceptRequest}
                             onEditRequest={handleEditRequest}
                             calendarLeaveFocus={calendarLeaveFocus}

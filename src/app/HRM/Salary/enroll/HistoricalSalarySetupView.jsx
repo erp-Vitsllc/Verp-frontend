@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
     Calendar,
     Check,
+    ExternalLink,
     FileText,
     Info,
     Loader2,
@@ -35,6 +37,8 @@ import {
 } from '../utils/salaryHistoricalCalculations';
 import { notifySalaryPendingInboxChanged } from '../utils/salaryPendingInboxCount';
 import SalaryPolicyRequiredModal from '../components/SalaryPolicyRequiredModal';
+import { navigateFromList } from '@/utils/listReturnNavigation';
+import SalarySlipPreviewPanel from './SalarySlipPreviewPanel';
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const LEAVE_TYPES = [
@@ -128,6 +132,62 @@ function nameInitials(value) {
 
 function leaveMeta(type) {
     return LEAVE_TYPES.find((row) => row.key === type) || LEAVE_TYPES[0];
+}
+
+function leaveTypeKey(row) {
+    return String(row?.leaveType || '').toLowerCase();
+}
+
+function LeaveTypeFilter({ value, onChange, rows }) {
+    const counts = useMemo(() => {
+        const next = { all: Array.isArray(rows) ? rows.length : 0 };
+        LEAVE_TYPES.forEach((type) => {
+            next[type.key] = 0;
+        });
+        (rows || []).forEach((row) => {
+            const key = leaveTypeKey(row);
+            if (Object.prototype.hasOwnProperty.call(next, key)) next[key] += 1;
+        });
+        return next;
+    }, [rows]);
+
+    const options = [{ key: '', label: 'All', color: '#64748B' }, ...LEAVE_TYPES];
+
+    return (
+        <div
+            className="flex flex-wrap items-center gap-1.5"
+            role="tablist"
+            aria-label="Filter leave types"
+        >
+            {options.map((option) => {
+                const selected = (option.key || '') === (value || '');
+                const count = option.key ? counts[option.key] || 0 : counts.all;
+                return (
+                    <button
+                        key={option.key || 'all'}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected}
+                        onClick={() => onChange(selected && option.key ? '' : option.key)}
+                        className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold transition-colors ${
+                            selected
+                                ? 'border-slate-800 bg-slate-800 text-white'
+                                : 'border-[#E2E8F0] bg-white text-[#475569] hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                    >
+                        {option.key ? (
+                            <span
+                                className="h-1.5 w-1.5 rounded-full"
+                                style={{ backgroundColor: option.color }}
+                            />
+                        ) : null}
+                        {option.label}
+                        <span className={selected ? 'text-white/80' : 'text-[#94A3B8]'}>{count}</span>
+                    </button>
+                );
+            })}
+        </div>
+    );
 }
 
 function aed(value, currency = 'AED') {
@@ -542,16 +602,14 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
             ? 'Annual leave requires a start date and an end date.'
             : periodStart && (fromDate < periodStart || toDate < periodStart)
                 ? 'Leave dates cannot be before the contract joining date.'
-                : periodEnd && (fromDate > periodEnd || toDate > periodEnd)
-                    ? 'Leave dates cannot be on or after the VERP salary processing start date.'
-                    : validateLeaveDates(
-                          { leaveType, fromDate, toDate, eligibleWorkingDays: countNum },
-                          periodStart,
-                          periodEnd,
-                      )
+                : validateLeaveDates(
+                      { leaveType, fromDate, toDate, eligibleWorkingDays: countNum },
+                      periodStart,
+                      periodEnd,
+                  )
         : '';
-    const startDisabledDays = leaveDateDisabledDays(periodStart, periodEnd);
-    const endDisabledDays = leaveDateDisabledDays(fromDate || periodStart, periodEnd);
+    const startDisabledDays = leaveDateDisabledDays(periodStart);
+    const endDisabledDays = leaveDateDisabledDays(fromDate || periodStart);
     const canSave = countNum > 0 && !locked && !dateError && (!isAnnual || (fromDate && toDate));
 
     return (
@@ -615,7 +673,7 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
                     />
                     <p className="mt-1 text-[11px] text-slate-500">
                         {isAnnual
-                            ? `Start and end dates are required. The count fills in from those dates and you can still change it. Historical period: ${prettyDate(periodStart)} — ${prettyDate(periodEnd)}.`
+                            ? `Start and end dates are required. The count fills in from those dates and you can still change it. End date can be after the historical period (${prettyDate(periodStart)} — ${prettyDate(periodEnd)}).`
                             : 'Dates are not needed for this leave type. Enter the day count and save.'}
                     </p>
                 </label>
@@ -868,9 +926,14 @@ function SalarySetupLayout({ children }) {
 }
 
 export default function HistoricalSalarySetupView({ employeeId, embedded = false }) {
+    const router = useRouter();
     const { toast } = useToast();
     const hrEdit =
         hasPermission('hrm_salary', 'isEdit') || hasPermission('hrm_employees_view_salary', 'isEdit');
+    const canSeePayrollCodes =
+        hasPermission('hrm_salary', 'isView') ||
+        hasPermission('hrm_employees_view_salary', 'isView') ||
+        hrEdit;
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
@@ -881,11 +944,14 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [companyMolCode, setCompanyMolCode] = useState('');
     const [employeeMolId, setEmployeeMolId] = useState('');
     const [salarySlip, setSalarySlip] = useState(false);
+    const [setupTab, setSetupTab] = useState('details');
+    const [openingSalarySlip, setOpeningSalarySlip] = useState(false);
     const [leaveRecords, setLeaveRecords] = useState([]);
     const [paymentCycles, setPaymentCycles] = useState([]);
     const [leaveComplete, setLeaveComplete] = useState(false);
     const [benefitsComplete, setBenefitsComplete] = useState(false);
     const [leaveModal, setLeaveModal] = useState(false);
+    const [leaveTypeFilter, setLeaveTypeFilter] = useState('');
     const [leaveDraftIndex, setLeaveDraftIndex] = useState(null);
     const [cycleModal, setCycleModal] = useState(false);
     const [cycleDraft, setCycleDraft] = useState(null);
@@ -1034,6 +1100,10 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         const system = mergeAdjacentSystemLeave(liveLeaveRecords, leaveMultipliers);
         return [...manual, ...system];
     }, [leaveMultipliers, leaveRecords, liveLeaveRecords]);
+    const filteredLeaveHistoryRows = useMemo(() => {
+        if (!leaveTypeFilter) return existingLeaveHistoryRows;
+        return existingLeaveHistoryRows.filter((row) => leaveTypeKey(row) === leaveTypeFilter);
+    }, [existingLeaveHistoryRows, leaveTypeFilter]);
     const historicalCalc = calculateHistoricalEligibility({
         workingDays: Number(data?.workingDays) || 0,
         calendarDays: Number(data?.calendarDays) || 0,
@@ -1061,6 +1131,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const isSalaryHr = Boolean(permissions.isSalaryHr);
     const pendingHr = workflowStatus === 'pending_hr' || Boolean(data?.approvalSent);
     const enrolled = Boolean(data?.enrolled) || workflowStatus === 'locked';
+    const canSeeMolCodes = Boolean(permissions.canViewPayrollCodes ?? canSeePayrollCodes);
+    const canToggleSalarySlip = Boolean(!pendingHr && (enrolled ? isSalaryHr : hrEdit));
     const locked = pendingHr || (enrolled ? !isSalaryHr : !hrEdit || !permissions.canEdit);
     const currentSnapshot = useMemo(
         () =>
@@ -1092,6 +1164,13 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const updateDisabled = saving || !canUpdateCreated || !hasUnsavedChanges;
     const readiness = data?.readiness;
     const emp = data?.employee;
+    const portalHref = String(emp?.mongoId || '').trim()
+        ? `/HRM/Leave/${encodeURIComponent(String(emp.mongoId).trim())}`
+        : '';
+    const openEmployeePortal = useCallback(() => {
+        if (!portalHref) return;
+        navigateFromList(router, portalHref);
+    }, [portalHref, router]);
     const displayName = emp?.name ? toTitleName(emp.name) : employeeId;
     const initials = emp?.name
         ? nameInitials(emp.name)
@@ -1131,6 +1210,37 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         if (mainPolicyReady) return true;
         setPolicyModal(true);
         return false;
+    }
+
+    async function openSalarySlipPdf() {
+        if (!employeeId || openingSalarySlip) return;
+        setOpeningSalarySlip(true);
+        try {
+            const res = await axiosInstance.get(
+                `/Employee/salary-enroll/${encodeURIComponent(employeeId)}/historical/salary-slip`,
+                { responseType: 'blob', skipToast: true },
+            );
+            const blob = new Blob([res.data], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank', 'noopener,noreferrer');
+            setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        } catch (err) {
+            let message = 'Could not open salary slip';
+            const data = err?.response?.data;
+            if (typeof Blob !== 'undefined' && data instanceof Blob) {
+                try {
+                    const parsed = JSON.parse(await data.text());
+                    if (parsed?.message) message = parsed.message;
+                } catch {
+                    /* keep default */
+                }
+            } else if (typeof data?.message === 'string' && data.message) {
+                message = data.message;
+            }
+            toast({ title: message, variant: 'destructive' });
+        } finally {
+            setOpeningSalarySlip(false);
+        }
     }
     const readinessByKey = Object.fromEntries((readiness?.items || []).map((item) => [item.key, item.done]));
     const readinessGroups = [
@@ -1383,6 +1493,35 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                             </div>
                         </div>
 
+                        <div
+                            className="mb-5 flex items-center gap-6 border-b border-slate-200"
+                            role="tablist"
+                            aria-label="Salary profile sections"
+                        >
+                            {[
+                                { key: 'details', label: 'Salary details' },
+                                { key: 'slip', label: 'Salary slip' },
+                            ].map((tab) => {
+                                const active = setupTab === tab.key;
+                                return (
+                                    <button
+                                        key={tab.key}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={active}
+                                        onClick={() => setSetupTab(tab.key)}
+                                        className={`relative pb-2.5 text-sm font-semibold transition-colors ${
+                                            active
+                                                ? "text-blue-600 after:content-[''] after:absolute after:left-0 after:-bottom-px after:h-0.5 after:w-full after:bg-blue-500"
+                                                : 'text-slate-400 hover:text-slate-600'
+                                        }`}
+                                    >
+                                        {tab.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
                         {loading ? (
                             <div className="flex justify-center py-24">
                                 <Loader2 className="animate-spin text-blue-600" size={28} />
@@ -1471,6 +1610,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                     </div>
                                 </div>
 
+                                {setupTab === 'details' ? (
                                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_374px]">
                                     <div className="space-y-4">
                                         <section className={CARD}>
@@ -1561,7 +1701,9 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     />
                                                 </label>
                                             </div>
-                                            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                                            <div className={`mt-3 grid grid-cols-1 gap-3 ${canSeeMolCodes ? 'md:grid-cols-3' : ''}`}>
+                                                {canSeeMolCodes ? (
+                                                    <>
                                                 <label className="block">
                                                     <FieldLabel>Company MOL code</FieldLabel>
                                                     <input
@@ -1582,14 +1724,17 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         className="h-11 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:bg-[#F8FAFC]"
                                                     />
                                                 </label>
+                                                    </>
+                                                ) : null}
                                                 <div className="block">
                                                     <FieldLabel>Salary slip</FieldLabel>
                                                     <button
                                                         type="button"
                                                         role="checkbox"
                                                         aria-checked={salarySlip}
-                                                        disabled={pendingHr}
+                                                        disabled={!canToggleSalarySlip}
                                                         onClick={async () => {
+                                                            if (!canToggleSalarySlip) return;
                                                             const next = !salarySlip;
                                                             setSalarySlip(next);
                                                             setSaving(true);
@@ -1611,7 +1756,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             }
                                                         }}
                                                         className={`h-11 w-full rounded-lg border px-3 text-sm outline-none flex items-center gap-2.5 text-left ${
-                                                            pendingHr
+                                                            !canToggleSalarySlip
                                                                 ? 'border-[#E2E8F0] bg-[#F8FAFC] cursor-not-allowed'
                                                                 : 'border-[#E2E8F0] bg-white hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15'
                                                         }`}
@@ -1630,6 +1775,26 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             {salarySlip ? 'Checked' : 'Unchecked'}
                                                         </span>
                                                     </button>
+                                                    <p className="mt-1.5 text-[11px] leading-4 text-[#64748B]">
+                                                        If checked, this employee gets a salary slip PDF on their company
+                                                        email after Management approves that month. Unchecked employees
+                                                        get the approval email only.
+                                                    </p>
+                                                    {salarySlip ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={openSalarySlipPdf}
+                                                            disabled={openingSalarySlip || saving}
+                                                            className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-[#2563EB] hover:underline disabled:opacity-60"
+                                                        >
+                                                            {openingSalarySlip ? (
+                                                                <Loader2 size={13} className="animate-spin" />
+                                                            ) : (
+                                                                <ExternalLink size={13} />
+                                                            )}
+                                                            {openingSalarySlip ? 'Opening salary slip…' : 'Open salary slip PDF'}
+                                                        </button>
+                                                    ) : null}
                                                 </div>
                                             </div>
                                             <div className="mt-4 flex flex-col gap-2 rounded-[10px] bg-[#EFF6FF] px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1671,7 +1836,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         </p>
                                                     </div>
                                                 </div>
-                                                <div className="flex flex-wrap items-center gap-2">
+                                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                                    <LeaveTypeFilter
+                                                        value={leaveTypeFilter}
+                                                        onChange={setLeaveTypeFilter}
+                                                        rows={existingLeaveHistoryRows}
+                                                    />
                                                     <CompleteBadge complete={leaveComplete} />
                                                     <GhostButton
                                                         disabled={locked || leaveComplete}
@@ -1685,8 +1855,14 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 </div>
                                             </div>
                                             <LeaveTable
-                                                rows={existingLeaveHistoryRows}
+                                                rows={filteredLeaveHistoryRows}
+                                                emptyMessage={
+                                                    leaveTypeFilter
+                                                        ? `No ${leaveMeta(leaveTypeFilter).label.toLowerCase()} records.`
+                                                        : 'No leave records yet.'
+                                                }
                                                 locked={locked || leaveComplete}
+                                                onOpenPortal={portalHref ? openEmployeePortal : undefined}
                                                 onEdit={(row) => {
                                                     if (locked || leaveComplete) return;
                                                     if (!Number.isInteger(row?.storedIndex)) return;
@@ -1946,6 +2122,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         label="Attendance leave (policy)"
                                                         value={formatDeductionDays(attendanceLeaveDeduction)}
                                                         danger={Number(attendanceLeaveDeduction) > 0}
+                                                        onClick={portalHref ? openEmployeePortal : undefined}
                                                     />
                                                 ) : null}
                                                 {Number(calc.consumedEntitlementDays) > 0 ? (
@@ -2083,6 +2260,9 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                         ) : null}
                                     </aside>
                                 </div>
+                                ) : (
+                                    <SalarySlipPreviewPanel employeeId={employeeId} />
+                                )}
                             </>
                         )}
                     </div>
@@ -2296,9 +2476,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     );
 }
 
-function EligibilityCalcRow({ label, value, danger, strong }) {
-    return (
-        <div className="flex min-h-[42px] items-center justify-between border-b border-[#E8ECF1] pl-4 pr-[22px]">
+function EligibilityCalcRow({ label, value, danger, strong, onClick }) {
+    const className = `flex min-h-[42px] w-full items-center justify-between border-b border-[#E8ECF1] pl-4 pr-[22px] text-left ${
+        onClick ? 'cursor-pointer hover:bg-slate-50' : ''
+    }`;
+    const inner = (
+        <>
             <span
                 className={`text-[11px] leading-4 ${strong ? 'font-bold text-[#1D2A3E]' : 'font-normal text-[#6F7C8F]'
                     }`}
@@ -2315,8 +2498,16 @@ function EligibilityCalcRow({ label, value, danger, strong }) {
             >
                 {value}
             </span>
-        </div>
+        </>
     );
+    if (onClick) {
+        return (
+            <button type="button" className={className} onClick={onClick}>
+                {inner}
+            </button>
+        );
+    }
+    return <div className={className}>{inner}</div>;
 }
 
 function Row({ label, value, danger, strong }) {
@@ -2337,9 +2528,9 @@ function Row({ label, value, danger, strong }) {
     );
 }
 
-function LeaveTable({ rows, locked, onEdit, onRemove }) {
+function LeaveTable({ rows, locked, onEdit, onRemove, onOpenPortal, emptyMessage = 'No leave records yet.' }) {
     if (!rows.length) {
-        return <p className="py-8 text-center text-[13px] text-[#94A3B8]">No leave records yet.</p>;
+        return <p className="py-8 text-center text-[13px] text-[#94A3B8]">{emptyMessage}</p>;
     }
     return (
         <div className="overflow-x-auto">
@@ -2362,13 +2553,23 @@ function LeaveTable({ rows, locked, onEdit, onRemove }) {
                         const deduction = row.deductionDays || row.deduction || 0;
                         const source = leaveSourceKey(row);
                         const canEdit = !locked && source !== 'system';
+                        const canOpenPortal = Boolean(onOpenPortal);
                         return (
                             <tr
                                 key={row.id || `${row.fromDate}-${source}-${index}`}
-                                className={`border-b border-[#F1F5F9] ${canEdit ? 'cursor-pointer hover:bg-slate-50' : ''
-                                    }`}
+                                className={`border-b border-[#F1F5F9] ${
+                                    canEdit || canOpenPortal ? 'cursor-pointer hover:bg-slate-50' : ''
+                                }`}
+                                title={
+                                    canEdit
+                                        ? 'Click to edit this leave record'
+                                        : canOpenPortal
+                                          ? 'Open this employee leave portal'
+                                          : undefined
+                                }
                                 onClick={() => {
                                     if (canEdit) onEdit(row);
+                                    else onOpenPortal?.(row);
                                 }}
                             >
                                 <td className="px-2 py-3">

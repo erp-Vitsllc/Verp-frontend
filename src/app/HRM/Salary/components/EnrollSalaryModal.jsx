@@ -18,7 +18,7 @@ function todayParts() {
 }
 
 function defaultSalaryDay(settings) {
-    return toPayrollMonthDay(settings?.salaryProcessingDate) || String(Math.min(28, todayParts().day));
+    return toPayrollMonthDay(settings?.salaryProcessingDate) || '1';
 }
 
 function defaultFromMonth(settings) {

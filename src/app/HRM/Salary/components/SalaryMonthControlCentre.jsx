@@ -103,23 +103,6 @@ function formatShortDayMonth(date) {
     return `${pad2(date.getDate())} ${short}`;
 }
 
-function ordinal(n) {
-    const num = Number(n);
-    if (!Number.isFinite(num)) return '';
-    const v = num % 100;
-    if (v >= 11 && v <= 13) return `${num}th`;
-    switch (num % 10) {
-        case 1:
-            return `${num}st`;
-        case 2:
-            return `${num}nd`;
-        case 3:
-            return `${num}rd`;
-        default:
-            return `${num}th`;
-    }
-}
-
 function formatRequestDetail(value) {
     const text = String(value || '').trim();
     if (!text) return '';
@@ -132,7 +115,7 @@ function formatRequestDetail(value) {
 }
 
 function cycleFromPolicy(policy, parsed) {
-    const processDay = Number(toPayrollMonthDay(policy?.salaryProcessingDate)) || 28;
+    const processDay = Number(toPayrollMonthDay(policy?.salaryProcessingDate)) || 1;
     const cutoffDay = Number(toCalendarMonthDay(policy?.salaryCutoffDate)) || Math.max(1, processDay - 3);
     const cutoffDate = parsed ? dateInMonth(parsed.year, parsed.monthIndex, cutoffDay) : null;
 
@@ -146,12 +129,14 @@ function cycleFromPolicy(policy, parsed) {
         startMonthLabel = parsed ? `January ${parsed.year}` : '—';
     }
 
-    const reminderDays = Number(policy?.salaryProcessReminders?.[0]?.daysBefore) || 5;
+    const reminderDays = Number(policy?.salaryProcessReminders?.[0]?.daysBefore) || 0;
     return {
         processDay,
         cutoffDate,
         startMonthLabel,
-        reminderLabel: `${ordinal(reminderDays)} of every month`,
+        reminderLabel: reminderDays
+            ? `${reminderDays} day${reminderDays === 1 ? '' : 's'} before processing`
+            : 'On processing date',
         reminderDay: reminderDays,
         leaveEligibility: policy?.workingDaysRequiredToEligible
             ? `${policy.workingDaysRequiredToEligible} working days`
@@ -1159,7 +1144,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             const locDay =
                 Number(toPayrollMonthDay(loc.salaryProcessingDate)) ||
                 Number(toPayrollMonthDay(policy?.salaryProcessingDate)) ||
-                28;
+                1;
             return {
                 ...loc,
                 code: locationCode(loc.label),

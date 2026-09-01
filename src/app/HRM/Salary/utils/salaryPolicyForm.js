@@ -25,7 +25,11 @@ export const HR_RULE_CHECKS = [
     { key: 'allowedSickLeavePerYear', label: 'Allowed sick leave per year' },
 ];
 
-export const REMINDER_DAY_OPTIONS = ['5', '10', '20', '30'];
+/** Days before the salary processing date (1st of the month by default). */
+export const REMINDER_DAY_OPTIONS = Array.from({ length: 30 }, (_, i) => String(i + 1));
+
+/** On-the-day email after 1st / 2nd / 3rd reminders. */
+export const PROCESSING_DAY_REMINDER_INDEX = 3;
 
 export function reminderDayCount(value) {
     const n = Number(value);
@@ -33,6 +37,7 @@ export function reminderDayCount(value) {
 }
 
 export function chainedReminderDayOptions(reminders, index) {
+    if (index === PROCESSING_DAY_REMINDER_INDEX) return [];
     if (index <= 0) return REMINDER_DAY_OPTIONS;
     const prev = reminderDayCount(reminders?.[index - 1]?.daysBefore);
     if (index === 1) {
@@ -52,6 +57,12 @@ export function clampChainedReminderDays(rows) {
     const allowedThird = new Set(chainedReminderDayOptions(next, 2));
     if (next[2] && !allowedThird.has(String(next[2].daysBefore || ''))) {
         next[2] = { ...next[2], daysBefore: '' };
+    }
+    if (next[PROCESSING_DAY_REMINDER_INDEX]) {
+        next[PROCESSING_DAY_REMINDER_INDEX] = {
+            ...next[PROCESSING_DAY_REMINDER_INDEX],
+            daysBefore: 0,
+        };
     }
     return next;
 }
@@ -85,7 +96,12 @@ export function normalizeReminderAudiences(value) {
         ),
     ];
 }
-export const REMINDER_LABELS = ['Salary process 1st reminder', '2nd reminder', '3rd reminder'];
+export const REMINDER_LABELS = [
+    'Salary process 1st reminder',
+    '2nd reminder',
+    '3rd reminder',
+    'Salary processing',
+];
 
 const RULE_KEYS = [
     'allAttendanceMarked',
@@ -106,7 +122,7 @@ export const EMPTY_POLICY_ATTACHMENT = {
 };
 
 export const EMPTY_POLICY_FORM = {
-    salaryProcessingDate: '',
+    salaryProcessingDate: '1',
     salaryProcessStartMonth: '',
     salaryCutoffDate: '',
     processingRules: { ...EMPTY_RULES },
@@ -123,6 +139,7 @@ export const EMPTY_POLICY_FORM = {
         { daysBefore: '', forWhom: [] },
         { daysBefore: '', forWhom: [] },
         { daysBefore: '', forWhom: [] },
+        { daysBefore: 0, forWhom: [] },
     ],
     attachment: { ...EMPTY_POLICY_ATTACHMENT },
 };
@@ -160,8 +177,8 @@ export function toExtraLateRuleRows(value) {
 
 export function toReminderRows(value) {
     const rows = Array.isArray(value) ? value : [];
-    return [0, 1, 2].map((index) => ({
-        daysBefore: rows[index]?.daysBefore ?? '',
+    return [0, 1, 2, PROCESSING_DAY_REMINDER_INDEX].map((index) => ({
+        daysBefore: index === PROCESSING_DAY_REMINDER_INDEX ? 0 : (rows[index]?.daysBefore ?? ''),
         forWhom: normalizeReminderAudiences(rows[index]?.forWhom),
     }));
 }
@@ -184,7 +201,7 @@ export function toPolicyAttachment(value) {
 
 export function policyFormFromApi(data) {
     return {
-        salaryProcessingDate: toPayrollMonthDay(data?.salaryProcessingDate),
+        salaryProcessingDate: toPayrollMonthDay(data?.salaryProcessingDate) || '1',
         salaryProcessStartMonth: data?.salaryProcessStartMonth || '',
         salaryCutoffDate: toCalendarMonthDay(data?.salaryCutoffDate),
         processingRules: { ...EMPTY_RULES, ...(data?.processingRules || {}) },

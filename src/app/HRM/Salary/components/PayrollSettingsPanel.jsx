@@ -33,7 +33,7 @@ const EMPTY_RULES = [...RULE_OPTIONS, ...MODULE_CHECK_OPTIONS].reduce((acc, row)
 }, {});
 
 const EMPTY_FORM = {
-    salaryProcessingDate: '',
+    salaryProcessingDate: '1',
     salaryProcessStartMonth: '',
     salaryCutoffDate: '',
     processingRules: { ...EMPTY_RULES },
@@ -72,7 +72,7 @@ export default function PayrollSettingsPanel({ open, onClose }) {
                 const res = await axiosInstance.get('/Employee/payroll-settings', { skipToast: true });
                 if (!cancelled) {
                     setForm({
-                        salaryProcessingDate: toPayrollMonthDay(res.data?.salaryProcessingDate),
+                        salaryProcessingDate: toPayrollMonthDay(res.data?.salaryProcessingDate) || '1',
                         salaryProcessStartMonth: res.data?.salaryProcessStartMonth || '',
                         salaryCutoffDate: toPayrollMonthDay(res.data?.salaryCutoffDate),
                         processingRules: { ...EMPTY_RULES, ...(res.data?.processingRules || {}) },

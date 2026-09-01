@@ -372,8 +372,9 @@ export default function BasicTab({
                         hasPendingFlatVisa
                     );
 
-                    // User flow: once a visa is added, allow next document steps (EID/Labour/etc).
-                    const isResident = !isVisaRequirementApplicable || hasAnyVisa;
+                    // UAE nationals: show all document buttons without waiting for employment visa.
+                    const isUaeNational = typeof isUAENationality === 'function' && isUAENationality();
+                    const isResident = isUaeNational || !isVisaRequirementApplicable || hasAnyVisa;
 
                     const documentButtons = [];
 
@@ -420,7 +421,7 @@ export default function BasicTab({
                     const effectiveEmiratesId = employee.emiratesIdDetails || getPendingSectionData('emiratesid');
                     if (
                         isResident &&
-                        employeeRequiresEmiratesId(employee, pendingVisa) &&
+                        (isUaeNational || employeeRequiresEmiratesId(employee, pendingVisa)) &&
                         !effectiveEmiratesId?.number &&
                         canCreate &&
                         crudAccess('hrm_employees_view_emirates_id').create

@@ -16,7 +16,8 @@ import {
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
-import { filterLeaveEntriesBySalary, isAllLeaveYear, processingStartForEmployee, useLeaveSalaryVisibility } from '../utils/leaveSalaryVisibility';
+import { filterLeaveEntriesBySalary, isAllLeaveYear, isSalaryProcessingMonthOpen, processingStartForEmployee, salaryUnlocksAfterMessage, useLeaveSalaryVisibility } from '../utils/leaveSalaryVisibility';
+import DashboardSalaryEnrollLock from '@/app/dashboard/components/DashboardSalaryEnrollLock';
 import {
     addDaysToDateKey,
     buildLeaveSpans,
@@ -1041,9 +1042,22 @@ export default function LeaveCalendarView({
         [displayApprovedSpans, draftSpans, weeks],
     );
 
+    const processingStartDate = processingStartForEmployee(
+        salaryVisibility,
+        employeeId,
+        employeeId,
+    );
+    const viewedMonth = format(monthDate, 'yyyy-MM');
+    const salaryLocked = Boolean(
+        employeeId &&
+            processingStartDate &&
+            !isSalaryProcessingMonthOpen(viewedMonth, processingStartDate),
+    );
+    const salaryLockMessage = salaryLocked ? salaryUnlocksAfterMessage(processingStartDate) : '';
+
     return (
         <div
-            className={`overflow-hidden rounded-lg border border-[#E5E7EB] bg-white shadow-sm ${
+            className={`relative overflow-hidden rounded-lg border border-[#E5E7EB] bg-white shadow-sm ${
                 fillViewport ? 'flex min-h-0 flex-1 flex-col' : ''
             }`}
         >
@@ -1195,6 +1209,7 @@ export default function LeaveCalendarView({
                             onClick={() => onConfirm?.()}
                             disabled={
                                 confirming ||
+                                salaryLocked ||
                                 (Boolean(employeeId) &&
                                     (!isValidDateKey(draftFrom) || !isValidDateKey(draftTo)))
                             }
@@ -1208,6 +1223,7 @@ export default function LeaveCalendarView({
                         </button>
                     </div>
                 </div>
+            <DashboardSalaryEnrollLock locked={salaryLocked} message={salaryLockMessage} />
             </div>
     );
 }

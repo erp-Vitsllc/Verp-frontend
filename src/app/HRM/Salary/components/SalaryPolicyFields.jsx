@@ -11,12 +11,14 @@ import {
     ATTENDANCE_COMPLETION_CHECKS,
     EMPTY_POLICY_ATTACHMENT,
     HR_RULE_CHECKS,
+    PROCESSING_DAY_REMINDER_INDEX,
     REMINDER_FOR_WHOM_OPTIONS,
     REMINDER_LABELS,
     chainedReminderDayOptions,
     clampChainedReminderDays,
     emptyLateRule,
     emptyExtraLateRule,
+    toReminderRows,
 } from '../utils/salaryPolicyForm';
 import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { validateErpUploadFile } from '@/utils/uploadFileTypes';
@@ -364,16 +366,15 @@ export default function SalaryPolicyFields({ form, setForm }) {
                 <NumberedFieldRow
                     number={9}
                     label="Processing date"
-                    hint="Salary processing day of each month (1–28)"
+                    hint="Day of each month salary is processed (default 1st). Reminder emails go out this many days before."
                 >
                     <select
-                        value={String(form.salaryProcessingDate || '')}
+                        value={String(form.salaryProcessingDate || '1')}
                         onChange={(e) =>
-                            setForm((p) => ({ ...p, salaryProcessingDate: e.target.value }))
+                            setForm((p) => ({ ...p, salaryProcessingDate: e.target.value || '1' }))
                         }
                         className={compactSelectClass}
                     >
-                        <option value="">Select</option>
                         {PAYROLL_MONTH_DAYS.map((day) => (
                             <option key={day} value={day}>
                                 {day}
@@ -498,13 +499,22 @@ export default function SalaryPolicyFields({ form, setForm }) {
 
             <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
                 <SectionHead roman="III" title="Account Policy" />
-                {form.salaryProcessReminders.map((row, index) => {
+                <p className="px-3 sm:px-4 pt-2.5 text-xs text-slate-500">
+                    Reminder emails go out days before the processing date (default 1st), then again on that date.
+                    Checked flowchart people get the mail at their company email. Pending task user is each enrolled
+                    employee for that month who has a company email.
+                </p>
+                {toReminderRows(form.salaryProcessReminders).map((row, index) => {
                     const selected = Array.isArray(row.forWhom) ? row.forWhom : [];
-                    const dayOptions = chainedReminderDayOptions(form.salaryProcessReminders, index);
-                    const reminderEnabled = index === 0 || dayOptions.length > 0;
+                    const isProcessingDay = index === PROCESSING_DAY_REMINDER_INDEX;
+                    const dayOptions = chainedReminderDayOptions(
+                        toReminderRows(form.salaryProcessReminders),
+                        index,
+                    );
+                    const reminderEnabled = isProcessingDay || index === 0 || dayOptions.length > 0;
                     return (
                         <div
-                            key={REMINDER_LABELS[index]}
+                            key={REMINDER_LABELS[index] || `reminder-${index}`}
                             className="flex flex-col gap-2 py-2.5 border-b border-gray-100 px-3 sm:px-4"
                         >
                             <div className="flex flex-col lg:flex-row lg:items-center gap-2">
@@ -514,30 +524,40 @@ export default function SalaryPolicyFields({ form, setForm }) {
                                     </span>
                                     <span className="text-sm text-slate-700">{REMINDER_LABELS[index]}</span>
                                 </div>
-                                <select
-                                    value={String(row.daysBefore || '')}
-                                    disabled={!reminderEnabled}
-                                    onChange={(e) =>
-                                        setForm((p) => ({
-                                            ...p,
-                                            salaryProcessReminders: clampChainedReminderDays(
-                                                p.salaryProcessReminders.map((item, i) =>
-                                                    i === index ? { ...item, daysBefore: e.target.value } : item,
+                                {isProcessingDay ? (
+                                    <span className="h-9 inline-flex items-center text-sm text-slate-600">
+                                        On processing date
+                                    </span>
+                                ) : (
+                                    <select
+                                        value={String(row.daysBefore || '')}
+                                        disabled={!reminderEnabled}
+                                        onChange={(e) =>
+                                            setForm((p) => ({
+                                                ...p,
+                                                salaryProcessReminders: clampChainedReminderDays(
+                                                    toReminderRows(p.salaryProcessReminders).map((item, i) =>
+                                                        i === index
+                                                            ? { ...item, daysBefore: e.target.value }
+                                                            : item,
+                                                    ),
                                                 ),
-                                            ),
-                                        }))
-                                    }
-                                    className={`${compactSelectClass} disabled:bg-slate-50 disabled:text-slate-400`}
-                                >
-                                    <option value="">
-                                        {reminderEnabled ? 'Days before' : 'Select previous reminder first'}
-                                    </option>
-                                    {dayOptions.map((day) => (
-                                        <option key={day} value={day}>
-                                            {day} days
+                                            }))
+                                        }
+                                        className={`${compactSelectClass} disabled:bg-slate-50 disabled:text-slate-400`}
+                                    >
+                                        <option value="">
+                                            {reminderEnabled
+                                                ? 'Days before'
+                                                : 'Select previous reminder first'}
                                         </option>
-                                    ))}
-                                </select>
+                                        {dayOptions.map((day) => (
+                                            <option key={day} value={day}>
+                                                {day} days
+                                            </option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pl-8 lg:pl-[272px]">
                                 <span className="text-xs text-slate-500 shrink-0">for whom</span>
@@ -555,7 +575,9 @@ export default function SalaryPolicyFields({ form, setForm }) {
                                             onChange={() =>
                                                 setForm((p) => ({
                                                     ...p,
-                                                    salaryProcessReminders: p.salaryProcessReminders.map((item, i) => {
+                                                    salaryProcessReminders: toReminderRows(
+                                                        p.salaryProcessReminders,
+                                                    ).map((item, i) => {
                                                         if (i !== index) return item;
                                                         const current = Array.isArray(item.forWhom)
                                                             ? item.forWhom

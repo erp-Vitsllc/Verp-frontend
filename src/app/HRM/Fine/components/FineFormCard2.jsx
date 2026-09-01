@@ -171,7 +171,7 @@ export default function FineFormCard2({
                 <DetailField
                     label="New Fine"
                     value={`${formatMoney(fields.newFine)} AED`}
-                    valueClassName="font-semibold text-red-600"
+                    emphasize
                 />
                 <DetailField label="Monthly Salary" value={`${formatMoney(fields.monthlySalary)} AED`} />
                 <DetailField label="Basic Salary" value={`${formatMoney(fields.basicSalary)} AED`} />

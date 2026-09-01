@@ -73,6 +73,39 @@ export function processingStartForEmployee(visibility, mongoId, employeeId) {
     return isDateKey(start) ? start : '';
 }
 
+export function formatSalaryProcessingLabel(value) {
+    const raw = String(value || '').trim();
+    if (ISO_DATE.test(raw)) {
+        const [year, month, day] = raw.split('-').map(Number);
+        return new Intl.DateTimeFormat('en-GB', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+            timeZone: 'UTC',
+        }).format(new Date(Date.UTC(year, month - 1, day)));
+    }
+    if (!YEAR_MONTH.test(raw)) return '';
+    const [year, month] = raw.split('-').map(Number);
+    return new Intl.DateTimeFormat('en-US', {
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'UTC',
+    }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
+export function salaryUnlocksAfterMessage(value) {
+    const label = formatSalaryProcessingLabel(value);
+    return label ? `This will unlock after ${label}` : '';
+}
+
+export function isSalaryProcessingMonthOpen(compareMonth, processingStart) {
+    const current = String(compareMonth || '').trim().slice(0, 7);
+    const start = String(processingStart || '').trim().slice(0, 7);
+    if (!YEAR_MONTH.test(start)) return true;
+    if (!YEAR_MONTH.test(current)) return false;
+    return current >= start;
+}
+
 export function leaveDashboardYearOptions(visibility, now = new Date()) {
     const current = now.getFullYear();
     const startRaw = Number(String(visibility?.earliestProcessingStartDate || '').slice(0, 4));

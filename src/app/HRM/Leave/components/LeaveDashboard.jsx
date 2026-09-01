@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useRouter } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import { Check, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react';
 import {
@@ -16,6 +17,7 @@ import {
 } from 'recharts';
 import axiosInstance from '@/utils/axios';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
+import { navigateFromList } from '@/utils/listReturnNavigation';
 import { notifyLeavePendingInboxChanged } from '../utils/leavePendingInboxCount';
 import {
     ALL_LEAVE_YEAR,
@@ -217,7 +219,7 @@ function LeaveApprovalTable({
                     event.preventDefault();
                     onRowDoubleClick?.(row);
                 }}
-                title="Double-click to open employee portal"
+                title="Double-click to open leave portal"
                 onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
@@ -399,11 +401,11 @@ export default function LeaveDashboard({
     refreshKey = 0,
     onDataChanged,
     onApprovalRowSelect,
-    onApprovalRowOpenPortal,
     onAcceptRequest,
     onEditRequest,
     calendarLeaveFocus = null,
 }) {
+    const router = useRouter();
     const selectedEmployee = useMemo(
         () => employees.find((emp) => String(emp._id) === String(employeeId)) || null,
         [employeeId, employees],
@@ -776,9 +778,18 @@ export default function LeaveDashboard({
                 window.clearTimeout(approvalRowClickTimerRef.current);
                 approvalRowClickTimerRef.current = null;
             }
-            onApprovalRowOpenPortal?.(row);
+            const fromRow = String(row?.employeeMongoId || '').trim();
+            const code = String(row?.employeeId || '').trim();
+            const listed = employees.find(
+                (emp) =>
+                    (fromRow && String(emp._id) === fromRow) ||
+                    (code && String(emp.employeeId || '').trim() === code),
+            );
+            const mongoId = fromRow || String(listed?._id || '').trim();
+            if (!mongoId) return;
+            navigateFromList(router, `/HRM/Leave/${encodeURIComponent(mongoId)}`);
         },
-        [onApprovalRowOpenPortal],
+        [employees, router],
     );
 
     useEffect(

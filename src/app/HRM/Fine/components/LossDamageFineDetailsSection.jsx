@@ -80,12 +80,23 @@ export function resolveLossDamageFineBreakdown(fine, assetDetails = null) {
     const discount = parseFloat(fine?.discount || 0) || 0;
     const totalFine = parseFloat(fine?.totalFineAmount || fine?.fineAmount || 0) || 0;
 
+    // Actual Fine = stored fine − discount (never add discount back).
+    const reverseEngineeredGross =
+        totalFine - serviceCharge + assetDepreciationAmount + discount;
     const actualFineAmount = Math.max(
         0,
-        items.length > 0 ? assetValue + accessoryAmount : totalFine - serviceCharge + assetDepreciationAmount + discount,
+        items.length > 0
+            ? assetValue + accessoryAmount
+            : totalFine - serviceCharge + assetDepreciationAmount - discount,
     );
 
-    const computedTotal = Math.max(0, actualFineAmount - assetDepreciationAmount + serviceCharge - discount);
+    const computedTotal = Math.max(
+        0,
+        (items.length > 0 ? actualFineAmount : reverseEngineeredGross) -
+            assetDepreciationAmount +
+            serviceCharge -
+            discount,
+    );
 
     let resolvedTotal = computedTotal;
     if (totalFine > 0) {

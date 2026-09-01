@@ -18,9 +18,10 @@ import SalaryRegisterFilterCard from './components/SalaryRegisterFilterCard';
 import SalaryHeaderActions from './components/SalaryHeaderActions';
 import PendingSalaryRequestsModal from './components/PendingSalaryRequestsModal';
 import {
-    pendingEnrollmentEmployees,
-    pendingEnrollmentMessage,
+    countVisibleSalaryPendingInbox,
+    SALARY_PENDING_INBOX_CHANGED,
 } from './utils/salaryPendingInboxCount';
+import { fetchSalaryPendingInbox } from '@/utils/pendingInboxFetch';
 import {
     salaryRegisterFiltersFromSearchParams,
     salaryRegisterHref,
@@ -83,13 +84,12 @@ function SalaryPageContent() {
     const [hiddenMonthCount, setHiddenMonthCount] = useState(0);
     const [viewerIsSalaryHr, setViewerIsSalaryHr] = useState(false);
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
+    const [pendingInboxCount, setPendingInboxCount] = useState(0);
     const [yearFilter, setYearFilter] = useState(initialFilters.year);
     const [companyFilter, setCompanyFilter] = useState(initialFilters.company);
     const [employeeId, setEmployeeId] = useState(initialFilters.employeeId);
     const loadedRef = useRef(false);
     const canDeleteMonth = isAdmin();
-    const pendingEnrollmentList = pendingEnrollmentEmployees(enrollmentOverview);
-    const pendingEnrollmentCount = pendingEnrollmentList.length;
     const hasFilters = Boolean(yearFilter || companyFilter || employeeId);
     const selectedEmployee = useMemo(
         () =>
@@ -141,6 +141,26 @@ function SalaryPageContent() {
         fetchRegister(controller.signal);
         return () => controller.abort();
     }, [fetchRegister]);
+
+    const fetchPendingInboxCount = useCallback(async ({ force = false } = {}) => {
+        try {
+            const items = await fetchSalaryPendingInbox(axiosInstance, { skipToast: true, force });
+            setPendingInboxCount(countVisibleSalaryPendingInbox(items));
+        } catch {
+            setPendingInboxCount(0);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchPendingInboxCount();
+        const refreshInbox = () => fetchPendingInboxCount({ force: true });
+        window.addEventListener(SALARY_PENDING_INBOX_CHANGED, refreshInbox);
+        document.addEventListener(SALARY_PENDING_INBOX_CHANGED, refreshInbox);
+        return () => {
+            window.removeEventListener(SALARY_PENDING_INBOX_CHANGED, refreshInbox);
+            document.removeEventListener(SALARY_PENDING_INBOX_CHANGED, refreshInbox);
+        };
+    }, [fetchPendingInboxCount]);
 
     useEffect(() => {
         syncBrowserUrl(
@@ -228,12 +248,12 @@ function SalaryPageContent() {
                                     type="button"
                                     onClick={() => setPendingInboxModalOpen(true)}
                                     className="relative p-1.5 sm:p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
-                                    title={pendingEnrollmentMessage(pendingEnrollmentCount)}
+                                    title="Salary notifications assigned to you"
                                 >
                                     <Bell size={20} />
-                                    {pendingEnrollmentCount > 0 ? (
+                                    {pendingInboxCount > 0 ? (
                                         <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-black leading-none flex items-center justify-center border-2 border-white shadow-sm tabular-nums">
-                                            {pendingEnrollmentCount > 99 ? '99+' : pendingEnrollmentCount}
+                                            {pendingInboxCount > 99 ? '99+' : pendingInboxCount}
                                         </span>
                                     ) : null}
                                 </button>
@@ -428,7 +448,8 @@ function SalaryPageContent() {
             <PendingSalaryRequestsModal
                 isOpen={pendingInboxModalOpen}
                 onClose={() => setPendingInboxModalOpen(false)}
-                pendingEnrollmentEmployees={pendingEnrollmentList}
+                onRefreshParent={() => fetchPendingInboxCount({ force: true })}
+                onPendingInboxCount={setPendingInboxCount}
             />
         </PermissionGuard>
     );

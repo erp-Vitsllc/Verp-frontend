@@ -271,9 +271,9 @@ export default function FineFormCard1({
                     />
                 ) : null}
                 <DetailField
-                    label="Employee Amount"
+                    label="Employee Payable"
                     value={`${formatMoney(f.employeePayableAmount)} AED`}
-                    valueClassName="font-semibold text-red-600"
+                    emphasize
                 />
                 <DetailField
                     label="Company Amount"
@@ -304,7 +304,7 @@ export default function FineFormCard1({
                         <DetailField
                             label="Your Fine Payment"
                             value={`${formatMoney(f.yourFinePayment)} AED`}
-                            valueClassName="font-semibold text-red-600"
+                            emphasize
                         />
                         <DetailField label="Others Payment" value={`${formatMoney(f.othersPayment)} AED`} />
                         <DetailField
