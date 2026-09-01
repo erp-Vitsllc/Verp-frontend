@@ -19,6 +19,7 @@ import SalaryHeaderActions from './components/SalaryHeaderActions';
 import PendingSalaryRequestsModal from './components/PendingSalaryRequestsModal';
 import {
     countVisibleSalaryPendingInbox,
+    mergeSalaryInboxWithPendingEnrollments,
     SALARY_PENDING_INBOX_CHANGED,
 } from './utils/salaryPendingInboxCount';
 import { fetchSalaryPendingInbox } from '@/utils/pendingInboxFetch';
@@ -145,11 +146,13 @@ function SalaryPageContent() {
     const fetchPendingInboxCount = useCallback(async ({ force = false } = {}) => {
         try {
             const items = await fetchSalaryPendingInbox(axiosInstance, { skipToast: true, force });
-            setPendingInboxCount(countVisibleSalaryPendingInbox(items));
+            const merged = mergeSalaryInboxWithPendingEnrollments(items, enrollmentOverview);
+            setPendingInboxCount(countVisibleSalaryPendingInbox(merged));
         } catch {
-            setPendingInboxCount(0);
+            const merged = mergeSalaryInboxWithPendingEnrollments([], enrollmentOverview);
+            setPendingInboxCount(countVisibleSalaryPendingInbox(merged));
         }
-    }, []);
+    }, [enrollmentOverview]);
 
     useEffect(() => {
         fetchPendingInboxCount();
@@ -450,6 +453,7 @@ function SalaryPageContent() {
                 onClose={() => setPendingInboxModalOpen(false)}
                 onRefreshParent={() => fetchPendingInboxCount({ force: true })}
                 onPendingInboxCount={setPendingInboxCount}
+                enrollmentOverview={enrollmentOverview}
             />
         </PermissionGuard>
     );

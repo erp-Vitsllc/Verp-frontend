@@ -17,26 +17,49 @@ export function pendingEnrollmentMessage(count) {
 }
 
 export function pendingEnrollmentInboxItems(employees) {
+    const nowIso = new Date().toISOString();
     return pendingEnrollmentEmployees({ employees }).map((emp) => {
         const employeeId = String(emp.employeeId || '').trim();
         const name = String(emp.name || employeeId).trim() || employeeId;
+        const href = `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`;
         return {
             dashboardActionId: `enroll-pending-${employeeId}`,
             requestType: 'Salary Enrollment',
-            requestedDate: null,
+            requestedDate: nowIso,
             requestedByName: '',
             subjectName: name,
             subjectEmployeeId: employeeId,
             extra1: `${name} is pending for enrollment`,
             extra2: 'Pending for enrollment',
             extra3: JSON.stringify({
-                href: `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`,
+                href,
                 employeeId,
+                pendingEnrollment: true,
             }),
-            href: `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`,
+            href,
             status: 'Pending',
         };
     });
+}
+
+function employeeInboxKey(value) {
+    return String(value || '')
+        .trim()
+        .replace(/\s+/g, '')
+        .toUpperCase();
+}
+
+/** Combine HR approvals/DMF with employees whose enroll status is still Pending. */
+export function mergeSalaryInboxWithPendingEnrollments(inboxItems, overview) {
+    const inbox = Array.isArray(inboxItems) ? inboxItems : [];
+    const existing = new Set(
+        inbox.map((row) => employeeInboxKey(row?.subjectEmployeeId)).filter(Boolean),
+    );
+    const extra = pendingEnrollmentInboxItems(overview?.employees).filter((row) => {
+        const key = employeeInboxKey(row.subjectEmployeeId);
+        return key && !existing.has(key);
+    });
+    return [...inbox, ...extra];
 }
 
 /** Same count as the Salary page bell (pending salary-profile approvals for the viewer). */

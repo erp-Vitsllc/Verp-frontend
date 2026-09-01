@@ -119,7 +119,7 @@ function pendingInboxToItem(row, moduleCategory) {
                 row?.message ||
                 (moduleCategory === 'Salary'
                     ? String(row?.requestType || '').trim() === 'Salary DMF Approval'
-                        ? 'DMF approval'
+                        ? 'Payroll approval'
                         : 'Salary profile approval'
                     : moduleCategory === 'Leave'
                     ? 'Leave request'

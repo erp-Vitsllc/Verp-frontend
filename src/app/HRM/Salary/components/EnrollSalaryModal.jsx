@@ -6,6 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { PAYROLL_MONTH_DAYS, toPayrollMonthDay } from '../utils/payrollMonthDay';
 import { EMPTY_POLICY_FORM, policyFormFromApi } from '../utils/salaryPolicyForm';
+import { notifySalaryPendingInboxChanged } from '../utils/salaryPendingInboxCount';
 import SalaryPolicyFields from './SalaryPolicyFields';
 
 function pad2(n) {
@@ -228,6 +229,7 @@ export default function EnrollSalaryModal({ open, onClose, onEnrolled, targetEmp
                 }),
             );
             setStep('policy');
+            notifySalaryPendingInboxChanged();
             onEnrolled?.();
         } catch (err) {
             toast({

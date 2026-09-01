@@ -18,6 +18,7 @@ import { FALLBACK_WORK_LOCATIONS, normalizeWorkLocationKey, workLocationLabel } 
 import { toCalendarMonthDay, toPayrollMonthDay } from '../utils/payrollMonthDay';
 import { policyFormFromApi } from '../utils/salaryPolicyForm';
 import SalaryDmfApprovalPanel from './SalaryDmfApprovalPanel';
+import { payrollApprovalStatusLabel } from '../utils/payrollApprovalStatus';
 import './SalaryMonthControlCentre.css';
 
 const ALL_TAB_KEY = 'all';
@@ -1374,14 +1375,11 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             rows,
             pendingApprovals,
             categories: REQUEST_CATEGORIES.length,
-            statusLabel:
-                pendingApprovals === 0 && totalEmployees > 0
-                    ? 'Ready for payroll'
-                    : 'Validation in progress',
+            statusLabel: payrollApprovalStatusLabel(monthDmf),
             doneCount,
             requests,
         };
-    }, [view.employees, view.enrolledCount, view.pendingRequests]);
+    }, [view.employees, view.enrolledCount, view.pendingRequests, monthDmf]);
 
     const readinessPeople = useMemo(() => {
         const byEmp = view.pendingByEmployee || {};
@@ -1665,7 +1663,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             const stillPending = afterIds.size;
             const enrolled = Number(data.enrollmentOverview?.enrolled) || 0;
             const isClear = enrolled > 0 && pending.length === 0;
-            const dmfStatus = String(monthDmf?.status || 'idle');
+            const payrollLabel = payrollApprovalStatusLabel(monthDmf);
 
             if (isClear) {
                 if (dmfStatus === 'idle' || dmfStatus === 'rejected' || !dmfStatus) {
@@ -1673,20 +1671,19 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                     toast({
                         title: 'Payroll is 100% ready',
                         description:
-                            'Send for Accounts → HR → Management approval. Salary slots open after Management approves.',
+                            'Send for approval. Status will be Pending Accounts, then Pending HR, then Pending Management. Slots open after Approved.',
                     });
                     return;
                 }
                 if (dmfStatus === 'pending') {
                     toast({
-                        title: 'Payroll is 100% ready',
-                        description:
-                            'Waiting on Accounts → HR → Management. Salary slots open after Management approves.',
+                        title: payrollLabel,
+                        description: 'Email and notification are with the current approver. Slots open after Approved.',
                     });
                     return;
                 }
                 toast({
-                    title: 'Payroll approved',
+                    title: 'Approved',
                     description: 'Salary slots are open.',
                 });
                 return;
@@ -1915,8 +1912,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                 <div className="spcc-status__item">
                     <span className="spcc-status__label">Current status</span>
                     <div className="spcc-status__value">
-                        <span className={`spcc-dot${readinessChecks.pendingApprovals ? '' : ' spcc-dot--ok'}`} />
-                        {readinessChecks.statusLabel}
+                        <span className={`spcc-dot${dmfApproved ? ' spcc-dot--ok' : ''}`} />
+                        {payrollApprovalStatusLabel(monthDmf)}
                     </div>
                 </div>
                 <div className="spcc-status__item spcc-status__item--grow">

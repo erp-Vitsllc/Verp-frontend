@@ -358,8 +358,17 @@ export function buildUnderstandableNotificationTitle(item = {}) {
             return 'Utility Activate / Deactivate Request';
         case 'Salary Enrollment':
             return String(item.extra1 || '').trim() || 'Salary profile approval';
-        case 'Salary DMF Approval':
-            return String(item.extra1 || '').trim() || 'Salary DMF approval';
+        case 'Salary DMF Approval': {
+            const raw = String(item.extra1 || '').trim();
+            const cleaned = raw
+                .replace(/\s*payroll DMF is waiting on\s*/i, ' payroll waiting for ')
+                .replace(/\s*DMF is waiting on\s*/i, ' payroll waiting for ')
+                .replace(/\bDMF\b/gi, '')
+                .replace(/\s{2,}/g, ' ')
+                .replace(/\s+\./g, '.')
+                .trim();
+            return cleaned || 'Payroll waiting for approval';
+        }
         case 'Vehicle Service Request': {
             const e1 = sanitizeNotificationText(item.extra1 || '');
             const title = e1 || 'Vehicle Service Request';

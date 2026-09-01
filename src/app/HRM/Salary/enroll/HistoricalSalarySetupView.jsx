@@ -1349,7 +1349,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         );
         if (ok) {
             setShowCreate(false);
-            if (!isSalaryHr) notifySalaryPendingInboxChanged();
+            notifySalaryPendingInboxChanged();
         }
     }
 

@@ -13,7 +13,7 @@ import {
     fetchSalaryPendingInbox,
     getCachedPendingInbox,
 } from '@/utils/pendingInboxFetch';
-import { countVisibleSalaryPendingInbox } from '../utils/salaryPendingInboxCount';
+import { countVisibleSalaryPendingInbox, mergeSalaryInboxWithPendingEnrollments } from '../utils/salaryPendingInboxCount';
 
 function salaryHref(row) {
     const raw = row?.raw || row;
@@ -34,6 +34,7 @@ export default function PendingSalaryRequestsModal({
     onClose,
     onRefreshParent,
     onPendingInboxCount,
+    enrollmentOverview = null,
 }) {
     const { toast } = useToast();
     const router = useRouter();
@@ -51,14 +52,20 @@ export default function PendingSalaryRequestsModal({
     const load = useCallback(async ({ force = false } = {}) => {
         const cached = !force ? getCachedPendingInbox(SALARY_PENDING_INBOX_ENDPOINT) : null;
         if (cached && itemsRef.current.length === 0) {
-            setItems(cached);
-            const count = countVisibleSalaryPendingInbox(cached);
+            const merged = mergeSalaryInboxWithPendingEnrollments(cached, enrollmentOverview);
+            setItems(merged);
+            const count = countVisibleSalaryPendingInbox(merged);
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(count);
             }
         }
 
         if (cached && !force) {
+            const merged = mergeSalaryInboxWithPendingEnrollments(cached, enrollmentOverview);
+            setItems(merged);
+            if (typeof onPendingInboxCount === 'function') {
+                onPendingInboxCount(countVisibleSalaryPendingInbox(merged));
+            }
             return;
         }
 
@@ -69,8 +76,9 @@ export default function PendingSalaryRequestsModal({
         else setRefreshing(true);
         try {
             const list = await fetchSalaryPendingInbox(axiosInstance, { force });
-            setItems(list);
-            const count = countVisibleSalaryPendingInbox(list);
+            const merged = mergeSalaryInboxWithPendingEnrollments(list, enrollmentOverview);
+            setItems(merged);
+            const count = countVisibleSalaryPendingInbox(merged);
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(count);
             }
@@ -81,13 +89,16 @@ export default function PendingSalaryRequestsModal({
                 title: 'Error',
                 description: e?.response?.data?.message || 'Could not load salary notifications.',
             });
-            if (itemsRef.current.length === 0) setItems([]);
-            if (typeof onPendingInboxCount === 'function') onPendingInboxCount(0);
+            const fallback = mergeSalaryInboxWithPendingEnrollments([], enrollmentOverview);
+            if (itemsRef.current.length === 0) setItems(fallback);
+            if (typeof onPendingInboxCount === 'function') {
+                onPendingInboxCount(countVisibleSalaryPendingInbox(fallback));
+            }
         } finally {
             setLoading(false);
             setRefreshing(false);
         }
-    }, [toast, onPendingInboxCount]);
+    }, [toast, onPendingInboxCount, enrollmentOverview]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -114,7 +125,7 @@ export default function PendingSalaryRequestsModal({
             isOpen={isOpen}
             onClose={onClose}
             title="Salary notifications"
-            subtitle="Salary profile approvals and DMF tasks assigned to you."
+            subtitle="Pending enrollments, salary profile approvals, and payroll waiting for you."
             items={notificationRows}
             loading={loading && items.length === 0}
             refreshing={refreshing}

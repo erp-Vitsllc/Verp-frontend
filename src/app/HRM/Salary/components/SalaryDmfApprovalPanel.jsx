@@ -5,6 +5,7 @@ import { Check, Loader2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { notifySalaryPendingInboxChanged } from '../utils/salaryPendingInboxCount';
+import { payrollApprovalStatusLabel } from '../utils/payrollApprovalStatus';
 
 const MONTH_STEP_ORDER = ['accounts', 'hr', 'management'];
 const FULL_STEP_ORDER = ['user1', 'accounts', 'hr', 'management'];
@@ -107,7 +108,7 @@ export default function SalaryDmfApprovalPanel({
             const payload = res.data;
             onUpdated?.(payload);
             notifySalaryPendingInboxChanged();
-            return true;
+            return payload;
         } catch (err) {
             toast({
                 title: err?.response?.data?.message || 'Request failed',
@@ -120,16 +121,19 @@ export default function SalaryDmfApprovalPanel({
     }
 
     async function handleStart() {
-        const ok = await call('start');
-        if (ok) {
+        const payload = await call('start');
+        if (payload) {
             setConfirmStart(false);
-            toast({ title: 'Sent for Accounts → HR → Management approval' });
+            const next = payload?.dmf || payload;
+            toast({ title: payrollApprovalStatusLabel(next) || 'Pending Accounts' });
         }
     }
 
     async function handleApprove() {
-        const ok = await call('approve');
-        if (ok) toast({ title: current?.label ? `${current.label} approved` : 'Approved' });
+        const payload = await call('approve');
+        if (!payload) return;
+        const next = payload?.dmf || payload;
+        toast({ title: payrollApprovalStatusLabel(next) || 'Approved' });
     }
 
     async function handleReject() {
@@ -186,7 +190,7 @@ export default function SalaryDmfApprovalPanel({
         </>
     ) : (
         <span className="inline-flex h-10 items-center rounded-xl border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-800">
-            Waiting on {current?.label || 'approver'}
+            {payrollApprovalStatusLabel(dmf)}
         </span>
     );
 
@@ -199,7 +203,11 @@ export default function SalaryDmfApprovalPanel({
             actBtns
         ) : showStart && !hideStart ? (
             startBtn
-        ) : null;
+        ) : (
+            <span className="inline-flex h-10 items-center rounded-xl border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-800">
+                Pending
+            </span>
+        );
 
     const modals = (
         <>
