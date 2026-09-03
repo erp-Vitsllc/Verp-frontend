@@ -45,6 +45,11 @@ function archiveStatusBadgeClass(status) {
     return 'bg-violet-50 text-violet-800 border-violet-200';
 }
 
+function isEnrollmentResetItem(item) {
+    const type = String(item?.entityType || item?.restoreDescriptor?.type || '').trim();
+    return type === 'salary_enrollment_reset';
+}
+
 function DeletedRecordsPageContent() {
     const searchParams = useSearchParams();
     const deepLinkId = searchParams.get('item');
@@ -53,6 +58,7 @@ function DeletedRecordsPageContent() {
     const [accessChecked, setAccessChecked] = useState(false);
     const [allowed, setAllowed] = useState(false);
     const [canRestore, setCanRestore] = useState(false);
+    const [canPurge, setCanPurge] = useState(false);
     const [loading, setLoading] = useState(true);
     const [modules, setModules] = useState([]);
     const [activeModule, setActiveModule] = useState('');
@@ -73,12 +79,14 @@ function DeletedRecordsPageContent() {
                 if (!cancelled) {
                     setAllowed(!!res.data?.allowed);
                     setCanRestore(!!res.data?.canRestore);
+                    setCanPurge(!!res.data?.canPurge);
                     setAccessChecked(true);
                 }
             } catch {
                 if (!cancelled) {
                     setAllowed(false);
                     setCanRestore(false);
+                    setCanPurge(false);
                     setAccessChecked(true);
                 }
             }
@@ -249,6 +257,12 @@ function DeletedRecordsPageContent() {
         }
     };
 
+    const canRestoreThisItem = (item) => {
+        if (!canRestore || !item) return false;
+        if (canPurge) return true;
+        return isEnrollmentResetItem(item);
+    };
+
     if (!accessChecked) {
         return (
             <div className="flex min-h-screen bg-slate-50">
@@ -289,9 +303,11 @@ function DeletedRecordsPageContent() {
                                 <h1 className="text-2xl font-semibold text-slate-900">Deleted Records</h1>
                                 <p className="text-sm text-slate-500">
                                     Review admin deletions by module.
-                                    {canRestore
+                                    {canPurge
                                         ? ' Restore or permanently remove each item.'
-                                        : ' View-only — restore and permanent delete require Admin or Flowchart Management.'}
+                                        : canRestore
+                                          ? ' Flowchart HR can restore enrolment details. Other restore and permanent delete require Admin or Flowchart Management.'
+                                          : ' View-only — restore and permanent delete require Admin or Flowchart Management.'}
                                     {' '}
                                     Items are kept for <strong>{retentionDays} days</strong>, then removed automatically.
                                 </p>
@@ -391,11 +407,11 @@ function DeletedRecordsPageContent() {
                                                             ) : null}
                                                             <span
                                                                 className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${retentionBadgeClass(item.daysRemaining)}`}
-                                                                title={`Maximum ${retentionDays} days in recovery`}
+                                                                title={`Maximum ${item.retentionDays || retentionDays} days in recovery`}
                                                             >
                                                                 {item.daysRemaining != null
                                                                     ? `${item.daysRemaining} day${item.daysRemaining === 1 ? '' : 's'} left`
-                                                                    : `Max ${retentionDays} days`}
+                                                                    : `Max ${item.retentionDays || retentionDays} days`}
                                                             </span>
                                                         </div>
                                                     </div>
@@ -427,11 +443,13 @@ function DeletedRecordsPageContent() {
                                                         </button>
                                                         <button
                                                             type="button"
-                                                            disabled={actionLoading || !canRestore}
+                                                            disabled={actionLoading || !canRestoreThisItem(item)}
                                                             title={
-                                                                canRestore
+                                                                canRestoreThisItem(item)
                                                                     ? 'Restore this record'
-                                                                    : 'Only Super User (Admin) or Flowchart Management can restore'
+                                                                    : canRestore
+                                                                      ? 'Only Super User or Flowchart Management can restore this record type'
+                                                                      : 'Only Super User (Admin) or Flowchart Management can restore'
                                                             }
                                                             onClick={() => handleRestore(item._id)}
                                                             className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -441,9 +459,9 @@ function DeletedRecordsPageContent() {
                                                         </button>
                                                         <button
                                                             type="button"
-                                                            disabled={actionLoading || !canRestore}
+                                                            disabled={actionLoading || !canPurge}
                                                             title={
-                                                                canRestore
+                                                                canPurge
                                                                     ? 'Permanently delete this record'
                                                                     : 'Only Super User (Admin) or Flowchart Management can permanently delete'
                                                             }
@@ -559,6 +577,10 @@ function DeletedRecordsPageContent() {
                                     {formatDate(selectedItem.deletedAt)}
                                 </p>
                                 <p>
+                                    <span className="text-slate-500">Recovery window:</span>{' '}
+                                    {selectedItem.retentionDays || retentionDays} days
+                                </p>
+                                <p>
                                     <span className="text-slate-500">Auto-remove:</span>{' '}
                                     {formatExpiryDate(selectedItem.expiresAt)}
                                     {selectedItem.daysRemaining != null ? (
@@ -588,11 +610,13 @@ function DeletedRecordsPageContent() {
                                 <div className="flex gap-2 pt-4 border-t border-slate-100">
                                     <button
                                         type="button"
-                                        disabled={actionLoading || !canRestore}
+                                        disabled={actionLoading || !canRestoreThisItem(selectedItem)}
                                         title={
-                                            canRestore
+                                            canRestoreThisItem(selectedItem)
                                                 ? 'Restore this record'
-                                                : 'Only Super User (Admin) or Flowchart Management can restore'
+                                                : canRestore
+                                                  ? 'Only Super User or Flowchart Management can restore this record type'
+                                                  : 'Only Super User (Admin) or Flowchart Management can restore'
                                         }
                                         onClick={() => handleRestore(selectedItem._id)}
                                         className="flex-1 inline-flex justify-center items-center gap-1 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -602,9 +626,9 @@ function DeletedRecordsPageContent() {
                                     </button>
                                     <button
                                         type="button"
-                                        disabled={actionLoading || !canRestore}
+                                        disabled={actionLoading || !canPurge}
                                         title={
-                                            canRestore
+                                            canPurge
                                                 ? 'Permanently delete this record'
                                                 : 'Only Super User (Admin) or Flowchart Management can permanently delete'
                                         }

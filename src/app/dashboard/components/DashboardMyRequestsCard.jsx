@@ -79,7 +79,14 @@ export default function DashboardMyRequestsCard() {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/my-requests', { skipToast: true });
             const rows = Array.isArray(res.data?.requests) ? res.data.requests : [];
-            setRequests(rows.filter((item) => isPendingStatus(item.status)));
+            setRequests(
+                rows
+                    .filter((item) => isPendingStatus(item.status))
+                    .sort(
+                        (a, b) =>
+                            new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
+                    ),
+            );
         } catch {
             setRequests([]);
         } finally {

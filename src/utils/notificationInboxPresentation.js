@@ -157,25 +157,30 @@ export function groupNotificationsByDate(rows = []) {
     yesterday.setDate(yesterday.getDate() - 1);
 
     (rows || []).forEach((row) => {
+        const raw = row?.raw ?? row;
         const d =
             asDate(row?.requestedDate) ||
-            asDate(row?.raw?.requestedDate) ||
-            asDate(row?.raw?.createdAt) ||
+            asDate(raw?.requestedDate) ||
+            asDate(raw?.createdAt) ||
+            asDate(raw?.leaveRequestedAt) ||
             new Date();
         const day = new Date(d);
         day.setHours(0, 0, 0, 0);
+        const dayKey = day.getTime();
         let label = day.toLocaleDateString('en-GB', {
             day: 'numeric',
             month: 'short',
             year: 'numeric',
         });
-        if (day.getTime() === today.getTime()) label = 'Today';
-        else if (day.getTime() === yesterday.getTime()) label = 'Yesterday';
-        if (!groups.has(label)) groups.set(label, []);
-        groups.get(label).push(row);
+        if (dayKey === today.getTime()) label = 'Today';
+        else if (dayKey === yesterday.getTime()) label = 'Yesterday';
+        if (!groups.has(dayKey)) groups.set(dayKey, { label, items: [] });
+        groups.get(dayKey).items.push(row);
     });
 
-    return [...groups.entries()].map(([label, items]) => ({ label, items }));
+    return [...groups.entries()]
+        .sort((a, b) => b[0] - a[0])
+        .map(([, group]) => group);
 }
 
 export function resolveNotificationIconVariant(typeOrItem) {
@@ -320,6 +325,29 @@ function appendVehicleServiceStageToTitle(title, item = {}) {
     return `${head} — ${stage}`;
 }
 
+/** Align stored salary-enrolment extra1 with payroll-style waiting copy. */
+function rewriteSalaryEnrollmentInboxCopy(text) {
+    const raw = sanitizeNotificationText(text);
+    if (!raw) return '';
+    if (/enrolment waiting for /i.test(raw)) {
+        return raw
+            .replace(/enrolment waiting for .+?(?: approval)?\.?$/i, 'enrolment waiting for HR approval.')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+    }
+    return raw
+        .replace(
+            /\s*salary profile(?: update)? is waiting for HR approval\.?/i,
+            ' enrolment waiting for HR approval.',
+        )
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
+
+function salaryEnrollmentInboxTitle(item = {}) {
+    return rewriteSalaryEnrollmentInboxCopy(item.extra1) || 'Enrolment waiting for HR approval.';
+}
+
 /**
  * Clear task title for utility (and other) inbox rows so the action is obvious.
  */
@@ -357,7 +385,7 @@ export function buildUnderstandableNotificationTitle(item = {}) {
         case 'Utility Entry Status Change':
             return 'Utility Activate / Deactivate Request';
         case 'Salary Enrollment':
-            return String(item.extra1 || '').trim() || 'Salary profile approval';
+            return salaryEnrollmentInboxTitle(item);
         case 'Salary DMF Approval': {
             const raw = String(item.extra1 || '').trim();
             const cleaned = raw
@@ -456,6 +484,13 @@ function buildUtilityCategoryLine(item = {}) {
     const type = String(item.type || item.requestType || '').trim();
     const e1 = sanitizeNotificationText(item.extra1 || '');
     const e2 = sanitizeNotificationText(item.extra2 || '');
+    if (type === 'Salary Enrollment') {
+        return (
+            rewriteSalaryEnrollmentInboxCopy(e1) ||
+            rewriteSalaryEnrollmentInboxCopy(e2) ||
+            'Enrolment waiting for HR approval.'
+        );
+    }
     if (type === 'Vehicle Service Request') {
         return e2 || e1 || 'Pending task';
     }

@@ -25,7 +25,10 @@ import AttendanceYellowRequestModal from './AttendanceYellowRequestModal';
 import AttendanceFutureRequestModal from './AttendanceFutureRequestModal';
 import AttendanceLeaveDecideModal from './AttendanceLeaveDecideModal';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
-import DashboardSalaryEnrollLock, { salaryLockFromAttendancePayload } from './DashboardSalaryEnrollLock';
+import DashboardSalaryEnrollLock, {
+    EMPTY_SALARY_LOCK,
+    salaryLockFromAttendancePayload,
+} from './DashboardSalaryEnrollLock';
 import { dashboardHover, dashboardItem, DASH_EASE } from './dashboardMotion';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -407,8 +410,7 @@ export default function DashboardAttendanceCalendar({
     const [isSelf, setIsSelf] = useState(true);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [salaryLocked, setSalaryLocked] = useState(false);
-    const [salaryLockMessage, setSalaryLockMessage] = useState('');
+    const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
     const [teamOpen, setTeamOpen] = useState(false);
     const [holidayRows, setHolidayRows] = useState([]);
 
@@ -484,19 +486,16 @@ export default function DashboardAttendanceCalendar({
                 setSelfEmployeeId(String(res.data.employee.id));
             }
             const lock = salaryLockFromAttendancePayload(res.data);
-            setSalaryLocked(lock.locked);
-            setSalaryLockMessage(lock.message);
+            setSalaryLock(lock.enrolledWaiting ? EMPTY_SALARY_LOCK : lock);
         } catch (err) {
             setRecordsByDate({});
             setTodayRecord(null);
             if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
                 const lock = salaryLockFromAttendancePayload(err.response.data);
-                setSalaryLocked(true);
-                setSalaryLockMessage(lock.message);
+                setSalaryLock(lock.enrolledWaiting ? EMPTY_SALARY_LOCK : lock);
                 setError('');
             } else {
-                setSalaryLocked(false);
-                setSalaryLockMessage('');
+                setSalaryLock(EMPTY_SALARY_LOCK);
                 setError(err?.response?.data?.message || 'Could not load attendance.');
             }
         } finally {
@@ -824,7 +823,7 @@ export default function DashboardAttendanceCalendar({
                     <div className="mt-3 flex-1 flex items-center justify-center">
                         <p className="text-sm text-slate-400">Loading…</p>
                     </div>
-                ) : salaryLocked ? (
+                ) : salaryLock.locked ? (
                     <div className="mt-3 flex-1" />
                 ) : (
                     <div className="mt-3 flex-1 flex flex-col min-h-0">
@@ -873,6 +872,7 @@ export default function DashboardAttendanceCalendar({
                                     isSelf &&
                                     !isFuture &&
                                     record &&
+                                    !record.historical &&
                                     RED_CLICK_KEYS.has(record.statusKey) &&
                                     !isMispunchReason(record.reason) &&
                                     isRedTone(tone.cell);
@@ -880,6 +880,7 @@ export default function DashboardAttendanceCalendar({
                                     isSelf &&
                                     !isFuture &&
                                     record &&
+                                    !record.historical &&
                                     isYellowTone(tone.cell);
                                 const alreadyApprovedFuture =
                                     record?.statusKey === 'authorized_leave' ||
@@ -993,7 +994,7 @@ export default function DashboardAttendanceCalendar({
                         </div>
                     </div>
                 )}
-                <DashboardSalaryEnrollLock locked={salaryLocked} message={salaryLockMessage} />
+                <DashboardSalaryEnrollLock {...salaryLock} />
             </motion.div>
 
             <CalendarDayTooltip hovered={hoveredDay} reduceMotion={reduceMotion} />

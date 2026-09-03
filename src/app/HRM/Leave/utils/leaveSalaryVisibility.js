@@ -73,8 +73,15 @@ export function processingStartForEmployee(visibility, mongoId, employeeId) {
     return isDateKey(start) ? start : '';
 }
 
-export function formatSalaryProcessingLabel(value) {
+export function firstOfSalaryProcessingMonth(value) {
     const raw = String(value || '').trim();
+    if (ISO_DATE.test(raw) || YEAR_MONTH.test(raw)) return `${raw.slice(0, 7)}-01`;
+    return '';
+}
+
+export function formatSalaryProcessingLabel(value) {
+    const start = firstOfSalaryProcessingMonth(value);
+    const raw = start || String(value || '').trim();
     if (ISO_DATE.test(raw)) {
         const [year, month, day] = raw.split('-').map(Number);
         return new Intl.DateTimeFormat('en-GB', {
@@ -95,7 +102,7 @@ export function formatSalaryProcessingLabel(value) {
 
 export function salaryUnlocksAfterMessage(value) {
     const label = formatSalaryProcessingLabel(value);
-    return label ? `This will unlock after ${label}` : '';
+    return label ? `Your attendance will start on ${label}` : '';
 }
 
 export function isSalaryProcessingMonthOpen(compareMonth, processingStart) {
@@ -126,7 +133,15 @@ export function indexEnrollOptionsVisibility(employees) {
     return indexLeaveSalaryVisibility(items);
 }
 
+export function isHistoricalLeaveEntry(entry) {
+    if (!entry) return false;
+    if (entry.historical === true || entry.countOnly === true) return true;
+    if (String(entry.leaveRequestKind || '').trim() === 'historical') return true;
+    return String(entry.source || '').trim().toLowerCase() === 'salary enrollment';
+}
+
 export function isLeaveEntrySalaryVisible(entry, visibility) {
+    if (isHistoricalLeaveEntry(entry)) return true;
     if (!visibility?.ready) return true;
     const mongoId = String(entry?.employeeMongoId || '').trim();
     const code = String(entry?.employeeId || '').trim();
@@ -140,6 +155,7 @@ export function isLeaveEntrySalaryVisible(entry, visibility) {
 }
 
 export function isLeaveRangeSalaryVisible(entry, visibility) {
+    if (isHistoricalLeaveEntry(entry)) return true;
     if (!visibility?.ready) return true;
     const mongoId = String(entry?.employeeMongoId || '').trim();
     const code = String(entry?.employeeId || '').trim();

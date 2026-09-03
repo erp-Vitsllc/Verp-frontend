@@ -51,6 +51,7 @@ import {
 } from '@/utils/flowchartHrExpiryVisibility';
 import { isAdmin } from '@/utils/permissions';
 import { COMPANY_ACTIVATION_INCOMPLETE_TYPE } from '@/utils/companyActivationIncompleteNotifications';
+import { sortNotificationsStackOrder } from '@/utils/notificationSortOrder';
 
 export const MODULE_ORDER = [
     'Company',
@@ -120,7 +121,7 @@ function pendingInboxToItem(row, moduleCategory) {
                 (moduleCategory === 'Salary'
                     ? String(row?.requestType || '').trim() === 'Salary DMF Approval'
                         ? 'Payroll approval'
-                        : 'Salary profile approval'
+                        : 'Enrolment approval'
                     : moduleCategory === 'Leave'
                     ? 'Leave request'
                     : moduleCategory === 'Attendance'
@@ -230,18 +231,64 @@ export function buildCompanyListBellFromStats(statsData, companiesList = []) {
  * - force: bypass cache
  */
 const FEEDS_CACHE_TTL_MS = 180 * 1000;
+const SIDEBAR_COUNTS_STORAGE_KEY = 'verp:sidebar-badge-counts';
 let cachedFeeds = null;
 let cachedFeedsAt = 0;
 let feedsInFlight = null;
+let feedsGen = 0;
 
 /** Fired whenever shared module feeds/counts refresh — Sidebar + Dashboard stay in sync. */
 export const MODULE_NOTIFICATIONS_UPDATED = 'verp:module-notifications-updated';
 
 let cachedBundle = null;
 
+function currentNotificationUserKey() {
+    if (typeof window === 'undefined') return '';
+    try {
+        const raw = localStorage.getItem('employeeUser') || localStorage.getItem('user');
+        const user = raw ? JSON.parse(raw) : null;
+        return String(user?.employeeObjectId || user?._id || user?.employeeId || '');
+    } catch {
+        return '';
+    }
+}
+
+function persistModuleNotificationCounts(counts) {
+    if (typeof window === 'undefined' || !counts) return;
+    try {
+        sessionStorage.setItem(
+            SIDEBAR_COUNTS_STORAGE_KEY,
+            JSON.stringify({
+                userKey: currentNotificationUserKey(),
+                counts,
+                at: Date.now(),
+            }),
+        );
+    } catch {
+        /* quota / private mode */
+    }
+}
+
+export function readPersistedModuleNotificationCounts() {
+    if (typeof window === 'undefined') return null;
+    try {
+        const parsed = JSON.parse(sessionStorage.getItem(SIDEBAR_COUNTS_STORAGE_KEY) || 'null');
+        if (!parsed?.counts) return null;
+        if (parsed.userKey && parsed.userKey !== currentNotificationUserKey()) return null;
+        return parsed.counts;
+    } catch {
+        return null;
+    }
+}
+
 export function getCachedModuleNotificationFeeds() {
     if (cachedFeeds && Date.now() - cachedFeedsAt < FEEDS_CACHE_TTL_MS) return cachedFeeds;
     return null;
+}
+
+/** Last built bundle, even after TTL — for instant sidebar paint. */
+export function peekCachedModuleNotificationBundle() {
+    return cachedBundle;
 }
 
 export function getCachedModuleNotificationBundle() {
@@ -250,7 +297,16 @@ export function getCachedModuleNotificationBundle() {
     return cachedBundle;
 }
 
+/** Expire TTL so the next load refetches, but keep last counts on screen. */
+export function invalidateModuleNotificationFeedsCache() {
+    feedsGen += 1;
+    cachedFeeds = null;
+    cachedFeedsAt = 0;
+    feedsInFlight = null;
+}
+
 export function clearModuleNotificationFeedsCache() {
+    feedsGen += 1;
     cachedFeeds = null;
     cachedFeedsAt = 0;
     feedsInFlight = null;
@@ -259,6 +315,7 @@ export function clearModuleNotificationFeedsCache() {
 
 function publishModuleNotificationBundle(feeds, bundle) {
     cachedBundle = bundle || null;
+    if (bundle?.counts) persistModuleNotificationCounts(bundle.counts);
     if (typeof window === 'undefined' || !bundle?.counts) return;
     window.dispatchEvent(
         new CustomEvent(MODULE_NOTIFICATIONS_UPDATED, {
@@ -308,6 +365,7 @@ export async function loadModuleNotificationFeeds(
     if (feedsInFlight && !force && !targetUserId) return feedsInFlight;
 
     const run = (async () => {
+        const gen = feedsGen;
         const sessionViewerId =
             typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
         const asEmployeeObjectId = targetUserId ? String(targetUserId) : null;
@@ -402,14 +460,14 @@ export async function loadModuleNotificationFeeds(
             ...hrFlags,
         };
 
-        // Only cache / publish for the logged-in user's own bells (sidebar).
-        if (!targetUserId) {
+        // Only cache for the logged-in user's own bells (sidebar) if this run is still current.
+        if (!targetUserId && gen === feedsGen) {
             cachedFeeds = feeds;
             cachedFeedsAt = Date.now();
         }
         return feeds;
     })().finally(() => {
-        if (!targetUserId) feedsInFlight = null;
+        if (!targetUserId && feedsInFlight === run) feedsInFlight = null;
     });
 
     if (!targetUserId) feedsInFlight = run;
@@ -525,18 +583,18 @@ export function buildModuleNotificationBundle(feeds = {}) {
     const vehicleAsset = dedupe([...vehicleFromInbox, ...vehicleExpiryFromStats, ...vehicleSharedFromStats]);
 
     const byModule = {
-        Company: company,
-        Employees: employees,
-        Attendance: attendance,
-        Leave: leave,
-        Salary: salary,
-        Fine: fine,
-        'Loan and Advance': loan,
-        Reward: reward,
-        'Vehicle Asset': vehicleAsset,
-        'Tools Asset': toolsAsset,
-        'Utility Bills': utilityBill,
-        Payments: payments,
+        Company: sortNotificationsStackOrder(company),
+        Employees: sortNotificationsStackOrder(employees),
+        Attendance: sortNotificationsStackOrder(attendance),
+        Leave: sortNotificationsStackOrder(leave),
+        Salary: sortNotificationsStackOrder(salary),
+        Fine: sortNotificationsStackOrder(fine),
+        'Loan and Advance': sortNotificationsStackOrder(loan),
+        Reward: sortNotificationsStackOrder(reward),
+        'Vehicle Asset': sortNotificationsStackOrder(vehicleAsset),
+        'Tools Asset': sortNotificationsStackOrder(toolsAsset),
+        'Utility Bills': sortNotificationsStackOrder(utilityBill),
+        Payments: sortNotificationsStackOrder(payments),
     };
 
     const counts = {
@@ -569,29 +627,34 @@ export function buildModuleNotificationBundle(feeds = {}) {
         (counts.vehicleAsset || 0) +
         (counts.utilityBill || 0);
 
-    const all = dedupe([
-        ...company,
-        ...employees,
-        ...attendance,
-        ...leave,
-        ...salary,
-        ...fine,
-        ...loan,
-        ...reward,
-        ...vehicleAsset,
-        ...toolsAsset,
-        ...utilityBill,
-        ...payments,
-    ]);
+    const all = sortNotificationsStackOrder(
+        dedupe([
+            ...company,
+            ...employees,
+            ...attendance,
+            ...leave,
+            ...salary,
+            ...fine,
+            ...loan,
+            ...reward,
+            ...vehicleAsset,
+            ...toolsAsset,
+            ...utilityBill,
+            ...payments,
+        ]),
+    );
 
     return { byModule, counts, all, pendingItems };
 }
 
 /** Convenience: load feeds + build bundle (sidebar + dashboard). */
 export async function loadModuleNotificationBundle(axiosInstance, options = {}) {
+    const gen = feedsGen;
     const feeds = await loadModuleNotificationFeeds(axiosInstance, options);
     const bundle = buildModuleNotificationBundle(feeds);
-    publishModuleNotificationBundle(feeds, bundle);
+    if (gen === feedsGen) {
+        publishModuleNotificationBundle(feeds, bundle);
+    }
     return {
         feeds,
         bundle,
@@ -679,10 +742,12 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         return !isModuleOwnedPending(item);
     });
 
-    return dedupe([...moduleAll, ...kept]).filter(
-        (item) =>
-            !isEmployeeNotificationHiddenType(item?.type) &&
-            !isCardDeletedNotificationHiddenType(item?.type),
+    return sortNotificationsStackOrder(
+        dedupe([...moduleAll, ...kept]).filter(
+            (item) =>
+                !isEmployeeNotificationHiddenType(item?.type) &&
+                !isCardDeletedNotificationHiddenType(item?.type),
+        ),
     );
 }
 

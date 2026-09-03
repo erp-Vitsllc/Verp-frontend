@@ -14,6 +14,7 @@ import axiosInstance from '@/utils/axios';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { normalizeWorkLocationKey } from '@/utils/workLocations';
 import DashboardSalaryEnrollLock, {
+    EMPTY_SALARY_LOCK,
     salaryLockFromAttendancePayload,
 } from '@/app/dashboard/components/DashboardSalaryEnrollLock';
 
@@ -151,8 +152,8 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
     const [holidayRows, setHolidayRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [salaryLocked, setSalaryLocked] = useState(false);
-    const [salaryLockMessage, setSalaryLockMessage] = useState('');
+    const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
+    const salaryLocked = salaryLock.locked;
 
     useEffect(() => {
         if (selectedYear === currentYear) {
@@ -199,18 +200,15 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
                 ),
             );
             const lock = salaryLockFromAttendancePayload(response.data);
-            setSalaryLocked(lock.locked);
-            setSalaryLockMessage(lock.message);
+            setSalaryLock(lock.enrolledWaiting ? EMPTY_SALARY_LOCK : lock);
         } catch (err) {
             setRecordsByDate({});
             if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
                 const lock = salaryLockFromAttendancePayload(err.response.data);
-                setSalaryLocked(true);
-                setSalaryLockMessage(lock.message);
+                setSalaryLock(lock.enrolledWaiting ? EMPTY_SALARY_LOCK : lock);
                 setError('');
             } else {
-                setSalaryLocked(false);
-                setSalaryLockMessage('');
+                setSalaryLock(EMPTY_SALARY_LOCK);
                 setError(err?.response?.data?.message || 'Could not load attendance.');
             }
         } finally {
@@ -454,7 +452,7 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
             </div>
             </div>
 
-            <DashboardSalaryEnrollLock locked={salaryLocked} message={salaryLockMessage} />
+            <DashboardSalaryEnrollLock {...salaryLock} />
         </div>
     );
 }

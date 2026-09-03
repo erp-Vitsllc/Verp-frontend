@@ -18,6 +18,7 @@ import {
     isVehicleAssetInboxRow,
 } from '@/utils/assetInboxScope';
 import { isDashboardPendingItem } from '@/utils/activationNotificationFilters';
+import { sortNotificationsStackOrder } from '@/utils/notificationSortOrder';
 
 export const FINE_MODULE_TYPES = new Set(['Fine', 'Group Fine Request', 'Employee Fine Request']);
 export const PAYMENT_MODULE_TYPES = new Set(['Payment Approval']);
@@ -217,7 +218,7 @@ export function groupCommandCenterByModule(items = []) {
     return SIDEBAR_MODULE_CATEGORY_ORDER.filter((key) => groups.has(key) && groups.get(key).length > 0).map(
         (key) => ({
             category: key,
-            items: groups.get(key),
+            items: sortNotificationsStackOrder(groups.get(key)),
         }),
     );
 }

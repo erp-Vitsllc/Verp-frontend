@@ -20,7 +20,7 @@ import { isAdmin } from '@/utils/permissions';
 
 /**
  * List-page bulk actions: pick holder (employee or company), then select one or more Assigned assets.
- * mode: 'return' — bulk return (assignee pending path or AC immediate per asset)
+ * mode: 'return' — bulk return (assignee → AC; AC → assigned employee or reportee)
  * mode: 'transfer' — Leave / End of Services (same API as TransferAssetModal)
  *
  * When profileHolderObjectId is set (employee profile context), the holder is fixed — no employee/company picker.
@@ -224,12 +224,14 @@ export default function BulkHolderActionModal({
                             : 'Return request sent to Asset Controller.',
                 });
             } else {
-                for (const id of ids) {
-                    await axiosInstance.put(`/AssetItem/${id}/return`, {});
-                }
+                const acReturnRes = ids.length > 1
+                    ? await axiosInstance.put(`/AssetItem/${primary}/return`, { bulkAssetIds: ids })
+                    : await axiosInstance.put(`/AssetItem/${primary}/return`, {});
                 toast({
                     title: 'Success',
-                    description: `Return processed for ${ids.length} asset(s).`,
+                    description:
+                        acReturnRes?.data?.message ||
+                        'Return request sent to the assigned employee (or their reportee) for approval.',
                 });
             }
 

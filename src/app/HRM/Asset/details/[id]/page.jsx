@@ -57,7 +57,7 @@ import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/Docume
 import EmployeeNameLink from '@/components/EmployeeNameLink';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAccessoryHiddenFromLiveAssetView, isAssetStatusBlockingUnattach, isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
-import { isLeaveActive, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, getAssetDetailsPrimaryStatusLabel } from '@/utils/assetStatusHelpers';
+import { isLeaveActive, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, getAssetDetailsPrimaryStatusLabel, getAssetWaitingForDisplayName, userIsPendingAssetActionApprover } from '@/utils/assetStatusHelpers';
 // AccessoriesModal import removed - no longer needed
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
 import AssignAssetModal from '../../components/AssignAssetModal';
@@ -266,77 +266,14 @@ const canUserApprovePendingAccessory = (acc, asset, currentUserEmployeeId, { use
 /** Only flowchart Asset Controller gets the full L&D fine form — not admin, assignee, or permission-group holders. */
 const canDirectLossAndDamage = (flowchartAssetController) => !!flowchartAssetController;
 
-const empDisplayName = (ref) => {
-    if (!ref || typeof ref !== 'object') return '';
-    const n = `${ref.firstName || ''} ${ref.lastName || ''}`.trim();
-    if (n) return n;
-    if (ref.employeeId) return String(ref.employeeId);
-    return '';
-};
-
 const assetRefId = (ref) => {
     if (!ref) return '';
     if (typeof ref === 'object') return String(ref._id || ref.id || '');
     return String(ref);
 };
 
-/** Populated actionRequiredBy, else flowchart assetController from API (getAssetItemDetail). */
-const getAssetApproverDisplayName = (asset) => {
-    if (!asset) return '';
-
-    // Backend-computed waiting actor (user account → assignee; else primary reportee).
-    if (
-        isAssetAssignmentAcknowledgmentPending(asset) &&
-        asset.assignmentAck?.waitingForName
-    ) {
-        return asset.assignmentAck.waitingForName;
-    }
-
-    const arName = empDisplayName(asset.actionRequiredBy);
-    const reporteeName = empDisplayName(asset.assignedTo?.primaryReportee);
-    const assigneeName = empDisplayName(asset.assignedTo);
-    const arId = assetRefId(asset.actionRequiredBy);
-    const assigneeId = assetRefId(asset.assignedTo);
-    const reporteeId = assetRefId(asset.assignedTo?.primaryReportee);
-    const arIsAssignee = Boolean(arId && assigneeId) && arId === assigneeId;
-    const arIsReportee = Boolean(arId && reporteeId) && arId === reporteeId;
-
-    if (isAssetAssignmentAcknowledgmentPending(asset)) {
-        // Company acceptors
-        if (asset.assignedToType === 'Company' || asset.assignedCompany) {
-            if (arName) return arName;
-            return 'Company coordinator';
-        }
-        // Has user account → Waiting {assignee}. No account → Waiting {primary reportee}.
-        if (arIsReportee && reporteeName) return reporteeName;
-        if (asset.assignmentAck?.assigneeCanSelfAcknowledge === false && reporteeName) {
-            return reporteeName;
-        }
-        if (arName) return arName;
-        if (arIsAssignee && assigneeName) return assigneeName;
-        if (reporteeName && arId && !arIsAssignee) return reporteeName;
-        if (reporteeName && !arId) return reporteeName;
-        if (assigneeName) return assigneeName;
-        return 'Acknowledgment';
-    }
-
-    // If there is an active pending action (like EOL or Loss & Damage), the approver is actionRequiredBy.
-    if (asset.pendingAction) {
-        if (arName) return arName;
-        const ac = empDisplayName(asset.assetController);
-        if (ac) return ac;
-        return '';
-    }
-
-    // Prefer the current role holder so the banner stays correct after a flowchart swap.
-    const ca = empDisplayName(asset.creationApprover);
-    if (ca) return ca;
-    if (arName && !arIsAssignee) return arName;
-    const ac = empDisplayName(asset.assetController);
-    if (ac) return ac;
-    if (arName) return arName;
-    return '';
-};
+/** Same waiting person as the asset list (assignee, or primary reportee if they have no login). */
+const getAssetApproverDisplayName = (asset) => getAssetWaitingForDisplayName(asset);
 
 // Helper for initials
 const getInitials = (name) => {
@@ -2979,11 +2916,12 @@ function AssetDetailsPageContent() {
                                     );
                                 }
 
-                                // Asset Action Approval Banner (Loss & Damage, End of Life, Leave) - ONLY for assets, not accessories
-                                const isAssetActionPending = asset.pendingAction &&
-                                    resolveAssetActionRequiredById(asset) === currentUserEmployeeId?.toString() &&
-                                    // Completely exclude if ANY accessory has pending action
-                                    !asset.accessories?.some(acc => acc.pendingAction);
+                                // Asset Action Approval Banner (Loss & Damage, End of Life, Leave)
+                                // Assigned owner must see this when AC raised Leave/EOS/Return (they are actionRequiredBy).
+                                const isAssetActionPending = userIsPendingAssetActionApprover(asset, {
+                                    employeeObjectId: currentUserEmployeeId,
+                                    employeeId: currentUser?.employeeId,
+                                });
 
                                 // Check if this is a bulk transfer
                                 const isBulkTransfer = asset.pendingActionDetails?.isBulk === true;
@@ -3234,7 +3172,6 @@ function AssetDetailsPageContent() {
                         isOnLeaveFlagActive={isOnLeaveFlagActive}
                         accessoriesVisibleOnAssetPage={accessoriesVisibleOnAssetPage}
                         temporaryAssignmentEndsInfo={temporaryAssignmentEndsInfo}
-                        getAssetApproverDisplayName={getAssetApproverDisplayName}
                         userHistoryCount={userHistoryCount}
                         serviceHistoryCount={serviceHistoryCount}
                         primaryActionButtons={toolsHeaderPrimaryButtons}

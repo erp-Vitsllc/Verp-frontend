@@ -350,15 +350,12 @@ export default function LoanRequestDetails() {
     }, [employee, loan]);
 
     if (loading) {
-        console.log("Frontend: Render - Loading state");
         return <div className="p-8">Loading...</div>;
     }
     if (error) {
-        console.log("Frontend: Render - Error state:", error);
         return <div className="p-8 text-red-500">{error}</div>;
     }
     if (!loan) {
-        console.log("Frontend: Render - Loan not found state");
         return <div className="p-8">Loan not found</div>;
     }
 

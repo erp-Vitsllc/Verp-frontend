@@ -36,6 +36,7 @@ import {
     isServiceOperationalStatus,
     filterOnLeaveFlagActiveAssets,
     filterOnServiceFlagActiveAssets,
+    userIsPendingAssetActionApprover,
 } from '@/utils/assetStatusHelpers';
 import { saveListReturnState } from '@/utils/listReturnNavigation';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
@@ -1271,9 +1272,10 @@ export default function SalaryTab({
     const isProfileOwner = loggedInEmployeeId === employee?._id;
 
     const selectedPendingYourAssets = useMemo(() => {
-        return selectedYourAssetRows.filter(
-            (a) => String(a?.status || '').trim() === 'Pending',
-        );
+        return selectedYourAssetRows.filter((a) => {
+            if (a?.pendingAction) return false;
+            return String(a?.status || '').trim() === 'Pending';
+        });
     }, [selectedYourAssetRows]);
 
     const showYourAssetsAssignedReturnActions = selectedAssignedYourAssetIds.length > 0;
@@ -4643,6 +4645,20 @@ export default function SalaryTab({
                                                                 </button>
                                                             )}
                                                             {!asset.handoverForm && !asset.file && !asset.invoiceFile && !asset && '—'}
+                                                            {userIsPendingAssetActionApprover(asset, {
+                                                                employeeObjectId: loggedInEmployeeId,
+                                                                employeeId: currentUser?.employeeId,
+                                                            }) ? (
+                                                                <button
+                                                                    type="button"
+                                                                    {...navHrefProps(resolveAssetProfileHref(asset, 'authAction=true'))}
+                                                                    onClick={() => openAssetDetailFromProfile(asset, 'authAction=true')}
+                                                                    className="px-3 py-1 bg-amber-500 text-white rounded-lg text-[10px] font-black hover:bg-amber-600 transition-all shadow-sm flex items-center gap-1"
+                                                                >
+                                                                    <CheckCircle2 size={12} />
+                                                                    APPROVE
+                                                                </button>
+                                                            ) : null}
                                                         </div>
                                                     </td>
                                                 </tr>

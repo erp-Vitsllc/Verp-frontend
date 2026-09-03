@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
     Calendar,
     Check,
     ExternalLink,
+    Eye,
+    EyeOff,
     FileText,
     Info,
     Loader2,
@@ -13,6 +15,7 @@ import {
     Pencil,
     Plus,
     RotateCcw,
+    Undo2,
     Trash2,
     Wallet,
     X,
@@ -28,10 +31,16 @@ import { hasPermission } from '@/utils/permissions';
 import {
     addDays,
     calculateHistoricalEligibility,
+    consolidateCountOnlyLeaveRecords,
     formatLeaveMultiplier,
     inclusiveCalendarDays,
+    isCountOnlyLeaveType,
+    isDatedLeaveType,
+    isOptionalDateLeaveType,
     leaveMultiplier,
+    leaveTicketEligibility,
     policyLeaveMultipliers,
+    policyLeaveWorkingDays,
     validateLeaveDates,
     workflowIsLocked,
 } from '../utils/salaryHistoricalCalculations';
@@ -39,6 +48,7 @@ import { notifySalaryPendingInboxChanged } from '../utils/salaryPendingInboxCoun
 import SalaryPolicyRequiredModal from '../components/SalaryPolicyRequiredModal';
 import { navigateFromList } from '@/utils/listReturnNavigation';
 import SalarySlipPreviewPanel from './SalarySlipPreviewPanel';
+import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const LEAVE_TYPES = [
@@ -136,6 +146,201 @@ function leaveMeta(type) {
 
 function leaveTypeKey(row) {
     return String(row?.leaveType || '').toLowerCase();
+}
+
+function annualLeaveKey(row) {
+    return [
+        String(row?.fromDate || row?.startDate || '').trim(),
+        String(row?.toDate || row?.endDate || '').trim(),
+    ].join('|');
+}
+
+function ordinalAnnualLeaveLabel(index) {
+    if (index <= 0) return 'Annual leave';
+    const n = index + 1;
+    const mod100 = n % 100;
+    const suffix =
+        mod100 >= 11 && mod100 <= 13
+            ? 'th'
+            : n % 10 === 1
+              ? 'st'
+              : n % 10 === 2
+                ? 'nd'
+                : n % 10 === 3
+                  ? 'rd'
+                  : 'th';
+    return `${n}${suffix} annual leave`;
+}
+
+function annualLeaveOptionLabel(index, row) {
+    const from = row?.fromDate || row?.startDate || '';
+    const to = row?.toDate || row?.endDate || '';
+    const range = from || to ? `${prettyDate(from)} — ${prettyDate(to)}` : 'no dates';
+    return `${ordinalAnnualLeaveLabel(index)} (${range})`;
+}
+
+function listAnnualLeaveOptions(rows) {
+    const seen = new Set();
+    const out = [];
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+        if (leaveTypeKey(row) !== 'annual') return;
+        const from = row.fromDate || row.startDate || '';
+        const to = row.toDate || row.endDate || '';
+        if (!from && !to) return;
+        const key = annualLeaveKey({ fromDate: from, toDate: to });
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push({ ...row, fromDate: from, toDate: to, key });
+    });
+    out.sort((a, b) => String(a.fromDate).localeCompare(String(b.fromDate)));
+    return out.map((row, index) => ({
+        ...row,
+        label: annualLeaveOptionLabel(index, row),
+    }));
+}
+
+function recordIncludesLeave(row) {
+    if (row && typeof row.includeLeave === 'boolean') return row.includeLeave;
+    return Number(row?.leaveSalaryAmount ?? row?.leaveSalary) > 0;
+}
+
+function recordIncludesTicket(row) {
+    if (row && typeof row.includeTicket === 'boolean') return row.includeTicket;
+    return Number(row?.ticketAmount) > 0;
+}
+
+function cycleAnnualLeaveKey(cycle) {
+    const key = String(cycle?.annualLeaveKey || '').trim();
+    if (key) return key;
+    return annualLeaveKey({
+        fromDate: cycle?.eligibilityStartDate,
+        toDate: cycle?.eligibilityEndDate,
+    });
+}
+
+function annualLeaveAlreadyReduced(cycles, leaveKey, excludeIndex = -1) {
+    const key = String(leaveKey || '').trim();
+    if (!key) return false;
+    return (Array.isArray(cycles) ? cycles : []).some((cycle, index) => {
+        if (index === excludeIndex) return false;
+        if (cycleAnnualLeaveKey(cycle) !== key) return false;
+        const status = String(cycle?.paymentStatus || cycle?.status || '').toLowerCase();
+        if (status === 'cancelled' || status === 'rejected' || status === 'draft') return false;
+        return recordReducesWorkingDays(cycle, false);
+    });
+}
+
+function recordReducesWorkingDays(row, fallback = true) {
+    if (row && typeof row.reduceHistoricalWorkingDays === 'boolean') {
+        return row.reduceHistoricalWorkingDays;
+    }
+    return fallback;
+}
+
+function leaveDateLabel(cycle, annualLeaves = []) {
+    const option =
+        (annualLeaves || []).find((row) => row.key === cycle?.annualLeaveKey) ||
+        (annualLeaves || []).find(
+            (row) =>
+                row.fromDate === cycle?.eligibilityStartDate && row.toDate === cycle?.eligibilityEndDate,
+        );
+    if (option?.fromDate || option?.toDate) {
+        return `${prettyDate(option.fromDate)} — ${prettyDate(option.toDate)}`;
+    }
+    const from = cycle?.eligibilityStartDate || '';
+    const to = cycle?.eligibilityEndDate || '';
+    if (from || to) return `${prettyDate(from)} — ${prettyDate(to)}`;
+    return '—';
+}
+
+function paymentKindRows(cycles, kind, annualLeaves = []) {
+    const list = Array.isArray(cycles) ? cycles : [];
+    return list
+        .map((cycle, cycleIndex) => ({ cycle, cycleIndex }))
+        .filter(({ cycle }) => (kind === 'ticket' ? recordIncludesTicket(cycle) : recordIncludesLeave(cycle)))
+        .map(({ cycle, cycleIndex }, index) => ({
+            slNo: index + 1,
+            cycleIndex,
+            cycle,
+            paymentDate:
+                kind === 'ticket'
+                    ? cycle.ticketPaymentDate || cycle.leaveSalaryPaymentDate
+                    : cycle.leaveSalaryPaymentDate || cycle.ticketPaymentDate,
+            leaveDate: leaveDateLabel(cycle, annualLeaves),
+            amount: kind === 'ticket' ? cycle.ticketAmount : cycle.leaveSalaryAmount,
+            currency: cycle.currency,
+        }));
+}
+
+function PaymentKindCard({ title, rows, emptyMessage, locked, onEdit, onRemove, eligibleLabel, eligibleValue }) {
+    return (
+        <div className="min-w-0 rounded-[10px] border border-[#E6EAF0] bg-white">
+            <div className="flex items-start justify-between gap-3 border-b border-[#EEF2F6] px-3 py-2.5">
+                <h4 className="text-[13px] font-semibold text-[#0F172A]">{title}</h4>
+                {eligibleValue ? (
+                    <div className="min-w-0 text-right">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
+                            {eligibleLabel}
+                        </p>
+                        <p className="mt-0.5 text-[13px] font-semibold tabular-nums text-[#0F172A]">{eligibleValue}</p>
+                    </div>
+                ) : null}
+            </div>
+            {rows.length ? (
+                <div className="overflow-x-auto">
+                    <table className="w-full min-w-[420px] text-left">
+                        <thead>
+                            <tr className="border-b border-[#EEF2F6] text-[10px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
+                                <th className="px-3 py-2 font-semibold">SL No</th>
+                                <th className="px-3 py-2 font-semibold">Payment date</th>
+                                <th className="px-3 py-2 font-semibold">Leave date</th>
+                                <th className="px-3 py-2 font-semibold">Amount</th>
+                                <th className="px-2 py-2 font-semibold" />
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows.map((row) => (
+                                <tr
+                                    key={`${title}-${row.cycleIndex}-${row.slNo}`}
+                                    className={`border-b border-[#F1F5F9] last:border-0 ${
+                                        locked ? '' : 'cursor-pointer hover:bg-slate-50'
+                                    }`}
+                                    onClick={() => {
+                                        if (!locked) onEdit?.(row.cycleIndex, row.cycle);
+                                    }}
+                                >
+                                    <td className="px-3 py-2.5 text-[13px] tabular-nums text-[#334155]">{row.slNo}</td>
+                                    <td className="px-3 py-2.5 text-[13px] text-[#334155]">
+                                        {prettyDate(row.paymentDate)}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-[13px] text-[#334155]">{row.leaveDate}</td>
+                                    <td className="px-3 py-2.5 text-[13px] font-semibold tabular-nums text-[#0F172A]">
+                                        {aed(row.amount, row.currency)}
+                                    </td>
+                                    <td className="px-2 py-2.5 text-right">
+                                        <button
+                                            type="button"
+                                            disabled={locked}
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                onRemove?.(row.cycleIndex);
+                                            }}
+                                            className="rounded-md p-1 text-[#94A3B8] hover:text-red-600 disabled:opacity-30"
+                                            aria-label={`Delete ${title} payment`}
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            ) : (
+                <p className="px-3 py-8 text-center text-[13px] text-[#94A3B8]">{emptyMessage}</p>
+            )}
+        </div>
+    );
 }
 
 function LeaveTypeFilter({ value, onChange, rows }) {
@@ -308,6 +513,51 @@ function isSystemLeave(row) {
     return leaveSourceKey(row) === 'system';
 }
 
+function toHiddenSystemLeave(value) {
+    const seen = new Set();
+    const out = [];
+    for (const row of Array.isArray(value) ? value : []) {
+        const leaveType = String(row?.leaveType || '').trim().toLowerCase();
+        if (!leaveType) continue;
+        const fromDate = String(row?.fromDate || row?.startDate || '').trim();
+        if (fromDate === '*') {
+            const key = `${leaveType}|*|*`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ leaveType, fromDate: '*', toDate: '*' });
+            continue;
+        }
+        const toDate = String(row?.toDate || row?.endDate || fromDate).trim() || fromDate;
+        if (!fromDate) continue;
+        const key = `${leaveType}|${fromDate}|${toDate}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ leaveType, fromDate, toDate });
+    }
+    return out;
+}
+
+function isHiddenSystemLeaveRow(row, hidden) {
+    const type = String(row?.leaveType || '').trim().toLowerCase();
+    const from = String(row?.fromDate || row?.startDate || '').trim();
+    const to = String(row?.toDate || row?.endDate || from).trim() || from;
+    if (!type) return false;
+    return (hidden || []).some((item) => {
+        if (String(item?.leaveType || '').toLowerCase() !== type) return false;
+        if (String(item?.fromDate || '') === '*') return true;
+        const hideFrom = String(item?.fromDate || '').trim();
+        const hideTo = String(item?.toDate || hideFrom).trim() || hideFrom;
+        if (!from || !hideFrom) return false;
+        return from <= hideTo && to >= hideFrom;
+    });
+}
+
+function filterHiddenSystemLeave(rows, hidden) {
+    const list = toHiddenSystemLeave(hidden);
+    if (!list.length) return Array.isArray(rows) ? rows : [];
+    return (Array.isArray(rows) ? rows : []).filter((row) => !isHiddenSystemLeaveRow(row, list));
+}
+
 function mergeServerLeave(local, incoming) {
     const imported = Array.isArray(incoming) ? incoming : [];
     const importedKeys = new Set(
@@ -387,6 +637,65 @@ function mergeAdjacentSystemLeave(rows, leaveMultipliers) {
     return out;
 }
 
+function systemLeaveHistoryRows(rows, leaveMultipliers) {
+    const dated = [];
+    const counted = [];
+    for (const row of Array.isArray(rows) ? rows : []) {
+        if (isCountOnlyLeaveType(leaveTypeKey(row))) counted.push(row);
+        else dated.push(row);
+    }
+    return [
+        ...mergeAdjacentSystemLeave(dated, leaveMultipliers),
+        ...consolidateCountOnlyLeaveRecords(
+            counted.map((row) => ({ ...row, source: 'system' })),
+            leaveMultipliers,
+        ),
+    ];
+}
+
+function upsertCountOnlyLeave(list, row, editingIndex, leaveMultipliers) {
+    const type = leaveTypeKey(row);
+    const records = Array.isArray(list) ? list : [];
+    if (!isCountOnlyLeaveType(type)) {
+        if (Number.isInteger(editingIndex)) {
+            return records.map((existing, i) => (i === editingIndex ? { ...existing, ...row } : existing));
+        }
+        return [...records, row];
+    }
+    const addDaysCount = Math.max(0, Number(row?.eligibleWorkingDays ?? row?.actualDays) || 0);
+    const multiplier = leaveMultiplier(type, row?.multiplier ?? row?.rule, leaveMultipliers);
+    const withCount = (existing, days) => ({
+        ...(existing || {}),
+        ...row,
+        id: existing?.id || row?.id,
+        leaveType: type,
+        source: 'manual',
+        fromDate: '',
+        toDate: '',
+        startDate: '',
+        endDate: '',
+        eligibleWorkingDays: days,
+        actualDays: days,
+        calendarDays: days,
+        multiplier,
+        rule: multiplier,
+        deductionDays: days * multiplier,
+        deduction: days * multiplier,
+    });
+    if (Number.isInteger(editingIndex) && records[editingIndex]) {
+        return records.map((item, i) => (i === editingIndex ? withCount(item, addDaysCount) : item));
+    }
+    const existingIndex = records.findIndex(
+        (item) => leaveTypeKey(item) === type && leaveSourceKey(item) !== 'system',
+    );
+    if (existingIndex >= 0) {
+        const existing = records[existingIndex];
+        const days = (Number(existing.eligibleWorkingDays ?? existing.actualDays) || 0) + addDaysCount;
+        return records.map((item, i) => (i === existingIndex ? withCount(existing, days) : item));
+    }
+    return [...records, withCount(row, addDaysCount)];
+}
+
 function asLeaveRecord(row, fallbackType = '') {
     if (!row) return row;
     const fromDate = row.fromDate || row.startDate || '';
@@ -424,42 +733,6 @@ function combineLeaveRows(leaveRecords, annualLeaveRecords) {
     return out;
 }
 
-function annualLeaveKey(row) {
-    return [
-        row?.fromDate || row?.startDate || '',
-        row?.toDate || row?.endDate || '',
-    ].join('|');
-}
-
-function cycleMatchesAnnual(cycle, leave) {
-    const key = annualLeaveKey(leave);
-    if (cycle?.annualLeaveKey && cycle.annualLeaveKey === key) return true;
-    const from = leave?.fromDate || leave?.startDate || '';
-    const to = leave?.toDate || leave?.endDate || '';
-    return (
-        (cycle?.eligibilityStartDate || '') === from &&
-        (cycle?.eligibilityEndDate || '') === to
-    );
-}
-
-function prefillCycleFromAnnual(leave, cycleDays, cycleNumber) {
-    const from = leave?.fromDate || leave?.startDate || '';
-    const to = leave?.toDate || leave?.endDate || '';
-    const eligible = leave?.eligibleWorkingDays || leave?.actualDays || 0;
-    return {
-        cycleNumber,
-        eligibilityStartDate: from,
-        eligibilityEndDate: to,
-        entitlementDays: cycleDays,
-        leaveSalaryPaymentDate: from,
-        ticketPaymentDate: from,
-        annualLeaveKey: annualLeaveKey(leave),
-        remarks: eligible
-            ? `Annual leave ${prettyDate(from)} — ${prettyDate(to)} (${eligible} eligible days).`
-            : `Annual leave ${prettyDate(from)} — ${prettyDate(to)}.`,
-    };
-}
-
 function splitLeavePayload(rows) {
     const list = Array.isArray(rows) ? rows : [];
     const leaveRecords = list.filter((row) => String(row?.leaveType || '').toLowerCase() !== 'annual');
@@ -485,6 +758,11 @@ function snapshotLeaveRows(rows) {
         toDate: String(row.toDate || row.endDate || ''),
         actualDays: Number(row.actualDays ?? row.eligibleWorkingDays) || 0,
         remarks: String(row.remarks || ''),
+        includeLeave: Boolean(row.includeLeave),
+        includeTicket: Boolean(row.includeTicket),
+        leaveSalaryAmount: Number(row.leaveSalaryAmount) || 0,
+        ticketAmount: Number(row.ticketAmount) || 0,
+        reduceHistoricalWorkingDays: Boolean(row.reduceHistoricalWorkingDays),
     }));
 }
 
@@ -496,6 +774,10 @@ function snapshotPaymentCycles(rows) {
         leaveSalaryAmount: Number(row.leaveSalaryAmount) || 0,
         ticketPaymentDate: String(row.ticketPaymentDate || ''),
         ticketAmount: Number(row.ticketAmount) || 0,
+        includeLeave: row.includeLeave !== false,
+        includeTicket: row.includeTicket !== false,
+        reduceHistoricalWorkingDays: row.reduceHistoricalWorkingDays !== false,
+        annualLeaveKey: String(row.annualLeaveKey || ''),
         currency: String(row.currency || ''),
         paymentReference: String(row.paymentReference || ''),
         paymentStatus: String(row.paymentStatus || ''),
@@ -514,6 +796,7 @@ function buildFormSnapshot({
     paymentCycles = [],
     leaveComplete = false,
     benefitsComplete = false,
+    hiddenSystemLeave = [],
 } = {}) {
     return JSON.stringify({
         joiningDate: String(joiningDate || ''),
@@ -525,6 +808,7 @@ function buildFormSnapshot({
         paymentCycles: snapshotPaymentCycles(paymentCycles),
         leaveComplete: Boolean(leaveComplete),
         benefitsComplete: Boolean(benefitsComplete),
+        hiddenSystemLeave: toHiddenSystemLeave(hiddenSystemLeave),
     });
 }
 
@@ -571,7 +855,20 @@ function leaveCountFromRow(row) {
     return days > 0 ? String(days) : '';
 }
 
-function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, leaveMultipliers, initial }) {
+function AddLeaveModal({
+    open,
+    onClose,
+    onSave,
+    periodStart,
+    periodEnd,
+    locked,
+    leaveMultipliers,
+    initial,
+    annualLeaves = [],
+    cycleDays,
+    defaultLeaveSalary,
+    paymentCycles = [],
+}) {
     const editing = Boolean(initial);
     const [leaveType, setLeaveType] = useState(initial?.leaveType || 'sick');
     const [fromDate, setFromDate] = useState(initial?.fromDate || initial?.startDate || '');
@@ -579,7 +876,22 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
     const [daysCount, setDaysCount] = useState(() => leaveCountFromRow(initial));
     const [remarks, setRemarks] = useState(initial?.remarks || '');
     const [file, setFile] = useState(null);
+    const [includeLeave, setIncludeLeave] = useState(() => recordIncludesLeave(initial));
+    const [includeTicket, setIncludeTicket] = useState(() => recordIncludesTicket(initial));
+    const [leaveSalaryAmount, setLeaveSalaryAmount] = useState(
+        () => amountInputValue(initial?.leaveSalaryAmount) || amountInputValue(defaultLeaveSalary),
+    );
+    const [ticketAmount, setTicketAmount] = useState(() => amountInputValue(initial?.ticketAmount));
+    const [reduceHistoricalWorkingDays, setReduceHistoricalWorkingDays] = useState(
+        () => recordReducesWorkingDays(initial, String(initial?.leaveType || 'sick').toLowerCase() === 'annual'),
+    );
     const skipDateAutoCount = useRef(true);
+    const options = Array.isArray(annualLeaves) ? annualLeaves : [];
+    const selectedAnnualKey = annualLeaveKey({ fromDate, toDate });
+    const thisLeaveReduced = recordReducesWorkingDays(initial, false);
+    const othersReduced = annualLeaveAlreadyReduced(paymentCycles, selectedAnnualKey);
+    const reduceLocked = thisLeaveReduced || othersReduced;
+    const reduceChecked = reduceLocked ? true : reduceHistoricalWorkingDays;
 
     const resolvedFrom = fromDate || toDate;
     const resolvedTo = toDate || fromDate;
@@ -595,31 +907,39 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
 
     const countNum = Math.max(0, Number(daysCount) || 0);
     const isAnnual = String(leaveType).toLowerCase() === 'annual';
+    const datesRequired = isDatedLeaveType(leaveType);
+    const showDates = datesRequired || isOptionalDateLeaveType(leaveType);
     const multiplier = leaveMultiplier(leaveType, null, leaveMultipliers);
     const existingAttachmentName = initial?.attachment?.name || '';
-    const dateError = isAnnual
-        ? !fromDate || !toDate
-            ? 'Annual leave requires a start date and an end date.'
-            : periodStart && (fromDate < periodStart || toDate < periodStart)
-                ? 'Leave dates cannot be before the contract joining date.'
-                : validateLeaveDates(
-                      { leaveType, fromDate, toDate, eligibleWorkingDays: countNum },
-                      periodStart,
-                      periodEnd,
-                  )
+    const dateError = showDates
+        ? validateLeaveDates(
+              { leaveType, fromDate, toDate, eligibleWorkingDays: Math.max(countNum, 1) },
+              periodStart,
+              periodEnd,
+          )
         : '';
     const startDisabledDays = leaveDateDisabledDays(periodStart);
     const endDisabledDays = leaveDateDisabledDays(fromDate || periodStart);
-    const canSave = countNum > 0 && !locked && !dateError && (!isAnnual || (fromDate && toDate));
+    const canSave = countNum > 0 && !locked && !dateError && (!datesRequired || (fromDate && toDate));
 
     return (
-        <ModalShell open={open} title={editing ? 'Edit leave record' : 'Add leave record'} onClose={onClose}>
+        <ModalShell open={open} title={editing ? 'Edit leave record' : 'Add leave record'} onClose={onClose} width="max-w-lg">
             <div className="mt-4 space-y-3">
                 <label className="block">
                     <FieldLabel>Leave type</FieldLabel>
                     <select
                         value={leaveType}
-                        onChange={(e) => setLeaveType(e.target.value)}
+                        onChange={(e) => {
+                            const nextType = e.target.value;
+                            setLeaveType(nextType);
+                            if (isCountOnlyLeaveType(nextType)) {
+                                setFromDate('');
+                                setToDate('');
+                            }
+                            if (String(nextType).toLowerCase() === 'annual') {
+                                setReduceHistoricalWorkingDays(true);
+                            }
+                        }}
                         className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
                     >
                         {LEAVE_TYPES.map((row) => (
@@ -632,32 +952,56 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
                         Deduction follows this employee&apos;s work location / group salary policy.
                     </p>
                 </label>
-                {isAnnual ? (
-                    <div className="grid grid-cols-2 gap-3">
-                        <label className="block">
-                            <FieldLabel required>Start date</FieldLabel>
-                            <DatePicker
-                                value={fromDate}
-                                onChange={(value) => {
-                                    setFromDate(value);
-                                    if (value && toDate && toDate < value) setToDate('');
-                                }}
-                                disabled={locked}
-                                disabledDays={startDisabledDays}
-                                className="h-11 w-full rounded-xl"
-                            />
-                        </label>
-                        <label className="block">
-                            <FieldLabel required>End date</FieldLabel>
-                            <DatePicker
-                                value={toDate}
-                                onChange={setToDate}
-                                disabled={locked}
-                                disabledDays={endDisabledDays}
-                                className="h-11 w-full rounded-xl"
-                            />
-                        </label>
-                    </div>
+                {showDates ? (
+                    <>
+                        {isAnnual ? (
+                            <label className="block">
+                                <FieldLabel>Annual leave</FieldLabel>
+                                <select
+                                    value={options.some((row) => row.key === selectedAnnualKey) ? selectedAnnualKey : ''}
+                                    onChange={(e) => {
+                                        const selected = options.find((row) => row.key === e.target.value);
+                                        if (!selected) return;
+                                        setFromDate(selected.fromDate || '');
+                                        setToDate(selected.toDate || '');
+                                    }}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                                >
+                                    <option value="">New annual leave</option>
+                                    {options.map((row) => (
+                                        <option key={row.key} value={row.key}>
+                                            {row.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        ) : null}
+                        <div className="grid grid-cols-2 gap-3">
+                            <label className="block">
+                                <FieldLabel required={datesRequired}>Start date</FieldLabel>
+                                <DatePicker
+                                    value={fromDate}
+                                    onChange={(value) => {
+                                        setFromDate(value);
+                                        if (value && toDate && toDate < value) setToDate('');
+                                    }}
+                                    disabled={locked}
+                                    disabledDays={startDisabledDays}
+                                    className="h-11 w-full rounded-xl"
+                                />
+                            </label>
+                            <label className="block">
+                                <FieldLabel required={datesRequired}>End date</FieldLabel>
+                                <DatePicker
+                                    value={toDate}
+                                    onChange={setToDate}
+                                    disabled={locked}
+                                    disabledDays={endDisabledDays}
+                                    className="h-11 w-full rounded-xl"
+                                />
+                            </label>
+                        </div>
+                    </>
                 ) : null}
                 <label className="block">
                     <FieldLabel required>Day count</FieldLabel>
@@ -672,11 +1016,41 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
                         className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:bg-[#F8FAFC]"
                     />
                     <p className="mt-1 text-[11px] text-slate-500">
-                        {isAnnual
-                            ? `Start and end dates are required. The count fills in from those dates and you can still change it. End date can be after the historical period (${prettyDate(periodStart)} — ${prettyDate(periodEnd)}).`
-                            : 'Dates are not needed for this leave type. Enter the day count and save.'}
+                        {datesRequired
+                            ? `Start and end dates are required. The count fills in from those dates and you can still change it.${
+                                  isAnnual
+                                      ? ` End date can be after the historical period (${prettyDate(periodStart)} — ${prettyDate(periodEnd)}).`
+                                      : ''
+                              }`
+                            : showDates
+                              ? 'Start and end dates are optional. If you pick dates, the count fills in from those dates and you can still change it.'
+                              : editing
+                                ? 'Dates are not used. Saving replaces the Manual count for this leave type. System leave stays on its own row.'
+                                : 'Dates are not used. This count is added to the existing Manual row for this leave type. System leave stays on its own row.'}
                     </p>
                 </label>
+                {isAnnual ? (
+                    <PaymentTypeFields
+                        includeLeave={includeLeave}
+                        includeTicket={includeTicket}
+                        onLeaveChange={setIncludeLeave}
+                        onTicketChange={setIncludeTicket}
+                        leaveSalaryAmount={leaveSalaryAmount}
+                        ticketAmount={ticketAmount}
+                        onLeaveAmountChange={setLeaveSalaryAmount}
+                        onTicketAmountChange={setTicketAmount}
+                        leaveSalaryPaymentDate=""
+                        ticketPaymentDate=""
+                        onLeaveDateChange={() => {}}
+                        onTicketDateChange={() => {}}
+                        reduceHistoricalWorkingDays={reduceChecked}
+                        onReduceChange={setReduceHistoricalWorkingDays}
+                        reduceLocked={reduceLocked}
+                        cycleDays={cycleDays}
+                        defaultLeaveSalary={defaultLeaveSalary}
+                        showDates={false}
+                    />
+                ) : null}
                 {dateError ? <p className="text-xs font-medium text-red-600">{dateError}</p> : null}
                 <label className="block">
                     <FieldLabel>Remarks</FieldLabel>
@@ -708,9 +1082,9 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
                             ...(initial || {}),
                             id: initial?.id || newLeaveRecordId(),
                             leaveType,
-                            fromDate: isAnnual ? fromDate : '',
-                            toDate: isAnnual ? toDate : '',
-                            calendarDays: autoDays || countNum,
+                            fromDate: showDates ? fromDate : '',
+                            toDate: showDates ? toDate : '',
+                            calendarDays: showDates ? autoDays || countNum : countNum,
                             actualDays: countNum,
                             eligibleWorkingDays: countNum,
                             multiplier,
@@ -720,6 +1094,17 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
                             source: 'manual',
                             status: 'approved',
                             remarks,
+                            includeLeave: isAnnual ? includeLeave : false,
+                            includeTicket: isAnnual ? includeTicket : false,
+                            leaveSalaryAmount: isAnnual && includeLeave ? Number(leaveSalaryAmount) || 0 : 0,
+                            ticketAmount: isAnnual && includeTicket ? Number(ticketAmount) || 0 : 0,
+                            reduceHistoricalWorkingDays: isAnnual
+                                ? thisLeaveReduced
+                                    ? true
+                                    : othersReduced
+                                      ? false
+                                      : reduceChecked
+                                : false,
                             attachment: uploaded || initial?.attachment || null,
                         });
                         onClose();
@@ -733,20 +1118,168 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
     );
 }
 
+function PaymentTypeFields({
+    includeLeave,
+    includeTicket,
+    onLeaveChange,
+    onTicketChange,
+    leaveSalaryAmount,
+    ticketAmount,
+    onLeaveAmountChange,
+    onTicketAmountChange,
+    leaveSalaryPaymentDate,
+    ticketPaymentDate,
+    onLeaveDateChange,
+    onTicketDateChange,
+    reduceHistoricalWorkingDays,
+    onReduceChange,
+    reduceLocked = false,
+    cycleDays,
+    defaultLeaveSalary,
+    showDates = true,
+}) {
+    return (
+        <div className="col-span-2 space-y-3">
+            <div>
+                <FieldLabel>Payment type</FieldLabel>
+                <div className="mt-1 flex flex-wrap gap-4">
+                    <label className="inline-flex items-center gap-2 text-[13px] text-[#334155]">
+                        <input
+                            type="checkbox"
+                            checked={includeLeave}
+                            onChange={(e) => onLeaveChange(e.target.checked)}
+                        />
+                        Leave
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-[13px] text-[#334155]">
+                        <input
+                            type="checkbox"
+                            checked={includeTicket}
+                            onChange={(e) => onTicketChange(e.target.checked)}
+                        />
+                        Ticket
+                    </label>
+                </div>
+            </div>
+            {includeLeave || includeTicket ? (
+                <div className="grid grid-cols-2 gap-3">
+                    {includeLeave ? (
+                        <>
+                            {showDates ? (
+                                <label className="block">
+                                    <FieldLabel>Leave salary date</FieldLabel>
+                                    <DatePicker
+                                        value={leaveSalaryPaymentDate}
+                                        onChange={onLeaveDateChange}
+                                        className="h-11 w-full rounded-xl"
+                                    />
+                                </label>
+                            ) : null}
+                            <label className={`block ${showDates ? '' : 'col-span-2 sm:col-span-1'}`}>
+                                <FieldLabel>Leave salary amount</FieldLabel>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={leaveSalaryAmount}
+                                    onChange={(e) => onLeaveAmountChange(e.target.value)}
+                                    className="h-11 w-full rounded-xl border px-3 text-sm"
+                                />
+                                {defaultLeaveSalary ? (
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                        Auto-filled from this employee&apos;s leave salary. You can change it.
+                                    </p>
+                                ) : null}
+                            </label>
+                        </>
+                    ) : null}
+                    {includeTicket ? (
+                        <>
+                            {showDates ? (
+                                <label className="block">
+                                    <FieldLabel>Ticket payment date</FieldLabel>
+                                    <DatePicker
+                                        value={ticketPaymentDate}
+                                        onChange={onTicketDateChange}
+                                        className="h-11 w-full rounded-xl"
+                                    />
+                                </label>
+                            ) : null}
+                            <label className={`block ${showDates ? '' : 'col-span-2 sm:col-span-1'}`}>
+                                <FieldLabel>Ticket amount</FieldLabel>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={ticketAmount}
+                                    onChange={(e) => onTicketAmountChange(e.target.value)}
+                                    className="h-11 w-full rounded-xl border px-3 text-sm"
+                                />
+                            </label>
+                        </>
+                    ) : null}
+                </div>
+            ) : null}
+            <label className={`inline-flex items-start gap-2 text-[13px] ${reduceLocked ? 'text-[#94A3B8]' : 'text-[#334155]'}`}>
+                <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={reduceHistoricalWorkingDays}
+                    disabled={reduceLocked}
+                    onChange={(e) => onReduceChange(e.target.checked)}
+                />
+                <span>
+                    Reduce the historical working day ( {cycleDays})
+                    {reduceLocked ? (
+                        <span className="mt-0.5 block text-[11px] font-normal text-[#64748B]">
+                            Already reduced once for this annual leave. It stays applied and cannot be reduced again.
+                        </span>
+                    ) : null}                              
+                </span>
+            </label>
+        </div>
+    );
+}
+
 function amountInputValue(value) {
     const n = Number(value);
     if (!Number.isFinite(n) || n <= 0) return '';
     return String(n);
 }
 
-function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, initial, defaultLeaveSalary, editing }) {
+function AddCycleModal({
+    open,
+    onClose,
+    onSave,
+    cycleDays,
+    nextNumber,
+    locked,
+    initial,
+    defaultLeaveSalary,
+    editing,
+    annualLeaves = [],
+    paymentCycles = [],
+    editingIndex = -1,
+}) {
+    const options = Array.isArray(annualLeaves) ? annualLeaves : [];
+    const [annualLeaveKeyValue, setAnnualLeaveKeyValue] = useState(
+        () => initial?.annualLeaveKey || (initial?.eligibilityStartDate
+            ? annualLeaveKey({ fromDate: initial.eligibilityStartDate, toDate: initial.eligibilityEndDate })
+            : ''),
+    );
     const [cycleNumber, setCycleNumber] = useState(String(initial?.cycleNumber || nextNumber || 1));
+    const [includeLeave, setIncludeLeave] = useState(() => (initial ? recordIncludesLeave(initial) : true));
+    const [includeTicket, setIncludeTicket] = useState(() => (initial ? recordIncludesTicket(initial) : false));
     const [leaveSalaryPaymentDate, setLeaveSalaryPaymentDate] = useState(initial?.leaveSalaryPaymentDate || '');
     const [leaveSalaryAmount, setLeaveSalaryAmount] = useState(
         () => amountInputValue(initial?.leaveSalaryAmount ?? initial?.leaveSalary) || amountInputValue(defaultLeaveSalary),
     );
     const [ticketPaymentDate, setTicketPaymentDate] = useState(initial?.ticketPaymentDate || '');
-    const [ticketAmount, setTicketAmount] = useState(initial?.ticketAmount || '');
+    const [ticketAmount, setTicketAmount] = useState(
+        () => amountInputValue(initial?.ticketAmount),
+    );
+    const [reduceHistoricalWorkingDays, setReduceHistoricalWorkingDays] = useState(
+        () => recordReducesWorkingDays(initial, true),
+    );
     const [currency, setCurrency] = useState(initial?.currency || 'AED');
     const [paymentReference, setPaymentReference] = useState(initial?.paymentReference || '');
     const [paymentStatus, setPaymentStatus] = useState(initial?.paymentStatus || 'paid');
@@ -754,9 +1287,74 @@ function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, i
     const [file, setFile] = useState(null);
     const existingAttachmentName = initial?.attachment?.name || '';
 
+    function applyAnnualLeave(key) {
+        setAnnualLeaveKeyValue(key);
+        const selected = options.find((row) => row.key === key);
+        if (!selected) return;
+        if (!leaveSalaryPaymentDate) setLeaveSalaryPaymentDate(selected.fromDate || '');
+        if (!ticketPaymentDate) setTicketPaymentDate(selected.fromDate || '');
+        if (!includeLeave && recordIncludesLeave(selected)) setIncludeLeave(true);
+        if (!includeTicket && recordIncludesTicket(selected)) setIncludeTicket(true);
+        if (!leaveSalaryAmount && recordIncludesLeave(selected)) {
+            setLeaveSalaryAmount(
+                amountInputValue(selected.leaveSalaryAmount) || amountInputValue(defaultLeaveSalary),
+            );
+        }
+        if (!ticketAmount && recordIncludesTicket(selected)) {
+            setTicketAmount(amountInputValue(selected.ticketAmount));
+        }
+    }
+
+    const selectedLeave = options.find((row) => row.key === annualLeaveKeyValue);
+    const leaveKey = annualLeaveKeyValue || cycleAnnualLeaveKey(initial);
+    const thisCycleReduced = recordReducesWorkingDays(initial, false);
+    const othersReduced = annualLeaveAlreadyReduced(paymentCycles, leaveKey, editingIndex);
+    const reduceLocked = thisCycleReduced || othersReduced;
+    const reduceChecked = reduceLocked ? true : reduceHistoricalWorkingDays;
+
     return (
         <ModalShell open={open} title={editing ? 'Edit payment cycle' : 'Add payment cycle'} onClose={onClose} width="max-w-lg">
             <div className="mt-4 grid grid-cols-2 gap-3">
+                <label className="col-span-2 block">
+                    <FieldLabel>Annual leave</FieldLabel>
+                    <select
+                        value={annualLeaveKeyValue}
+                        onChange={(e) => applyAnnualLeave(e.target.value)}
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                    >
+                        <option value="">Select annual leave</option>
+                        {options.map((row) => (
+                            <option key={row.key} value={row.key}>
+                                {row.label}
+                            </option>
+                        ))}
+                    </select>
+                    {options.length === 0 ? (
+                        <p className="mt-1 text-[11px] text-slate-500">
+                            Add an annual leave record first to choose a date range here.
+                        </p>
+                    ) : null}
+                </label>
+                <PaymentTypeFields
+                    includeLeave={includeLeave}
+                    includeTicket={includeTicket}
+                    onLeaveChange={setIncludeLeave}
+                    onTicketChange={setIncludeTicket}
+                    leaveSalaryAmount={leaveSalaryAmount}
+                    ticketAmount={ticketAmount}
+                    onLeaveAmountChange={setLeaveSalaryAmount}
+                    onTicketAmountChange={setTicketAmount}
+                    leaveSalaryPaymentDate={leaveSalaryPaymentDate}
+                    ticketPaymentDate={ticketPaymentDate}
+                    onLeaveDateChange={setLeaveSalaryPaymentDate}
+                    onTicketDateChange={setTicketPaymentDate}
+                    reduceHistoricalWorkingDays={reduceChecked}
+                    onReduceChange={setReduceHistoricalWorkingDays}
+                    reduceLocked={reduceLocked}
+                    cycleDays={cycleDays}
+                    defaultLeaveSalary={defaultLeaveSalary}
+                    showDates
+                />
                 <label className="block">
                     <FieldLabel>Cycle number</FieldLabel>
                     <input
@@ -776,40 +1374,6 @@ function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, i
                     />
                 </label>
                 <label className="block">
-                    <FieldLabel>Leave salary date</FieldLabel>
-                    <DatePicker value={leaveSalaryPaymentDate} onChange={setLeaveSalaryPaymentDate} className="h-11 w-full rounded-xl" />
-                </label>
-                <label className="block">
-                    <FieldLabel>Leave salary amount</FieldLabel>
-                    <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={leaveSalaryAmount}
-                        onChange={(e) => setLeaveSalaryAmount(e.target.value)}
-                        className="h-11 w-full rounded-xl border px-3 text-sm"
-                    />
-                    {defaultLeaveSalary ? (
-                        <p className="mt-1 text-[11px] text-slate-500">
-                            Auto-filled from this employee&apos;s leave salary. You can change it.
-                        </p>
-                    ) : null}
-                </label>
-                <label className="block">
-                    <FieldLabel>Ticket payment date</FieldLabel>
-                    <DatePicker value={ticketPaymentDate} onChange={setTicketPaymentDate} className="h-11 w-full rounded-xl" />
-                </label>
-                <label className="block">
-                    <FieldLabel>Ticket amount</FieldLabel>
-                    <input
-                        type="number"
-                        min="0"
-                        value={ticketAmount}
-                        onChange={(e) => setTicketAmount(e.target.value)}
-                        className="h-11 w-full rounded-xl border px-3 text-sm"
-                    />
-                </label>
-                <label className="block">
                     <FieldLabel>Payment status</FieldLabel>
                     <select
                         value={paymentStatus}
@@ -822,7 +1386,7 @@ function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, i
                         <option value="rejected">Rejected</option>
                     </select>
                 </label>
-                <label className="col-span-2 block">
+                <label className="block">
                     <FieldLabel>Payment reference</FieldLabel>
                     <input
                         value={paymentReference}
@@ -860,19 +1424,22 @@ function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, i
                         onSave({
                             ...(initial || {}),
                             cycleNumber: Number(cycleNumber) || nextNumber || 1,
-                            eligibilityStartDate: initial?.eligibilityStartDate || '',
-                            eligibilityEndDate: initial?.eligibilityEndDate || '',
-                            entitlementDays: cycleDays,
-                            leaveSalaryPaymentDate,
-                            leaveSalaryAmount: Number(leaveSalaryAmount) || 0,
-                            ticketPaymentDate,
-                            ticketAmount: Number(ticketAmount) || 0,
+                            eligibilityStartDate: selectedLeave?.fromDate || initial?.eligibilityStartDate || '',
+                            eligibilityEndDate: selectedLeave?.toDate || initial?.eligibilityEndDate || '',
+                            entitlementDays: thisCycleReduced || (!othersReduced && reduceChecked) ? cycleDays : 0,
+                            includeLeave,
+                            includeTicket,
+                            leaveSalaryPaymentDate: includeLeave ? leaveSalaryPaymentDate : '',
+                            leaveSalaryAmount: includeLeave ? Number(leaveSalaryAmount) || 0 : 0,
+                            ticketPaymentDate: includeTicket ? ticketPaymentDate : '',
+                            ticketAmount: includeTicket ? Number(ticketAmount) || 0 : 0,
+                            reduceHistoricalWorkingDays: thisCycleReduced ? true : othersReduced ? false : reduceChecked,
                             currency,
                             paymentReference,
                             paymentStatus,
                             verificationStatus: initial?.verificationStatus || 'verified',
                             remarks,
-                            annualLeaveKey: initial?.annualLeaveKey || '',
+                            annualLeaveKey: annualLeaveKeyValue,
                             attachment: (await fileToAttachment(file)) || initial?.attachment || null,
                         });
                         onClose();
@@ -927,6 +1494,7 @@ function SalarySetupLayout({ children }) {
 
 export default function HistoricalSalarySetupView({ employeeId, embedded = false }) {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { toast } = useToast();
     const hrEdit =
         hasPermission('hrm_salary', 'isEdit') || hasPermission('hrm_employees_view_salary', 'isEdit');
@@ -944,28 +1512,40 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [companyMolCode, setCompanyMolCode] = useState('');
     const [employeeMolId, setEmployeeMolId] = useState('');
     const [salarySlip, setSalarySlip] = useState(false);
-    const [setupTab, setSetupTab] = useState('details');
+    const [setupTab, setSetupTab] = useState(() =>
+        !embedded && searchParams?.get('tab') === 'slip' ? 'slip' : 'details',
+    );
     const [openingSalarySlip, setOpeningSalarySlip] = useState(false);
     const [leaveRecords, setLeaveRecords] = useState([]);
+    const [hiddenSystemLeave, setHiddenSystemLeave] = useState([]);
     const [paymentCycles, setPaymentCycles] = useState([]);
     const [leaveComplete, setLeaveComplete] = useState(false);
     const [benefitsComplete, setBenefitsComplete] = useState(false);
     const [leaveModal, setLeaveModal] = useState(false);
     const [leaveTypeFilter, setLeaveTypeFilter] = useState('');
+    const [systemLeaveModal, setSystemLeaveModal] = useState(false);
+    const [systemLeaveTypeFilter, setSystemLeaveTypeFilter] = useState('');
     const [leaveDraftIndex, setLeaveDraftIndex] = useState(null);
     const [cycleModal, setCycleModal] = useState(false);
     const [cycleDraft, setCycleDraft] = useState(null);
     const [cycleDraftIndex, setCycleDraftIndex] = useState(null);
     const [cycleDeleteIndex, setCycleDeleteIndex] = useState(null);
+    const [leaveDeleteRow, setLeaveDeleteRow] = useState(null);
     const [showBreakdown, setShowBreakdown] = useState(false);
     const [showCreate, setShowCreate] = useState(false);
     const [showApprove, setShowApprove] = useState(false);
+    const [showRevoke, setShowRevoke] = useState(false);
     const [joiningModal, setJoiningModal] = useState(false);
     const [pendingJoining, setPendingJoining] = useState('');
     const [reopenModal, setReopenModal] = useState(false);
     const [returnModal, setReturnModal] = useState(false);
     const [rejectModal, setRejectModal] = useState(false);
     const [policyModal, setPolicyModal] = useState(false);
+    const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+    const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
+    const [resetPassword, setResetPassword] = useState('');
+    const [resetPasswordVisible, setResetPasswordVisible] = useState(false);
+    const [resetting, setResetting] = useState(false);
     const lastFetchedVerpRef = useRef('');
     const pendingJoiningRef = useRef('');
     const [savedSnapshot, setSavedSnapshot] = useState('');
@@ -976,10 +1556,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         const nextCompanyMol = payload?.companyMolCode || '';
         const nextEmployeeMol = payload?.employeeMolId || '';
         const nextSalarySlip = Boolean(payload?.salarySlip);
-        const nextLeave = historicalLeaveOnly(
-            combineLeaveRows(payload?.leaveRecords, payload?.annualLeaveRecords),
+        const nextLeave = consolidateCountOnlyLeaveRecords(
+            historicalLeaveOnly(combineLeaveRows(payload?.leaveRecords, payload?.annualLeaveRecords)),
+            payload?.leaveMultipliers,
         );
         const nextCycles = Array.isArray(payload?.paymentCycles) ? payload.paymentCycles : [];
+        const nextHiddenSystemLeave = toHiddenSystemLeave(payload?.hiddenSystemLeave);
         const nextLeaveComplete = Boolean(payload?.leaveHistoryComplete);
         const nextBenefitsComplete = Boolean(payload?.benefitsComplete);
         setData(payload);
@@ -989,6 +1571,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         setEmployeeMolId(nextEmployeeMol);
         setSalarySlip(nextSalarySlip);
         setLeaveRecords(nextLeave);
+        setHiddenSystemLeave(nextHiddenSystemLeave);
         setPaymentCycles(nextCycles);
         setLeaveComplete(nextLeaveComplete);
         setBenefitsComplete(nextBenefitsComplete);
@@ -1005,9 +1588,23 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 paymentCycles: nextCycles,
                 leaveComplete: nextLeaveComplete,
                 benefitsComplete: nextBenefitsComplete,
+                hiddenSystemLeave: nextHiddenSystemLeave,
             }),
         );
     }, []);
+
+    useEffect(() => {
+        if (embedded) return;
+        const next = searchParams?.get('tab') === 'slip' ? 'slip' : 'details';
+        setSetupTab((prev) => (prev === next ? prev : next));
+    }, [embedded, searchParams]);
+
+    function selectSetupTab(key) {
+        setSetupTab(key);
+        if (embedded || !employeeId) return;
+        const base = `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`;
+        router.replace(key === 'slip' ? `${base}?tab=slip` : base, { scroll: false });
+    }
 
     const fetchProfile = useCallback(async () => {
         if (!employeeId) return;
@@ -1046,7 +1643,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     holidays: res.data?.holidays || 0,
                     calendarDays: res.data?.calendarDays || 0,
                     historicalTo: res.data?.historicalTo || '',
-                    cycleDays: prev?.cycleDays || res.data?.cycleDays,
+                    cycleDays: res.data?.cycleDays || prev?.cycleDays,
+                    policy: res.data?.policy || prev?.policy,
                     calculation: res.data?.calculation || prev?.calculation,
                     leaveMultipliers: res.data?.leaveMultipliers || prev?.leaveMultipliers,
                 }));
@@ -1074,36 +1672,61 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     }, [employeeId, verpStartDate, loading]);
 
     const historicalTo = verpStartDate ? addDays(verpStartDate, -1) : '';
-    const cycleDays = Number(data?.cycleDays) || 300;
+    const cycleDays = policyLeaveWorkingDays(data?.policy, data?.cycleDays);
     const leaveMultipliers = data?.leaveMultipliers || policyLeaveMultipliers(data?.policy);
     const splitLeave = splitLeavePayload(leaveRecords);
-    const annualLeaves = useMemo(
-        () => (leaveRecords || []).filter((row) => String(row?.leaveType || '').toLowerCase() === 'annual'),
-        [leaveRecords],
-    );
-    const pendingAnnualPayments = useMemo(
+    const liveLeaveRecords = useMemo(
         () =>
-            annualLeaves.filter(
-                (leave) => !(paymentCycles || []).some((cycle) => cycleMatchesAnnual(cycle, leave)),
+            filterHiddenSystemLeave(
+                Array.isArray(data?.liveAttendance?.leaveRecords) ? data.liveAttendance.leaveRecords : [],
+                hiddenSystemLeave,
             ),
-        [annualLeaves, paymentCycles],
+        [data?.liveAttendance?.leaveRecords, hiddenSystemLeave],
     );
-    const liveLeaveRecords = Array.isArray(data?.liveAttendance?.leaveRecords)
-        ? data.liveAttendance.leaveRecords
-        : [];
+    const systemLeaveDays = useMemo(() => {
+        return (liveLeaveRecords || [])
+            .map((row) => {
+                const fromDate = row.fromDate || row.startDate || '';
+                const toDate = row.toDate || row.endDate || fromDate;
+                return {
+                    ...row,
+                    source: 'system',
+                    leaveType: leaveTypeKey(row),
+                    fromDate,
+                    toDate,
+                };
+            })
+            .sort((a, b) => String(a.fromDate || '').localeCompare(String(b.fromDate || '')));
+    }, [liveLeaveRecords]);
+    const filteredSystemLeaveDays = useMemo(() => {
+        if (!systemLeaveTypeFilter) return systemLeaveDays;
+        return systemLeaveDays.filter((row) => leaveTypeKey(row) === systemLeaveTypeFilter);
+    }, [systemLeaveDays, systemLeaveTypeFilter]);
     const existingLeaveHistoryRows = useMemo(() => {
         const manual = (leaveRecords || []).map((row, storedIndex) => ({
             ...row,
             source: 'manual',
             storedIndex,
         }));
-        const system = mergeAdjacentSystemLeave(liveLeaveRecords, leaveMultipliers);
+        const system = systemLeaveHistoryRows(liveLeaveRecords, leaveMultipliers);
         return [...manual, ...system];
     }, [leaveMultipliers, leaveRecords, liveLeaveRecords]);
     const filteredLeaveHistoryRows = useMemo(() => {
         if (!leaveTypeFilter) return existingLeaveHistoryRows;
         return existingLeaveHistoryRows.filter((row) => leaveTypeKey(row) === leaveTypeFilter);
     }, [existingLeaveHistoryRows, leaveTypeFilter]);
+    const annualLeaveOptions = useMemo(
+        () => listAnnualLeaveOptions(existingLeaveHistoryRows),
+        [existingLeaveHistoryRows],
+    );
+    const leavePaymentRows = useMemo(
+        () => paymentKindRows(paymentCycles, 'leave', annualLeaveOptions),
+        [annualLeaveOptions, paymentCycles],
+    );
+    const ticketPaymentRows = useMemo(
+        () => paymentKindRows(paymentCycles, 'ticket', annualLeaveOptions),
+        [annualLeaveOptions, paymentCycles],
+    );
     const historicalCalc = calculateHistoricalEligibility({
         workingDays: Number(data?.workingDays) || 0,
         calendarDays: Number(data?.calendarDays) || 0,
@@ -1126,6 +1749,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         0,
         (Number(calc.totalLeaveDeduction) || 0) - (Number(historicalCalc.totalLeaveDeduction) || 0),
     );
+    const benefitEligibility = leaveTicketEligibility({
+        days: calc.eligibleBalance,
+        leaveWorkingDays: cycleDays,
+        airTicketWorkingDays: data?.policy?.workingDaysRequiredForAirTicket,
+        basicSalary: data?.employeeLeaveSalary,
+    });
     const workflowStatus = data?.workflowStatus || 'draft';
     const permissions = data?.permissions || {};
     const isSalaryHr = Boolean(permissions.isSalaryHr);
@@ -1133,6 +1762,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const enrolled = Boolean(data?.enrolled) || workflowStatus === 'locked';
     const canSeeMolCodes = Boolean(permissions.canViewPayrollCodes ?? canSeePayrollCodes);
     const canToggleSalarySlip = Boolean(!pendingHr && (enrolled ? isSalaryHr : hrEdit));
+    const canResetEnrollment = Boolean(permissions.canResetEnrollment);
     const locked = pendingHr || (enrolled ? !isSalaryHr : !hrEdit || !permissions.canEdit);
     const currentSnapshot = useMemo(
         () =>
@@ -1146,6 +1776,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 paymentCycles,
                 leaveComplete,
                 benefitsComplete,
+                hiddenSystemLeave,
             }),
         [
             joiningDate,
@@ -1157,6 +1788,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             paymentCycles,
             leaveComplete,
             benefitsComplete,
+            hiddenSystemLeave,
         ],
     );
     const hasUnsavedChanges = Boolean(savedSnapshot) && currentSnapshot !== savedSnapshot;
@@ -1280,6 +1912,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             leaveHistoryComplete: leaveComplete,
             annualLeaveComplete: leaveComplete,
             benefitsComplete: benefitsComplete,
+            hiddenSystemLeave,
         }),
         [
             verpStartDate,
@@ -1293,6 +1926,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             cycleDays,
             leaveComplete,
             benefitsComplete,
+            hiddenSystemLeave,
         ],
     );
 
@@ -1318,14 +1952,27 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         }
     }
 
-    async function persistRecords(nextLeave, nextCycles, success) {
+    async function persistRecords(nextLeave, nextCycles, success, extra = {}) {
         if (locked) return false;
         if (enrolled) return true;
-        const split = splitLeavePayload(nextLeave);
+        const split = splitLeavePayload(consolidateCountOnlyLeaveRecords(nextLeave, leaveMultipliers));
         return runAction('', 'put', success || '', {
             leaveRecords: split.leaveRecords,
             annualLeaveRecords: split.annualLeaveRecords,
             paymentCycles: nextCycles,
+            hiddenSystemLeave,
+            ...extra,
+        });
+    }
+
+    async function persistLeaveDelete(nextLeave, nextHidden, success) {
+        if (locked) return false;
+        const split = splitLeavePayload(nextLeave);
+        return runAction('', 'put', success || '', {
+            leaveRecords: split.leaveRecords,
+            annualLeaveRecords: split.annualLeaveRecords,
+            paymentCycles,
+            hiddenSystemLeave: nextHidden,
         });
     }
 
@@ -1362,6 +2009,42 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         }
     }
 
+    async function confirmRevoke() {
+        const ok = await runAction('/revoke', 'post', 'Enrolment request revoked');
+        if (ok) {
+            setShowRevoke(false);
+            notifySalaryPendingInboxChanged();
+        }
+    }
+
+    async function confirmResetEnrollment() {
+        if (!resetPassword) {
+            toast({ title: 'Enter your login password', variant: 'destructive' });
+            return;
+        }
+        setResetting(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/salary-enroll/${encodeURIComponent(employeeId)}/historical/reset`,
+                { password: resetPassword },
+            );
+            applyPayload(res.data);
+            setResetPassword('');
+            setResetPasswordVisible(false);
+            setResetPasswordOpen(false);
+            toast({
+                title: res.data?.message || 'Enrolment details moved to Deleted Records',
+            });
+        } catch (err) {
+            toast({
+                title: err?.response?.data?.message || 'Could not reset enrolment',
+                variant: 'destructive',
+            });
+        } finally {
+            setResetting(false);
+        }
+    }
+
     const pageBody = (
         <>
                     <div className={embedded ? 'w-full max-w-full' : 'w-full max-w-full p-4 sm:p-6 lg:p-8'}>
@@ -1391,6 +2074,16 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                 </div>
                             )}
                             <div className="flex flex-wrap items-center gap-2">
+                                {canResetEnrollment ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setResetConfirmOpen(true)}
+                                        disabled={saving || resetting}
+                                        className="inline-flex h-10 items-center gap-1 rounded-xl border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 disabled:opacity-60"
+                                    >
+                                        <RotateCcw size={14} /> Reset enrollment
+                                    </button>
+                                ) : null}
                                 {permissions.canReopen && !pendingHr && !enrolled ? (
                                     <button
                                         type="button"
@@ -1438,9 +2131,21 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                             ) : null}
                                         </>
                                     ) : (
-                                        <span className="inline-flex h-10 items-center rounded-xl border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-800">
-                                            Approval sent
-                                        </span>
+                                        <>
+                                            <span className="inline-flex h-10 items-center rounded-xl border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-800">
+                                                Approval sent
+                                            </span>
+                                            {permissions.canRevoke ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowRevoke(true)}
+                                                    disabled={saving}
+                                                    className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-red-200 bg-white px-4 text-sm font-semibold text-red-600 disabled:opacity-60"
+                                                >
+                                                    <Undo2 size={14} /> Revoke request
+                                                </button>
+                                            ) : null}
+                                        </>
                                     )
                                 ) : enrolled ? (
                                     <button
@@ -1509,7 +2214,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                         type="button"
                                         role="tab"
                                         aria-selected={active}
-                                        onClick={() => setSetupTab(tab.key)}
+                                        onClick={() => selectSetupTab(tab.key)}
                                         className={`relative pb-2.5 text-sm font-semibold transition-colors ${
                                             active
                                                 ? "text-blue-600 after:content-[''] after:absolute after:left-0 after:-bottom-px after:h-0.5 after:w-full after:bg-blue-500"
@@ -1831,8 +2536,9 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             Existing Leave History
                                                         </h3>
                                                         <p className="mt-0.5 text-[12px] text-[#64748B]">
-                                                            Manual records are added here. System records are leave
-                                                            created automatically after salary enrollment.
+                                                            Manual records are added here. After salary enrollment,
+                                                            this employee&apos;s own leave from attendance is listed
+                                                            as System records.
                                                         </p>
                                                     </div>
                                                 </div>
@@ -1862,20 +2568,17 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         : 'No leave records yet.'
                                                 }
                                                 locked={locked || leaveComplete}
-                                                onOpenPortal={portalHref ? openEmployeePortal : undefined}
+                                                onOpenSystem={(row) => {
+                                                    setSystemLeaveTypeFilter(leaveTypeKey(row));
+                                                    setSystemLeaveModal(true);
+                                                }}
                                                 onEdit={(row) => {
                                                     if (locked || leaveComplete) return;
                                                     if (!Number.isInteger(row?.storedIndex)) return;
                                                     setLeaveDraftIndex(row.storedIndex);
                                                     setLeaveModal(true);
                                                 }}
-                                                onRemove={async (row) => {
-                                                    if (!Number.isInteger(row?.storedIndex)) return;
-                                                    const next = leaveRecords.filter((_, i) => i !== row.storedIndex);
-                                                    setLeaveRecords(next);
-                                                    const ok = await persistRecords(next, paymentCycles);
-                                                    if (!ok) setLeaveRecords(leaveRecords);
-                                                }}
+                                                onRemove={(row) => setLeaveDeleteRow(row)}
                                             />
                                             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                                                 <label className="inline-flex items-center gap-2 text-[13px] text-[#64748B]">
@@ -1915,8 +2618,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             Leave Salary & Ticket Payments
                                                         </h3>
                                                         <p className="mt-0.5 text-[12px] text-[#64748B]">
-                                                            Previous paid benefits grouped by {cycleDays}-day entitlement
-                                                            cycle.
+                                                            Previous paid leave salary and ticket benefits, grouped by{' '}
+                                                            {cycleDays}-day entitlement cycle.
                                                         </p>
                                                     </div>
                                                 </div>
@@ -1934,135 +2637,44 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     </GhostButton>
                                                 </div>
                                             </div>
-                                            {paymentCycles.length === 0 && pendingAnnualPayments.length === 0 ? (
-                                                <p className="py-8 text-center text-[13px] text-[#94A3B8]">
-                                                    No payment cycles yet. Annual leave records appear here so you can
-                                                    add leave salary and ticket details.
-                                                </p>
-                                            ) : (
-                                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                                                    {pendingAnnualPayments.map((leave, index) => (
-                                                        <button
-                                                            key={leave.id || annualLeaveKey(leave) || index}
-                                                            type="button"
-                                                            disabled={locked || benefitsComplete}
-                                                            onClick={() => {
-                                                                setCycleDraftIndex(null);
-                                                                setCycleDraft(
-                                                                    prefillCycleFromAnnual(
-                                                                        leave,
-                                                                        cycleDays,
-                                                                        paymentCycles.length + 1,
-                                                                    ),
-                                                                );
-                                                                setCycleModal(true);
-                                                            }}
-                                                            className="rounded-[10px] border border-dashed border-[#93C5FD] bg-[#F8FBFF] p-4 text-left hover:border-[#2563EB] disabled:opacity-50"
-                                                        >
-                                                            <p className="text-[14px] font-bold text-[#0F172A]">
-                                                                Annual leave
-                                                            </p>
-                                                            <p className="mt-1 text-[13px] font-semibold text-[#1D2A3E]">
-                                                                {leave.fromDate || leave.startDate || leave.toDate || leave.endDate
-                                                                    ? `${prettyDate(leave.fromDate || leave.startDate)} — ${prettyDate(leave.toDate || leave.endDate)}`
-                                                                    : 'No dates'}
-                                                            </p>
-                                                            <p className="mt-1 text-[12px] text-[#64748B]">
-                                                                {leave.eligibleWorkingDays || leave.actualDays || 0}{' '}
-                                                                eligible days · add leave salary & ticket
-                                                            </p>
-                                                        </button>
-                                                    ))}
-                                                    {paymentCycles.map((cycle, index) => {
-                                                        const paid =
-                                                            String(cycle.paymentStatus || '').toLowerCase() ===
-                                                            'paid';
-                                                        return (
-                                                            <div
-                                                                key={cycle.id || index}
-                                                                className="relative rounded-[10px] border border-[#E6EAF0] bg-white p-4"
-                                                            >
-                                                                <div className="absolute right-2 top-2 flex items-center gap-0.5">
-                                                                    <button
-                                                                        type="button"
-                                                                        disabled={locked || benefitsComplete}
-                                                                        onClick={() => {
-                                                                            setCycleDraftIndex(index);
-                                                                            setCycleDraft(cycle);
-                                                                            setCycleModal(true);
-                                                                        }}
-                                                                        className="rounded-md p-1 text-[#64748B] hover:bg-slate-100 hover:text-[#2563EB] disabled:opacity-30"
-                                                                        aria-label="Edit payment cycle"
-                                                                    >
-                                                                        <Pencil size={14} />
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        disabled={locked || benefitsComplete}
-                                                                        onClick={() => setCycleDeleteIndex(index)}
-                                                                        className="rounded-md p-1 text-[#94A3B8] hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
-                                                                        aria-label="Delete payment cycle"
-                                                                    >
-                                                                        <Trash2 size={14} />
-                                                                    </button>
-                                                                </div>
-                                                                <div className="flex items-center gap-2 pr-14">
-                                                                    <p className="text-[14px] font-bold text-[#0F172A]">
-                                                                        Cycle {cycle.cycleNumber || index + 1}
-                                                                    </p>
-                                                                    <span
-                                                                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${paid
-                                                                                ? 'bg-[#F0FDF4] text-[#15803D]'
-                                                                                : 'bg-slate-100 text-slate-500'
-                                                                            }`}
-                                                                    >
-                                                                        {paid ? 'Paid' : cycle.paymentStatus || 'Draft'}
-                                                                    </span>
-                                                                </div>
-                                                                {cycle.eligibilityStartDate || cycle.annualLeaveKey ? (
-                                                                    <p className="mt-1 pr-6 text-[11px] text-[#64748B]">
-                                                                        Annual leave{' '}
-                                                                        {prettyDate(cycle.eligibilityStartDate)} —{' '}
-                                                                        {prettyDate(cycle.eligibilityEndDate)}
-                                                                    </p>
-                                                                ) : null}
-                                                                <div className="mt-3 grid grid-cols-3 gap-3">
-                                                                    <div>
-                                                                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
-                                                                            Payment date
-                                                                        </p>
-                                                                        <p className="mt-1 text-[13px] font-semibold text-[#0F172A]">
-                                                                            {prettyDate(
-                                                                                cycle.leaveSalaryPaymentDate ||
-                                                                                cycle.ticketPaymentDate,
-                                                                            )}
-                                                                        </p>
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
-                                                                            Leave salary
-                                                                        </p>
-                                                                        <p className="mt-1 text-[13px] font-bold text-[#0F172A]">
-                                                                            {aed(
-                                                                                cycle.leaveSalaryAmount,
-                                                                                cycle.currency,
-                                                                            )}
-                                                                        </p>
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
-                                                                            Ticket amount
-                                                                        </p>
-                                                                        <p className="mt-1 text-[13px] font-bold text-[#0F172A]">
-                                                                            {aed(cycle.ticketAmount, cycle.currency)}
-                                                                        </p>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            )}
+                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                                <PaymentKindCard
+                                                    title="Leave"
+                                                    rows={leavePaymentRows}
+                                                    emptyMessage="No leave payments yet."
+                                                    locked={locked || benefitsComplete}
+                                                    eligibleLabel="Eligible leave salary"
+                                                    eligibleValue={
+                                                        benefitEligibility.count > 0
+                                                            ? aed(benefitEligibility.eligibleLeaveSalary)
+                                                            : ''
+                                                    }
+                                                    onEdit={(cycleIndex, cycle) => {
+                                                        setCycleDraftIndex(cycleIndex);
+                                                        setCycleDraft(cycle);
+                                                        setCycleModal(true);
+                                                    }}
+                                                    onRemove={(cycleIndex) => setCycleDeleteIndex(cycleIndex)}
+                                                />
+                                                <PaymentKindCard
+                                                    title="Ticket"
+                                                    rows={ticketPaymentRows}
+                                                    emptyMessage="No ticket payments yet."
+                                                    locked={locked || benefitsComplete}
+                                                    eligibleLabel="Eligible ticket"
+                                                    eligibleValue={
+                                                        benefitEligibility.count > 0
+                                                            ? `${Number(benefitEligibility.eligibleTicketDays).toLocaleString('en-US')} days`
+                                                            : ''
+                                                    }
+                                                    onEdit={(cycleIndex, cycle) => {
+                                                        setCycleDraftIndex(cycleIndex);
+                                                        setCycleDraft(cycle);
+                                                        setCycleModal(true);
+                                                    }}
+                                                    onRemove={(cycleIndex) => setCycleDeleteIndex(cycleIndex)}
+                                                />
+                                            </div>
                                             <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-600">
                                                 <input
                                                     type="checkbox"
@@ -2125,10 +2737,23 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         onClick={portalHref ? openEmployeePortal : undefined}
                                                     />
                                                 ) : null}
-                                                {Number(calc.consumedEntitlementDays) > 0 ? (
+                                                {Number(calc.consumedAnnualLeaveCycles) > 0 ? (
+                                                    <EligibilityCalcRow
+                                                        label={`Annual leave entitlement (${calc.consumedAnnualLeaveCycles} × ${calc.cycleDays})`}
+                                                        value={formatDeductionDays(
+                                                            Number(calc.consumedAnnualLeaveCycles) *
+                                                                Number(calc.cycleDays || 0),
+                                                        )}
+                                                        danger
+                                                    />
+                                                ) : null}
+                                                {Number(calc.paidVerifiedCycles) > 0 ? (
                                                     <EligibilityCalcRow
                                                         label={`Paid benefit cycles (${calc.paidVerifiedCycles} × ${calc.cycleDays})`}
-                                                        value={formatDeductionDays(calc.consumedEntitlementDays)}
+                                                        value={formatDeductionDays(
+                                                            Number(calc.paidVerifiedCycles) *
+                                                                Number(calc.cycleDays || 0),
+                                                        )}
                                                         danger
                                                     />
                                                 ) : null}
@@ -2190,8 +2815,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 />
                                                 <p className="text-[9px] font-normal leading-[18px] text-[#6F7C8F]">
                                                     {data?.liveAttendance?.enabled
-                                                        ? `Eligible balance starts from historical working days minus historical leave, then adds each working day after enrollment, subtracts leave using salary policy, and subtracts ${calc.cycleDays} days for each paid benefit cycle.`
-                                                        : `Current eligible balance = historical working days − leave deductions − ${calc.cycleDays} days per paid benefit cycle.`}
+                                                        ? `Eligible balance starts from historical working days minus historical leave, then adds each working day after enrollment, subtracts leave using salary policy, and subtracts ${calc.cycleDays} days for each annual leave and paid benefit cycle.`
+                                                        : `Current eligible balance = historical working days − leave deductions − ${calc.cycleDays} days per annual leave and paid benefit cycle.`}
                                                 </p>
                                             </div>
                                         </section>
@@ -2275,15 +2900,20 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 periodStart={joiningDate}
                 periodEnd={historicalTo}
                 leaveMultipliers={leaveMultipliers}
+                annualLeaves={annualLeaveOptions}
+                paymentCycles={paymentCycles}
+                cycleDays={cycleDays}
+                defaultLeaveSalary={data?.employeeLeaveSalary}
                 onClose={() => {
                     setLeaveModal(false);
                     setLeaveDraftIndex(null);
                 }}
                 onSave={async (row) => {
                     const index = leaveDraftIndex;
-                    const next = Number.isInteger(index)
-                        ? leaveRecords.map((existing, i) => (i === index ? { ...existing, ...row } : existing))
-                        : [...leaveRecords, row];
+                    const next = consolidateCountOnlyLeaveRecords(
+                        upsertCountOnlyLeave(leaveRecords, row, index, leaveMultipliers),
+                        leaveMultipliers,
+                    );
                     setLeaveRecords(next);
                     setLeaveDraftIndex(null);
                     const ok = await persistRecords(
@@ -2302,6 +2932,9 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 cycleDays={cycleDays}
                 nextNumber={paymentCycles.length + 1}
                 initial={cycleDraft}
+                annualLeaves={annualLeaveOptions}
+                paymentCycles={paymentCycles}
+                editingIndex={Number.isInteger(cycleDraftIndex) ? cycleDraftIndex : -1}
                 defaultLeaveSalary={data?.employeeLeaveSalary}
                 onClose={() => {
                     setCycleModal(false);
@@ -2324,6 +2957,77 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     if (!ok) setPaymentCycles(paymentCycles);
                 }}
             />
+            <ModalShell
+                open={Boolean(leaveDeleteRow)}
+                title="Delete leave record?"
+                onClose={() => setLeaveDeleteRow(null)}
+            >
+                <p className="mt-3 text-sm text-slate-600">
+                    {leaveSourceKey(leaveDeleteRow) === 'system'
+                        ? 'This will hide this system leave from the historical record. Attendance is not changed. This action cannot be undone.'
+                        : 'This will remove this leave record from the historical record. This action cannot be undone.'}
+                </p>
+                {leaveDeleteRow ? (
+                    <p className="mt-2 text-sm font-medium text-slate-800">
+                        {leaveMeta(leaveDeleteRow.leaveType).label}
+                        {leaveDeleteRow.fromDate || leaveDeleteRow.toDate
+                            ? ` · ${prettyDate(leaveDeleteRow.fromDate)} — ${prettyDate(leaveDeleteRow.toDate)}`
+                            : ''}
+                    </p>
+                ) : null}
+                <div className="mt-5 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setLeaveDeleteRow(null)}
+                        className="h-10 rounded-xl border px-4 text-sm font-semibold"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        disabled={saving}
+                        onClick={async () => {
+                            const row = leaveDeleteRow;
+                            setLeaveDeleteRow(null);
+                            if (!row) return;
+                            if (leaveSourceKey(row) === 'system') {
+                                const nextHidden = toHiddenSystemLeave([
+                                    ...hiddenSystemLeave,
+                                    {
+                                        leaveType: leaveTypeKey(row),
+                                        fromDate: isCountOnlyLeaveType(leaveTypeKey(row))
+                                            ? '*'
+                                            : row.fromDate || row.startDate || '',
+                                        toDate: isCountOnlyLeaveType(leaveTypeKey(row))
+                                            ? '*'
+                                            : row.toDate || row.endDate || row.fromDate || '',
+                                    },
+                                ]);
+                                setHiddenSystemLeave(nextHidden);
+                                const ok = await persistLeaveDelete(
+                                    leaveRecords,
+                                    nextHidden,
+                                    'Leave record deleted',
+                                );
+                                if (!ok) setHiddenSystemLeave(hiddenSystemLeave);
+                                return;
+                            }
+                            if (!Number.isInteger(row.storedIndex)) return;
+                            const next = leaveRecords.filter((_, i) => i !== row.storedIndex);
+                            setLeaveRecords(next);
+                            const ok = await persistLeaveDelete(
+                                next,
+                                hiddenSystemLeave,
+                                'Leave record deleted',
+                            );
+                            if (!ok) setLeaveRecords(leaveRecords);
+                        }}
+                        className="h-10 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white"
+                    >
+                        Delete
+                    </button>
+                </div>
+            </ModalShell>
             <ModalShell
                 open={cycleDeleteIndex !== null}
                 title="Delete payment cycle?"
@@ -2410,6 +3114,86 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     if (ok) notifySalaryPendingInboxChanged();
                 }}
             />
+            <ModalShell
+                open={systemLeaveModal}
+                title="System leave"
+                onClose={() => setSystemLeaveModal(false)}
+                width="max-w-lg"
+            >
+                <p className="mt-1 text-sm text-slate-500">
+                    Leave created automatically after salary enrollment. Filter by type to review each date.
+                </p>
+                <div className="mt-3">
+                    <LeaveTypeFilter
+                        value={systemLeaveTypeFilter}
+                        onChange={setSystemLeaveTypeFilter}
+                        rows={systemLeaveDays}
+                    />
+                </div>
+                <div className="mt-3 max-h-[360px] overflow-auto rounded-xl border border-[#EEF2F6]">
+                    {filteredSystemLeaveDays.length ? (
+                        <table className="w-full text-left">
+                            <thead className="sticky top-0 bg-white">
+                                <tr className="border-b border-[#EEF2F6] text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
+                                    <th className="px-3 py-2.5 font-semibold">Date</th>
+                                    <th className="px-3 py-2.5 font-semibold">Type</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredSystemLeaveDays.map((row, index) => {
+                                    const meta = leaveMeta(row.leaveType);
+                                    const sameDay = row.fromDate && row.fromDate === row.toDate;
+                                    return (
+                                        <tr
+                                            key={`${row.fromDate}-${row.leaveType}-${index}`}
+                                            className="border-b border-[#F1F5F9] last:border-0"
+                                        >
+                                            <td className="px-3 py-2.5 text-[13px] text-[#334155]">
+                                                {sameDay
+                                                    ? prettyDate(row.fromDate)
+                                                    : `${prettyDate(row.fromDate)} — ${prettyDate(row.toDate)}`}
+                                            </td>
+                                            <td className="px-3 py-2.5">
+                                                <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-[#0F172A]">
+                                                    <span
+                                                        className="h-2 w-2 rounded-full"
+                                                        style={{ backgroundColor: meta.color }}
+                                                    />
+                                                    {meta.label}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    ) : (
+                        <p className="py-8 text-center text-[13px] text-[#94A3B8]">
+                            {systemLeaveTypeFilter
+                                ? `No ${leaveMeta(systemLeaveTypeFilter).label.toLowerCase()} records.`
+                                : 'No system leave records.'}
+                        </p>
+                    )}
+                </div>
+                <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                    {portalHref ? (
+                        <button
+                            type="button"
+                            onClick={openEmployeePortal}
+                            className="h-10 rounded-xl border px-4 text-sm font-semibold text-slate-600"
+                        >
+                            Open leave portal
+                        </button>
+                    ) : null}
+                    <button
+                        type="button"
+                        onClick={() => setSystemLeaveModal(false)}
+                        className="h-10 rounded-xl border px-4 text-sm font-semibold"
+                    >
+                        Close
+                    </button>
+                </div>
+            </ModalShell>
             <SalaryPolicyRequiredModal open={policyModal} onClose={() => setPolicyModal(false)} />
             <ModalShell
                 open={showCreate}
@@ -2431,6 +3215,35 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                         className="h-10 rounded-xl bg-[#2563EB] px-4 text-sm font-semibold text-white"
                     >
                         {isSalaryHr ? 'Create & enroll' : 'Send for approval'}
+                    </button>
+                </div>
+            </ModalShell>
+            <ModalShell
+                open={showRevoke}
+                title="Revoke enrolment request?"
+                onClose={() => setShowRevoke(false)}
+            >
+                <p className="mt-3 text-sm text-slate-600">
+                    This emails flowchart HR that the enrolment approval was revoked by your user name,
+                    removes the pending task from the HR bell, and lets you send the same profile again.
+                    Enrolment status stays pending.
+                </p>
+                <div className="mt-5 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setShowRevoke(false)}
+                        disabled={saving}
+                        className="h-10 rounded-xl border px-4 text-sm font-semibold disabled:opacity-60"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={confirmRevoke}
+                        disabled={saving}
+                        className="h-10 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                        {saving ? 'Revoking…' : 'Revoke request'}
                     </button>
                 </div>
             </ModalShell>
@@ -2459,6 +3272,99 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     <Row label="Holidays excluded" value={data?.holidays || 0} />
                     <Row label="Historical working days" value={calc.workingDays} strong />
                 </div>
+            </ModalShell>
+            <ConfirmAlertDialog
+                open={resetConfirmOpen}
+                onOpenChange={setResetConfirmOpen}
+                title="Are you sure to reset the enrollment?"
+                description={`Enrolment details between ${prettyDate(joiningDate) || 'the contract joining date'} and ${prettyDate(verpStartDate) || 'the VERP salary processing date'} will move to Deleted Records. Data outside this period stays. You can restore the archived details from Settings → Deleted Records.`}
+                confirmLabel="Yes, continue"
+                cancelLabel="Cancel"
+                destructive
+                onConfirm={() => {
+                    setResetConfirmOpen(false);
+                    setResetPassword('');
+                    setResetPasswordVisible(false);
+                    setResetPasswordOpen(true);
+                }}
+            />
+            <ModalShell
+                open={resetPasswordOpen}
+                title="Enter your login password"
+                onClose={() => {
+                    if (resetting) return;
+                    setResetPasswordOpen(false);
+                    setResetPassword('');
+                    setResetPasswordVisible(false);
+                }}
+            >
+                <p className="mt-3 text-sm text-slate-600">
+                    Type your login password. It must match the flowchart HR user password.
+                </p>
+                <form
+                    autoComplete="off"
+                    className="relative"
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        confirmResetEnrollment();
+                    }}
+                >
+                    <input
+                        type="text"
+                        name="username"
+                        autoComplete="username"
+                        tabIndex={-1}
+                        aria-hidden="true"
+                        value=""
+                        readOnly
+                        className="pointer-events-none absolute h-0 w-0 opacity-0"
+                    />
+                    <div className="relative mt-4">
+                        <input
+                            key={resetPasswordOpen ? 'reset-password-open' : 'reset-password-closed'}
+                            type={resetPasswordVisible ? 'text' : 'password'}
+                            name="verp-reset-enrollment-confirm"
+                            autoComplete="new-password"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                            value={resetPassword}
+                            onChange={(e) => setResetPassword(e.target.value)}
+                            disabled={resetting}
+                            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-11 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                            placeholder="Password"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setResetPasswordVisible((open) => !open)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                            aria-label={resetPasswordVisible ? 'Hide password' : 'Show password'}
+                        >
+                            {resetPasswordVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                    </div>
+                    <div className="mt-5 flex justify-end gap-2">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setResetPasswordOpen(false);
+                                setResetPassword('');
+                                setResetPasswordVisible(false);
+                            }}
+                            disabled={resetting}
+                            className="h-10 rounded-xl border px-4 text-sm font-semibold disabled:opacity-60"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={resetting || !resetPassword}
+                            className="h-10 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-50"
+                        >
+                            {resetting ? 'Resetting…' : 'Reset enrollment'}
+                        </button>
+                    </div>
+                </form>
             </ModalShell>
         </>
     );
@@ -2528,7 +3434,7 @@ function Row({ label, value, danger, strong }) {
     );
 }
 
-function LeaveTable({ rows, locked, onEdit, onRemove, onOpenPortal, emptyMessage = 'No leave records yet.' }) {
+function LeaveTable({ rows, locked, onEdit, onRemove, onOpenSystem, emptyMessage = 'No leave records yet.' }) {
     if (!rows.length) {
         return <p className="py-8 text-center text-[13px] text-[#94A3B8]">{emptyMessage}</p>;
     }
@@ -2553,23 +3459,24 @@ function LeaveTable({ rows, locked, onEdit, onRemove, onOpenPortal, emptyMessage
                         const deduction = row.deductionDays || row.deduction || 0;
                         const source = leaveSourceKey(row);
                         const canEdit = !locked && source !== 'system';
-                        const canOpenPortal = Boolean(onOpenPortal);
+                        const canDelete = !locked;
+                        const canOpenSystem = source === 'system' && Boolean(onOpenSystem);
                         return (
                             <tr
                                 key={row.id || `${row.fromDate}-${source}-${index}`}
                                 className={`border-b border-[#F1F5F9] ${
-                                    canEdit || canOpenPortal ? 'cursor-pointer hover:bg-slate-50' : ''
+                                    canEdit || canOpenSystem ? 'cursor-pointer hover:bg-slate-50' : ''
                                 }`}
                                 title={
                                     canEdit
                                         ? 'Click to edit this leave record'
-                                        : canOpenPortal
-                                          ? 'Open this employee leave portal'
+                                        : canOpenSystem
+                                          ? 'View system leave dates'
                                           : undefined
                                 }
                                 onClick={() => {
                                     if (canEdit) onEdit(row);
-                                    else onOpenPortal?.(row);
+                                    else if (canOpenSystem) onOpenSystem(row);
                                 }}
                             >
                                 <td className="px-2 py-3">
@@ -2582,9 +3489,9 @@ function LeaveTable({ rows, locked, onEdit, onRemove, onOpenPortal, emptyMessage
                                     </span>
                                 </td>
                                 <td className="px-2 py-3 text-[13px] text-[#334155]">
-                                    {row.fromDate || row.toDate
-                                        ? `${prettyDate(row.fromDate)} — ${prettyDate(row.toDate)}`
-                                        : '—'}
+                                    {isCountOnlyLeaveType(row.leaveType) || !(row.fromDate || row.toDate)
+                                        ? '—'
+                                        : `${prettyDate(row.fromDate)} — ${prettyDate(row.toDate)}`}
                                 </td>
                                 <td className="px-2 py-3 text-[13px] tabular-nums text-[#334155]">
                                     {actual} days
@@ -2609,7 +3516,7 @@ function LeaveTable({ rows, locked, onEdit, onRemove, onOpenPortal, emptyMessage
                                 <td className="px-2 py-3 text-right">
                                     <button
                                         type="button"
-                                        disabled={!canEdit}
+                                        disabled={!canDelete}
                                         onClick={(event) => {
                                             event.stopPropagation();
                                             onRemove(row);

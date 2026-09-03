@@ -1,13 +1,37 @@
 /** Timestamp used for notification ordering (task arrival / creation). */
 export function getNotificationSortTime(item) {
-    const raw =
-        item?.createdAt ??
-        item?.requestedDate ??
-        item?.requestedAt ??
-        item?.updatedAt ??
-        0;
-    const t = new Date(raw).getTime();
-    return Number.isFinite(t) ? t : 0;
+    const candidates = [
+        item?.createdAt,
+        item?.requestedDate,
+        item?.requestedAt,
+        item?.leaveRequestedAt,
+        item?.appliedDate,
+        item?.date,
+        item?.updatedAt,
+    ];
+    let best = 0;
+    for (const raw of candidates) {
+        if (raw == null || raw === '') continue;
+        const t = new Date(raw).getTime();
+        if (Number.isFinite(t) && t > best) best = t;
+    }
+    return best;
+}
+
+export function isPendingNotification(item) {
+    const s = String(item?.status || item?.approvalStatus || '').trim().toLowerCase();
+    if (!s) return true;
+    if (
+        s.includes('reject') ||
+        s.includes('approved') ||
+        s.includes('accepted') ||
+        s.includes('cancel') ||
+        s === 'completed' ||
+        s === 'done'
+    ) {
+        return false;
+    }
+    return s === 'pending' || s === 'on hold' || s.includes('pending') || s.includes('hold');
 }
 
 /** Mongo action ids sort roughly by creation time — stabilizes rows with the same timestamp. */
@@ -28,6 +52,10 @@ function getNotificationSubjectKey(item) {
 }
 
 function compareNotificationItems(a, b) {
+    const pendingA = isPendingNotification(a) ? 1 : 0;
+    const pendingB = isPendingNotification(b) ? 1 : 0;
+    if (pendingA !== pendingB) return pendingB - pendingA;
+
     const timeA = getNotificationSortTime(a);
     const timeB = getNotificationSortTime(b);
     if (timeA !== timeB) return timeB - timeA;
@@ -44,7 +72,7 @@ function compareNotificationItems(a, b) {
 }
 
 /**
- * Stack order (newest first): latest notification on top, oldest at bottom.
+ * Stack order: pending first, then newest on top.
  */
 export function sortNotificationsStackOrder(items = []) {
     return [...(items || [])].sort(compareNotificationItems);

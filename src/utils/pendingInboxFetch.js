@@ -6,6 +6,7 @@ const ASSET_INBOX_CACHE_TTL_MS = 3 * 60 * 1000;
 
 const cachedByKey = new Map();
 const inFlightByKey = new Map();
+const fetchGenByKey = new Map();
 
 export const FINE_PENDING_INBOX_ENDPOINT = '/Fine/dashboard/pending-inbox';
 export const PAYMENT_PENDING_INBOX_ENDPOINT = '/Payment/dashboard/pending-inbox';
@@ -53,11 +54,13 @@ export function clearPendingInboxCache(endpoint, params) {
     if (!endpoint) {
         cachedByKey.clear();
         inFlightByKey.clear();
+        fetchGenByKey.clear();
         return;
     }
     const key = buildCacheKey(endpoint, params || {});
     cachedByKey.delete(key);
     inFlightByKey.delete(key);
+    fetchGenByKey.set(key, (fetchGenByKey.get(key) || 0) + 1);
 }
 
 /** Deduped fetch for module pending-inbox endpoints — shared by bell count + modal. */
@@ -73,9 +76,11 @@ export async function fetchPendingInbox(
         if (cached) return cached;
     }
 
-    if (inFlightByKey.has(key) && !force) {
+    if (inFlightByKey.has(key)) {
         return inFlightByKey.get(key);
     }
+
+    const gen = fetchGenByKey.get(key) || 0;
 
     const request = axiosInstance
         .get(endpoint, {
@@ -86,11 +91,15 @@ export async function fetchPendingInbox(
             const list = sortNotificationsStackOrder(
                 Array.isArray(res.data?.items) ? res.data.items : [],
             );
-            cachedByKey.set(key, { items: list, at: Date.now() });
+            if ((fetchGenByKey.get(key) || 0) === gen) {
+                cachedByKey.set(key, { items: list, at: Date.now() });
+            }
             return list;
         })
         .finally(() => {
-            inFlightByKey.delete(key);
+            if (inFlightByKey.get(key) === request) {
+                inFlightByKey.delete(key);
+            }
         });
 
     inFlightByKey.set(key, request);

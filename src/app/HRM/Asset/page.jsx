@@ -38,6 +38,8 @@ import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { buildAssetFocusElementId } from '@/utils/assetNotificationRouting';
 import {
     formatAssetAssignmentStatusLine,
+    formatAssetWaitingChipText,
+    getAssetDetailsPrimaryStatusLabel,
     getAssetStatusBadgeClass,
     isLeaveActive,
     isParkingStatus,
@@ -357,7 +359,7 @@ function isAssignmentAcknowledgmentOnly(t) {
 
 /** All assets waiting on an approval or assignee acknowledgment (shown under Awaiting Approval filter). */
 function isAwaitingAssetApproval(t) {
-    return isSubmittedForApproval(t) || isAssignmentAcknowledgmentOnly(t);
+    return isSubmittedForApproval(t) || isAssignmentAcknowledgmentOnly(t) || !!t.pendingAction;
 }
 
 function isAwaitingCreationApproval(t) {
@@ -677,90 +679,8 @@ function assetListShouldShowWaitingBadge(item) {
     return isAwaitingAssetApproval(item);
 }
 
-function formatAssetWorkflowActorLabel(ref) {
-    if (!ref || typeof ref !== 'object') return '';
-    const name = `${ref.firstName || ''} ${ref.lastName || ''}`.trim();
-    return name || (ref.employeeId ? String(ref.employeeId) : '');
-}
-
-function assetRefId(ref) {
-    if (!ref) return '';
-    if (typeof ref === 'object') return String(ref._id || ref.id || '');
-    return String(ref);
-}
-
 function getAssetListWaitingLabel(item) {
-    /** Person who currently holds the approve / respond option (not assignment target without ERP login). */
-    const fromAr = formatAssetWorkflowActorLabel(item.actionRequiredBy);
-    const flow = item.designatedAssetController;
-    const fromFlow = flow
-        ? `${flow.firstName || ''} ${flow.lastName || ''}`.trim() ||
-          (flow.employeeId ? String(flow.employeeId) : '')
-        : '';
-    const assignee = item?.assignedTo && typeof item.assignedTo === 'object' ? item.assignedTo : null;
-    const assigneeLabel = assignee ? resolveAssetAssigneeLabel(item) : '';
-    const fromReportee = formatAssetWorkflowActorLabel(assignee?.primaryReportee);
-    const arIsAssignee =
-        Boolean(assetRefId(item.actionRequiredBy) && assetRefId(item.assignedTo)) &&
-        assetRefId(item.actionRequiredBy) === assetRefId(item.assignedTo);
-
-    const st = String(item.status || '').trim();
-    const stLow = st.toLowerCase();
-
-    // Creation approval: show who can Approve now (flowchart Asset Controller).
-    if (st === 'Submitted for Approval' || st === 'Draft') {
-        if (fromFlow) return fromFlow;
-        if (fromAr && !arIsAssignee) return fromAr;
-        return 'Asset controller approval';
-    }
-
-    // Loss / EOL / other pending actions — dashboard task holder first.
-    if (item.pendingAction) {
-        if (fromAr && !arIsAssignee) return fromAr;
-        if (fromFlow) return fromFlow;
-        if (fromAr) return fromAr;
-        return 'Action required';
-    }
-
-    // Assignment Accept: show who has the inbox task (same person as asset details).
-    // Prefer primary reportee when actionRequiredBy still points at assignee but assignee
-    // cannot self-ack (no portal / enablePortalAccess false) — matches details assignmentAck.
-    if (isAssignmentAcknowledgmentOnly(item)) {
-        if (item.assignmentAck?.waitingForName) {
-            const ackName = String(item.assignmentAck.waitingForName).trim();
-            if (ackName) return ackName;
-        }
-        if (item.assignedCompany) {
-            if (fromAr) return fromAr;
-            return resolveAssetCompanyLabel(item);
-        }
-        const arId = assetRefId(item.actionRequiredBy);
-        const reporteeId = assetRefId(assignee?.primaryReportee);
-        const assigneeId = assetRefId(item.assignedTo);
-        const assigneeLikelyCannotSelfAck = assignee?.enablePortalAccess === false;
-        if (arId && reporteeId && arId === reporteeId && fromReportee) return fromReportee;
-        if (
-            arId &&
-            assigneeId &&
-            arId === assigneeId &&
-            fromReportee &&
-            assigneeLikelyCannotSelfAck
-        ) {
-            return fromReportee;
-        }
-        if (fromAr) return fromAr;
-        if (arId && assigneeId && arId === assigneeId && assigneeLabel) return assigneeLabel;
-        if (fromReportee) return fromReportee;
-        if (assigneeLabel) return assigneeLabel;
-        return 'Acknowledgment';
-    }
-
-    if (fromAr && !arIsAssignee) return fromAr;
-    if (fromFlow) return fromFlow;
-    if (fromReportee) return fromReportee;
-    if (fromAr) return fromAr;
-    if (stLow === 'pending') return 'Acknowledgment';
-    return 'Action required';
+    return formatAssetWaitingChipText(item) || 'Waiting: Action required';
 }
 
 function getAssetListColumnSortValue(item, key) {
@@ -785,11 +705,12 @@ function getAssetListColumnSortValue(item, key) {
         case 'accessories':
             return Array.isArray(item?.accessories) ? item.accessories.length : 0;
         case 'status': {
+            const statusLabel = getAssetDetailsPrimaryStatusLabel(item);
             if (assetListShouldShowWaitingBadge(item)) {
-                return `Waiting: ${getAssetListWaitingLabel(item)}`;
+                return `${statusLabel} ${getAssetListWaitingLabel(item)}`.trim();
             }
             const assigneeStr = resolveAssetListAssigneeStr(item);
-            return String(formatAssetAssignmentStatusLine(item, assigneeStr) || item?.status || '');
+            return String(formatAssetAssignmentStatusLine(item, assigneeStr) || statusLabel || item?.status || '');
         }
         default:
             return null;
@@ -2951,19 +2872,20 @@ function AssetPageContent() {
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
 
                                                                 <div className="flex flex-col items-start gap-0.5">
-
                                                                     {assetListShouldShowWaitingBadge(item) ? (
-
-                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide whitespace-nowrap text-amber-600 bg-amber-50 border border-amber-100" title={`Waiting for: ${getAssetListWaitingLabel(item)}`}>
-
-                                                                            Waiting: {getAssetListWaitingLabel(item)}
-
-                                                                        </span>
-
+                                                                        <>
+                                                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide whitespace-nowrap ${getAssetStatusBadgeClass(item.status, item)}`}>
+                                                                                {getAssetDetailsPrimaryStatusLabel(item)}
+                                                                            </span>
+                                                                            <span
+                                                                                className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide whitespace-nowrap text-amber-600 bg-amber-50 border border-amber-100"
+                                                                                title={getAssetListWaitingLabel(item)}
+                                                                            >
+                                                                                {getAssetListWaitingLabel(item)}
+                                                                            </span>
+                                                                        </>
                                                                     ) : (
-
                                                                         <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide whitespace-nowrap ${getAssetStatusBadgeClass(item.status, item)}`}>
-
                                                                             {(() => {
                                                                                 const statusStr = String(item.status || '');
                                                                                 const isPoolStatus =
@@ -2991,11 +2913,8 @@ function AssetPageContent() {
                                                                                     />
                                                                                 );
                                                                             })()}
-
                                                                         </span>
-
                                                                     )}
-
                                                                 </div>
 
                                                             </td>

@@ -237,12 +237,17 @@ export default function ReturnAssetModal({
                             : 'Return request sent to the Asset Controller.',
                 });
             } else {
-                for (const id of ids) {
-                    await axiosInstance.put(`/AssetItem/${id}/return`, { reason });
-                }
+                const acReturnRes = ids.length > 1
+                    ? await axiosInstance.put(`/AssetItem/${primary}/return`, {
+                        bulkAssetIds: ids,
+                        reason,
+                    })
+                    : await axiosInstance.put(`/AssetItem/${primary}/return`, { reason });
                 toast({
                     title: 'Success',
-                    description: `Return processed for ${ids.length} asset(s).`,
+                    description:
+                        acReturnRes?.data?.message ||
+                        'Return request sent to the assigned employee (or their reportee) for approval.',
                 });
             }
             if (onUpdate) onUpdate();

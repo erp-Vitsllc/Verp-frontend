@@ -243,6 +243,11 @@ export default function NotificationInboxModal({
 
     useEffect(() => {
         if (!isOpen) return;
+        setSortDirection('newest');
+    }, [isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) return;
         setUnreadKeys(new Set(items.map((row) => row.key)));
     }, [isOpen, items]);
 

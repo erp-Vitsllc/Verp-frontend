@@ -16,8 +16,7 @@ import {
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
-import { filterLeaveEntriesBySalary, isAllLeaveYear, isSalaryProcessingMonthOpen, processingStartForEmployee, salaryUnlocksAfterMessage, useLeaveSalaryVisibility } from '../utils/leaveSalaryVisibility';
-import DashboardSalaryEnrollLock from '@/app/dashboard/components/DashboardSalaryEnrollLock';
+import { filterLeaveEntriesBySalary, isAllLeaveYear, isSalaryProcessingMonthOpen, processingStartForEmployee, useLeaveSalaryVisibility } from '../utils/leaveSalaryVisibility';
 import {
     addDaysToDateKey,
     buildLeaveSpans,
@@ -1048,12 +1047,19 @@ export default function LeaveCalendarView({
         employeeId,
     );
     const viewedMonth = format(monthDate, 'yyyy-MM');
-    const salaryLocked = Boolean(
-        employeeId &&
-            processingStartDate &&
-            !isSalaryProcessingMonthOpen(viewedMonth, processingStartDate),
-    );
-    const salaryLockMessage = salaryLocked ? salaryUnlocksAfterMessage(processingStartDate) : '';
+    const todayMonth = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Dubai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    })
+        .format(new Date())
+        .slice(0, 7);
+    const liveOpen =
+        !processingStartDate || isSalaryProcessingMonthOpen(todayMonth, processingStartDate);
+    const monthOpen =
+        !processingStartDate || isSalaryProcessingMonthOpen(viewedMonth, processingStartDate);
+    const salaryLocked = Boolean(employeeId && processingStartDate && (!liveOpen || !monthOpen));
 
     return (
         <div
@@ -1223,7 +1229,6 @@ export default function LeaveCalendarView({
                         </button>
                     </div>
                 </div>
-            <DashboardSalaryEnrollLock locked={salaryLocked} message={salaryLockMessage} />
             </div>
     );
 }

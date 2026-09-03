@@ -6,6 +6,7 @@ import { resolveAssetPrimaryPhoto } from '../utils/resolveAssetPrimaryPhoto';
 import { getAttachedAccessoriesValueTotal } from '../utils/getToolsAssetTotalValue';
 import StorageImage from '@/components/StorageImage';
 import EmployeeNameLink from '@/components/EmployeeNameLink';
+import { formatAssetWaitingChipText, getAssetWaitingForMeta } from '@/utils/assetStatusHelpers';
 
 const ACTION_BTN_BASE =
     'min-h-[44px] sm:min-h-[52px] rounded-xl sm:rounded-2xl px-2 sm:px-3 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black uppercase tracking-wide text-center leading-snug transition-all break-words';
@@ -26,7 +27,6 @@ export default function ToolsAssetProfileHeaderCards({
     isOnLeaveFlagActive,
     accessoriesVisibleOnAssetPage = [],
     temporaryAssignmentEndsInfo,
-    getAssetApproverDisplayName,
     userHistoryCount = 0,
     serviceHistoryCount = 0,
     primaryActionButtons = [],
@@ -153,10 +153,20 @@ export default function ToolsAssetProfileHeaderCards({
                                     subtitle = `Since ${assignedSince}`;
                                 } else if (isAckPending) {
                                     title = holderName || 'Pending assignment';
-                                    subtitle = 'Awaiting assignment acknowledgment';
+                                    const waitingMeta = getAssetWaitingForMeta(asset);
+                                    subtitle = waitingMeta.kind === 'reportee' && waitingMeta.name
+                                        ? `Awaiting reportee ${waitingMeta.name}`
+                                        : waitingMeta.name
+                                            ? `Awaiting ${waitingMeta.name}`
+                                            : 'Awaiting assignment acknowledgment';
                                 } else if (asset?.pendingAction) {
                                     title = `Pending — ${asset.pendingAction}`;
-                                    subtitle = 'Awaiting Asset Controller action';
+                                    const waitingMeta = getAssetWaitingForMeta(asset);
+                                    subtitle = waitingMeta.kind === 'reportee' && waitingMeta.name
+                                        ? `Awaiting reportee ${waitingMeta.name}`
+                                        : waitingMeta.name
+                                            ? `Awaiting ${waitingMeta.name}`
+                                            : 'Awaiting approval';
                                 }
 
                                 return (
@@ -197,13 +207,18 @@ export default function ToolsAssetProfileHeaderCards({
 
                         {(asset?.status === 'Pending' ||
                             asset?.status === 'Draft' ||
-                            asset?.acceptanceStatus === 'Pending') && (
+                            asset?.status === 'Submitted for Approval' ||
+                            asset?.acceptanceStatus === 'Pending' ||
+                            asset?.pendingAction) && (
                                 <div className="px-4 py-2 bg-rose-50 rounded-2xl border border-rose-200 shrink-0">
                                     <span className="text-[11px] font-black text-rose-600 uppercase tracking-wide flex items-center gap-2">
                                         <span className="w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
                                         {asset?.status === 'Draft' && !asset?.actionRequiredBy
                                             ? 'Waiting for submission'
-                                            : `Waiting ${getAssetApproverDisplayName(asset) || (asset?.status === 'Draft' ? 'approval' : 'acknowledgment')}`}
+                                            : formatAssetWaitingChipText(asset) ||
+                                                (asset?.status === 'Draft'
+                                                    ? 'Waiting: approval'
+                                                    : 'Waiting: acknowledgment')}
                                     </span>
                                 </div>
                             )}

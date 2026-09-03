@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import {
     LayoutDashboard,
     Users2,
@@ -42,7 +42,7 @@ import {
 } from '@/utils/assetFlowchartModuleAccess';
 import axiosInstance, { isSessionAuthError, shouldSkipSidebarPolling, pauseSidebarPolling, blockSidebarPollingForAuth } from '@/utils/axios';
 import { performLogout } from '@/utils/authSession';
-import { loadModuleNotificationBundle, clearModuleNotificationFeedsCache, MODULE_NOTIFICATIONS_UPDATED, getCachedModuleNotificationBundle } from '@/utils/moduleNotifications';
+import { loadModuleNotificationBundle, invalidateModuleNotificationFeedsCache, MODULE_NOTIFICATIONS_UPDATED, getCachedModuleNotificationBundle, getCachedModuleNotificationFeeds, peekCachedModuleNotificationBundle, readPersistedModuleNotificationCounts } from '@/utils/moduleNotifications';
 import {
     ASSET_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
@@ -72,27 +72,64 @@ const logoPath = '/assets/employee/sidebar-logo.png';
 
 const SIDEBAR_ICON_STROKE = 1.75;
 
-function scheduleWhenIdle(callback, maxWaitMs = 3000) {
-    if (typeof window === 'undefined') {
-        const timeoutId = setTimeout(callback, maxWaitMs);
-        return () => clearTimeout(timeoutId);
-    }
-    let cancelled = false;
-    const run = () => {
-        if (!cancelled) callback();
+const EMPTY_SIDEBAR_COUNTS = {
+    company: 0,
+    employee: 0,
+    attendance: 0,
+    leave: 0,
+    salary: 0,
+    fine: 0,
+    reward: 0,
+    loan: 0,
+    toolsAsset: 0,
+    vehicleAsset: 0,
+    utilityBill: 0,
+    asset: 0,
+    payments: 0,
+};
+
+function normalizeSidebarCounts(counts = {}) {
+    const toolsAsset = counts.toolsAsset || 0;
+    const vehicleAsset = counts.vehicleAsset || 0;
+    const utilityBill = counts.utilityBill || 0;
+    return {
+        company: counts.company || 0,
+        employee: counts.employee || 0,
+        attendance: counts.attendance || 0,
+        leave: counts.leave || 0,
+        salary: counts.salary || 0,
+        fine: counts.fine || 0,
+        reward: counts.reward || 0,
+        loan: counts.loan || 0,
+        toolsAsset,
+        vehicleAsset,
+        utilityBill,
+        asset:
+            typeof counts.asset === 'number'
+                ? counts.asset
+                : toolsAsset + vehicleAsset + utilityBill,
+        payments: counts.payment || counts.payments || 0,
     };
-    if (typeof window.requestIdleCallback === 'function') {
-        const idleId = window.requestIdleCallback(run, { timeout: maxWaitMs });
-        return () => {
-            cancelled = true;
-            window.cancelIdleCallback(idleId);
-        };
-    }
-    const timeoutId = setTimeout(run, Math.min(maxWaitMs, 2000));
-    return () => {
-        cancelled = true;
-        clearTimeout(timeoutId);
-    };
+}
+
+function sidebarCountsEqual(a, b) {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    return (
+        a.company === b.company &&
+        a.employee === b.employee &&
+        a.attendance === b.attendance &&
+        a.leave === b.leave &&
+        a.salary === b.salary &&
+        a.fine === b.fine &&
+        a.reward === b.reward &&
+        a.loan === b.loan &&
+        a.toolsAsset === b.toolsAsset &&
+        a.vehicleAsset === b.vehicleAsset &&
+        a.utilityBill === b.utilityBill &&
+        a.asset === b.asset &&
+        a.payments === b.payments
+    );
 }
 
 function SidebarNavIcon({ icon: Icon, active, size = 18, className = '' }) {
@@ -291,21 +328,7 @@ export default function Sidebar() {
         designation: '',
         status: 'online'
     });
-    const [sidebarCounts, setSidebarCounts] = useState({
-        company: 0,
-        employee: 0,
-        attendance: 0,
-        leave: 0,
-        salary: 0,
-        fine: 0,
-        reward: 0,
-        loan: 0,
-        toolsAsset: 0,
-        vehicleAsset: 0,
-        utilityBill: 0,
-        asset: 0,
-        payments: 0,
-    });
+    const [sidebarCounts, setSidebarCounts] = useState(EMPTY_SIDEBAR_COUNTS);
     const [canRestoreRecovery, setCanRestoreRecovery] = useState(false);
     const [assetFlowchartReady, setAssetFlowchartReady] = useState(false);
 
@@ -359,64 +382,49 @@ export default function Sidebar() {
         };
     }, [mounted]);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!mounted) return;
 
         let inFlight = false;
+        let loadToken = 0;
         let debounceTimer = null;
 
         const applySidebarCounts = (counts = {}) => {
-            const toolsAsset = counts.toolsAsset || 0;
-            const vehicleAsset = counts.vehicleAsset || 0;
-            const utilityBill = counts.utilityBill || 0;
-            setSidebarCounts({
-                company: counts.company || 0,
-                employee: counts.employee || 0,
-                attendance: counts.attendance || 0,
-                leave: counts.leave || 0,
-                salary: counts.salary || 0,
-                fine: counts.fine || 0,
-                reward: counts.reward || 0,
-                loan: counts.loan || 0,
-                toolsAsset,
-                vehicleAsset,
-                utilityBill,
-                // Prefer bundle.asset; fall back so Vehicle + Tools + Utility Bills always match.
-                asset:
-                    typeof counts.asset === 'number'
-                        ? counts.asset
-                        : toolsAsset + vehicleAsset + utilityBill,
-                payments: counts.payment || 0,
-            });
+            const next = normalizeSidebarCounts(counts);
+            setSidebarCounts((prev) => (sidebarCountsEqual(prev, next) ? prev : next));
         };
 
         const loadSidebarCounts = async () => {
             if (shouldSkipSidebarPolling()) return;
+
+            const peeked =
+                peekCachedModuleNotificationBundle()?.counts ||
+                getCachedModuleNotificationBundle()?.counts ||
+                readPersistedModuleNotificationCounts();
+            if (peeked) applySidebarCounts(peeked);
+
+            if (getCachedModuleNotificationFeeds() && peeked) return;
+
+            const token = ++loadToken;
             if (inFlight) return;
+
             inFlight = true;
             try {
-                // Prefer shared bundle already built by dashboard (exact same counts).
-                const cachedBundle = getCachedModuleNotificationBundle();
-                if (cachedBundle?.counts) {
-                    applySidebarCounts(cachedBundle.counts);
-                    inFlight = false;
-                    return;
-                }
-
                 const { bundle } = await loadModuleNotificationBundle(axiosInstance, {
                     skipExpirySync: true,
                     skipEmployees: true,
                 });
-                applySidebarCounts(bundle.counts);
+                if (token === loadToken) applySidebarCounts(bundle.counts);
             } catch (err) {
+                if (token !== loadToken) return;
                 if (isSessionAuthError(err)) {
                     blockSidebarPollingForAuth();
                 } else if (!err?.response) {
                     pauseSidebarPolling(30000);
                 }
-                applySidebarCounts({});
             } finally {
                 inFlight = false;
+                if (loadToken !== token) loadSidebarCounts();
             }
         };
 
@@ -424,8 +432,9 @@ export default function Sidebar() {
             if (debounceTimer) clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
                 debounceTimer = null;
+                if (getCachedModuleNotificationFeeds()) return;
                 loadSidebarCounts();
-            }, 3000);
+            }, 400);
         };
 
         /** Coalesce inbox mutation events so one approve doesn't stampede 7 APIs repeatedly. */
@@ -434,14 +443,12 @@ export default function Sidebar() {
             if (inboxRefreshTimer) clearTimeout(inboxRefreshTimer);
             inboxRefreshTimer = setTimeout(() => {
                 inboxRefreshTimer = null;
-                clearModuleNotificationFeedsCache();
+                invalidateModuleNotificationFeedsCache();
                 loadSidebarCounts();
-            }, 600);
+            }, 250);
         };
 
-        let cancelInitialIdle = scheduleWhenIdle(() => {
-            loadSidebarCounts();
-        }, 2500);
+        loadSidebarCounts();
         const intervalId = setInterval(() => loadSidebarCounts(), 90 * 1000);
         const handleFocus = () => scheduleRefresh();
         const handleVisibility = () => {
@@ -452,28 +459,7 @@ export default function Sidebar() {
         if (typeof window !== 'undefined') {
             window.addEventListener('focus', handleFocus);
         }
-        const handleAssetInboxChanged = () => {
-            scheduleInboxRefresh();
-        };
-        const handleFineInboxChanged = () => {
-            scheduleInboxRefresh();
-        };
-        const handlePaymentInboxChanged = () => {
-            scheduleInboxRefresh();
-        };
-        const handleRewardInboxChanged = () => {
-            scheduleInboxRefresh();
-        };
-        const handleLoanInboxChanged = () => {
-            scheduleInboxRefresh();
-        };
-        const handleAttendanceInboxChanged = () => {
-            scheduleInboxRefresh();
-        };
-        const handleLeaveInboxChanged = () => {
-            scheduleInboxRefresh();
-        };
-        const handleSalaryInboxChanged = () => {
+        const handleInboxChanged = () => {
             scheduleInboxRefresh();
         };
         const handleModuleNotificationsUpdated = (event) => {
@@ -486,54 +472,36 @@ export default function Sidebar() {
         };
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', handleVisibility);
-            document.addEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
-            document.addEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
-            document.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
-            document.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
-            document.addEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
-            document.addEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
-            document.addEventListener(LEAVE_PENDING_INBOX_CHANGED, handleLeaveInboxChanged);
-            document.addEventListener(SALARY_PENDING_INBOX_CHANGED, handleSalaryInboxChanged);
         }
         if (typeof window !== 'undefined') {
             window.addEventListener(MODULE_NOTIFICATIONS_UPDATED, handleModuleNotificationsUpdated);
-            // Asset/Fine/etc also fire on window — listen once so badges update even if document missed.
-            window.addEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
-            window.addEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
-            window.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
-            window.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
-            window.addEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
-            window.addEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
-            window.addEventListener(LEAVE_PENDING_INBOX_CHANGED, handleLeaveInboxChanged);
-            window.addEventListener(SALARY_PENDING_INBOX_CHANGED, handleSalaryInboxChanged);
+            window.addEventListener(ASSET_PENDING_INBOX_CHANGED, handleInboxChanged);
+            window.addEventListener(FINE_PENDING_INBOX_CHANGED, handleInboxChanged);
+            window.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, handleInboxChanged);
+            window.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleInboxChanged);
+            window.addEventListener(LOAN_PENDING_INBOX_CHANGED, handleInboxChanged);
+            window.addEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleInboxChanged);
+            window.addEventListener(LEAVE_PENDING_INBOX_CHANGED, handleInboxChanged);
+            window.addEventListener(SALARY_PENDING_INBOX_CHANGED, handleInboxChanged);
         }
         return () => {
-            if (cancelInitialIdle) cancelInitialIdle();
             clearInterval(intervalId);
             if (debounceTimer) clearTimeout(debounceTimer);
             if (inboxRefreshTimer) clearTimeout(inboxRefreshTimer);
             if (typeof window !== 'undefined') {
                 window.removeEventListener('focus', handleFocus);
                 window.removeEventListener(MODULE_NOTIFICATIONS_UPDATED, handleModuleNotificationsUpdated);
-                window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
-                window.removeEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
-                window.removeEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
-                window.removeEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
-                window.removeEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
-                window.removeEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
-                window.removeEventListener(LEAVE_PENDING_INBOX_CHANGED, handleLeaveInboxChanged);
-                window.removeEventListener(SALARY_PENDING_INBOX_CHANGED, handleSalaryInboxChanged);
+                window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, handleInboxChanged);
+                window.removeEventListener(FINE_PENDING_INBOX_CHANGED, handleInboxChanged);
+                window.removeEventListener(PAYMENT_PENDING_INBOX_CHANGED, handleInboxChanged);
+                window.removeEventListener(REWARD_PENDING_INBOX_CHANGED, handleInboxChanged);
+                window.removeEventListener(LOAN_PENDING_INBOX_CHANGED, handleInboxChanged);
+                window.removeEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleInboxChanged);
+                window.removeEventListener(LEAVE_PENDING_INBOX_CHANGED, handleInboxChanged);
+                window.removeEventListener(SALARY_PENDING_INBOX_CHANGED, handleInboxChanged);
             }
             if (typeof document !== 'undefined') {
                 document.removeEventListener('visibilitychange', handleVisibility);
-                document.removeEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
-                document.removeEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
-                document.removeEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
-                document.removeEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
-                document.removeEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
-                document.removeEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
-                document.removeEventListener(LEAVE_PENDING_INBOX_CHANGED, handleLeaveInboxChanged);
-                document.removeEventListener(SALARY_PENDING_INBOX_CHANGED, handleSalaryInboxChanged);
             }
         };
     }, [mounted]);
