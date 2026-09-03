@@ -98,18 +98,52 @@ export const getAssetWaitingForMeta = (asset) => {
     const ackSaysNoSelf = asset.assignmentAck?.assigneeCanSelfAcknowledge === false;
 
     if (asset.pendingAction) {
+        const stampedName = String(asset.waitingForName || '').trim();
+        if (stampedName) {
+            return { name: stampedName, kind: asset.waitingForKind || 'other' };
+        }
         const storedName = String(asset.pendingActionDetails?.waitingForName || '').trim();
-        const arName = empDisplayNameFromRef(asset.actionRequiredBy);
-        const name = storedName || arName;
         const waitingId =
             asset.pendingActionDetails?.waitingForId
                 ? assetPersonRefId(asset.pendingActionDetails.waitingForId)
                 : arId;
+        const role = String(asset.pendingActionDetails?.requestedByRole || '').toLowerCase();
+        const requestedById = assetPersonRefId(asset.pendingActionDetails?.requestedBy);
+        const assigneeStarted =
+            role === 'assignee' ||
+            role === 'companycoordinator' ||
+            (!!requestedById && !!assigneeId && requestedById === assigneeId);
+        const acId =
+            assetPersonRefId(asset.designatedAssetController) ||
+            assetPersonRefId(asset.assetController);
         const delegatedToReportee =
             asset.pendingActionDetails?.ownerApprovalDelegated === true ||
             (!!waitingId && !!reporteeId && waitingId === reporteeId);
+        const pendingLeaveOrReturn =
+            asset.pendingAction === 'Leave' || asset.pendingAction === 'Return Asset';
+        const showingAc =
+            pendingLeaveOrReturn &&
+            !assigneeStarted &&
+            !!acId &&
+            ((waitingId && waitingId === acId) || (arId && arId === acId));
+
+        if (!assigneeStarted && pendingLeaveOrReturn) {
+            if (delegatedToReportee && reporteeName) {
+                return { name: reporteeName, kind: 'reportee' };
+            }
+            if (showingAc) {
+                const noCompanyEmail = !String(asset.assignedTo?.companyEmail || '').trim();
+                if ((assigneeHasNoPortal || noCompanyEmail) && reporteeName) {
+                    return { name: reporteeName, kind: 'reportee' };
+                }
+                if (assigneeName) return { name: assigneeName, kind: 'employee' };
+                if (reporteeName) return { name: reporteeName, kind: 'reportee' };
+            }
+        }
+
+        const name = storedName || arName;
         if (!name) return { name: '', kind: '' };
-        if (delegatedToReportee) return { name, kind: 'reportee' };
+        if (delegatedToReportee) return { name: reporteeName || name, kind: 'reportee' };
         if (waitingId && assigneeId && waitingId === assigneeId) return { name, kind: 'employee' };
         return { name, kind: 'other' };
     }
