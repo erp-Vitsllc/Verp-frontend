@@ -94,35 +94,24 @@ export const getAssetWaitingForMeta = (asset) => {
         (asset.assignmentAck?.primaryReporteeId ? String(asset.assignmentAck.primaryReporteeId) : '');
     const assigneeName = empDisplayNameFromRef(asset.assignedTo);
     const reporteeName = empDisplayNameFromRef(asset.assignedTo?.primaryReportee);
-    const delegatedToReportee = asset.pendingActionDetails?.ownerApprovalDelegated === true;
     const assigneeHasNoPortal = asset.assignedTo?.enablePortalAccess === false;
     const ackSaysNoSelf = asset.assignmentAck?.assigneeCanSelfAcknowledge === false;
 
     if (asset.pendingAction) {
-        if (
-            isWaitingOnPrimaryReportee({
-                arId,
-                assigneeId,
-                reporteeId,
-                delegatedToReportee,
-                assigneeHasNoPortal,
-                ackSaysNoSelf,
-                pendingAction: asset.pendingAction,
-            }) &&
-            (reporteeName || arName)
-        ) {
-            return { name: reporteeName || arName, kind: 'reportee' };
-        }
-        if (arId && assigneeId && arId === assigneeId && assigneeName) {
-            return { name: assigneeName, kind: 'employee' };
-        }
-        if (arName) {
-            const kind = arId && assigneeId && arId === assigneeId ? 'employee' : 'other';
-            return { name: arName, kind };
-        }
-        if (assigneeName) return { name: assigneeName, kind: 'employee' };
-        if (reporteeName) return { name: reporteeName, kind: 'reportee' };
-        return { name: '', kind: '' };
+        const storedName = String(asset.pendingActionDetails?.waitingForName || '').trim();
+        const arName = empDisplayNameFromRef(asset.actionRequiredBy);
+        const name = storedName || arName;
+        const waitingId =
+            asset.pendingActionDetails?.waitingForId
+                ? assetPersonRefId(asset.pendingActionDetails.waitingForId)
+                : arId;
+        const delegatedToReportee =
+            asset.pendingActionDetails?.ownerApprovalDelegated === true ||
+            (!!waitingId && !!reporteeId && waitingId === reporteeId);
+        if (!name) return { name: '', kind: '' };
+        if (delegatedToReportee) return { name, kind: 'reportee' };
+        if (waitingId && assigneeId && waitingId === assigneeId) return { name, kind: 'employee' };
+        return { name, kind: 'other' };
     }
 
     if (isAssetAssignmentAcknowledgmentPending(asset)) {
@@ -200,8 +189,6 @@ export const formatAssetWaitingChipText = (asset) => {
 
 const normEmpKey = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
 
-const OWNER_APPROVAL_PENDING_ACTIONS = new Set(['Leave', 'End of Life', 'Return Asset']);
-
 /** True when the logged-in employee must Approve/Reject a pending Leave / EOS / Return / L&D. */
 export const userIsPendingAssetActionApprover = (asset, { employeeObjectId, employeeId } = {}) => {
     if (!asset?.pendingAction) return false;
@@ -209,20 +196,19 @@ export const userIsPendingAssetActionApprover = (asset, { employeeObjectId, empl
     const meEmpId = normEmpKey(employeeId);
     const arId = assetPersonRefId(asset.actionRequiredBy);
     const arEmpId = normEmpKey(asset.actionRequiredBy?.employeeId);
+    const waitingId = asset.pendingActionDetails?.waitingForId
+        ? assetPersonRefId(asset.pendingActionDetails.waitingForId)
+        : '';
+    if (meOid && waitingId && meOid === waitingId) return true;
     if (meOid && arId && arId === meOid) return true;
     if (meEmpId && arEmpId && arEmpId === meEmpId) return true;
-
-    const assignedId = assetPersonRefId(asset.assignedTo);
-    const assignedEmpId = normEmpKey(asset.assignedTo?.employeeId);
+    const delegated = asset.pendingActionDetails?.ownerApprovalDelegated === true;
     const reporteeId = assetPersonRefId(asset.assignedTo?.primaryReportee);
     const reporteeEmpId = normEmpKey(asset.assignedTo?.primaryReportee?.employeeId);
-    const raisedByAc =
-        String(asset.pendingActionDetails?.requestedByRole || '').toLowerCase() === 'assetcontroller';
-    if (!raisedByAc || !OWNER_APPROVAL_PENDING_ACTIONS.has(String(asset.pendingAction))) return false;
-    if (meOid && assignedId && assignedId === meOid) return true;
-    if (meEmpId && assignedEmpId && assignedEmpId === meEmpId) return true;
-    if (meOid && reporteeId && reporteeId === meOid) return true;
-    if (meEmpId && reporteeEmpId && reporteeEmpId === meEmpId) return true;
+    if (delegated || (waitingId && reporteeId && waitingId === reporteeId)) {
+        if (meOid && reporteeId && meOid === reporteeId) return true;
+        if (meEmpId && reporteeEmpId && meEmpId === reporteeEmpId) return true;
+    }
     return false;
 };
 
