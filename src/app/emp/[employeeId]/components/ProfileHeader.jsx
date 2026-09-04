@@ -27,6 +27,7 @@ import {
 import { resolveContractJoiningDate, resolveProbationStartDate, calculateRemainingProbation, getProbationAwareDisplayStatus } from '@/utils/employeeWorkDetailsValidation';
 import { isAdmin } from '@/utils/permissions';
 import { isEmployeeLeftUser } from '@/utils/employeeWorkStatus';
+import OnDutyFromLeaveControl, { ownerHasOnLeaveAssets } from '@/app/HRM/Asset/components/OnDutyFromLeaveControl';
 import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
 import { buildActivationHoldPayload } from '@/utils/buildActivationHoldPayload';
 
@@ -101,6 +102,7 @@ function ProfileHeader({
     className = '',
     compactHeader = false,
     stackProfileWithExtra = false,
+    onOnDutyChanged = null,
 }) {
     const [internalImageError, setInternalImageError] = useState(false);
     const imageError = imageErrorProp ?? internalImageError;
@@ -446,8 +448,7 @@ function ProfileHeader({
         }
         setSelectedChangeIds(scopedReviewEntries.map((entry) => entry._id));
     };
-    const [isOnDuty, setIsOnDuty] = useState(true); // Static UI state for "On Duty" / "Leave" toggle
-    // ... existing code ...
+    const showOnDutyFromLeave = ownerHasOnLeaveAssets(employee);
 
     const [isTooltipLocked, setIsTooltipLocked] = useState(false);
     const tooltipRef = useRef(null);
@@ -607,30 +608,13 @@ function ProfileHeader({
                             )}
                         </div>
 
-                        {/* On Duty / Leave Static Toggle (Only show if NOT hidden AND NOT Enlarged - if enlarged we might want it elsewhere or hidden as per user req for reward page) */}
                         {!hideStatusToggle && !enlargeProfilePic && (
-                            <div
-                                className={
-                                    heroShell
-                                        ? 'bg-white/[0.12] border border-white/25 p-1 rounded-lg flex items-center w-32'
-                                        : 'bg-gray-100 p-1 rounded-lg flex items-center w-32'
-                                }
-                            >
-                                <button
-                                    onClick={() => setIsOnDuty(true)}
-                                    type="button"
-                                    className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-all text-center ${heroShell ? (isOnDuty ? 'bg-white text-[#0095DD] shadow-sm' : 'text-white/90 hover:bg-white/[0.08]') : (isOnDuty ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}`}
-                                >
-                                    On Duty
-                                </button>
-                                <button
-                                    onClick={() => setIsOnDuty(false)}
-                                    type="button"
-                                    className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-all text-center ${heroShell ? (!isOnDuty ? 'bg-white text-[#0095DD] shadow-sm' : 'text-white/90 hover:bg-white/[0.08]') : (!isOnDuty ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}`}
-                                >
-                                    Leave
-                                </button>
-                            </div>
+                            <OnDutyFromLeaveControl
+                                ownerId={employee?._id || employee?.employeeId}
+                                seedOnLeave={showOnDutyFromLeave}
+                                heroShell={heroShell}
+                                onChanged={onOnDutyChanged}
+                            />
                         )}
 
                         {/* Name and Status - Conditional placement under Profile Pic */}

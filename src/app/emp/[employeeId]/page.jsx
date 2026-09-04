@@ -9295,6 +9295,7 @@ function EmployeeProfilePageContent() {
                                         }
                                         togglingPortalAccess={togglingPortalAccess}
                                         hideStatusToggle={isCompanyProfile}
+                                        onOnDutyChanged={() => fetchEmployee(true, true, true)}
                                         hideProgressBar={isCompanyProfile}
                                         hideRole={isCompanyProfile}
                                         hideContactNumber={isCompanyProfile}

@@ -39,6 +39,10 @@ import {
     userIsPendingAssetActionApprover,
 } from '@/utils/assetStatusHelpers';
 import { saveListReturnState } from '@/utils/listReturnNavigation';
+import {
+    ensureAssetFlowchartRoleMeta,
+    getCachedAssetFlowchartRoleMeta,
+} from '@/utils/assetFlowchartModuleAccess';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -478,6 +482,9 @@ export default function SalaryTab({
     const [selectedOnServiceAssets, setSelectedOnServiceAssets] = useState([]);
     /** Your Assets tab — same pattern as Parking; bulk return/transfer use selected IDs in BulkHolderActionModal. */
     const [selectedYourAssets, setSelectedYourAssets] = useState([]);
+    const [yourAssetsOnDutyBusy, setYourAssetsOnDutyBusy] = useState(false);
+    const [yourAssetsOnDutyPendingId, setYourAssetsOnDutyPendingId] = useState(null);
+    const [yourAssetsOnDutyCanApprove, setYourAssetsOnDutyCanApprove] = useState(false);
     const [selectedCompanyAssets, setSelectedCompanyAssets] = useState([]);
     const [extensionDays, setExtensionDays] = useState(1);
     const [extensionReason, setExtensionReason] = useState('');
@@ -664,10 +671,23 @@ export default function SalaryTab({
         return (yourAssetsAllRows || []).filter((a) => idSet.has(String(a?._id)));
     }, [yourAssetsAllRows, selectedYourAssets]);
 
+    const selectedOnLeaveYourAssetIds = useMemo(
+        () =>
+            selectedYourAssetRows
+                .filter(
+                    (asset) =>
+                        isLeaveActive(asset) &&
+                        String(asset?.assignedToType || '').toLowerCase() !== 'company',
+                )
+                .map((asset) => asset._id)
+                .filter(Boolean),
+        [selectedYourAssetRows],
+    );
+
     const selectedAssignedYourAssetIds = useMemo(
         () =>
             selectedYourAssetRows
-                .filter((a) => String(a?.status || '').trim() === 'Assigned')
+                .filter((a) => String(a?.status || '').trim() === 'Assigned' || isLeaveActive(a))
                 .map((a) => a._id)
                 .filter(Boolean),
         [selectedYourAssetRows],
@@ -906,6 +926,13 @@ export default function SalaryTab({
     const refetchAssetControllerUnassigned = useCallback(async () => {
         if (!employee?.employeeId) return;
         try {
+            const probe = await axiosInstance
+                .get(`/AssetItem/unassigned/controller/${employee.employeeId}`, {
+                    params: { checkOnly: true },
+                    skipToast: true,
+                })
+                .catch(() => null);
+            if (!probe?.data?.isAuthorized) return;
             const res = await axiosInstance
                 .get(`/AssetItem/unassigned/controller/${employee.employeeId}`, { skipToast: true })
                 .catch(() => null);
@@ -1271,6 +1298,21 @@ export default function SalaryTab({
     const isLoggedInAdmin = isAdmin();
     const isProfileOwner = loggedInEmployeeId === employee?._id;
 
+    useEffect(() => {
+        let cancelled = false;
+        ensureAssetFlowchartRoleMeta()
+            .then((meta) => {
+                if (cancelled) return;
+                setViewerIsAssetController(meta?.isAssetController === true || meta?.isAdmin === true);
+            })
+            .catch(() => {
+                if (!cancelled) setViewerIsAssetController(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const selectedPendingYourAssets = useMemo(() => {
         return selectedYourAssetRows.filter((a) => {
             if (a?.pendingAction) return false;
@@ -1279,6 +1321,7 @@ export default function SalaryTab({
     }, [selectedYourAssetRows]);
 
     const showYourAssetsAssignedReturnActions = selectedAssignedYourAssetIds.length > 0;
+    const showYourAssetsOnDutyAction = selectedOnLeaveYourAssetIds.length > 0;
 
     const showYourAssetsPendingRespondActions = selectedPendingYourAssets.length > 0;
 
@@ -1863,14 +1906,23 @@ export default function SalaryTab({
                 setSelectedCompanyTab(null);
                 setAssetSubTab('Your Assets');
             }
-            // Check Asset Controller - silently check if user is asset controller
-            // This is just a permission check, so 403 is expected for non-controllers
-            // Wrap in try-catch and completely suppress errors
+            // Probe with checkOnly so non-AC profiles return 200 instead of 403 in the console.
             (async () => {
                 try {
-                    const res = await axiosInstance.get(`/AssetItem/unassigned/controller/${employee.employeeId}`, {
-                        skipToast: true // Flag to skip toast and console errors in axios interceptor
-                    }).catch(() => null); // Catch and ignore all errors
+                    const probe = await axiosInstance
+                        .get(`/AssetItem/unassigned/controller/${employee.employeeId}`, {
+                            params: { checkOnly: true },
+                            skipToast: true,
+                        })
+                        .catch(() => null);
+                    const res =
+                        probe?.data?.isAuthorized === true
+                            ? await axiosInstance
+                                  .get(`/AssetItem/unassigned/controller/${employee.employeeId}`, {
+                                      skipToast: true,
+                                  })
+                                  .catch(() => null)
+                            : null;
 
                     if (res && res.status === 200) {
                         const controllerStatus = res.data.controllerStatus || 'Active';
@@ -2067,6 +2119,117 @@ export default function SalaryTab({
             .catch(() => null);
         if (onLeaveRes?.status === 200) {
             setOnLeaveAssets(filterOnLeaveFlagActiveAssets(onLeaveRes.data.items || []));
+        }
+    };
+
+    const refreshYourAssetsOnDutyStatus = useCallback(async () => {
+        const ownerId = employee?._id;
+        if (!ownerId) {
+            setYourAssetsOnDutyPendingId(null);
+            setYourAssetsOnDutyCanApprove(false);
+            return;
+        }
+        try {
+            const res = await axiosInstance.get(
+                `/AssetItem/owner-on-duty/status/${ownerId}`,
+                { skipToast: true },
+            );
+            setYourAssetsOnDutyPendingId(res.data?.pendingAcRequestId || null);
+            setYourAssetsOnDutyCanApprove(res.data?.canApproveAsAc === true);
+        } catch {
+            setYourAssetsOnDutyPendingId(null);
+            setYourAssetsOnDutyCanApprove(false);
+        }
+    }, [employee?._id]);
+
+    useEffect(() => {
+        void refreshYourAssetsOnDutyStatus();
+    }, [refreshYourAssetsOnDutyStatus, employee?.assets]);
+
+    const requestYourAssetsOnDuty = async () => {
+        const ids = selectedOnLeaveYourAssetIds.map((id) => String(id));
+        if (!ids.length) {
+            toast({
+                variant: 'destructive',
+                title: 'No on-leave assets selected',
+                description: 'Select an asset that is on leave, then click On Duty.',
+            });
+            return;
+        }
+        setYourAssetsOnDutyBusy(true);
+        try {
+            const roleMeta = getCachedAssetFlowchartRoleMeta();
+            const canApplyDirect =
+                isLoggedInAdmin ||
+                yourAssetsOnDutyCanApprove ||
+                viewerIsAssetController ||
+                roleMeta?.isAssetController === true ||
+                roleMeta?.isAdmin === true;
+            if (canApplyDirect) {
+                const res = await axiosInstance.post('/AssetItem/owner-on-duty/apply-direct', {
+                    triggerAssetId: ids[0],
+                    assetIds: ids,
+                });
+                toast({
+                    title: 'On Duty',
+                    description: res.data?.message || 'Asset is now On Duty.',
+                });
+                setYourAssetsOnDutyPendingId(null);
+                setSelectedYourAssets([]);
+                await refreshYourAssetsOnDutyStatus();
+                if (fetchEmployee) fetchEmployee();
+                await refreshOnLeaveParkingList();
+                return;
+            }
+            const res = await axiosInstance.post('/AssetItem/owner-on-duty/request-from-owner', {
+                triggerAssetId: ids[0],
+                assetIds: ids,
+            });
+            toast({
+                title: res.data?.alreadyPending ? 'Already pending' : 'On Duty requested',
+                description:
+                    res.data?.message ||
+                    'Request sent to the Asset Controller. Assets return to this user after they accept.',
+            });
+            setYourAssetsOnDutyPendingId(res.data?.dashboardActionId || yourAssetsOnDutyPendingId);
+            await refreshYourAssetsOnDutyStatus();
+            if (fetchEmployee) fetchEmployee();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Request failed',
+                description: error.response?.data?.message || 'Could not send On Duty request.',
+            });
+        } finally {
+            setYourAssetsOnDutyBusy(false);
+        }
+    };
+
+    const acceptYourAssetsOnDuty = async () => {
+        if (!yourAssetsOnDutyPendingId) return;
+        setYourAssetsOnDutyBusy(true);
+        try {
+            const res = await axiosInstance.put('/AssetItem/owner-on-duty/respond-ac-request', {
+                dashboardActionId: yourAssetsOnDutyPendingId,
+                approve: true,
+            });
+            toast({
+                title: 'On Duty approved',
+                description: res.data?.message || 'Assets returned to this user from leave.',
+            });
+            setYourAssetsOnDutyPendingId(null);
+            setSelectedYourAssets([]);
+            await refreshYourAssetsOnDutyStatus();
+            if (fetchEmployee) fetchEmployee();
+            await refreshOnLeaveParkingList();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Approve failed',
+                description: error.response?.data?.message || 'Could not approve On Duty.',
+            });
+        } finally {
+            setYourAssetsOnDutyBusy(false);
         }
     };
 
@@ -3060,6 +3223,37 @@ export default function SalaryTab({
                                                 <ArrowRightLeft size={14} />
                                                 TRANSFER ASSET
                                             </button>
+                                            {showYourAssetsOnDutyAction ? (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        disabled={yourAssetsOnDutyBusy || (!!yourAssetsOnDutyPendingId && !yourAssetsOnDutyCanApprove)}
+                                                        onClick={() => void requestYourAssetsOnDuty()}
+                                                        className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black hover:bg-emerald-700 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-60"
+                                                        title="Request Asset Controller to return this asset from leave"
+                                                    >
+                                                        <CheckCircle2 size={14} />
+                                                        {yourAssetsOnDutyBusy
+                                                            ? 'SENDING…'
+                                                            : yourAssetsOnDutyCanApprove
+                                                                ? 'ON DUTY'
+                                                                : yourAssetsOnDutyPendingId
+                                                                    ? 'ON DUTY (PENDING…)'
+                                                                    : 'ON DUTY'}
+                                                    </button>
+                                                    {yourAssetsOnDutyCanApprove && yourAssetsOnDutyPendingId ? (
+                                                        <button
+                                                            type="button"
+                                                            disabled={yourAssetsOnDutyBusy}
+                                                            onClick={() => void acceptYourAssetsOnDuty()}
+                                                            className="px-4 py-2 bg-sky-600 text-white rounded-xl text-[10px] font-black hover:bg-sky-700 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-60"
+                                                        >
+                                                            <CheckCircle2 size={14} />
+                                                            ACCEPT ON DUTY
+                                                        </button>
+                                                    ) : null}
+                                                </>
+                                            ) : null}
                                         </>
                                     ) : null}
                                     {showYourAssetsPendingRespondActions ? (

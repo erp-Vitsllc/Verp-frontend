@@ -233,6 +233,8 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
                 displayLabel = 'SENDING…';
             } else if (isRequestOnDutyBtn && pendingOwnerOnDutyAcRequestId && isAssignedUser && !isAuthorized) {
                 displayLabel = 'ON DUTY (PENDING...)';
+            } else if (isRequestOnDutyBtn && isAuthorized) {
+                displayLabel = 'ON DUTY';
             } else if (isRequestOnDutyBtn && isAssignedUser && !isAuthorized) {
                 displayLabel = pendingOwnerOnDutyReviewId ? 'CONFIRM ON DUTY' : 'REQUEST ON DUTY';
             } else if (isDeleteBtn && isDeleting) {

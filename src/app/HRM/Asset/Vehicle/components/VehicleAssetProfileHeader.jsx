@@ -18,6 +18,8 @@ import {
 import { collectVehicleProfilePendingItems } from '../utils/resolveVehicleProfilePendingItems';
 import VehicleProfilePendingStatusBadge from './VehicleProfilePendingStatusBadge';
 import EmployeeNameLink from '@/components/EmployeeNameLink';
+import OnDutyFromLeaveControl from '@/app/HRM/Asset/components/OnDutyFromLeaveControl';
+import { isLeaveActive } from '@/utils/assetStatusHelpers';
 
 function pickRawVehiclePhotoRef(asset) {
     // Prefer raw S3 keys (`photo`) over possibly pre-signed `imagePreview` URLs.
@@ -389,6 +391,17 @@ export default function VehicleAssetProfileHeader({
                         >
                             {fleetAssetId}
                         </p>
+                    ) : null}
+                    {isLeaveActive(asset) &&
+                    asset?.assignedTo &&
+                    String(asset?.assignedToType || '').toLowerCase() !== 'company' ? (
+                        <OnDutyFromLeaveControl
+                            ownerId={asset.assignedTo?._id || asset.assignedTo}
+                            triggerAssetId={asset?._id}
+                            seedOnLeave
+                            className="mt-1.5"
+                            onChanged={onSuccess}
+                        />
                     ) : null}
                     <div className="w-full flex items-center justify-center gap-1 min-w-0">
                         {assigneeName ? (

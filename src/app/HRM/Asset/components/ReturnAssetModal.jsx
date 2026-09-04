@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, ArrowRightLeft, Package, Undo2, ListChecks } from 'lucide-react';
+import { X, ArrowRightLeft, Package, Undo2, ListChecks, Upload, FileText } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -17,6 +17,7 @@ import {
 import AssetBulkListPreview, {
     ASSET_BULK_MORE_THRESHOLD,
 } from './AssetBulkListPreview';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 /**
  * Return Asset modal — same card layout as End of Services (TransferAssetModal),
@@ -44,6 +45,7 @@ export default function ReturnAssetModal({
 
     const [returnMode, setReturnMode] = useState('individual');
     const [returnDescription, setReturnDescription] = useState('');
+    const [returnAttachment, setReturnAttachment] = useState(null);
     const [isReturning, setIsReturning] = useState(false);
     const [confirmReturn, setConfirmReturn] = useState(false);
     const [otherAssets, setOtherAssets] = useState([]);
@@ -102,6 +104,7 @@ export default function ReturnAssetModal({
         if (!isOpen) return;
 
         setReturnDescription('');
+        setReturnAttachment(null);
         setIsReturning(false);
         setConfirmReturn(false);
 
@@ -202,6 +205,7 @@ export default function ReturnAssetModal({
             return;
         }
 
+        const attachmentPayload = returnAttachment ? { attachment: returnAttachment } : {};
         setIsReturning(true);
         try {
             const primary = ids[0];
@@ -215,6 +219,7 @@ export default function ReturnAssetModal({
                 await axiosInstance.put(`/AssetItem/${primary}/on-service-action`, {
                     action: 'Return',
                     reason,
+                    ...attachmentPayload,
                 });
                 toast({
                     title: 'Success',
@@ -225,9 +230,10 @@ export default function ReturnAssetModal({
                     await axiosInstance.put(`/AssetItem/${primary}/return`, {
                         bulkAssetIds: ids,
                         reason,
+                        ...attachmentPayload,
                     });
                 } else {
-                    await axiosInstance.put(`/AssetItem/${primary}/return`, { reason });
+                    await axiosInstance.put(`/AssetItem/${primary}/return`, { reason, ...attachmentPayload });
                 }
                 toast({
                     title: 'Success',
@@ -241,8 +247,9 @@ export default function ReturnAssetModal({
                     ? await axiosInstance.put(`/AssetItem/${primary}/return`, {
                         bulkAssetIds: ids,
                         reason,
+                        ...attachmentPayload,
                     })
-                    : await axiosInstance.put(`/AssetItem/${primary}/return`, { reason });
+                    : await axiosInstance.put(`/AssetItem/${primary}/return`, { reason, ...attachmentPayload });
                 toast({
                     title: 'Success',
                     description:
@@ -630,6 +637,52 @@ export default function ReturnAssetModal({
                             placeholder="Describe why this asset is being returned…"
                             className="w-full px-4 py-3 bg-white border border-rose-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-400/10 transition-all placeholder:text-slate-300 placeholder:font-normal resize-y min-h-[96px]"
                         />
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest pl-1">
+                            Attachment (Optional)
+                        </label>
+                        <div className="relative group">
+                            <input
+                                type="file"
+                                accept={ERP_ATTACHMENT_ACCEPT}
+                                onChange={(e) => {
+                                    const selectedFile = e.target.files?.[0];
+                                    if (!selectedFile) return;
+                                    const check = validateErpUploadFile(selectedFile);
+                                    if (!check.ok) {
+                                        toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+                                        if (e.target) e.target.value = '';
+                                        return;
+                                    }
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => setReturnAttachment(reader.result);
+                                    reader.readAsDataURL(selectedFile);
+                                }}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                            />
+                            <div className="w-full flex items-center gap-4 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm group-hover:border-slate-300">
+                                <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-400">
+                                    <Upload size={18} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    {returnAttachment ? (
+                                        <p className="font-bold text-slate-700 truncate flex items-center gap-2">
+                                            <FileText size={14} className="text-emerald-600 shrink-0" />
+                                            File selected
+                                        </p>
+                                    ) : (
+                                        <div>
+                                            <p className="font-bold text-slate-600">Click or drag file to upload</p>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">
+                                                PDF (max 5 MB) or JPEG (max 2 MB)
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     {handoverTarget && (

@@ -64,6 +64,7 @@ export default function LinkContextMenuHost() {
             <button
                 type="button"
                 role="menuitem"
+                data-no-action-guard="true"
                 className="block w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                 onClick={() => run(openLinkInNewTab)}
             >
@@ -72,6 +73,7 @@ export default function LinkContextMenuHost() {
             <button
                 type="button"
                 role="menuitem"
+                data-no-action-guard="true"
                 className="block w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                 onClick={() => run(openLinkInNewWindow)}
             >

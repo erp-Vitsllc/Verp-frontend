@@ -51,20 +51,41 @@ function isQuantityBasis(basis) {
     return /\d/.test(text) || /\b(days?|hours?|h|events?)\b/i.test(text);
 }
 
-/** Put Monthly / Annual / Approved / Mobile in the name; keep quantity period boxes. */
+function isCalendarPeriod(basis) {
+    return /^(yearly|annual|annually|monthly|month)$/i.test(String(basis || '').trim());
+}
+
+function cleanComponentName(name) {
+    return String(name || '').replace(/\s*\(\s*yearly\s*\)/gi, '').trim();
+}
+
+function shouldShowPeriodInput(name, basis, kind) {
+    if (KEEP_PERIOD_COMPONENTS.has(name)) return true;
+    const text = String(basis || '').trim();
+    if (isQuantityBasis(text)) return true;
+    if (kind === 'earn' || isCalendarPeriod(text)) return false;
+    if (/^mobile$/i.test(text)) return false;
+    const isUtility = String(name || '').toLowerCase() === 'utility excess';
+    if (isUtility && text && !/^(schedule|installment|monthly)$/i.test(text)) return false;
+    return false;
+}
+
+/** Put Approved / Mobile in the name; never append Yearly or Monthly. */
 function inlinePeriodLabel(name, basis, kind) {
     if (KEEP_PERIOD_COMPONENTS.has(name)) return '';
     const text = String(basis || '').trim();
-    if (kind === 'earn') {
-        if (isQuantityBasis(text)) return '';
-        return text || 'Monthly';
-    }
+    if (isCalendarPeriod(text) || isQuantityBasis(text)) return '';
+    if (kind === 'earn') return text;
     if (/^mobile$/i.test(text)) return text;
     const isUtility = String(name || '').toLowerCase() === 'utility excess';
-    if (isUtility && text && !isQuantityBasis(text) && !/^(schedule|installment|monthly)$/i.test(text)) {
-        return text;
-    }
+    if (isUtility && text && !/^(schedule|installment|monthly)$/i.test(text)) return text;
     return '';
+}
+
+function fieldLabel(name, basis, kind) {
+    const cleaned = cleanComponentName(name);
+    const suffix = inlinePeriodLabel(cleaned, basis, kind);
+    return suffix ? `${cleaned} (${suffix})` : cleaned;
 }
 
 function moneyInputValue(value) {
@@ -99,9 +120,8 @@ function AmountTableRow({
     tone = 'earn',
     showPeriodCol = true,
 }) {
-    const inlineBasis = inlinePeriodLabel(label, basis, kind);
-    const showPeriod = !inlineBasis;
-    const title = inlineBasis ? `${label} (${inlineBasis})` : label;
+    const showPeriod = shouldShowPeriodInput(label, basis, kind);
+    const title = fieldLabel(label, basis, kind);
     return (
         <tr className="border-b border-[#F1F5F9] last:border-b-0">
             <td className="px-3 py-2.5 text-sm font-semibold text-[#0F172A]">{title}</td>
@@ -344,6 +364,7 @@ function EarningGroupCard({
     tone = 'earn',
     kind = 'earn',
     amountFor,
+    showTitle = true,
 }) {
     const isDeduct = tone === 'deduct';
     const footClass = isDeduct
@@ -366,12 +387,12 @@ function EarningGroupCard({
             amount: amountFor ? amountFor(row.component, row) : row.amount,
         })),
     ];
-    const showPeriodCol = items.some((item) => !inlinePeriodLabel(item.label, item.basis, kind));
+    const showPeriodCol = items.some((item) => shouldShowPeriodInput(item.label, item.basis, kind));
     const headers = showPeriodCol ? ['Component', 'Period', 'Amount'] : ['Component', 'Amount'];
     return (
-        <div className="min-w-0">
-            <h4 className="mb-2 text-sm font-bold text-gray-800">{title}</h4>
-            <div className="overflow-x-auto rounded-xl border border-[#EEF2F6]">
+        <div className="flex h-full min-w-0 flex-col rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+            {showTitle ? <h4 className="mb-3 text-sm font-bold text-gray-800">{title}</h4> : null}
+            <div className="flex-1 overflow-x-auto rounded-xl border border-[#EEF2F6]">
                 <table className="w-full table-fixed border-collapse text-left text-sm">
                     <thead>
                         <tr className="bg-[#F8FAFC]">
@@ -477,15 +498,15 @@ export default function SalarySlipCards({ slip, onPatch }) {
                 ) : null}
             </div>
 
-            <div className="grid w-full min-w-0 grid-cols-1 items-start gap-6 xl:grid-cols-2">
-                <FineFormCard
-                    icon={CalendarRange}
-                    iconBg="bg-teal-50"
-                    iconColor="text-teal-600"
-                    title="Earnings"
-                    subtitle="Yearly salary, plus reward, overtime, leave salary and travel of this salary month"
-                >
-                    <div className="grid grid-cols-1 items-start gap-4 min-[900px]:grid-cols-2">
+            <FineFormCard
+                icon={CalendarRange}
+                iconBg="bg-teal-50"
+                iconColor="text-teal-600"
+                title="Earnings"
+                subtitle="Salary earnings and other earnings"
+            >
+                <div className="rounded-2xl bg-[#F8FAFC] p-3 sm:p-4">
+                    <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
                         <EarningGroupCard
                             title="Salary earnings"
                             names={YEARLY_SALARY_EARNING_CATALOG}
@@ -498,7 +519,7 @@ export default function SalarySlipCards({ slip, onPatch }) {
                             defaultBasis="Yearly"
                         />
                         <EarningGroupCard
-                            title="Other earnings (yearly)"
+                            title="Other earnings"
                             names={YEARLY_OTHER_EARNING_CATALOG}
                             extras={extraYearlyEarnings}
                             rows={slip?.yearlyEarnings}
@@ -509,30 +530,19 @@ export default function SalarySlipCards({ slip, onPatch }) {
                             defaultBasis="Yearly"
                         />
                     </div>
-                    <div className="mt-4">
-                        <EarningGroupCard
-                            title="This month"
-                            names={OTHER_EARNING_CATALOG}
-                            extras={extraEarnings}
-                            rows={slip?.earnings}
-                            section="earnings"
-                            onPatch={onPatch}
-                            totalLabel="This month extras total"
-                            total={otherEarningsTotal}
-                            defaultBasis="Monthly"
-                        />
-                    </div>
-                    <GroupTotal label="Yearly earnings total" value={slip?.yearlyGrossEarnings} />
-                </FineFormCard>
+                </div>
+                <GroupTotal label="Total earnings" value={slip?.yearlyGrossEarnings} />
+            </FineFormCard>
 
-                <FineFormCard
-                    icon={MinusCircle}
-                    iconBg="bg-rose-50"
-                    iconColor="text-rose-600"
-                    title="Deductions"
-                    subtitle="Loss of pay and other deductions this month"
-                >
-                    <div className="grid grid-cols-1 items-start gap-4 min-[900px]:grid-cols-2">
+            <FineFormCard
+                icon={MinusCircle}
+                iconBg="bg-rose-50"
+                iconColor="text-rose-600"
+                title="Deductions"
+                subtitle="Loss of pay and other deductions this month"
+            >
+                <div className="rounded-2xl bg-[#F8FAFC] p-3 sm:p-4">
+                    <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
                         <EarningGroupCard
                             title="Loss of pay"
                             names={LOSS_OF_PAY_CATALOG}
@@ -560,9 +570,32 @@ export default function SalarySlipCards({ slip, onPatch }) {
                             amountFor={(name, row) => liveDeductionAmount(slip, name, row)}
                         />
                     </div>
-                    <GroupTotal label="Deductions total" value={slip?.totalDeductions} tone="deduct" />
-                </FineFormCard>
-            </div>
+                </div>
+                <GroupTotal label="Deductions total" value={slip?.totalDeductions} tone="deduct" />
+            </FineFormCard>
+
+            <FineFormCard
+                icon={CalendarRange}
+                iconBg="bg-teal-50"
+                iconColor="text-teal-600"
+                title="This month"
+                subtitle="Overtime and extra earnings this salary month"
+            >
+                <div className="rounded-2xl bg-[#F8FAFC] p-3 sm:p-4">
+                    <EarningGroupCard
+                        title="This month"
+                        names={OTHER_EARNING_CATALOG}
+                        extras={extraEarnings}
+                        rows={slip?.earnings}
+                        section="earnings"
+                        onPatch={onPatch}
+                        totalLabel="This month extras total"
+                        total={otherEarningsTotal}
+                        defaultBasis="Monthly"
+                        showTitle={false}
+                    />
+                </div>
+            </FineFormCard>
 
             <div className="grid w-full min-w-0 grid-cols-1 items-start gap-6 xl:grid-cols-2">
                 <FineFormCard

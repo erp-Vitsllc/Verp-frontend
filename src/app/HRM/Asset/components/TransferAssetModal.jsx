@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, ArrowRightLeft, Package, CalendarClock, PackageX, ListChecks } from 'lucide-react';
+import { X, ArrowRightLeft, Package, CalendarClock, PackageX, ListChecks, Upload, FileText } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -15,6 +15,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { MAX_ASSET_LEAVE_DAYS } from '@/utils/assetStatusHelpers';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import AssetBulkListPreview, {
     ASSET_BULK_MORE_THRESHOLD,
 } from './AssetBulkListPreview';
@@ -43,6 +44,8 @@ export default function TransferAssetModal({
     const [transferMode, setTransferMode] = useState('individual');
     const [actionOption, setActionOption] = useState('Leave');
     const [leaveDuration, setLeaveDuration] = useState('');
+    const [requestDescription, setRequestDescription] = useState('');
+    const [requestAttachment, setRequestAttachment] = useState(null);
 
     const [otherAssets, setOtherAssets] = useState([]);
     const [selectedAssetIds, setSelectedAssetIds] = useState([]);
@@ -131,6 +134,8 @@ export default function TransferAssetModal({
             initialActionOption === 'End of Services' ? 'End of Services' : 'Leave';
         setActionOption(initial);
         setLeaveDuration('');
+        setRequestDescription('');
+        setRequestAttachment(null);
         setConfirmTransfer(false);
 
         if (hasPreset) {
@@ -203,33 +208,44 @@ export default function TransferAssetModal({
 
         setSubmitting(true);
         try {
-            const reasonText =
-                actionOption === 'Leave'
+            const reasonText = requestDescription.trim()
+                || (actionOption === 'Leave'
                     ? `Leave duration: ${leaveDuration} days`
-                    : 'End of Services return requested';
+                    : 'End of Services return requested');
 
+            let res;
             if (assetsToTransfer.length > 1) {
                 const payload = {
                     assetIds: assetsToTransfer,
                     actionType: actionOption,
                     reason: reasonText,
+                    ...(requestAttachment ? { attachment: requestAttachment } : {}),
                 };
                 if (actionOption === 'Leave') {
                     payload.duration = parseInt(leaveDuration, 10);
                     payload.leaveDuration = parseInt(leaveDuration, 10);
                 }
-                await axiosInstance.put(`/AssetItem/bulk/request-action`, payload);
+                res = await axiosInstance.put(`/AssetItem/bulk/request-action`, payload);
             } else {
                 const id = assetsToTransfer[0];
-                const payload = { actionType: actionOption, reason: reasonText };
+                const payload = {
+                    actionType: actionOption,
+                    reason: reasonText,
+                    ...(requestAttachment ? { attachment: requestAttachment } : {}),
+                };
                 if (actionOption === 'Leave') {
                     payload.duration = parseInt(leaveDuration, 10);
                     payload.leaveDuration = parseInt(leaveDuration, 10);
                 }
-                await axiosInstance.put(`/AssetItem/${id}/request-action`, payload);
+                res = await axiosInstance.put(`/AssetItem/${id}/request-action`, payload);
             }
 
-            const msg = `${actionOption} request sent to ${forwardTargetLabel} for ${assetsToTransfer.length} asset${assetsToTransfer.length > 1 ? 's' : ''}.`;
+            const appliedDirectly = res?.data?.appliedDirectly === true;
+            const msg =
+                res?.data?.message ||
+                (appliedDirectly
+                    ? `${assetsToTransfer.length} asset${assetsToTransfer.length > 1 ? 's' : ''} placed On Leave.`
+                    : `${actionOption} request sent to Asset Controller for ${assetsToTransfer.length} asset${assetsToTransfer.length > 1 ? 's' : ''}.`);
             toast({ title: 'Success', description: msg });
 
             if (onUpdate) onUpdate();
@@ -245,9 +261,15 @@ export default function TransferAssetModal({
 
     if (!isOpen || !primaryAsset) return null;
 
-    const forwardTargetLabel =
-        isAssetController && !isAssignedUser ? 'Asset Owner' : 'Asset Controller';
-    const forwardButtonText = `Forward to ${forwardTargetLabel}`;
+    const acDirectLeave = actionOption === 'Leave' && isAssetController;
+    const forwardTargetLabel = acDirectLeave
+        ? null
+        : isAssetController && !isAssignedUser && actionOption !== 'Leave'
+            ? 'Asset Owner'
+            : 'Asset Controller';
+    const forwardButtonText = acDirectLeave
+        ? 'Set On Leave'
+        : `Forward to ${forwardTargetLabel}`;
     const assigneeName =
         primaryAsset?.assignedTo?.firstName ||
         primaryAsset?.assignedTo?.name ||
@@ -611,6 +633,69 @@ export default function TransferAssetModal({
                             />
                         </div>
                     )}
+
+                    <div className="space-y-2">
+                        <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest pl-1">
+                            Description <span className="text-rose-500">*</span>
+                        </label>
+                        <textarea
+                            value={requestDescription}
+                            onChange={(e) => setRequestDescription(e.target.value)}
+                            rows={4}
+                            placeholder={
+                                actionOption === 'Leave'
+                                    ? 'Describe why this asset is going on leave…'
+                                    : 'Describe why this asset is being returned for End of Services…'
+                            }
+                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-400/10 transition-all placeholder:text-slate-300 placeholder:font-normal resize-y min-h-[96px]"
+                        />
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest pl-1">
+                            Attachment (Optional)
+                        </label>
+                        <div className="relative group">
+                            <input
+                                type="file"
+                                accept={ERP_ATTACHMENT_ACCEPT}
+                                onChange={(e) => {
+                                    const selectedFile = e.target.files?.[0];
+                                    if (!selectedFile) return;
+                                    const check = validateErpUploadFile(selectedFile);
+                                    if (!check.ok) {
+                                        toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+                                        if (e.target) e.target.value = '';
+                                        return;
+                                    }
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => setRequestAttachment(reader.result);
+                                    reader.readAsDataURL(selectedFile);
+                                }}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                            />
+                            <div className="w-full flex items-center gap-4 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm group-hover:border-slate-300">
+                                <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-400">
+                                    <Upload size={18} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    {requestAttachment ? (
+                                        <p className="font-bold text-slate-700 truncate flex items-center gap-2">
+                                            <FileText size={14} className="text-emerald-600 shrink-0" />
+                                            File selected
+                                        </p>
+                                    ) : (
+                                        <div>
+                                            <p className="font-bold text-slate-600">Click or drag file to upload</p>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">
+                                                PDF (max 5 MB) or JPEG (max 2 MB)
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex gap-4">
@@ -624,6 +709,13 @@ export default function TransferAssetModal({
                     <button
                         type="button"
                         onClick={() => {
+                            if (!requestDescription.trim()) {
+                                return toast({
+                                    variant: 'destructive',
+                                    title: 'Description required',
+                                    description: 'Please enter a description for this request.',
+                                });
+                            }
                             if (actionOption === 'Leave') {
                                 const duration = parseInt(leaveDuration, 10);
                                 if (
@@ -666,8 +758,12 @@ export default function TransferAssetModal({
                                         ? `${selectedAssetIds.length} asset(s)`
                                         : `"${primaryAsset?.name}"`}
                                 </span>
-                                ? This will notify the {forwardTargetLabel} to update the status to{' '}
-                                {actionOption === 'Leave' ? '"On Leave"' : '"Unassigned"'}.
+                                ?{' '}
+                                {acDirectLeave
+                                    ? 'This will set the status to "On Leave" now. No further approval is required.'
+                                    : `This will notify the ${forwardTargetLabel} to update the status to ${
+                                        actionOption === 'Leave' ? '"On Leave"' : '"Unassigned"'
+                                    }.`}
                             </span>
                             {actionOption === 'Leave' &&
                                 leaveDuration &&

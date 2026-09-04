@@ -119,15 +119,25 @@ export const getAssetWaitingForMeta = (asset) => {
         const delegatedToReportee =
             asset.pendingActionDetails?.ownerApprovalDelegated === true ||
             (!!waitingId && !!reporteeId && waitingId === reporteeId);
-        const pendingLeaveOrReturn =
-            asset.pendingAction === 'Leave' || asset.pendingAction === 'Return Asset';
+
+        if (asset.pendingAction === 'Leave') {
+            const name =
+                storedName ||
+                arName ||
+                empDisplayNameFromRef(asset.designatedAssetController) ||
+                empDisplayNameFromRef(asset.assetController);
+            if (!name) return { name: '', kind: '' };
+            return { name, kind: 'other' };
+        }
+
+        const pendingReturn = asset.pendingAction === 'Return Asset';
         const showingAc =
-            pendingLeaveOrReturn &&
+            pendingReturn &&
             !assigneeStarted &&
             !!acId &&
             ((waitingId && waitingId === acId) || (arId && arId === acId));
 
-        if (!assigneeStarted && pendingLeaveOrReturn) {
+        if (!assigneeStarted && pendingReturn) {
             if (delegatedToReportee && reporteeName) {
                 return { name: reporteeName, kind: 'reportee' };
             }

@@ -33,6 +33,8 @@ export default function ToolsAssetProfileHeaderCards({
     /** When set, shows RETURN in the 6th slot instead of OTHERS. */
     onOpenReturnActions,
     returnActionsDisabled = false,
+    /** Evaluated On Duty action — rendered beside RETURN while the asset is on leave. */
+    onDutyAction = null,
 }) {
     const totalValue =
         (Number(asset?.assetValue) || 0) +
@@ -108,6 +110,16 @@ export default function ToolsAssetProfileHeaderCards({
                             ) : null}
                             <p className="text-[14px] font-black text-emerald-700 mt-3">
                                 {new Intl.NumberFormat().format(totalValue)} AED
+                            </p>
+                            <p className="text-[12px] font-bold text-slate-500 mt-1">
+                                Purchase Date:{' '}
+                                {asset?.purchaseDate
+                                    ? new Date(asset.purchaseDate).toLocaleDateString('en-GB', {
+                                        day: '2-digit',
+                                        month: 'short',
+                                        year: 'numeric',
+                                    })
+                                    : '—'}
                             </p>
                             <p className="text-[12px] font-bold text-slate-500 mt-1">{warrantyRemaining}</p>
 
@@ -282,6 +294,25 @@ export default function ToolsAssetProfileHeaderCards({
                                         }`}
                                 >
                                     RETURN
+                                </button>
+                            ) : null}
+                            {onDutyAction ? (
+                                <button
+                                    type="button"
+                                    disabled={onDutyAction.disabled}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!onDutyAction.disabled) onDutyAction.onClick?.();
+                                    }}
+                                    className={`${ACTION_BTN_BASE} ${onDutyAction.disabled
+                                        ? 'opacity-50 cursor-not-allowed bg-slate-200/90 text-slate-500'
+                                        : 'hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-emerald-900'
+                                        }`}
+                                    style={{
+                                        backgroundColor: onDutyAction.disabled ? undefined : '#bbf7d0',
+                                    }}
+                                >
+                                    {onDutyAction.loading ? 'Please wait…' : onDutyAction.displayLabel || 'ON DUTY'}
                                 </button>
                             ) : null}
                         </div>

@@ -63,6 +63,10 @@ import TransferAccessoryModal from '../../components/TransferAccessoryModal';
 import AssignAssetModal from '../../components/AssignAssetModal';
 import TransferAssetModal from '../../components/TransferAssetModal';
 import ReturnAssetModal from '../../components/ReturnAssetModal';
+import PendingAssetRequestViewModal, {
+    buildPendingRequestView,
+    PendingRequestDetailsPanel,
+} from '../../components/PendingAssetRequestViewModal';
 import ToolsAssetProfileHeaderCards from '../../components/ToolsAssetProfileHeaderCards';
 import AssetHeaderChoiceModal from '../../components/AssetHeaderChoiceModal';
 import BulkAssignAssetModal from '../../components/BulkAssignAssetModal';
@@ -390,6 +394,7 @@ function AssetDetailsPageContent() {
     const [showEndOfLifeModal, setShowEndOfLifeModal] = useState(false);
     const [assetActionType, setAssetActionType] = useState('End of Life');
     const [showRejectDialog, setShowRejectDialog] = useState(false);
+    const [pendingRequestView, setPendingRequestView] = useState(null);
     const [approvalComment, setApprovalComment] = useState('');
     const [isProcessingApproval, setIsProcessingApproval] = useState(false);
     const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', description: '' });
@@ -882,24 +887,18 @@ function AssetDetailsPageContent() {
 
         setRequestingOwnerOnDuty(true);
         try {
-            await axiosInstance.post('/AssetItem/owner-on-duty/request', {
-                ownerEmployeeId: ownerId,
+            const res = await axiosInstance.post('/AssetItem/owner-on-duty/apply-direct', {
                 triggerAssetId: asset._id,
                 assetIds: [asset._id],
             });
             toast({
-                title: 'Request sent',
-                description:
-                    'On duty confirmation request sent to the asset owner. They must confirm from their notification or this asset page.',
+                title: 'On Duty',
+                description: res.data?.message || 'Asset is now On Duty.',
             });
-            const inboxRes = await axiosInstance
-                .get('/AssetItem/dashboard/pending-inbox', { skipToast: true })
-                .catch(() => null);
-            if (inboxRes?.data?.items) {
-                setPendingOwnerOnDutyReviewId(
-                    findOwnerOnDutyReviewForAsset(inboxRes.data.items, asset._id),
-                );
-            }
+            setPendingOwnerOnDutyReviewId(null);
+            setPendingOwnerOnDutyAcRequestId(null);
+            fetchAssetDetails();
+            fetchAssetHistory();
         } catch (e) {
             toast({
                 variant: 'destructive',
@@ -1591,6 +1590,16 @@ function AssetDetailsPageContent() {
         setViewingDocument({ ...resolved, loading: false });
     }, [toast]);
 
+    const openPendingRequestView = useCallback((source, fallbackAction = '') => {
+        setPendingRequestView(buildPendingRequestView(source, fallbackAction));
+    }, []);
+
+    const pendingRequestViewButtonClass =
+        'px-6 py-3 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-slate-100';
+    const pendingAccessoryViewButtonClass =
+        'flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white text-slate-700 text-[10px] font-black hover:bg-slate-50 transition-all uppercase tracking-tighter shadow-sm';
+
+
     const handleFileUpload = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -2166,7 +2175,7 @@ function AssetDetailsPageContent() {
             {
                 tier: 'other',
                 label: 'Request On Duty',
-                displayLabel: 'REQUEST ON DUTY',
+                displayLabel: 'ON DUTY',
                 onClick: () => handleRequestOwnerOnDuty(),
                 disabled: requestingOwnerOnDuty,
             },
@@ -2713,17 +2722,10 @@ function AssetDetailsPageContent() {
                                 const serviceDaysRemaining = activeServiceRecord?.expiryDate
                                     ? getRemainingDaysUntil(activeServiceRecord.expiryDate)
                                     : null;
-                                const leaveDaysRemaining = asset?.onLeaveEndDate
-                                    ? getRemainingDaysUntil(asset.onLeaveEndDate)
-                                    : null;
                                 const isServiceDurationDue =
                                     isOnServiceFlagActive(asset) &&
                                     serviceDaysRemaining != null &&
                                     serviceDaysRemaining <= 0;
-                                const isLeaveDurationDue =
-                                    isOnLeaveFlagActive(asset) &&
-                                    leaveDaysRemaining != null &&
-                                    (leaveDaysRemaining <= 0 || leaveDaysRemaining <= 5);
                                 const assignedOwnerId =
                                     asset?.assignedTo?._id?.toString?.() ||
                                     asset?.assignedTo?.toString?.() ||
@@ -2736,30 +2738,10 @@ function AssetDetailsPageContent() {
                                     userIsAdmin ||
                                     isAssignedOwnerUser;
 
-                                if (
-                                    canSeeOperationalExpiryBanner &&
-                                    (isServiceDurationDue || isLeaveDurationDue)
-                                ) {
-                                    const endsToday =
-                                        (isServiceDurationDue && serviceDaysRemaining === 0) ||
-                                        (isLeaveDurationDue && leaveDaysRemaining === 0);
-                                    const leaveEndsSoon =
-                                        isLeaveDurationDue &&
-                                        leaveDaysRemaining != null &&
-                                        leaveDaysRemaining > 0 &&
-                                        leaveDaysRemaining <= 5;
-                                    const expiryLabel = endsToday
-                                        ? 'ends today'
-                                        : leaveEndsSoon
-                                            ? `ends in ${leaveDaysRemaining} day(s)`
-                                            : 'has expired';
+                                if (canSeeOperationalExpiryBanner && isServiceDurationDue) {
+                                    const endsToday = serviceDaysRemaining === 0;
+                                    const expiryLabel = endsToday ? 'ends today' : 'has expired';
                                     const serviceMessage = `Service duration ${expiryLabel}. Extend the duration or mark the asset Live.`;
-                                    const leaveMessage = `On Leave duration ${expiryLabel}. Extend the duration or mark the asset On Duty.`;
-                                    const bannerMessage = isServiceDurationDue && isLeaveDurationDue
-                                        ? `${serviceMessage} ${leaveMessage}`
-                                        : isServiceDurationDue
-                                            ? serviceMessage
-                                            : leaveMessage;
 
                                     return (
                                         <div
@@ -2771,14 +2753,14 @@ function AssetDetailsPageContent() {
                                             </div>
                                             <div className="flex-1 min-w-[200px]">
                                                 <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest leading-none mb-1">
-                                                    Duration {endsToday ? 'Ends Today' : leaveEndsSoon ? 'Ending Soon' : 'Expired'}
+                                                    Duration {endsToday ? 'Ends Today' : 'Expired'}
                                                 </p>
                                                 <p className="text-[13px] font-bold text-orange-900 leading-snug">
-                                                    {bannerMessage}
+                                                    {serviceMessage}
                                                 </p>
                                             </div>
                                             <div className="flex items-center gap-2 flex-wrap shrink-0">
-                                                {isServiceDurationDue && (isAssetController || userIsAdmin) && (
+                                                {(isAssetController || userIsAdmin) && (
                                                     <button
                                                         type="button"
                                                         onClick={() => {
@@ -2791,31 +2773,13 @@ function AssetDetailsPageContent() {
                                                         Extend Service
                                                     </button>
                                                 )}
-                                                {isServiceDurationDue && (isAssetController || userIsAdmin || isAssignedOwnerUser) && (
+                                                {(isAssetController || userIsAdmin || isAssignedOwnerUser) && (
                                                     <button
                                                         type="button"
                                                         onClick={() => setShowMarkAsLiveModal(true)}
                                                         className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
                                                     >
                                                         Mark Live
-                                                    </button>
-                                                )}
-                                                {isLeaveDurationDue && (isAssetController || userIsAdmin || isAssignedOwnerUser) && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleRequestOwnerOnDuty()}
-                                                        disabled={requestingOwnerOnDuty || (!!pendingOwnerOnDutyAcRequestId && isAssignedOwnerUser && !isAssetController && !userIsAdmin)}
-                                                        className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
-                                                    >
-                                                        {requestingOwnerOnDuty
-                                                            ? 'Sending...'
-                                                            : isAssignedOwnerUser && !isAssetController && !userIsAdmin
-                                                                ? pendingOwnerOnDutyReviewId
-                                                                    ? 'Confirm On Duty'
-                                                                    : pendingOwnerOnDutyAcRequestId
-                                                                        ? 'On Duty (Pending...)'
-                                                                        : 'Request On Duty'
-                                                                : 'Request On Duty'}
                                                     </button>
                                                 )}
                                             </div>
@@ -2904,7 +2868,24 @@ function AssetDetailsPageContent() {
                                                     <strong>{pendingAccessoryForAc.pendingAction}</strong> requested for accessory{' '}
                                                     <strong>{pendingAccessoryForAc.name}</strong> — review in the Accessories tab below.
                                                 </p>
+                                                {pendingAccessoryForAc.pendingActionDetails?.reason ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openPendingRequestView(pendingAccessoryForAc, pendingAccessoryForAc.pendingAction)}
+                                                        className="mt-1 text-left text-[12px] font-medium text-rose-800/80 line-clamp-2 underline decoration-dotted underline-offset-2"
+                                                    >
+                                                        {pendingAccessoryForAc.pendingActionDetails.reason}
+                                                    </button>
+                                                ) : null}
                                             </div>
+                                            <div className="flex items-center gap-2 flex-wrap shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => openPendingRequestView(pendingAccessoryForAc, pendingAccessoryForAc.pendingAction)}
+                                                className={pendingRequestViewButtonClass}
+                                            >
+                                                View
+                                            </button>
                                             <button
                                                 type="button"
                                                 onClick={() => navigateToAssetTab('accessories')}
@@ -2912,6 +2893,7 @@ function AssetDetailsPageContent() {
                                             >
                                                 Review accessory
                                             </button>
+                                            </div>
                                         </div>
                                     );
                                 }
@@ -2955,8 +2937,25 @@ function AssetDetailsPageContent() {
                                                             ? 'Approve the return — review each asset in the next step.'
                                                             : 'Approve the transfer — review each asset in the next step.'}
                                                     </p>
+                                                    {asset.pendingActionDetails?.reason ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openPendingRequestView(asset)}
+                                                            className="mt-1 text-left text-[12px] font-medium text-rose-800/80 line-clamp-2 underline decoration-dotted underline-offset-2"
+                                                        >
+                                                            {asset.pendingActionDetails.reason}
+                                                        </button>
+                                                    ) : null}
                                                 </div>
                                                 <div className="flex items-center gap-2 flex-wrap shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openPendingRequestView(asset)}
+                                                        disabled={isProcessingApproval}
+                                                        className={pendingRequestViewButtonClass}
+                                                    >
+                                                        View
+                                                    </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => {
@@ -3000,8 +2999,8 @@ function AssetDetailsPageContent() {
                                                                 : '(Bulk transfer)'
                                                             : ''}
                                                     </p>
-                                                    <p className="text-[13px] font-bold text-red-900 leading-none">
-                                                        {asset.pendingAction} request requires your approval.
+                                                    <p className="text-[13px] font-bold text-red-900 leading-snug">
+                                                        {asset.pendingActionDetails?.originalActionType || asset.pendingAction} request requires your approval.
                                                         {isBulkTransfer && bulkAssetIds.length > 0 && (
                                                             <span className="block text-[11px] font-semibold text-red-700 mt-1">
                                                                 {asset.pendingAction === 'Return Asset'
@@ -3010,6 +3009,15 @@ function AssetDetailsPageContent() {
                                                             </span>
                                                         )}
                                                     </p>
+                                                    {asset.pendingActionDetails?.reason ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openPendingRequestView(asset)}
+                                                            className="mt-1 text-left text-[12px] font-medium text-red-800/80 line-clamp-2 underline decoration-dotted underline-offset-2"
+                                                        >
+                                                            {asset.pendingActionDetails.reason}
+                                                        </button>
+                                                    ) : null}
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     {/* View supporting data / open fine modal (Loss & Damage) */}
@@ -3041,7 +3049,7 @@ function AssetDetailsPageContent() {
                                                                     setShowDamageModal(true);
                                                                 }}
                                                                 disabled={isProcessingApproval}
-                                                                className="px-6 py-3 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-slate-100"
+                                                                className={pendingRequestViewButtonClass}
                                                             >
                                                                 View
                                                             </button>
@@ -3056,6 +3064,14 @@ function AssetDetailsPageContent() {
                                                     )}
                                                     {asset?.pendingAction !== 'Loss and Damage' && (
                                                         <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => openPendingRequestView(asset)}
+                                                                disabled={isProcessingApproval}
+                                                                className={pendingRequestViewButtonClass}
+                                                            >
+                                                                View
+                                                            </button>
                                                             <button
                                                                 onClick={() => {
                                                                     handleApproveAction(true);
@@ -3177,6 +3193,9 @@ function AssetDetailsPageContent() {
                         primaryActionButtons={toolsHeaderPrimaryButtons}
                         onOpenReturnActions={() => setShowReturnChoiceModal(true)}
                         returnActionsDisabled={returnHeaderActionsDisabled}
+                        onDutyAction={
+                            toolsHeaderOtherButtons.find((button) => button.label === 'Request On Duty') || null
+                        }
                     />
 
                     <AssetHeaderChoiceModal
@@ -3586,6 +3605,17 @@ function AssetDetailsPageContent() {
                                                                                                     disabled={isAccessoryTabLocked}
                                                                                                     onClick={() => {
                                                                                                         if (isAccessoryTabLocked) return;
+                                                                                                        openPendingRequestView(acc, acc.pendingAction);
+                                                                                                    }}
+                                                                                                    className={`${pendingAccessoryViewButtonClass} ${isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                                                >
+                                                                                                    View
+                                                                                                </button>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    disabled={isAccessoryTabLocked}
+                                                                                                    onClick={() => {
+                                                                                                        if (isAccessoryTabLocked) return;
                                                                                                         // For Loss and Damage, open the Loss and Damage form modal directly
                                                                                                         if (acc.pendingAction === 'Loss and Damage' && !acc.pendingActionDetails?.fineData) {
                                                                                                             // Open Loss and Damage modal with accessory data
@@ -3979,6 +4009,12 @@ function AssetDetailsPageContent() {
                         isOpen={!!viewingDocument}
                         onClose={() => setViewingDocument(null)}
                         viewingDocument={viewingDocument}
+                    />
+                    <PendingAssetRequestViewModal
+                        isOpen={!!pendingRequestView}
+                        request={pendingRequestView}
+                        onClose={() => setPendingRequestView(null)}
+                        onOpenAttachment={openFilePreview}
                     />
 
                     {/* History Detail Modal - Shows Snapshot */}
@@ -4895,8 +4931,16 @@ function AssetDetailsPageContent() {
                                     Reject Request?
                                 </h3>
                                 <AlertDialogDescription className="text-slate-500 text-sm font-medium leading-relaxed px-2 mb-6">
-                                    You are about to reject the <span className="text-rose-600 font-bold">{asset?.pendingAction}</span> request. The asset will return to its previous state.
+                                    You are about to reject the <span className="text-rose-600 font-bold">{asset?.pendingActionDetails?.originalActionType || asset?.pendingAction}</span> request. The asset will return to its previous state.
                                 </AlertDialogDescription>
+                                {asset ? (
+                                    <div className="mb-6 text-left">
+                                        <PendingRequestDetailsPanel
+                                            request={buildPendingRequestView(asset)}
+                                            onOpenAttachment={openFilePreview}
+                                        />
+                                    </div>
+                                ) : null}
 
                                 <div className="space-y-4">
                                     <div className="text-left">
@@ -5044,16 +5088,31 @@ function AssetDetailsPageContent() {
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
 
-                            <div className="px-6 py-5">
-                                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
-                                    Rejection Reason
-                                </label>
-                                <textarea
-                                    className="w-full min-h-[100px] px-4 py-3 text-sm rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-rose-300 focus:border-rose-400 resize-none transition-all placeholder:text-slate-300"
-                                    placeholder="Enter the reason for rejection..."
-                                    value={accRejectDialog.reason}
-                                    onChange={(e) => setAccRejectDialog(p => ({ ...p, reason: e.target.value }))}
-                                />
+                            <div className="px-6 py-5 space-y-4">
+                                {(() => {
+                                    const accForReject = asset?.accessories?.find(
+                                        (a) =>
+                                            String(a._id) === String(accRejectDialog.accId) ||
+                                            a.accessoryId === accRejectDialog.accId,
+                                    );
+                                    return (
+                                        <PendingRequestDetailsPanel
+                                            request={buildPendingRequestView(accForReject, accRejectDialog.pendingAction)}
+                                            onOpenAttachment={openFilePreview}
+                                        />
+                                    );
+                                })()}
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                                        Rejection Reason
+                                    </label>
+                                    <textarea
+                                        className="w-full min-h-[100px] px-4 py-3 text-sm rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-rose-300 focus:border-rose-400 resize-none transition-all placeholder:text-slate-300"
+                                        placeholder="Enter the reason for rejection..."
+                                        value={accRejectDialog.reason}
+                                        onChange={(e) => setAccRejectDialog(p => ({ ...p, reason: e.target.value }))}
+                                    />
+                                </div>
                             </div>
 
                             <AlertDialogFooter className="px-6 pb-6 flex gap-3">
@@ -5105,6 +5164,19 @@ function AssetDetailsPageContent() {
                             </AlertDialogHeader>
 
                             <div className="px-6 py-5 space-y-4">
+                                {(() => {
+                                    const accForAccept = asset?.accessories?.find(
+                                        (a) =>
+                                            String(a._id) === String(accAcceptDialog.accId) ||
+                                            a.accessoryId === accAcceptDialog.accId,
+                                    );
+                                    return (
+                                        <PendingRequestDetailsPanel
+                                            request={buildPendingRequestView(accForAccept, accAcceptDialog.pendingAction)}
+                                            onOpenAttachment={openFilePreview}
+                                        />
+                                    );
+                                })()}
                                 <div className="space-y-2">
                                     <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
                                         Description / Comment (Optional)

@@ -277,18 +277,20 @@ export default function BulkHolderActionModal({
 
         setSubmitting(true);
         try {
-            if (ids.length > 1) {
-                await axiosInstance.put('/AssetItem/bulk/request-action', {
+            const res = ids.length > 1
+                ? await axiosInstance.put('/AssetItem/bulk/request-action', {
                     assetIds: ids,
                     ...payloadBase,
-                });
-            } else {
-                await axiosInstance.put(`/AssetItem/${ids[0]}/request-action`, payloadBase);
-            }
+                })
+                : await axiosInstance.put(`/AssetItem/${ids[0]}/request-action`, payloadBase);
 
             toast({
                 title: 'Success',
-                description: `${actionOption} request sent for ${ids.length} asset(s).`,
+                description:
+                    res?.data?.message ||
+                    (actionOption === 'Leave' && isElevated
+                        ? `${ids.length} asset(s) placed On Leave.`
+                        : `${actionOption} request sent to Asset Controller for ${ids.length} asset(s).`),
             });
             if (onSuccess) onSuccess();
             onClose();
