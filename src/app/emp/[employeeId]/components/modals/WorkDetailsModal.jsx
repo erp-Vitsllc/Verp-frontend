@@ -31,12 +31,11 @@ import {
     validateWorkDepartment,
     validateWorkDesignation,
     validateWorkStatus,
+    validateContractJoiningDate,
     calculateRemainingProbation,
     formatRemainingProbation,
     normalizeDateForPicker,
     resolveContractJoiningDate,
-    resolveFirstContractVisaIssueDate,
-    resolveLabourCardIssueDate,
 } from '@/utils/employeeWorkDetailsValidation';
 import {
     buildWorkStatusExitDropdownOptions,
@@ -53,6 +52,7 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors, employe
 
     if (field === 'companyEmail') result = validateCompanyEmail(value);
     else if (field === 'dateOfJoining') result = validateDateOfJoining(value, { dateOfBirth: employee?.dateOfBirth });
+    else if (field === 'contractJoiningDate') result = validateContractJoiningDate(value, form.dateOfJoining);
     else if (field === 'company') result = validateWorkCompany(value);
     else if (field === 'department') result = validateWorkDepartment(value);
     else if (field === 'designation') result = validateWorkDesignation(value);
@@ -198,6 +198,7 @@ export default function WorkDetailsModal({
     ]);
 
     const canEditWorkStatus = isAdmin() || Boolean(viewerIsDesignatedFlowchartHr);
+    const canEditContractJoiningDate = Boolean(viewerIsDesignatedFlowchartHr);
     const willApplyLeftUserImmediately = Boolean(viewerIsDesignatedFlowchartHr);
 
     const handleMarkLeftUser = async () => {
@@ -354,15 +355,14 @@ export default function WorkDetailsModal({
         if (form.status !== 'Probation') return null;
         const info = calculateRemainingProbation({
             status: form.status,
-            contractJoiningDate: resolveContractJoiningDate(employee),
+            contractJoiningDate: form.contractJoiningDate || resolveContractJoiningDate(employee),
             probationPeriod: form.probationPeriod || employee?.probationPeriod || 6,
             employee,
         });
         return formatRemainingProbation(info);
-    }, [form.status, form.probationPeriod, employee]);
+    }, [form.status, form.probationPeriod, form.contractJoiningDate, employee]);
 
     const effectiveContractJoiningDate = resolveContractJoiningDate(employee);
-    const hasVisaIssueDate = Boolean(resolveFirstContractVisaIssueDate(employee));
 
     const departmentOptions = useMemo(
         () => [...departments]
@@ -774,22 +774,35 @@ export default function WorkDetailsModal({
                             </div>
                         </div>
 
-                        {/* Contract Joining Date — auto from first employment or spouse visa issue date */}
+                        {/* Contract Joining Date — auto from first visa; only flowchart HR can edit */}
                         <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                 Contract Joining Date
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DatePicker
-                                    value={normalizeDateForPicker(effectiveContractJoiningDate)}
-                                    onChange={() => {}}
-                                    className="w-full bg-gray-50 border-[#E5E7EB] cursor-not-allowed opacity-90"
-                                    disabled
+                                    value={normalizeDateForPicker(
+                                        canEditContractJoiningDate
+                                            ? (form.contractJoiningDate || effectiveContractJoiningDate)
+                                            : effectiveContractJoiningDate,
+                                    )}
+                                    onChange={(val) => {
+                                        if (!canEditContractJoiningDate) return;
+                                        handleChange('contractJoiningDate', val);
+                                    }}
+                                    className={`w-full ${
+                                        canEditContractJoiningDate
+                                            ? (errors.contractJoiningDate ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]')
+                                            : 'bg-gray-50 border-[#E5E7EB] cursor-not-allowed opacity-90'
+                                    }`}
+                                    disabled={submitting || !canEditContractJoiningDate}
+                                    disabledDays={canEditContractJoiningDate ? { after: new Date() } : undefined}
                                 />
+                                {errors.contractJoiningDate && (
+                                    <span className="text-xs text-red-500">{errors.contractJoiningDate}</span>
+                                )}
                                 <span className="text-xs text-gray-500">
-                                    {hasVisaIssueDate
-                                        ? 'Auto-filled from the first Employment or Spouse visa issue date (not editable). Visit visa and renewals do not change this date.'
-                                        : 'Add an Employment or Spouse visa — this field will update automatically.'}
+                                    Auto-filled from the first Employment or Spouse visa issue date. Only flowchart HR can edit this date. Visit visa and renewals do not change this date.
                                 </span>
                             </div>
                         </div>

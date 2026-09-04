@@ -257,10 +257,13 @@ export function resolveLabourCardIssueDate(employee = {}) {
     return toIsoDateString(employee?.labourCardDetails?.issueDate) || '';
 }
 
-/** Contract joining date — earliest employment or spouse visa issue date (never visit visa). */
+/**
+ * Contract joining date — stored value wins (visa auto-fill or flowchart HR override).
+ * If empty, falls back to the first employment/spouse visa issue date (never visit visa).
+ */
 export function resolveContractJoiningDate(employee = {}) {
-    const fromVisa = resolveFirstContractVisaIssueDate(employee);
     const stored = toIsoDateString(employee?.contractJoiningDate);
+    if (stored) return stored;
 
     const visaDetails = employee?.visaDetails || {};
     const hasVisitOnly = Boolean(toIsoDateString(visaDetails.visit?.issueDate))
@@ -268,9 +271,7 @@ export function resolveContractJoiningDate(employee = {}) {
         && !toIsoDateString(visaDetails.spouse?.issueDate);
     if (hasVisitOnly) return '';
 
-    if (fromVisa && stored) return fromVisa < stored ? fromVisa : stored;
-    if (fromVisa) return fromVisa;
-    return stored || '';
+    return resolveFirstContractVisaIssueDate(employee) || '';
 }
 
 /** Probation window anchor — first employment visa when present, else contract joining date. */
@@ -321,8 +322,8 @@ export function validateDateOfJoining(value, { dateOfBirth = '' } = {}) {
     return ok();
 }
 
-export function validateContractJoiningDate(value, dateOfJoining, { allowFuture = false } = {}) {
-    if (!value) return ok('Contract Joining Date is required');
+export function validateContractJoiningDate(value, dateOfJoining, { allowFuture = false, required = false } = {}) {
+    if (!value) return required ? ok('Contract Joining Date is required') : ok();
     const normalized = toIsoDateString(value);
     if (!normalized) return ok('Please enter a valid date (YYYY-MM-DD)');
     if (!allowFuture) {
@@ -412,6 +413,7 @@ export function validateEmployeeWorkDetailsForm(form = {}, { employee = null, re
 
     set('companyEmail', validateCompanyEmail(form.companyEmail, { required: requireCompanyEmail }));
     set('dateOfJoining', validateDateOfJoining(form.dateOfJoining, { dateOfBirth }));
+    set('contractJoiningDate', validateContractJoiningDate(form.contractJoiningDate, form.dateOfJoining));
     set('company', validateWorkCompany(form.company));
     set('department', validateWorkDepartment(form.department));
     set('designation', validateWorkDesignation(form.designation));

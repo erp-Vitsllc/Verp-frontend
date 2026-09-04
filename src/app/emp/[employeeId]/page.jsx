@@ -2917,7 +2917,9 @@ function EmployeeProfilePageContent() {
                 probationPeriod = 6;
             }
 
-            const resolvedContractDate = resolveContractJoiningDate(employee);
+            const resolvedContractDate = (viewerIsDesignatedFlowchartHr && form.contractJoiningDate)
+                ? form.contractJoiningDate
+                : resolveContractJoiningDate(employee);
 
             if (form.dateOfJoining) {
                 const joiningDate = new Date(form.dateOfJoining);
@@ -2954,6 +2956,10 @@ function EmployeeProfilePageContent() {
                 enablePortalAccess: form.enablePortalAccess,
                 staffType: normalizeWorkLocationKey(form.staffType),
             };
+
+            if (viewerIsDesignatedFlowchartHr && form.contractJoiningDate) {
+                updatePayload.contractJoiningDate = form.contractJoiningDate;
+            }
 
             const blockedStatuses = ['Termination', 'Resignation', 'Notice', 'Left User'];
             if (

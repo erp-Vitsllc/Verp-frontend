@@ -122,7 +122,7 @@ export default function BasicDetailsStep({
                         disabled
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                        Set automatically from the first Employment or Spouse visa issue date (not Visit visa).
+                        Auto-filled from the first Employment or Spouse visa issue date. Only flowchart HR can edit this date on Work Details. Visit visa and renewals do not change this date.
                     </p>
                 </div>
                 <div>
