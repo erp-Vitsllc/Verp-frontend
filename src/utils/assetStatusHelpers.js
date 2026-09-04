@@ -122,12 +122,18 @@ export const getAssetWaitingForMeta = (asset) => {
 
         if (asset.pendingAction === 'Leave') {
             const name =
-                storedName ||
                 arName ||
+                storedName ||
                 empDisplayNameFromRef(asset.designatedAssetController) ||
                 empDisplayNameFromRef(asset.assetController);
             if (!name) return { name: '', kind: '' };
-            return { name, kind: 'other' };
+            const kind =
+                arId && assigneeId && arId === assigneeId
+                    ? 'employee'
+                    : waitingId && assigneeId && waitingId === assigneeId
+                        ? 'employee'
+                        : 'other';
+            return { name, kind };
         }
 
         const pendingReturn = asset.pendingAction === 'Return Asset';
