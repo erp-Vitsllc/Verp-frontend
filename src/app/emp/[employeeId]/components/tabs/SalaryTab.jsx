@@ -4842,6 +4842,8 @@ export default function SalaryTab({
                                                             {userIsPendingAssetActionApprover(asset, {
                                                                 employeeObjectId: loggedInEmployeeId,
                                                                 employeeId: currentUser?.employeeId,
+                                                                isAdmin: isLoggedInAdmin,
+                                                                isAssetController: Boolean(viewerIsAssetController),
                                                             }) ? (
                                                                 <button
                                                                     type="button"

@@ -2903,6 +2903,8 @@ function AssetDetailsPageContent() {
                                 const isAssetActionPending = userIsPendingAssetActionApprover(asset, {
                                     employeeObjectId: currentUserEmployeeId,
                                     employeeId: currentUser?.employeeId,
+                                    isAdmin: userIsAdmin,
+                                    isAssetController,
                                 });
 
                                 // Check if this is a bulk transfer

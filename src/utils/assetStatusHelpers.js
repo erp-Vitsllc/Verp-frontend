@@ -234,7 +234,7 @@ export const formatAssetWaitingChipText = (asset) => {
 const normEmpKey = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
 
 /** True when the logged-in employee must Approve/Reject a pending Leave / EOS / Return / L&D. */
-export const userIsPendingAssetActionApprover = (asset, { employeeObjectId, employeeId } = {}) => {
+export const userIsPendingAssetActionApprover = (asset, { employeeObjectId, employeeId, isAdmin, isAssetController } = {}) => {
     if (!asset?.pendingAction) return false;
     const meOid = employeeObjectId ? String(employeeObjectId) : '';
     const meEmpId = normEmpKey(employeeId);
@@ -253,6 +253,8 @@ export const userIsPendingAssetActionApprover = (asset, { employeeObjectId, empl
         if (meOid && reporteeId && meOid === reporteeId) return true;
         if (meEmpId && reporteeEmpId && meEmpId === reporteeEmpId) return true;
     }
+    // Legacy Leave sat on employees with no login. Super User / Asset Controller can clear it.
+    if ((isAdmin || isAssetController) && String(asset.pendingAction) === 'Leave') return true;
     return false;
 };
 
