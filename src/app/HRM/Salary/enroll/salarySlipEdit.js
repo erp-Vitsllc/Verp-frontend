@@ -27,7 +27,7 @@ export const YEARLY_SALARY_EARNING_CATALOG = [...SALARY_EARNING_CATALOG];
 
 export const YEARLY_OTHER_EARNING_CATALOG = [
     'Reward',
-    'End of Service Benefit',
+    'End of Service Benefit(yearly)',
     'Leave Salary',
     'Travel Allowance',
 ];
@@ -54,6 +54,7 @@ export const DEDUCTION_CATALOG = [
 export const LOSS_OF_PAY_CATALOG = [
     'Authorized Leave',
     'Unauthorized Leave',
+    'Sick Leave',
     'Late Arrival',
     'Annual Leave',
 ];
@@ -89,35 +90,36 @@ function sumMoney(rows, read) {
     return money((Array.isArray(rows) ? rows : []).reduce((sum, row) => sum + money(read(row)), 0));
 }
 
-function liabilityRow(type, { total, paid, remaining, thisMonth }) {
-    const pending = remaining > 0 ? money(remaining) : money(Math.max(0, total - paid));
-    const thisMonthDeduction = money(thisMonth);
-    return {
-        type,
-        total: money(total),
-        pending,
-        balance: pending,
-        thisMonthDeduction,
-        remainingAfterDeduction: money(Math.max(0, pending - thisMonthDeduction)),
-    };
+function isApprovedLiability(row) {
+    if (!row) return false;
+    if (row.approved === false) return false;
+    const total = money(row.originalAmount ?? row.original ?? row.amount ?? row.total);
+    const thisMonth = money(row.thisMonthAmount ?? row.thisMonth);
+    return total > 0 || thisMonth > 0 || row.approved === true;
 }
 
-function benefitRow(type, yearlyAmount, thisMonthAmount) {
-    const thisMonth = money(thisMonthAmount);
-    const total = money(yearlyAmount) > 0 ? money(yearlyAmount) : thisMonth;
+function liabilitySummary(type, rows, readTotal, readPaid, readThisMonth) {
+    const list = (Array.isArray(rows) ? rows : []).filter(isApprovedLiability);
+    const total = sumMoney(list, readTotal);
+    const employeePay = sumMoney(list, readPaid);
+    const thisMonthDeduction = sumMoney(list, readThisMonth);
+    const pending = money(Math.max(0, total - employeePay));
+    const balance = money(Math.max(0, total - employeePay - thisMonthDeduction));
     return {
         type,
+        count: list.length,
+        label: `${type} (${list.length})`,
         total,
-        pending: 0,
-        balance: 0,
-        thisMonthDeduction: thisMonth,
-        remainingAfterDeduction: 0,
+        pending,
+        balance,
+        thisMonthDeduction,
+        remainingAfterDeduction: balance,
     };
 }
 
 /**
- * One row per type for this employee. This-month deduction is only the
- * installment that falls in the salary-slip month — not the full balance.
+ * Approved loan, fine, utility and salary advance for this employee.
+ * Balance = total − employee pay − this month's salary deduction.
  */
 export function buildSalarySlipBalanceRows(slip) {
     const loans = Array.isArray(slip?.loanSchedule) ? slip.loanSchedule : [];
@@ -125,44 +127,36 @@ export function buildSalarySlipBalanceRows(slip) {
     const loanRows = loans.filter((row) => !/advance/i.test(String(row?.type || '')));
     const fines = Array.isArray(slip?.fines) ? slip.fines : [];
     const utilities = Array.isArray(slip?.utilities) ? slip.utilities : [];
-    const leaveThisMonth = money(pickComponent(slip?.earnings, 'Leave Salary').amount);
-    const travelThisMonth =
-        money(pickComponent(slip?.earnings, 'Travel Allowance').amount) ||
-        money(pickComponent(slip?.earnings, 'Ticket').amount);
-    const leaveYearly = money(pickComponent(slip?.yearlyEarnings, 'Leave Salary').amount);
-    const travelYearly = money(pickComponent(slip?.yearlyEarnings, 'Travel Allowance').amount);
 
     return [
-        liabilityRow('Loan', {
-            total: sumMoney(loanRows, (row) => row.original ?? row.amount),
-            paid: sumMoney(loanRows, (row) => row.paidToDate ?? row.paid),
-            remaining: sumMoney(loanRows, (row) => row.remaining),
-            thisMonth: sumMoney(loanRows, (row) => row.thisMonthAmount ?? row.thisMonth),
-        }),
-        liabilityRow('Advance', {
-            total: sumMoney(advances, (row) => row.original ?? row.amount),
-            paid: sumMoney(advances, (row) => row.paidToDate ?? row.paid),
-            remaining: sumMoney(advances, (row) => row.remaining),
-            thisMonth: sumMoney(advances, (row) => row.thisMonthAmount ?? row.thisMonth),
-        }),
-        liabilityRow('Fine', {
-            total: sumMoney(fines, (row) => row.amount),
-            paid: sumMoney(fines, (row) => row.paid),
-            remaining: sumMoney(fines, (row) => {
-                const total = money(row.amount);
-                const paid = money(row.paid);
-                return total - paid;
-            }),
-            thisMonth: sumMoney(fines, (row) => row.thisMonthAmount ?? row.thisMonth),
-        }),
-        liabilityRow('Utilities', {
-            total: sumMoney(utilities, (row) => row.total ?? row.amount),
-            paid: 0,
-            remaining: sumMoney(utilities, (row) => row.total ?? row.amount),
-            thisMonth: sumMoney(utilities, (row) => row.total ?? row.thisMonthAmount ?? row.amount),
-        }),
-        benefitRow('Leave salary', leaveYearly, leaveThisMonth),
-        benefitRow('Leave travel allowance', travelYearly, travelThisMonth),
+        liabilitySummary(
+            'Loan',
+            loanRows,
+            (row) => row.originalAmount ?? row.original ?? row.amount,
+            (row) => row.paidAmount ?? row.paidToDate ?? row.paid,
+            (row) => row.thisMonthAmount ?? row.thisMonth,
+        ),
+        liabilitySummary(
+            'Fine',
+            fines,
+            (row) => row.originalAmount ?? row.amount,
+            (row) => row.paidAmount ?? row.paid,
+            (row) => row.thisMonthAmount ?? row.thisMonth,
+        ),
+        liabilitySummary(
+            'Utility',
+            utilities,
+            (row) => row.originalAmount ?? row.total ?? row.amount,
+            (row) => row.paidAmount ?? row.paid,
+            (row) => row.thisMonthAmount ?? row.thisMonth,
+        ),
+        liabilitySummary(
+            'Salary Advance',
+            advances,
+            (row) => row.originalAmount ?? row.original ?? row.amount,
+            (row) => row.paidAmount ?? row.paidToDate ?? row.paid,
+            (row) => row.thisMonthAmount ?? row.thisMonth,
+        ),
     ];
 }
 
@@ -190,7 +184,7 @@ export function componentMatches(component, name) {
         return true;
     }
     if (
-        b === 'end of service benefit' &&
+        (b.includes('end of service') || b.includes('gratuity') || b.includes('eosb')) &&
         (a.includes('end of service') || a.includes('gratuity') || a.includes('eosb'))
     ) {
         return true;

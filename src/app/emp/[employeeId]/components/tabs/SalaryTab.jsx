@@ -22,6 +22,7 @@ import {
     PackageX, Plus, AlertTriangle, ExternalLink, Wallet
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import {
     categorizeAssetsForBulkLeave,
     categorizeAssetsForBulkReturnOrEos,
@@ -1275,6 +1276,7 @@ export default function SalaryTab({
                 title: "Success",
                 description: `Asset assignment ${action === 'Accept' ? 'accepted' : 'rejected'} successfully.`
             });
+            invalidateAssetPendingInbox('tools');
             if (fetchEmployee) fetchEmployee();
         } catch (error) {
             console.error('Error responding to asset:', error);
@@ -1385,6 +1387,7 @@ export default function SalaryTab({
                     res.data?.message ||
                     `${action === 'Accept' ? 'Accepted' : 'Rejected'} ${ids.length} assignment(s).`,
             });
+            invalidateAssetPendingInbox('tools');
             setSelectedYourAssets([]);
             setPendingRespondConfirm({ isOpen: false, action: null, mode: null });
             if (fetchEmployee) fetchEmployee();

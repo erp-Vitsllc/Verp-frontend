@@ -106,6 +106,18 @@ export function filterActionableDashboardItems(items) {
             return isSubmitterRejectedLossDamageFollowup(item);
         }
         if (isAcceptedAssignmentOutcomeItem(item)) return false;
+        if (type === 'Asset Assignment' || type === 'Asset') {
+            const asset = item.asset;
+            const meta = parseExtra3Meta(item.extra3);
+            if (asset && meta?.isBulkAssignment !== true && meta?.assignmentOutcome !== true) {
+                const stillPending =
+                    !asset.pendingAction &&
+                    (asset.fleetHandoverActive ||
+                        (String(asset.acceptanceStatus || '').trim() === 'Pending' &&
+                            ['Pending', 'Assigned'].includes(String(asset.status || '').trim())));
+                if (!stillPending) return false;
+            }
+        }
         return item.status === 'Pending';
     });
 }

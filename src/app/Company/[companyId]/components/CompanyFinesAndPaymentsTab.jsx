@@ -267,16 +267,16 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                 if (fineKey && seenFine.has(fineKey)) return;
                 if (fineKey) seenFine.add(fineKey);
             }
-            if (kind === 'utility_share' || kind === 'balance') {
+            // Company profile lists company-pay items only (Payable To = company).
+            if (kind === 'balance') return;
+            if (kind === 'utility_share') {
                 const billKey = String(row.utilityBillId || '');
                 if (billKey) seenUtility.add(billKey);
             }
             const typeLabel =
                 kind === 'utility_share'
                     ? 'Utility'
-                    : kind === 'balance'
-                      ? 'Utility deduction'
-                      : kind === 'service'
+                    : kind === 'service'
                         ? row.utilityType || 'Service'
                         : kind === 'fine'
                           ? 'Fine'
@@ -332,7 +332,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                     <div>
                         <h3 className="text-base sm:text-xl font-semibold text-gray-800">Payment</h3>
                         <p className="text-sm text-gray-400 mt-0.5">
-                            Company payments for {company?.name || 'this company'}
+                            Company-pay items for {company?.name || 'this company'}
                         </p>
                     </div>
                 </div>

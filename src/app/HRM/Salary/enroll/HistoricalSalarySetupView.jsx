@@ -1513,7 +1513,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [employeeMolId, setEmployeeMolId] = useState('');
     const [salarySlip, setSalarySlip] = useState(false);
     const [setupTab, setSetupTab] = useState(() =>
-        !embedded && searchParams?.get('tab') === 'slip' ? 'slip' : 'details',
+        !embedded && searchParams?.get('tab') === 'details' ? 'details' : 'slip',
     );
     const [openingSalarySlip, setOpeningSalarySlip] = useState(false);
     const [leaveRecords, setLeaveRecords] = useState([]);
@@ -1595,7 +1595,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
 
     useEffect(() => {
         if (embedded) return;
-        const next = searchParams?.get('tab') === 'slip' ? 'slip' : 'details';
+        const next = searchParams?.get('tab') === 'details' ? 'details' : 'slip';
         setSetupTab((prev) => (prev === next ? prev : next));
     }, [embedded, searchParams]);
 
@@ -1603,7 +1603,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         setSetupTab(key);
         if (embedded || !employeeId) return;
         const base = `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`;
-        router.replace(key === 'slip' ? `${base}?tab=slip` : base, { scroll: false });
+        router.replace(key === 'details' ? `${base}?tab=details` : base, { scroll: false });
     }
 
     const fetchProfile = useCallback(async () => {
@@ -2204,8 +2204,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                             aria-label="Salary profile sections"
                         >
                             {[
-                                { key: 'details', label: 'Salary details' },
                                 { key: 'slip', label: 'Salary slip' },
+                                { key: 'details', label: 'Salary details' },
                             ].map((tab) => {
                                 const active = setupTab === tab.key;
                                 return (

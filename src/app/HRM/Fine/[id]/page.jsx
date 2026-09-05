@@ -25,8 +25,10 @@ import {
     buildFineVendorPaymentPrefill,
     canAccountsPayFineVendorBill,
     canAccountsPayFineEmployeeShare,
+    canAccountsSettleApprovedFine,
     formatFineVendorBillPaymentLabel,
     isFineVendorBillPaid,
+    isFineAccountsPaymentPending,
 } from '../utils/fineVendorPaymentPrefill';
 import { formatZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
 import {
@@ -96,8 +98,8 @@ const FINE_WORKFLOW_STEPS = [
     { id: 1, label: 'Created', role: 'System' },
     { id: 2, label: 'Requester', role: 'Requester' },
     { id: 3, label: 'HR', role: 'HR' },
-    { id: 4, label: 'Accounts', role: 'Accounts' },
-    { id: 5, label: 'Management', role: 'Management' },
+    { id: 4, label: 'Management', role: 'Management' },
+    { id: 5, label: 'Accounts', role: 'Accounts' },
 ];
 
 function isFineWorkflowStepApproved(step, fine, workflow = []) {
@@ -349,7 +351,7 @@ function FineDetailsPageContent() {
                     currentFineStatus === 'Pending Review' ||
                     currentFineStatus === 'Pending'
                 ) {
-                    optimisticStatus = 'Pending Accounts';
+                    optimisticStatus = 'Pending Authorization';
                 } else if (
                     currentFineStatus === 'Pending Accounts' ||
                     currentFineStatus === 'Pending Finance'
@@ -407,47 +409,11 @@ function FineDetailsPageContent() {
                         payableConfirmed: Boolean(p.payableConfirmed),
                     }));
                 const usePartyPayableFlow = groupParties.length >= 1;
-                let resolvedVendorId =
-                    String(managementZoho.zohoVendorId || fine?.zohoVendorId || '').trim();
-                const resolvedVendorName = String(
-                    managementZoho.zohoVendorName ||
-                    fine?.zohoVendorName ||
-                    fine?.fineSource ||
-                    '',
-                ).trim();
-
-                // Prefer already-saved vendor id/name — heavy Zoho vendor sync runs in background on server.
-                if (isManagementStage && !resolvedVendorId && !resolvedVendorName) {
-                    rollBackFineStatus();
-                    toast({
-                        title: 'Zoho vendor required',
-                        description:
-                            'Set Vendor on the Fine Parties card (Accounts), or pick a Zoho vendor in this dialog.',
-                        variant: 'destructive',
-                    });
-                    return;
-                }
 
                 const allPartiesHavePayable =
                     usePartyPayableFlow &&
                     groupParties.every((p) => String(p.expenseAccountId || '').trim());
                 const allPartiesCompleted = allPartiesHavePayable;
-
-                if (
-                    isManagementStage &&
-                    !managementZoho.expenseAccountId &&
-                    !allPartiesHavePayable &&
-                    !String(fine?.expenseAccountId || '').trim()
-                ) {
-                    rollBackFineStatus();
-                    toast({
-                        title: 'Expense account required',
-                        description:
-                            'Fill Payable on the Fine Parties card before Management approval.',
-                        variant: 'destructive',
-                    });
-                    return;
-                }
 
                 if (isAccountsStage) {
                     if (usePartyPayableFlow) {
@@ -482,18 +448,6 @@ function FineDetailsPageContent() {
                 }
 
                 const approveBody = { finePdf };
-                if (isManagementStage) {
-                    Object.assign(approveBody, {
-                        ...managementZoho,
-                        zohoVendorId: resolvedVendorId,
-                        zohoVendorName: resolvedVendorName,
-                        zohoOrganizationId:
-                            managementZoho.zohoOrganizationId || fine?.zohoOrganizationId || '',
-                    });
-                    if (usePartyPayableFlow && allPartiesHavePayable) {
-                        approveBody.partyPayables = groupParties;
-                    }
-                }
                 if (isAccountsStage) {
                     if (usePartyPayableFlow) {
                         approveBody.partyPayables = groupParties;
@@ -529,11 +483,10 @@ function FineDetailsPageContent() {
                     description:
                         isManagementStage
                             ? (res.data.message ||
-                                'Fine approved. Zoho Bill and PDF continue in the background.')
+                                'Fine approved. Accounts will settle payment (Zoho or paid by employee).')
                             : isAccountsStage
-                                ? (res.data.message ||
-                                    'Sent to Management. Zoho Bill will be created after Management approves.')
-                                : (res.data.message || 'Fine approved successfully.'),
+                                ? (res.data.message || 'Sent to Management.')
+                                : (res.data.message || 'Fine sent to Management.'),
                     variant: "success",
                     className: "bg-green-50 border-green-200 text-green-800"
                 });
@@ -588,6 +541,84 @@ function FineDetailsPageContent() {
                     description: `Fine status updated to ${status}.`,
                     variant: "success",
                     className: "bg-green-50 border-green-200 text-green-800"
+                });
+            } else if (action === 'enterZoho' || action === 'paidByEmployee') {
+                const groupParties = Array.isArray(partyPayables) && partyPayables.length > 0
+                    ? partyPayables
+                    : buildGroupMembersForFine(fine).map((p) => ({
+                        fineRecordId: p.fineRecordId,
+                        fineId: p.fineId,
+                        employeeName: p.employeeName,
+                        expenseAccountId: p.expenseAccountId || '',
+                        expenseAccountName: p.expenseAccountName || '',
+                        payableConfirmed: Boolean(p.payableConfirmed),
+                    }));
+
+                if (action === 'enterZoho') {
+                    const vendorId = String(
+                        managementZoho.zohoVendorId || fine?.zohoVendorId || '',
+                    ).trim();
+                    const vendorName = String(
+                        managementZoho.zohoVendorName ||
+                            fine?.zohoVendorName ||
+                            fine?.fineSource ||
+                            '',
+                    ).trim();
+                    const missingPayable = groupParties.some(
+                        (p) => !String(p.expenseAccountId || '').trim(),
+                    );
+                    if (!vendorId && !vendorName) {
+                        toast({
+                            title: 'Vendor required',
+                            description: 'Set Vendor on the Fine Parties card before Enter in Zoho.',
+                            variant: 'destructive',
+                        });
+                        return;
+                    }
+                    if (groupParties.length > 0 && missingPayable) {
+                        toast({
+                            title: 'Payable required',
+                            description: 'Fill Payable for every party before Enter in Zoho.',
+                            variant: 'destructive',
+                        });
+                        return;
+                    }
+                }
+
+                res = await axiosInstance.put(`/Fine/${targetId}/accounts-payment`, {
+                    action: action === 'enterZoho' ? 'enter_zoho' : 'paid_by_employee',
+                    partyPayables: groupParties,
+                    zohoVendorId: managementZoho.zohoVendorId || fine?.zohoVendorId || '',
+                    zohoVendorName:
+                        managementZoho.zohoVendorName ||
+                        fine?.zohoVendorName ||
+                        fine?.fineSource ||
+                        '',
+                    zohoOrganizationId:
+                        managementZoho.zohoOrganizationId || fine?.zohoOrganizationId || '',
+                    expenseAccountId:
+                        managementZoho.expenseAccountId || fine?.expenseAccountId || '',
+                    expenseAccountName:
+                        managementZoho.expenseAccountName || fine?.expenseAccountName || '',
+                });
+                if (res?.data?.fine) {
+                    setFine((prev) =>
+                        mergeFinePreferringAdvancedStatus(
+                            prev,
+                            res.data.fine,
+                            res.data.fine.fineStatus,
+                        ),
+                    );
+                }
+                toast({
+                    title: 'Success',
+                    description:
+                        res.data.message ||
+                        (action === 'enterZoho'
+                            ? 'Zoho bill is posting. Employee payment stays unpaid.'
+                            : 'Fine marked paid by employee. No Zoho entry.'),
+                    variant: 'success',
+                    className: 'bg-green-50 border-green-200 text-green-800',
                 });
             }
 
@@ -735,7 +766,7 @@ function FineDetailsPageContent() {
                 action: 'approve',
                 title: 'Send to Management',
                 description:
-                    'Vendor and Payable are set on the Fine Parties card. This sends the fine to Management. No Zoho bill is created yet — Management approval will create one Zoho Bill.',
+                    'This sends the fine to Management. Accounts will settle payment after Management approves.',
                 confirmText: 'Approve & send',
                 variant: 'default',
             });
@@ -745,10 +776,10 @@ function FineDetailsPageContent() {
         if (isManagementStage) {
             openConfirmation({
                 action: 'approve',
-                title: 'Approve & create Zoho Bill',
+                title: 'Approve Fine',
                 description:
-                    'Confirm to create one Zoho Books Bill. Vendor = Fine Source. Each party becomes one row in the Bill Item Table (Account = Payable, Amount = fine amount).',
-                confirmText: 'Approve & bill',
+                    'Approve this fine. No Zoho entry is created here. Accounts will then choose Enter in Zoho or Paid by employee.',
+                confirmText: 'Approve',
                 variant: 'default',
             });
             return;
@@ -759,6 +790,28 @@ function FineDetailsPageContent() {
             title: 'Approve Fine',
             description: 'Are you sure you want to approve this fine?',
             confirmText: 'Approve',
+            variant: 'default',
+        });
+    };
+
+    const handleEnterInZoho = () => {
+        openConfirmation({
+            action: 'enterZoho',
+            title: 'Enter in Zoho',
+            description:
+                'Create the Zoho vendor bill the same way as before. Employee payment stays unpaid.',
+            confirmText: 'Enter in Zoho',
+            variant: 'default',
+        });
+    };
+
+    const handlePaidByEmployee = () => {
+        openConfirmation({
+            action: 'paidByEmployee',
+            title: 'Paid by employee',
+            description:
+                'Mark this fine Paid for the employee. No Zoho entry will be created. This shows as Paid on the employee profile payment.',
+            confirmText: 'Mark paid',
             variant: 'default',
         });
     };
@@ -1594,6 +1647,12 @@ function FineDetailsPageContent() {
         return canAccountsPayFineVendorBill(fine, currentUser, flowchartRows);
     }, [fine, currentUser, flowchartRows]);
 
+    const canSettleApprovedPayment = useMemo(() => {
+        return canAccountsSettleApprovedFine(fine, currentUser, flowchartRows);
+    }, [fine, currentUser, flowchartRows]);
+
+    const accountsPaymentPending = isFineAccountsPaymentPending(fine);
+
     const canHrEditApprovedFine = useMemo(
         () => Boolean(isHr && isApprovedFineStatus(fine?.fineStatus)),
         [isHr, fine],
@@ -1818,27 +1877,16 @@ function FineDetailsPageContent() {
                                             </p>
                                             <ul className="text-[11px] text-indigo-900/90 space-y-1.5 list-disc pl-4">
                                                 <li>
-                                                    Accounts approval only sends this fine to{' '}
+                                                    This legacy Accounts step only sends the fine to{' '}
                                                     <strong>Management</strong>.
                                                 </li>
                                                 <li>
-                                                    <strong>No Zoho Bill yet</strong> — the bill is
-                                                    created after Management confirms.
-                                                </li>
-                                                <li>
-                                                    <strong>Vendor</strong> = Fine Source (
-                                                    {fine?.fineSource || 'not set'}).
-                                                </li>
-                                                <li>
-                                                    Payable was set on the <strong>Fine Parties</strong>{' '}
-                                                    card — one Zoho Bill Item Table will use those accounts.
+                                                    After Management approves, Accounts will settle payment.
                                                 </li>
                                             </ul>
                                         </div>
                                     )}
-                                {confirmConfig.action === 'approve' &&
-                                    fine?.fineStatus === 'Pending Authorization' &&
-                                    !String(fine?.zohoVendorId || managementZoho.zohoVendorId || '').trim() ? (
+                                {confirmConfig.action === 'enterZoho' ? (
                                     <div className="mt-4 space-y-3 text-left">
                                         <FineManagementZohoFields
                                             organizationId={
@@ -1883,8 +1931,7 @@ function FineDetailsPageContent() {
                                             return;
                                         }
                                         if (
-                                            confirmConfig.action === 'approve' &&
-                                            fine?.fineStatus === 'Pending Authorization' &&
+                                            confirmConfig.action === 'enterZoho' &&
                                             !managementZoho.zohoVendorId &&
                                             !fine?.zohoVendorId &&
                                             !String(fine?.fineSource || fine?.zohoVendorName || '').trim()
@@ -1892,7 +1939,7 @@ function FineDetailsPageContent() {
                                             toast({
                                                 title: 'Vendor missing',
                                                 description:
-                                                    'Set Vendor on the Fine Parties card (Accounts) before Management approval.',
+                                                    'Set Vendor on the Fine Parties card before Enter in Zoho.',
                                                 variant: 'destructive',
                                             });
                                             return;
@@ -2047,8 +2094,17 @@ function FineDetailsPageContent() {
                                                     {/* Status Badge - hidden when fine is already approved */}
                                                     {(() => {
                                                         const s = fine?.fineStatus;
-                                                        const isApprovedFine = ['Approved', 'Active', 'Completed', 'Paid'].includes(s);
-                                                        if (isApprovedFine) return null;
+                                                        if (['Completed', 'Paid'].includes(s)) return null;
+                                                        if (['Approved', 'Active'].includes(s)) {
+                                                            if (!accountsPaymentPending) return null;
+                                                            return (
+                                                                <div className="w-full">
+                                                                    <span className="text-[11px] font-black uppercase tracking-wider px-4 py-2.5 rounded-lg border shadow-sm w-full block text-center bg-amber-50 text-amber-700 border-amber-200">
+                                                                        Payment pending — Accounts
+                                                                    </span>
+                                                                </div>
+                                                            );
+                                                        }
 
                                                         let role = '';
                                                         if (s === 'Pending HR') role = 'HR';
@@ -2127,6 +2183,36 @@ function FineDetailsPageContent() {
                                         if (isApprovedState) {
                                             const vendorLabel = formatFineVendorBillPaymentLabel(fine);
                                             const vendorPaid = isFineVendorBillPaid(fine);
+                                            if (accountsPaymentPending) {
+                                                cells.push(
+                                                    <div key="pay-pending" className={`${compactBox} bg-amber-50 border-amber-100 text-amber-700`}>
+                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">Payment</span>
+                                                        <span className="text-sm font-bold truncate ml-2">Pending — Accounts</span>
+                                                    </div>,
+                                                );
+                                            }
+                                            if (canSettleApprovedPayment && !actionLoading) {
+                                                cells.push(
+                                                    <button
+                                                        key="enter-zoho"
+                                                        type="button"
+                                                        onClick={handleEnterInZoho}
+                                                        className={`${compactBox} border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100`}
+                                                    >
+                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate">Enter in Zoho</span>
+                                                        <Wallet className="w-5 h-5 shrink-0" />
+                                                    </button>,
+                                                    <button
+                                                        key="paid-by-emp"
+                                                        type="button"
+                                                        onClick={handlePaidByEmployee}
+                                                        className={`${compactBox} border-green-100 bg-green-50 text-green-700 hover:bg-green-100`}
+                                                    >
+                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate">Paid by employee</span>
+                                                        <Check className="w-5 h-5 shrink-0" />
+                                                    </button>,
+                                                );
+                                            }
                                             cells.push(
                                                 <div key="total" className={`${compactBox} bg-red-50 border-red-100`}>
                                                     <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide truncate">Total Fine</span>
@@ -2145,7 +2231,7 @@ function FineDetailsPageContent() {
                                                     className={`${compactBox} ${
                                                         vendorPaid
                                                             ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
-                                                            : vendorLabel === 'Not Paid'
+                                                            : vendorLabel === 'Not Paid' || vendorLabel === 'Pending'
                                                               ? 'bg-amber-50 border-amber-100 text-amber-700'
                                                               : 'bg-gray-50 border-gray-100 text-gray-400'
                                                     }`}
@@ -2155,11 +2241,15 @@ function FineDetailsPageContent() {
                                                     </span>
                                                     <span className="text-lg font-bold truncate ml-2">{vendorLabel}</span>
                                                 </div>,
-                                                <div key="done" className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-70`}>
-                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">Workflow</span>
-                                                    <span className="text-lg font-bold flex items-center gap-1 ml-2"><Check className="w-4 h-4" /> Completed</span>
-                                                </div>
                                             );
+                                            if (!accountsPaymentPending) {
+                                                cells.push(
+                                                    <div key="done" className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-70`}>
+                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate">Workflow</span>
+                                                        <span className="text-lg font-bold flex items-center gap-1 ml-2"><Check className="w-4 h-4" /> Completed</span>
+                                                    </div>,
+                                                );
+                                            }
                                         } else if (status === 'Rejected' && canResubmit) {
                                             cells.push(
                                                 <button key="resubmit" type="button" onClick={() => setIsResubmittingModal(true)} className={`${compactBox} border-orange-100 bg-orange-50 text-orange-600 hover:bg-orange-100`}>
@@ -2411,9 +2501,10 @@ function FineDetailsPageContent() {
                                 allEmployeeFines={allEmployeeFines}
                                 allEmployeeLoans={allEmployeeLoans}
                                 canEditPartyPayables={
-                                    (fine?.fineStatus === 'Pending Accounts' ||
+                                    ((fine?.fineStatus === 'Pending Accounts' ||
                                         fine?.fineStatus === 'Pending Finance') &&
-                                    canPerformAction()
+                                        canPerformAction()) ||
+                                    canSettleApprovedPayment
                                 }
                                 onPartyPayablesChange={setPartyPayables}
                                 allowPay={canAccountsPayFineEmployeeShare(

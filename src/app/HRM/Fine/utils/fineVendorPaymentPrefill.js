@@ -61,6 +61,21 @@ export function canAccountsPayFineVendorBill(fine, user, flowchartRows = []) {
     return isAccountsFinanceUser(user, flowchartRows) || matchesAccountsHod(fine, user);
 }
 
+export function isFineAccountsPaymentPending(fine) {
+    if (!fine) return false;
+    const status = String(fine.fineStatus || '');
+    if (status !== 'Approved' && status !== 'Active') return false;
+    if (String(fine.accountsPaymentPath || '').trim()) return false;
+    if (String(fine.zohoBillId || '').trim()) return false;
+    return true;
+}
+
+/** Accounts may pick Enter in Zoho or Paid by employee after Management approve. */
+export function canAccountsSettleApprovedFine(fine, user, flowchartRows = []) {
+    if (!isFineAccountsPaymentPending(fine) || !user) return false;
+    return isAccountsFinanceUser(user, flowchartRows) || matchesAccountsHod(fine, user);
+}
+
 /** True when the viewer holds the Active Accounts row in Settings > FlowChart. */
 export function isActiveFlowchartAccountsUser(user, flowchartRows = []) {
     if (!user || !Array.isArray(flowchartRows) || flowchartRows.length === 0) return false;
@@ -168,11 +183,15 @@ export function formatFineVendorBillPaymentLabel(fine) {
     if (!fine) return '—';
     if (String(fine.vendorBillStatus || '').toLowerCase() === 'paid') return 'Paid';
 
-    const hasZohoBill = Boolean(String(fine.zohoBillId || '').trim());
+    const path = String(fine.accountsPaymentPath || '').trim();
+    if (path === 'employee') return '—';
+
+    const hasZohoBill = Boolean(String(fine.zohoBillId || '').trim()) || path === 'zoho';
     if (hasZohoBill) return 'Not Paid';
 
     const status = String(fine.fineStatus || '').trim();
-    if (['Approved', 'Active', 'Paid', 'Completed'].includes(status)) return 'Not Paid';
+    if (status === 'Paid') return '—';
+    if (['Approved', 'Active', 'Completed'].includes(status)) return 'Pending';
 
     return '—';
 }

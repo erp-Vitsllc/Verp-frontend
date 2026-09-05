@@ -1659,14 +1659,13 @@
     display: grid;
     grid-template-columns:
         2rem
-        minmax(0, 1.2fr)
-        minmax(0, 0.95fr)
+        minmax(0, 1.4fr)
         minmax(0, 0.72fr)
         minmax(0, 0.72fr)
         minmax(0, 0.58fr)
+        minmax(0, 0.58fr)
         minmax(0, 0.68fr)
-        minmax(0, 0.55fr)
-        3.6rem;
+        minmax(0, 0.55fr);
     gap: 8px;
     align-items: center;
     padding: 6px 2px;
@@ -1681,6 +1680,7 @@
 
 .spcc-pay-row:not(.spcc-pay-row--head) {
     cursor: pointer;
+    user-select: none;
 }
 
 .spcc-pay-row:not(.spcc-pay-row--head):hover {

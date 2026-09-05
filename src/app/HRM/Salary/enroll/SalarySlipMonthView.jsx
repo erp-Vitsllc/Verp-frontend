@@ -4,8 +4,40 @@ import { useEffect, useRef, useState } from 'react';
 import { Download, ExternalLink, Loader2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { applySlipSectionPatch, salarySlipErrorMessage, salarySlipMonthLabel } from './salarySlipEdit';
+import NavButton from '@/components/NavButton';
+import {
+    SALARY_EARNING_CATALOG,
+    applySlipSectionPatch,
+    formatAed,
+    money,
+    pickComponent,
+    salarySlipErrorMessage,
+    salarySlipMonthLabel,
+} from './salarySlipEdit';
 import SalarySlipCards from './SalarySlipCards';
+
+function amountOf(slip, name) {
+    const yearly = money(pickComponent(slip?.yearlyEarnings, name).amount);
+    if (yearly > 0) return yearly;
+    return money(pickComponent(slip?.earnings, name).amount);
+}
+
+function slipHeaderAmounts(slip) {
+    const monthlySalary = SALARY_EARNING_CATALOG.reduce((sum, name) => sum + amountOf(slip, name), 0);
+    const basicSalary = amountOf(slip, 'Basic Salary');
+    return {
+        monthlySalary: money(monthlySalary),
+        basicSalary: money(basicSalary),
+        otherSalary: money(Math.max(0, monthlySalary - basicSalary)),
+    };
+}
+
+const GHOST_BTN =
+    'inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-[13px] font-semibold text-[#334155] no-underline disabled:opacity-50';
+const PRIMARY_BTN =
+    'inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-[#2563EB] px-2 text-[13px] font-semibold text-white disabled:opacity-50';
+const PAIR_BTN =
+    'inline-flex h-10 min-w-0 w-full items-center justify-center rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-2 text-center text-[12px] font-semibold leading-tight text-[#334155] no-underline disabled:opacity-50';
 
 export default function SalarySlipMonthView({ employeeId, monthKey }) {
     const { toast } = useToast();
@@ -149,56 +181,98 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
     }
 
     const monthLabel = salarySlipMonthLabel(monthKey);
+    const amounts = slipHeaderAmounts(slip);
+    const displayName = slip?.employeeName || '—';
+    const displayId = slip?.employeeId || employeeId || '—';
+    const slipReturnHref = employeeId && monthKey
+        ? `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}/salary-slip/${encodeURIComponent(monthKey)}`
+        : '/HRM/Salary';
+    const historyHref = employeeId ? `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}` : '';
 
     return (
         <div className="w-full max-w-full p-4 sm:p-6 lg:p-8">
-            <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        Employee Salary Profile
-                    </p>
-                    <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">
-                        Salary slip
-                    </h1>
-                    {slip?.employeeName ? (
-                        <p className="mt-1 text-base font-semibold text-slate-800">{slip.employeeName}</p>
-                    ) : null}
-                    <p className="mt-0.5 text-sm text-slate-500">
-                        {monthLabel || 'Monthly salary slip'}
-                        {employeeId ? ` · ${employeeId}` : ''}
-                    </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={viewAttachment}
-                        disabled={pdfLoading || loading || !slip}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3.5 text-[13px] font-semibold text-[#334155] disabled:opacity-50"
-                    >
-                        {pdfLoading ? <Loader2 size={15} className="animate-spin" /> : <ExternalLink size={15} />}
-                        View attachment
-                    </button>
-                    <button
-                        type="button"
-                        onClick={async () => {
-                            await ensurePdf();
-                            downloadPdf();
-                        }}
-                        disabled={loading || !slip}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3.5 text-[13px] font-semibold text-[#334155] disabled:opacity-50"
-                    >
-                        <Download size={15} />
-                        Download PDF
-                    </button>
-                    <button
-                        type="button"
-                        onClick={saveMonth}
-                        disabled={!slip || saving || !dirty}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3.5 text-[13px] font-semibold text-white disabled:opacity-50"
-                    >
-                        {saving ? <Loader2 size={15} className="animate-spin" /> : null}
-                        Update
-                    </button>
+            <div className="mb-3 rounded-2xl border border-gray-100 bg-white px-5 py-4 shadow-sm sm:px-6">
+                <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(14rem,0.9fr)] lg:gap-0">
+                    <div className="min-w-0 lg:pr-6">
+                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">
+                                {displayName}
+                            </h1>
+                            <span className="text-sm font-medium text-slate-500">
+                                {monthLabel || '—'}
+                            </span>
+                        </div>
+                        <p className="mt-1 text-sm font-semibold text-slate-500">{displayId}</p>
+                    </div>
+
+                    <div className="min-w-0 lg:border-l lg:border-gray-100 lg:px-6">
+                        <h2 className="mb-3 text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[22px]">
+                            Salary slip
+                        </h2>
+                        <div className="space-y-1.5 text-sm">
+                            <p>
+                                <span className="text-slate-500">Monthly salary = </span>
+                                <span className="font-semibold tabular-nums text-slate-900">
+                                    {formatAed(amounts.monthlySalary)}
+                                </span>
+                            </p>
+                            <p>
+                                <span className="text-slate-500">Basic salary = </span>
+                                <span className="font-semibold tabular-nums text-slate-900">
+                                    {formatAed(amounts.basicSalary)}
+                                </span>
+                            </p>
+                            <p>
+                                <span className="text-slate-500">Other salary = </span>
+                                <span className="font-semibold tabular-nums text-slate-900">
+                                    {formatAed(amounts.otherSalary)}
+                                </span>
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex min-w-0 flex-col gap-2 lg:border-l lg:border-gray-100 lg:pl-6">
+                        <button
+                            type="button"
+                            onClick={viewAttachment}
+                            disabled={pdfLoading || loading || !slip}
+                            className={GHOST_BTN}
+                        >
+                            {pdfLoading ? <Loader2 size={15} className="animate-spin" /> : <ExternalLink size={15} />}
+                            View attachment
+                        </button>
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                await ensurePdf();
+                                downloadPdf();
+                            }}
+                            disabled={loading || !slip}
+                            className={GHOST_BTN}
+                        >
+                            <Download size={15} />
+                            Download PDF
+                        </button>
+                        <div className="grid grid-cols-2 gap-2">
+                            <NavButton
+                                href={historyHref}
+                                listReturnHref={slipReturnHref}
+                                enabled={Boolean(historyHref)}
+                                className={PAIR_BTN}
+                            >
+                                Salary history
+                            </NavButton>
+                            <button
+                                type="button"
+                                onClick={saveMonth}
+                                disabled={!slip || saving || !dirty}
+                                className={PRIMARY_BTN}
+                            >
+                                {saving ? <Loader2 size={15} className="animate-spin" /> : null}
+                                Update
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 

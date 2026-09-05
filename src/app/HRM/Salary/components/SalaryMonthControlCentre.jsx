@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
     ChevronDown,
     ChevronUp,
@@ -13,12 +14,12 @@ import {
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import useWorkLocations from '@/hooks/useWorkLocations';
-import NavButton from '@/components/NavButton';
 import { FALLBACK_WORK_LOCATIONS, normalizeWorkLocationKey, workLocationLabel } from '@/utils/workLocations';
 import { toCalendarMonthDay, toPayrollMonthDay } from '../utils/payrollMonthDay';
 import { policyFormFromApi } from '../utils/salaryPolicyForm';
 import SalaryDmfApprovalPanel from './SalaryDmfApprovalPanel';
 import { payrollApprovalStatusLabel } from '../utils/payrollApprovalStatus';
+import { navigateFromList } from '@/utils/listReturnNavigation';
 import './SalaryMonthControlCentre.css';
 
 const ALL_TAB_KEY = 'all';
@@ -251,6 +252,10 @@ function employeeAmount(emp) {
     return Number(emp?.actualSalary ?? emp?.monthlySalary) || 0;
 }
 
+function employeeExtra(emp) {
+    return Number(emp?.extra ?? emp?.ot) || 0;
+}
+
 function employeeIdKey(value) {
     return String(value || '').trim().replace(/\s+/g, '').toUpperCase();
 }
@@ -318,10 +323,10 @@ function comparePaymentEmployee(a, b, key, dir) {
 
 function comparePayrollRow(a, b, key, dir, processedIds) {
     const mul = dir === 'desc' ? -1 : 1;
-    if (key === 'id') return mul * compareText(a?.employeeId, b?.employeeId);
     if (key === 'monthly') return mul * compareNumber(a?.monthlySalary, b?.monthlySalary);
     if (key === 'basic') return mul * compareNumber(a?.basicSalary, b?.basicSalary);
     if (key === 'deduction') return mul * compareNumber(a?.deduction, b?.deduction);
+    if (key === 'extra') return mul * compareNumber(employeeExtra(a), employeeExtra(b));
     if (key === 'net') {
         return mul * compareNumber(a?.actualSalary ?? a?.monthlySalary, b?.actualSalary ?? b?.monthlySalary);
     }
@@ -1029,6 +1034,7 @@ function PayrollBlockersModal({
 }
 
 export default function SalaryMonthControlCentre({ monthKey }) {
+    const router = useRouter();
     const { toast } = useToast();
     const { locations } = useWorkLocations();
     const parsed = useMemo(() => parseMonthKey(monthKey), [monthKey]);
@@ -1472,6 +1478,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         monthlySalary: Number(emp.monthlySalary) || 0,
                         basicSalary: Number(emp.basicSalary) || 0,
                         deduction: Number(emp.deduction) || 0,
+                        extra: employeeExtra(emp),
                         actualSalary: Number(emp.actualSalary ?? emp.monthlySalary) || 0,
                     };
                 }
@@ -1486,6 +1493,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             : emp.companyName,
                     paymentType: emp.paymentType || month.paymentType,
                     staffType: emp.staffType || month.staffType,
+                    extra: employeeExtra({ ...emp, ...month }),
                 };
             });
     }, [monthEmployees, tab, tabMode, derived.employees]);
@@ -2144,14 +2152,6 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                             </span>
                                             <span>
                                                 <SortHeader
-                                                    label="ID"
-                                                    column="id"
-                                                    sort={payrollSort}
-                                                    onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
-                                                />
-                                            </span>
-                                            <span>
-                                                <SortHeader
                                                     label="Monthly salary"
                                                     column="monthly"
                                                     sort={payrollSort}
@@ -2176,6 +2176,14 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                             </span>
                                             <span>
                                                 <SortHeader
+                                                    label="Extra"
+                                                    column="extra"
+                                                    sort={payrollSort}
+                                                    onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
+                                                />
+                                            </span>
+                                            <span>
+                                                <SortHeader
                                                     label="Net salary"
                                                     column="net"
                                                     sort={payrollSort}
@@ -2190,7 +2198,6 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                     onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
                                                 />
                                             </span>
-                                            <span className="spcc-pay-open">Open</span>
                                         </div>
                                         {sortedPayrollRows.length ? (
                                             sortedPayrollRows.map((emp, index) => {
@@ -2209,17 +2216,28 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                         key={emp.employeeId || emp.slNo || index}
                                                         className={`spcc-pay-row${readinessEmployeeId === id ? ' is-selected' : ''}`}
                                                         role="row"
-                                                        onClick={() => {
-                                                            if (!id) return;
+                                                        title={id ? 'Double-click to open salary slips' : undefined}
+                                                        onClick={(event) => {
+                                                            if (!id || event.detail > 1) return;
                                                             setReadinessEmployeeId((current) => (current === id ? '' : id));
+                                                        }}
+                                                        onDoubleClick={() => {
+                                                            if (!id) return;
+                                                            navigateFromList(
+                                                                router,
+                                                                `/HRM/Salary/enroll/${encodeURIComponent(id)}`,
+                                                                parsed?.monthKey
+                                                                    ? `/HRM/Salary/${parsed.monthKey}`
+                                                                    : '/HRM/Salary',
+                                                            );
                                                         }}
                                                     >
                                                         <span className="tabular-nums">{index + 1}</span>
                                                         <span className="spcc-pay-emp">{emp.name || id || '—'}</span>
-                                                        <span className="spcc-pay-code">{id || '—'}</span>
                                                         <span className="tabular-nums">{formatMoney(emp.monthlySalary)}</span>
                                                         <span className="tabular-nums">{formatMoney(emp.basicSalary)}</span>
                                                         <span className="tabular-nums">{formatMoney(emp.deduction)}</span>
+                                                        <span className="tabular-nums">{formatMoney(employeeExtra(emp))}</span>
                                                         <span className="tabular-nums">{formatMoney(netSalary)}</span>
                                                         <span onClick={(event) => event.stopPropagation()}>
                                                             {blockerCount > 0 ? (
@@ -2237,23 +2255,6 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                                 <StatusPill tone={pending ? 'warn' : 'ok'}>
                                                                     {status}
                                                                 </StatusPill>
-                                                            )}
-                                                        </span>
-                                                        <span className="spcc-pay-open" onClick={(event) => event.stopPropagation()}>
-                                                            {id ? (
-                                                                <NavButton
-                                                                    href={`/HRM/Salary/enroll/${encodeURIComponent(id)}`}
-                                                                    listReturnHref={
-                                                                        parsed?.monthKey
-                                                                            ? `/HRM/Salary/${parsed.monthKey}`
-                                                                            : '/HRM/Salary'
-                                                                    }
-                                                                    className="spcc-row-link"
-                                                                >
-                                                                    Open
-                                                                </NavButton>
-                                                            ) : (
-                                                                '—'
                                                             )}
                                                         </span>
                                                     </div>

@@ -4,12 +4,12 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ChevronRight, Loader2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
-import NavButton from '@/components/NavButton';
+import NavButton, { getNavClickHandlers } from '@/components/NavButton';
 import { formatAed as formatAedMoney, salarySlipMonthHref } from './salarySlipEdit';
 
-const ROW_GRID =
-    'grid w-full min-w-[720px] items-center gap-x-3 ' +
-    'grid-cols-[1.5rem_minmax(6.5rem,0.9fr)_4.5rem_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(6.5rem,1.1fr)_4.25rem]';
+const TH =
+    'whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-600 sm:px-4 sm:text-xs';
+const TD = 'whitespace-nowrap px-3 py-2.5 align-middle sm:px-4';
 
 const FIELD =
     'h-11 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15';
@@ -604,81 +604,99 @@ export default function SalarySlipPreviewPanel({ employeeId }) {
     }, [employeeId]);
 
     return (
-        <section className="rounded-[12px] border border-[#E6EAF0] bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.06)] sm:p-5">
-            <div className="mb-3">
-                <h3 className="text-[15px] font-semibold text-[#0F172A]">Salary months</h3>
-                <p className="mt-0.5 text-[12px] text-[#64748B]">
+        <section className="w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+            <div className="border-b border-gray-200 px-4 py-3">
+                <h3 className="text-sm font-semibold text-[#0F172A]">Salary months</h3>
+                <p className="mt-0.5 text-xs text-slate-500">
                     Open a month to view and edit that salary slip.
                 </p>
             </div>
 
-            {listLoading ? (
-                <div className="flex min-h-[240px] items-center justify-center rounded-lg bg-[#F8FAFC]">
-                    <Loader2 className="animate-spin text-blue-600" size={28} />
-                </div>
-            ) : listError ? (
-                <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-6 text-sm text-red-600">
-                    {listError}
-                </div>
-            ) : (
-                <div className="overflow-x-auto">
-                    <div
-                        className={`${ROW_GRID} border-b border-[#EEF2F6] px-2 pb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]`}
-                    >
-                        <span />
-                        <span>Month</span>
-                        <span>Year</span>
-                        <span className="text-right">Salary</span>
-                        <span className="text-right">Deduction</span>
-                        <span className="text-right">Extra</span>
-                        <span className="text-right">Total salary</span>
-                        <span className="text-center">Type</span>
-                    </div>
-                    {months.length === 0 ? (
-                        <div className="px-2 py-8 text-center text-sm text-[#64748B]">
-                            No salary months yet for this employee.
-                        </div>
-                    ) : (
-                        <div className="divide-y divide-[#F1F5F9]">
-                            {months.map((row) => {
+            <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] table-auto text-xs sm:text-sm">
+                    <thead className="sticky top-0 border-b border-gray-200 bg-gray-50">
+                        <tr>
+                            <th className={`${TH} text-left`}>Month</th>
+                            <th className={`${TH} text-left`}>Year</th>
+                            <th className={`${TH} text-right`}>Monthly Salary</th>
+                            <th className={`${TH} text-right`}>Deduction</th>
+                            <th className={`${TH} text-right`}>Extra</th>
+                            <th className={`${TH} text-right`}>Net Salary</th>
+                            <th className={`${TH} text-center`}>Type</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {listLoading ? (
+                            <tr>
+                                <td colSpan={7} className="px-4 py-16 text-center text-slate-500">
+                                    <Loader2 size={20} className="inline animate-spin text-blue-600" />
+                                </td>
+                            </tr>
+                        ) : listError ? (
+                            <tr>
+                                <td colSpan={7} className="px-4 py-10 text-center text-sm text-red-600">
+                                    {listError}
+                                </td>
+                            </tr>
+                        ) : months.length === 0 ? (
+                            <tr>
+                                <td colSpan={7} className="px-4 py-16 text-center text-slate-500">
+                                    No salary months yet for this employee.
+                                </td>
+                            </tr>
+                        ) : (
+                            months.map((row) => {
                                 const slipHref = salarySlipMonthHref(employeeId, row.monthKey);
                                 return (
-                                    <NavButton
+                                    <tr
                                         key={row.monthKey}
-                                        href={slipHref}
-                                        router={router}
-                                        listReturnHref={listReturnHref}
-                                        className={`${ROW_GRID} cursor-pointer px-2 py-3 text-left text-[13px] text-[#334155] no-underline hover:bg-slate-50`}
+                                        className="cursor-pointer text-[#334155] hover:bg-slate-50"
+                                        {...getNavClickHandlers({
+                                            href: slipHref,
+                                            router,
+                                            listReturnHref,
+                                        })}
                                     >
-                                        <ChevronRight size={16} className="text-[#94A3B8]" />
-                                        <span className="font-semibold text-[#0F172A]">{row.month || '—'}</span>
-                                        <span className="tabular-nums">{row.year || '—'}</span>
-                                        <span className="tabular-nums text-right font-semibold">
+                                        <td className={`${TD} font-semibold text-[#0F172A]`}>
+                                            <NavButton
+                                                href={slipHref}
+                                                router={router}
+                                                listReturnHref={listReturnHref}
+                                                className="inline-flex items-center gap-1 text-inherit no-underline"
+                                            >
+                                                {row.month || '—'}
+                                                <ChevronRight size={14} className="text-slate-300" />
+                                            </NavButton>
+                                        </td>
+                                        <td className={`${TD} tabular-nums text-slate-500`}>
+                                            {row.year || '—'}
+                                        </td>
+                                        <td className={`${TD} text-right tabular-nums text-[#0F172A]`}>
                                             {formatAed(row.salary)}
-                                        </span>
-                                        <span className="tabular-nums text-right text-[#64748B]">
+                                        </td>
+                                        <td className={`${TD} text-right tabular-nums text-slate-500`}>
                                             {formatAed(row.deduction)}
-                                        </span>
-                                        <span className="tabular-nums text-right text-[#64748B]">
+                                        </td>
+                                        <td className={`${TD} text-right tabular-nums text-slate-500`}>
                                             {formatAed(row.extra)}
-                                        </span>
-                                        <span className="tabular-nums text-right font-semibold text-[#0F172A]">
+                                        </td>
+                                        <td className={`${TD} text-right tabular-nums font-semibold text-[#0F172A]`}>
                                             {formatAed(row.totalSalary)}
-                                        </span>
-                                        <span className="flex justify-center">
+                                        </td>
+                                        <td className={`${TD} text-center`}>
                                             <span
-                                                className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${typeTone(row.type)}`}
+                                                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeTone(row.type)}`}
                                             >
                                                 {row.type || 'Cash'}
                                             </span>
-                                        </span>
-                                    </NavButton>
+                                        </td>
+                                    </tr>
                                 );
-                            })}
-                        </div>
-                    )}
-                </div>
-            )}
+                            })
+                        )}
+                    </tbody>
+                </table>
+            </div>
         </section>
     );
 }

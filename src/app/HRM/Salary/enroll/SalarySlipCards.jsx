@@ -1,91 +1,141 @@
 'use client';
 
-import { CalendarDays, CalendarRange, CircleDollarSign, MinusCircle, Table2 } from 'lucide-react';
+import { MinusCircle, Table2, Wallet } from 'lucide-react';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import {
-    LOSS_OF_PAY_CATALOG,
-    OTHER_DEDUCTION_CATALOG,
-    OTHER_EARNING_CATALOG,
-    SALARY_EARNING_CATALOG,
-    YEARLY_OTHER_EARNING_CATALOG,
-    YEARLY_SALARY_EARNING_CATALOG,
-    actualSalaryAfterDeduction,
-    amountInWordsAed,
     buildSalarySlipBalanceRows,
-    extraComponents,
     formatAed,
     mapComponent,
     money,
     pickComponent,
-    salaryPayableZoho,
 } from './salarySlipEdit';
 
-const ATTENDANCE_FIELDS = [
-    ['holidays', 'Holidays', 'days'],
-    ['workingDayLeaves', 'Working day leaves', 'days'],
-    ['presentDays', 'Present days', 'days'],
-    ['holidaysWorked', 'Holidays worked', 'days'],
-    ['calendarDays', 'Calendar days', 'days'],
-    ['overtimeHours', 'Overtime hours', 'hours'],
-    ['compOffLeave', 'Comp off leave', 'days'],
-];
-
-const LABEL = 'mb-1 block text-[12px] font-medium text-[#64748B]';
 const FIELD =
-    'h-10 w-full min-w-0 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15';
+    'h-9 w-full min-w-0 rounded-lg border border-[#E2E8F0] bg-white px-2.5 text-sm text-[#0F172A] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15';
 const FIELD_RO =
     'h-10 w-full min-w-0 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm text-[#0F172A] outline-none';
-const FIELD_COUNT =
-    'h-10 w-[4.75rem] shrink-0 rounded-lg border border-[#E2E8F0] bg-white px-2 text-center text-sm text-[#0F172A] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15';
-const FORM_BOX = 'rounded-xl border border-[#EEF2F6] bg-white px-3 py-2.5';
-const KEEP_PERIOD_COMPONENTS = new Set(['Overtime Hours', 'Overtime Days']);
+const TH =
+    'whitespace-nowrap border-b border-[#EEF2F6] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]';
+const TD = 'px-3 py-2 text-sm text-[#0F172A]';
 
-function displayText(value) {
-    if (value == null || value === '') return '';
-    return String(value);
+const MONTHLY_EARNING_ROWS = [
+    { name: 'Basic Salary', period: 'monthly' },
+    { name: 'Other Allowance', period: 'monthly' },
+    { name: 'House Rental Allowance', period: 'monthly' },
+    { name: 'Vehicle Allowance', period: 'monthly' },
+    { name: 'Fuel Allowance', period: 'monthly' },
+    { name: 'Phone Allowance', period: 'monthly' },
+    { name: 'Overtime Hours', period: 'otHours' },
+    { name: 'Overtime Days', period: 'otDays' },
+    { name: 'Reward', period: 'reward' },
+];
+
+const THIS_MONTH_EARNING = new Set(['Phone Allowance', 'Overtime Hours', 'Overtime Days', 'Reward']);
+const CONTRACT_SALARY_NAMES = [
+    'Basic Salary',
+    'Other Allowance',
+    'House Rental Allowance',
+    'Vehicle Allowance',
+    'Fuel Allowance',
+];
+const FORMULA_EARNINGS = new Set(['Overtime Hours', 'Overtime Days']);
+const FORMULA_DEDUCTIONS = new Set(['Authorized Leave', 'Unauthorized Leave', 'Late Arrival']);
+
+const LOSS_OF_PAY_ROWS = [
+    { name: 'Authorized Leave', dayKey: 'authorized', multiplierKey: 'authorized' },
+    { name: 'Unauthorized Leave', dayKey: 'unauthorized', multiplierKey: 'unauthorized' },
+    { name: 'Late Arrival', dayKey: 'late', multiplierKey: 'late' },
+    { name: 'Annual Leave', dayKey: 'annual', multiplierKey: 'annual' },
+    { name: 'Comp off leave', dayKey: 'compOff', daysOnly: true },
+];
+
+const OTHER_DEDUCTION_ROWS = [
+    { name: 'Loan', timesKey: 'loan' },
+    { name: 'Fine', timesKey: 'fine' },
+    { name: 'Utility Excess', timesKey: 'utilityExcess' },
+    { name: 'Salary Advance', timesKey: 'salaryAdvance' },
+];
+
+function parseLeadingNumber(value) {
+    const match = String(value ?? '').match(/-?\d+(?:\.\d+)?/);
+    return match ? Number(match[0]) : 0;
 }
 
-function isQuantityBasis(basis) {
-    const text = String(basis || '').trim();
-    if (!text) return false;
-    return /\d/.test(text) || /\b(days?|hours?|h|events?)\b/i.test(text);
+function monthDaysOf(slip) {
+    const key = String(slip?.monthKey || '').trim();
+    const match = key.match(/^(\d{4})-(\d{2})$/);
+    if (match) return new Date(Number(match[1]), Number(match[2]), 0).getDate();
+    const fromSummary = Number(slip?.summary?.monthDays);
+    return Number.isFinite(fromSummary) && fromSummary > 0 ? fromSummary : 0;
 }
 
-function isCalendarPeriod(basis) {
-    return /^(yearly|annual|annually|monthly|month)$/i.test(String(basis || '').trim());
+function contractedMonthlySalary(slip) {
+    const fromSummary = money(slip?.summary?.monthlySalary);
+    if (fromSummary > 0) return fromSummary;
+    return money(CONTRACT_SALARY_NAMES.reduce((sum, name) => sum + liveSalaryAmount(slip, name), 0));
 }
 
-function cleanComponentName(name) {
-    return String(name || '').replace(/\s*\(\s*yearly\s*\)/gi, '').trim();
+function daySalaryOf(slip) {
+    const days = monthDaysOf(slip);
+    const monthly = contractedMonthlySalary(slip);
+    if (days > 0 && monthly > 0) return money(monthly / days);
+    return money(slip?.summary?.daySalary);
 }
 
-function shouldShowPeriodInput(name, basis, kind) {
-    if (KEEP_PERIOD_COMPONENTS.has(name)) return true;
-    const text = String(basis || '').trim();
-    if (isQuantityBasis(text)) return true;
-    if (kind === 'earn' || isCalendarPeriod(text)) return false;
-    if (/^mobile$/i.test(text)) return false;
-    const isUtility = String(name || '').toLowerCase() === 'utility excess';
-    if (isUtility && text && !/^(schedule|installment|monthly)$/i.test(text)) return false;
-    return false;
+function overtimeHoursCount(slip) {
+    const summary = slip?.summary || {};
+    return (
+        Number(summary.overtimeHoursCount) ||
+        parseLeadingNumber(slip?.attendance?.overtimeHours) ||
+        parseLeadingNumber(pickComponent(slip?.earnings, 'Overtime Hours').basis) ||
+        0
+    );
 }
 
-/** Put Approved / Mobile in the name; never append Yearly or Monthly. */
-function inlinePeriodLabel(name, basis, kind) {
-    if (KEEP_PERIOD_COMPONENTS.has(name)) return '';
-    const text = String(basis || '').trim();
-    if (isCalendarPeriod(text) || isQuantityBasis(text)) return '';
-    if (kind === 'earn') return text;
-    if (/^mobile$/i.test(text)) return text;
-    const isUtility = String(name || '').toLowerCase() === 'utility excess';
-    if (isUtility && text && !/^(schedule|installment|monthly)$/i.test(text)) return text;
-    return '';
+function overtimeDaysCount(slip) {
+    const summary = slip?.summary || {};
+    return (
+        Number(summary.overtimeDaysCount) ||
+        parseLeadingNumber(pickComponent(slip?.earnings, 'Overtime Days').basis) ||
+        0
+    );
 }
 
-function fieldLabel(name, basis, kind) {
-    const cleaned = cleanComponentName(name);
-    const suffix = inlinePeriodLabel(cleaned, basis, kind);
-    return suffix ? `${cleaned} (${suffix})` : cleaned;
+function formulaEarningAmount(slip, name) {
+    const daily = daySalaryOf(slip);
+    if (name === 'Overtime Hours') return money((daily / 10) * overtimeHoursCount(slip));
+    if (name === 'Overtime Days') return money(daily * overtimeDaysCount(slip));
+    return null;
+}
+
+function formulaLeaveAmount(daily, days, multiplier) {
+    const times = Number(multiplier);
+    const count = Number(days) || 0;
+    const rate = Number.isFinite(times) ? times : 0;
+    return money((Number(daily) || 0) * rate * count);
+}
+
+function formatQty(value) {
+    const n = Number(value) || 0;
+    if (Number.isInteger(n)) return String(n);
+    return String(Math.round(n * 100) / 100);
+}
+
+function unitLabel(count, unit) {
+    const n = Number(count) || 0;
+    return `${formatQty(n)} ${unit}`;
+}
+
+function timesLabel(count) {
+    const n = Number(count) || 0;
+    return `${formatQty(n)} time${n === 1 ? '' : 's'}`;
+}
+
+function daysTimesLabel(days, multiplier) {
+    const d = Number(days) || 0;
+    const m = Number(multiplier);
+    const times = Number.isFinite(m) ? m : 1;
+    return `${unitLabel(d, d === 1 ? 'day' : 'days')} × ${formatQty(times)}`;
 }
 
 function moneyInputValue(value) {
@@ -93,122 +143,10 @@ function moneyInputValue(value) {
     return Number.isFinite(n) ? String(n) : '';
 }
 
-function countInputValue(value) {
-    const n = Number(String(value ?? '').replace(/[^0-9.-]/g, ''));
-    return Number.isFinite(n) ? String(n) : '';
-}
-
-function formatCountLabel(count, unit) {
-    const n = Number(count);
-    const num = Number.isFinite(n) ? n : 0;
-    return `${num} ${unit}`;
-}
-
 function amountToneClass(tone) {
     if (tone === 'deduct') return 'font-semibold text-red-600';
     if (tone === 'net') return 'font-semibold text-blue-600';
     return 'font-semibold text-emerald-700';
-}
-
-function AmountTableRow({
-    label,
-    basis,
-    amount,
-    kind = 'earn',
-    onBasisChange,
-    onAmountChange,
-    tone = 'earn',
-    showPeriodCol = true,
-}) {
-    const showPeriod = shouldShowPeriodInput(label, basis, kind);
-    const title = fieldLabel(label, basis, kind);
-    return (
-        <tr className="border-b border-[#F1F5F9] last:border-b-0">
-            <td className="px-3 py-2.5 text-sm font-semibold text-[#0F172A]">{title}</td>
-            {showPeriodCol ? (
-                <td className="w-[7.5rem] px-3 py-2.5">
-                    {showPeriod ? (
-                        <input
-                            type="text"
-                            value={displayText(basis)}
-                            onChange={(e) => onBasisChange?.(e.target.value)}
-                            className={FIELD}
-                            aria-label={`${label} period`}
-                        />
-                    ) : (
-                        <span className="text-sm text-[#94A3B8]">—</span>
-                    )}
-                </td>
-            ) : null}
-            <td className="px-3 py-2.5">
-                <div className="flex items-center gap-2">
-                    <input
-                        type="number"
-                        step="0.01"
-                        value={moneyInputValue(amount)}
-                        onChange={(e) => onAmountChange?.(e.target.value)}
-                        className={`${FIELD} ${amountToneClass(tone)}`}
-                        aria-label={`${label} amount`}
-                    />
-                    <span className="shrink-0 text-xs font-semibold text-gray-400">AED</span>
-                </div>
-            </td>
-        </tr>
-    );
-}
-
-function CountRow({ label, value, unit, onChange }) {
-    const count = countInputValue(value);
-    function patchCount(next) {
-        onChange?.(formatCountLabel(next, unit));
-    }
-    return (
-        <div className={FORM_BOX}>
-            <span className={`${LABEL} mb-1.5 text-[13px] font-semibold text-[#334155]`}>{label}</span>
-            <div className="grid grid-cols-2 gap-2">
-                <label className="block min-w-0">
-                    <span className={LABEL}>Unit</span>
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={count}
-                            onChange={(e) => patchCount(e.target.value)}
-                            className={FIELD_COUNT}
-                            aria-label={`${label} count`}
-                        />
-                        <span className="text-sm font-medium text-gray-500">{unit}</span>
-                    </div>
-                </label>
-                <label className="block min-w-0">
-                    <span className={LABEL}>Value</span>
-                    <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={count}
-                        onChange={(e) => patchCount(e.target.value)}
-                        className={FIELD}
-                        aria-label={label}
-                    />
-                </label>
-            </div>
-        </div>
-    );
-}
-
-function TotalsRow({ label, value, tone }) {
-    return (
-        <label className={`block ${FORM_BOX}`}>
-            <span className={LABEL}>{label}</span>
-            <input
-                readOnly
-                value={formatAed(value)}
-                className={`${FIELD_RO} ${amountToneClass(tone)}`}
-            />
-        </label>
-    );
 }
 
 function GroupTotal({ label, value, tone = 'earn' }) {
@@ -219,9 +157,25 @@ function GroupTotal({ label, value, tone = 'earn' }) {
                 ? 'border-indigo-100 bg-indigo-50 text-indigo-700'
                 : 'border-emerald-100 bg-emerald-50 text-emerald-700';
     return (
-        <div className={`mt-4 flex items-center justify-between gap-3 rounded-xl border px-4 py-3 ${wrap}`}>
+        <div className={`mt-3 flex items-center justify-between gap-3 rounded-xl border px-4 py-3 ${wrap}`}>
             <span className="text-xs font-medium">{label}</span>
             <span className="text-lg font-bold tabular-nums">{formatAed(value)}</span>
+        </div>
+    );
+}
+
+function PayableMiniCard({ title, hint, value, tone = 'net' }) {
+    const wrap =
+        tone === 'earn'
+            ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+            : 'border-indigo-100 bg-indigo-50 text-indigo-700';
+    return (
+        <div className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 shadow-sm">
+            <p className="text-[13px] font-semibold text-gray-800">{title}</p>
+            <p className="mt-0.5 text-[10px] leading-snug text-gray-500">{hint}</p>
+            <p className={`mt-1.5 rounded-lg border px-2.5 py-1.5 text-base font-bold tabular-nums ${wrap}`}>
+                {formatAed(value)}
+            </p>
         </div>
     );
 }
@@ -242,10 +196,7 @@ function BalanceScheduleTable({ rows }) {
                 <thead>
                     <tr className="bg-[#F8FAFC]">
                         {BALANCE_HEADERS.map((title) => (
-                            <th
-                                key={title}
-                                className="whitespace-nowrap border-b border-[#EEF2F6] px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]"
-                            >
+                            <th key={title} className={TH}>
                                 {title}
                             </th>
                         ))}
@@ -254,7 +205,9 @@ function BalanceScheduleTable({ rows }) {
                 <tbody>
                     {rows.map((row) => (
                         <tr key={row.type} className="border-b border-[#F1F5F9] last:border-b-0">
-                            <td className="whitespace-nowrap px-3 py-3 font-semibold text-[#0F172A]">{row.type}</td>
+                            <td className="whitespace-nowrap px-3 py-3 font-semibold text-[#0F172A]">
+                                {row.label || `${row.type} (${row.count || 0})`}
+                            </td>
                             <td className={`whitespace-nowrap px-3 py-3 tabular-nums ${amountToneClass('earn')}`}>
                                 {formatAed(row.total)}
                             </td>
@@ -278,13 +231,6 @@ function BalanceScheduleTable({ rows }) {
     );
 }
 
-function patchAttendance(onPatch, key, value) {
-    onPatch('attendance', (draft) => ({
-        ...draft,
-        attendance: { ...(draft.attendance || {}), [key]: value },
-    }));
-}
-
 function patchNamedComponent(onPatch, section, name, patch) {
     onPatch(section, (draft) => ({
         ...draft,
@@ -296,7 +242,8 @@ function sumThisMonth(rows, read) {
     return money((Array.isArray(rows) ? rows : []).reduce((sum, row) => sum + money(read(row)), 0));
 }
 
-function liveDeductionAmount(slip, name, row) {
+function liveDeductionAmount(slip, name) {
+    const row = pickComponent(slip?.deductions, name);
     const fromRow = money(row?.amount);
     if (fromRow > 0) return fromRow;
     const recon = slip?.reconciliation || {};
@@ -330,327 +277,358 @@ function liveDeductionAmount(slip, name, row) {
     return fromRow;
 }
 
-function sumEarningGroup(rows, names, extras) {
-    const catalogSum = names.reduce(
-        (sum, name) => sum + money(pickComponent(rows, name).amount),
-        0,
-    );
-    const extraSum = extras.reduce((sum, row) => sum + money(row.amount), 0);
-    return money(catalogSum + extraSum);
+function liveSalaryAmount(slip, name) {
+    const yearly = money(pickComponent(slip?.yearlyEarnings, name).amount);
+    if (yearly > 0) return yearly;
+    return money(pickComponent(slip?.earnings, name).amount);
 }
 
-function sumDeductionGroup(slip, names, extras) {
-    const catalogSum = names.reduce(
-        (sum, name) => sum + liveDeductionAmount(slip, name, pickComponent(slip?.deductions, name)),
-        0,
-    );
-    const extraSum = extras.reduce(
-        (sum, row) => sum + liveDeductionAmount(slip, row.component, row),
-        0,
-    );
-    return money(catalogSum + extraSum);
+function liveMonthlyEarningAmount(slip, name) {
+    const formula = formulaEarningAmount(slip, name);
+    if (formula != null) return formula;
+    if (THIS_MONTH_EARNING.has(name)) {
+        return money(pickComponent(slip?.earnings, name).amount);
+    }
+    return liveSalaryAmount(slip, name);
 }
 
-function EarningGroupCard({
-    title,
-    names,
-    extras = [],
-    rows,
-    section,
-    onPatch,
-    totalLabel,
-    total,
-    defaultBasis = '',
-    tone = 'earn',
-    kind = 'earn',
-    amountFor,
-    showTitle = true,
-}) {
-    const isDeduct = tone === 'deduct';
-    const footClass = isDeduct
-        ? 'bg-rose-50 text-rose-700'
-        : 'bg-emerald-50 text-emerald-700';
-    const items = [
-        ...names.map((name) => {
-            const row = pickComponent(rows, name);
-            return {
-                key: name,
-                label: name,
-                basis: row.basis || defaultBasis,
-                amount: amountFor ? amountFor(name, row) : row.amount,
-            };
-        }),
-        ...extras.map((row) => ({
-            key: row.component,
-            label: row.component,
-            basis: row.basis || defaultBasis,
-            amount: amountFor ? amountFor(row.component, row) : row.amount,
-        })),
-    ];
-    const showPeriodCol = items.some((item) => shouldShowPeriodInput(item.label, item.basis, kind));
-    const headers = showPeriodCol ? ['Component', 'Period', 'Amount'] : ['Component', 'Amount'];
+function liveBenefitAmount(slip, yearlyName, monthName, summaryAmount) {
+    const fromSummary = money(summaryAmount);
+    if (fromSummary > 0) return fromSummary;
+    const yearly = money(pickComponent(slip?.yearlyEarnings, yearlyName).amount);
+    if (yearly > 0) return yearly;
+    return money(pickComponent(slip?.earnings, monthName).amount);
+}
+
+function monthlyPeriodLabel(name, slip) {
+    if (name === 'Overtime Hours') {
+        const hours = overtimeHoursCount(slip);
+        return unitLabel(hours, hours === 1 ? 'hour' : 'hours');
+    }
+    if (name === 'Overtime Days') {
+        const days = overtimeDaysCount(slip);
+        return unitLabel(days, days === 1 ? 'day' : 'days');
+    }
+    if (name === 'Reward') {
+        const count = Number(slip?.summary?.rewardCount) || 0;
+        const amount = money(pickComponent(slip?.earnings, 'Reward').amount);
+        return count > 0 || amount > 0 ? 'Reward scheduled' : '—';
+    }
+    return 'Monthly';
+}
+
+function AmountCell({ label, amount, tone, onChange }) {
+    const editable = typeof onChange === 'function';
     return (
-        <div className="flex h-full min-w-0 flex-col rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-            {showTitle ? <h4 className="mb-3 text-sm font-bold text-gray-800">{title}</h4> : null}
-            <div className="flex-1 overflow-x-auto rounded-xl border border-[#EEF2F6]">
-                <table className="w-full table-fixed border-collapse text-left text-sm">
-                    <thead>
-                        <tr className="bg-[#F8FAFC]">
-                            {headers.map((heading) => (
-                                <th
-                                    key={heading}
-                                    className={`border-b border-[#EEF2F6] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8] ${
-                                        heading === 'Amount' ? 'w-[42%]' : heading === 'Period' ? 'w-[7.5rem]' : ''
-                                    }`}
-                                >
-                                    {heading}
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {items.map((item) => (
-                            <AmountTableRow
-                                key={item.key}
-                                label={item.label}
-                                basis={item.basis}
-                                amount={item.amount}
-                                kind={kind}
-                                tone={tone}
-                                showPeriodCol={showPeriodCol}
-                                onBasisChange={(value) =>
-                                    patchNamedComponent(onPatch, section, item.label, { basis: value })
-                                }
-                                onAmountChange={(value) =>
-                                    patchNamedComponent(onPatch, section, item.label, {
-                                        amount: value,
-                                        basis: item.basis,
-                                    })
-                                }
-                            />
-                        ))}
-                    </tbody>
-                    <tfoot>
-                        <tr className={footClass}>
-                            <td
-                                colSpan={showPeriodCol ? 2 : 1}
-                                className="px-3 py-2.5 text-xs font-medium"
-                            >
-                                {totalLabel}
-                            </td>
-                            <td className="px-3 py-2.5 text-sm font-bold tabular-nums">{formatAed(total)}</td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
+        <div className="flex items-center gap-2">
+            <input
+                type="number"
+                step="0.01"
+                readOnly={!editable}
+                value={moneyInputValue(amount)}
+                onChange={(e) => onChange?.(e.target.value)}
+                className={`${editable ? FIELD : FIELD_RO} ${amountToneClass(tone)}`}
+                aria-label={`${label} amount`}
+            />
+            <span className="shrink-0 text-xs font-semibold text-gray-400">AED</span>
         </div>
     );
 }
 
+function SlipTable({
+    headers,
+    rows,
+    totalLabel,
+    total,
+    tone = 'earn',
+}) {
+    const footClass =
+        tone === 'deduct' ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700';
+    return (
+        <div className="overflow-x-auto rounded-xl border border-[#EEF2F6]">
+            <table className="w-full min-w-[32rem] border-collapse text-left text-sm">
+                <thead>
+                    <tr className="bg-[#F8FAFC]">
+                        {headers.map((heading) => (
+                            <th
+                                key={heading}
+                                className={`${TH} ${heading === 'SL' ? 'w-12' : heading === 'Amount' || heading === 'Total' ? 'w-[38%]' : ''}`}
+                            >
+                                {heading}
+                            </th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows.map((row) => (
+                        <tr key={row.key} className="border-b border-[#F1F5F9]">
+                            <td className={`${TD} tabular-nums text-[#94A3B8]`}>{row.sl}</td>
+                            <td className={`${TD} font-semibold`}>{row.label}</td>
+                            <td className={`${TD} text-[#64748B]`}>{row.period}</td>
+                            <td className={TD}>{row.amountCell}</td>
+                        </tr>
+                    ))}
+                </tbody>
+                <tfoot>
+                    <tr className={footClass}>
+                        <td colSpan={3} className="px-3 py-2.5 text-xs font-medium">
+                            {totalLabel}
+                        </td>
+                        <td className="px-3 py-2.5 text-sm font-bold tabular-nums">{formatAed(total)}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    );
+}
+
+function patchEarningAmount(onPatch, name, value) {
+    const amount = value;
+    if (THIS_MONTH_EARNING.has(name)) {
+        patchNamedComponent(onPatch, 'earnings', name, { amount });
+        return;
+    }
+    patchNamedComponent(onPatch, 'yearlyEarnings', name, { amount, basis: 'Monthly' });
+}
+
 export default function SalarySlipCards({ slip, onPatch }) {
-    const att = slip?.attendance || {};
-    const extraEarnings = extraComponents(slip?.earnings, [
-        ...SALARY_EARNING_CATALOG,
-        ...OTHER_EARNING_CATALOG,
-    ]).filter((row) => money(row.amount) > 0);
-    const extraYearlyEarnings = extraComponents(slip?.yearlyEarnings, [
-        ...YEARLY_SALARY_EARNING_CATALOG,
-        ...YEARLY_OTHER_EARNING_CATALOG,
-    ]).filter((row) => money(row.amount) > 0);
-    const leftoverDeductions = extraComponents(slip?.deductions, [
-        ...LOSS_OF_PAY_CATALOG,
-        ...OTHER_DEDUCTION_CATALOG,
-    ]).filter((row) => money(liveDeductionAmount(slip, row.component, row)) > 0);
-    const extraLossOfPay = leftoverDeductions.filter((row) =>
-        /leave|late|sick|absence|lop/i.test(String(row.component || '')),
+    const summary = slip?.summary || {};
+    const multipliers = summary.leaveMultipliers || {};
+    const lopDays = summary.lossOfPayDays || {};
+    const otherTimes = summary.otherDeductionTimes || {};
+
+    const monthlyEarningRows = MONTHLY_EARNING_ROWS.map((item, index) => {
+        const amount = liveMonthlyEarningAmount(slip, item.name);
+        const formulaRow = FORMULA_EARNINGS.has(item.name);
+        return {
+            key: item.name,
+            sl: index + 1,
+            label: item.name,
+            period: monthlyPeriodLabel(item.name, slip),
+            amount,
+            amountCell: (
+                <AmountCell
+                    label={item.name}
+                    amount={amount}
+                    onChange={
+                        formulaRow
+                            ? undefined
+                            : (value) => patchEarningAmount(onPatch, item.name, value)
+                    }
+                />
+            ),
+        };
+    });
+    const monthlyEarningTotal = money(
+        monthlyEarningRows.reduce((sum, row) => sum + money(row.amount), 0),
     );
-    const extraOtherDeductions = leftoverDeductions.filter(
-        (row) => !/leave|late|sick|absence|lop/i.test(String(row.component || '')),
+
+    const leaveBenefit = summary.leaveSalary || {};
+    const ticketBenefit = summary.airTicket || {};
+    const leaveSalaryAmount = liveBenefitAmount(
+        slip,
+        'Leave Salary',
+        'Leave Salary',
+        leaveBenefit.amount,
     );
-    const salaryEarningsTotal = sumEarningGroup(slip?.earnings, SALARY_EARNING_CATALOG, []);
-    const otherEarningsTotal = sumEarningGroup(slip?.earnings, OTHER_EARNING_CATALOG, extraEarnings);
-    const yearlySalaryTotal = sumEarningGroup(slip?.yearlyEarnings, YEARLY_SALARY_EARNING_CATALOG, []);
-    const yearlyOtherTotal = sumEarningGroup(
-        slip?.yearlyEarnings,
-        YEARLY_OTHER_EARNING_CATALOG,
-        extraYearlyEarnings,
+    const airTicketAmount = liveBenefitAmount(
+        slip,
+        'Travel Allowance',
+        'Ticket',
+        ticketBenefit.amount,
     );
-    const lossOfPayTotal = sumDeductionGroup(slip, LOSS_OF_PAY_CATALOG, extraLossOfPay);
-    const otherDeductionsTotal = sumDeductionGroup(slip, OTHER_DEDUCTION_CATALOG, extraOtherDeductions);
-    const payableZoho = salaryPayableZoho(salaryEarningsTotal, otherEarningsTotal, lossOfPayTotal);
-    const actualAfterDeduction = actualSalaryAfterDeduction(payableZoho, otherDeductionsTotal);
+    const leaveCount = Number(leaveBenefit.count) || (leaveSalaryAmount > 0 ? 1 : 0);
+    const ticketCount = Number(ticketBenefit.count) || (airTicketAmount > 0 ? 1 : 0);
+    const annualEarningRows = [
+        {
+            key: 'leave-salary',
+            sl: 1,
+            name: 'Leave Salary',
+            section: 'yearlyEarnings',
+            label: 'Annual leave salary',
+            period: unitLabel(leaveCount, 'leave'),
+            amount: leaveSalaryAmount,
+        },
+        {
+            key: 'air-ticket',
+            sl: 2,
+            name: 'Travel Allowance',
+            altName: 'Ticket',
+            section: 'yearlyEarnings',
+            label: 'Annual leave air ticket',
+            period: unitLabel(ticketCount, 'ticket'),
+            amount: airTicketAmount,
+        },
+    ].map((row) => ({
+        ...row,
+        amountCell: (
+            <AmountCell
+                label={row.label}
+                amount={row.amount}
+                onChange={(value) => {
+                    patchNamedComponent(onPatch, 'yearlyEarnings', row.name, {
+                        amount: value,
+                        basis: 'Yearly',
+                    });
+                    if (row.altName) {
+                        patchNamedComponent(onPatch, 'earnings', row.altName, { amount: value });
+                    }
+                }}
+            />
+        ),
+    }));
+    const annualEarningTotal = money(leaveSalaryAmount + airTicketAmount);
+
+    const lopRows = LOSS_OF_PAY_ROWS.map((item, index) => {
+        const days =
+            Number(lopDays[item.dayKey]) ||
+            parseLeadingNumber(
+                item.dayKey === 'compOff'
+                    ? slip?.attendance?.compOffLeave
+                    : pickComponent(slip?.deductions, item.name).basis,
+            );
+        const multiplier = multipliers[item.multiplierKey];
+        const amount = FORMULA_DEDUCTIONS.has(item.name)
+            ? formulaLeaveAmount(daySalaryOf(slip), days, multiplier)
+            : liveDeductionAmount(slip, item.name);
+        const period = item.daysOnly
+            ? unitLabel(days, days === 1 ? 'day' : 'days')
+            : daysTimesLabel(days, multiplier);
+        return {
+            key: item.name,
+            sl: index + 1,
+            label: item.name,
+            period,
+            amount,
+            amountCell: (
+                <AmountCell
+                    label={item.name}
+                    amount={amount}
+                    tone="deduct"
+                    onChange={
+                        FORMULA_DEDUCTIONS.has(item.name)
+                            ? undefined
+                            : (value) =>
+                                  patchNamedComponent(onPatch, 'deductions', item.name, { amount: value })
+                    }
+                />
+            ),
+        };
+    });
+    const lopTotal = money(lopRows.reduce((sum, row) => sum + money(row.amount), 0));
+
+    const otherDeductionRows = OTHER_DEDUCTION_ROWS.map((item, index) => {
+        const amount = liveDeductionAmount(slip, item.name);
+        const times = Number(otherTimes[item.timesKey]) || (amount > 0 ? 1 : 0);
+        return {
+            key: item.name,
+            sl: index + 1,
+            label: item.name,
+            period: timesLabel(times),
+            amount,
+            amountCell: (
+                <AmountCell
+                    label={item.name}
+                    amount={amount}
+                    tone="deduct"
+                    onChange={(value) =>
+                        patchNamedComponent(onPatch, 'deductions', item.name, { amount: value })
+                    }
+                />
+            ),
+        };
+    });
+    const otherDeductionTotal = money(
+        otherDeductionRows.reduce((sum, row) => sum + money(row.amount), 0),
+    );
+
+    const totalEarnings = money(monthlyEarningTotal + annualEarningTotal);
+    const zohoSalary = money(totalEarnings - lopTotal);
+    const netSalaryPayable = money(totalEarnings - lopTotal - otherDeductionTotal);
     const balanceRows = buildSalarySlipBalanceRows(slip);
 
     return (
-        <div className="flex w-full min-w-0 flex-col gap-6">
-            <div className="rounded-2xl border border-gray-100 bg-white px-5 py-4 text-center shadow-sm">
-                {slip?.employeeName ? (
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {slip.employeeName}
-                        {slip?.employeeId ? ` · ${slip.employeeId}` : ''}
-                    </p>
-                ) : null}
-                <h2 className="mt-1 text-xl font-bold tracking-tight text-gray-800 sm:text-2xl">
-                    Salary calculation
-                </h2>
-                {slip?.monthLabel ? (
-                    <p className="mt-1 text-sm text-slate-500">{slip.monthLabel}</p>
-                ) : null}
-            </div>
-
-            <FineFormCard
-                icon={CalendarRange}
-                iconBg="bg-teal-50"
-                iconColor="text-teal-600"
-                title="Earnings"
-                subtitle="Salary earnings and other earnings"
-            >
-                <div className="rounded-2xl bg-[#F8FAFC] p-3 sm:p-4">
-                    <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
-                        <EarningGroupCard
-                            title="Salary earnings"
-                            names={YEARLY_SALARY_EARNING_CATALOG}
-                            extras={[]}
-                            rows={slip?.yearlyEarnings}
-                            section="yearlyEarnings"
-                            onPatch={onPatch}
-                            totalLabel="Salary earnings total"
-                            total={yearlySalaryTotal}
-                            defaultBasis="Yearly"
-                        />
-                        <EarningGroupCard
-                            title="Other earnings"
-                            names={YEARLY_OTHER_EARNING_CATALOG}
-                            extras={extraYearlyEarnings}
-                            rows={slip?.yearlyEarnings}
-                            section="yearlyEarnings"
-                            onPatch={onPatch}
-                            totalLabel="Other earnings total"
-                            total={yearlyOtherTotal}
-                            defaultBasis="Yearly"
-                        />
-                    </div>
-                </div>
-                <GroupTotal label="Total earnings" value={slip?.yearlyGrossEarnings} />
-            </FineFormCard>
-
-            <FineFormCard
-                icon={MinusCircle}
-                iconBg="bg-rose-50"
-                iconColor="text-rose-600"
-                title="Deductions"
-                subtitle="Loss of pay and other deductions this month"
-            >
-                <div className="rounded-2xl bg-[#F8FAFC] p-3 sm:p-4">
-                    <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
-                        <EarningGroupCard
-                            title="Loss of pay"
-                            names={LOSS_OF_PAY_CATALOG}
-                            extras={extraLossOfPay}
-                            rows={slip?.deductions}
-                            section="deductions"
-                            onPatch={onPatch}
-                            totalLabel="Loss of pay total"
-                            total={lossOfPayTotal}
-                            tone="deduct"
-                            kind="deduct"
-                            amountFor={(name, row) => liveDeductionAmount(slip, name, row)}
-                        />
-                        <EarningGroupCard
-                            title="Other deductions"
-                            names={OTHER_DEDUCTION_CATALOG}
-                            extras={extraOtherDeductions}
-                            rows={slip?.deductions}
-                            section="deductions"
-                            onPatch={onPatch}
-                            totalLabel="Other deductions total"
-                            total={otherDeductionsTotal}
-                            tone="deduct"
-                            kind="deduct"
-                            amountFor={(name, row) => liveDeductionAmount(slip, name, row)}
-                        />
-                    </div>
-                </div>
-                <GroupTotal label="Deductions total" value={slip?.totalDeductions} tone="deduct" />
-            </FineFormCard>
-
-            <FineFormCard
-                icon={CalendarRange}
-                iconBg="bg-teal-50"
-                iconColor="text-teal-600"
-                title="This month"
-                subtitle="Overtime and extra earnings this salary month"
-            >
-                <div className="rounded-2xl bg-[#F8FAFC] p-3 sm:p-4">
-                    <EarningGroupCard
-                        title="This month"
-                        names={OTHER_EARNING_CATALOG}
-                        extras={extraEarnings}
-                        rows={slip?.earnings}
-                        section="earnings"
-                        onPatch={onPatch}
-                        totalLabel="This month extras total"
-                        total={otherEarningsTotal}
-                        defaultBasis="Monthly"
-                        showTitle={false}
+        <div className="flex w-full min-w-0 flex-col gap-3">
+            <div className="grid w-full min-w-0 grid-cols-1 items-start gap-3 xl:grid-cols-2">
+                <FineFormCard
+                    icon={Wallet}
+                    iconBg="bg-teal-50"
+                    iconColor="text-teal-600"
+                    title="Earnings"
+                    subtitle="Monthly earnings and annual leave benefits"
+                >
+                    <SlipTable
+                        headers={['SL', 'Basic salary', 'Period', 'Amount']}
+                        rows={monthlyEarningRows}
+                        totalLabel="Total"
+                        total={monthlyEarningTotal}
                     />
-                </div>
-            </FineFormCard>
-
-            <div className="grid w-full min-w-0 grid-cols-1 items-start gap-6 xl:grid-cols-2">
-                <FineFormCard
-                    icon={CalendarDays}
-                    iconBg="bg-sky-50"
-                    iconColor="text-sky-600"
-                    title="Employee & Attendance Summary"
-                    subtitle="Days, hours, and leave for this salary month"
-                >
-                    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                        {ATTENDANCE_FIELDS.map(([key, label, unit]) => (
-                            <CountRow
-                                key={key}
-                                label={label}
-                                value={att[key]}
-                                unit={unit}
-                                onChange={(value) => patchAttendance(onPatch, key, value)}
-                            />
-                        ))}
-                    </div>
-                </FineFormCard>
-
-                <FineFormCard
-                    icon={CircleDollarSign}
-                    iconBg="bg-indigo-50"
-                    iconColor="text-indigo-600"
-                    title="Other information"
-                    subtitle="Salary payable for Zoho, then this month's other deductions"
-                >
-                    <div className="flex flex-col gap-2.5">
-                        <TotalsRow label="Salary payable (Zoho)" value={payableZoho} tone="earn" />
-                        <TotalsRow
-                            label="Actual salary after deduction"
-                            value={actualAfterDeduction}
-                            tone="net"
+                    <div className="mt-3">
+                        <SlipTable
+                            headers={['SL', 'Earning', 'Period', 'Amount']}
+                            rows={annualEarningRows}
+                            totalLabel="Total"
+                            total={annualEarningTotal}
                         />
-                        <TotalsRow label="Net salary" value={actualAfterDeduction} tone="net" />
                     </div>
-                    <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
-                        <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-indigo-500">
-                            Amount in words
-                        </span>
-                        <p className="mt-1 text-sm font-semibold leading-relaxed text-indigo-800">
-                            {amountInWordsAed(actualAfterDeduction)}
-                        </p>
-                    </div>
+                    <GroupTotal
+                        label="Total earnings"
+                        value={money(monthlyEarningTotal + annualEarningTotal)}
+                    />
                 </FineFormCard>
+
+                <div className="flex min-w-0 flex-col gap-2">
+                    <FineFormCard
+                        icon={MinusCircle}
+                        iconBg="bg-rose-50"
+                        iconColor="text-rose-600"
+                        title="Deductions"
+                        subtitle="Loss of pay and this month's other deductions"
+                    >
+                        <SlipTable
+                            headers={['SL', 'Loss of pay', 'Period', 'Amount']}
+                            rows={lopRows}
+                            totalLabel="Total"
+                            total={lopTotal}
+                            tone="deduct"
+                        />
+                        <div className="mt-3">
+                            <SlipTable
+                                headers={['SL', 'Deduction', 'Times', 'Total']}
+                                rows={otherDeductionRows}
+                                totalLabel="Total"
+                                total={otherDeductionTotal}
+                                tone="deduct"
+                            />
+                        </div>
+                        <GroupTotal
+                            label="Total deductions"
+                            value={money(lopTotal + otherDeductionTotal)}
+                            tone="deduct"
+                        />
+                    </FineFormCard>
+                    <div className="grid grid-cols-2 gap-2">
+                        <PayableMiniCard
+                            title="Net salary payable"
+                            hint="(Monthly earnings + Annual leave) − (Loss of pay + Deduction)"
+                            value={netSalaryPayable}
+                        />
+                        <PayableMiniCard
+                            title="Zoho salary"
+                            hint="(Monthly earnings + Annual leave) − Loss of pay"
+                            value={zohoSalary}
+                            tone="earn"
+                        />
+                    </div>
+                </div>
             </div>
 
             <FineFormCard
                 icon={Table2}
                 iconBg="bg-slate-50"
                 iconColor="text-slate-600"
-                title="Loan, advance, fine, utilities and leave benefits"
-                subtitle="This employee only. Loan, advance, fine and utilities use this salary month's installment — not the full outstanding."
+                title="Deduction"
+                subtitle="This employee only. Approved loan, fine, utility and salary advance. Balance = total − employee pay − this month salary deduction."
             >
                 <BalanceScheduleTable rows={balanceRows} />
             </FineFormCard>

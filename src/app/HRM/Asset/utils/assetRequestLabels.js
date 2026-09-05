@@ -58,10 +58,36 @@ export function isAcceptedAssignmentOutcomeInboxRow(row = {}) {
     return false;
 }
 
+function isAssignmentAcknowledgmentStillPending(asset) {
+    if (!asset) return false;
+    if (asset.pendingAction) return false;
+    if (asset.fleetHandoverActive) return true;
+    return (
+        String(asset.acceptanceStatus || '').trim() === 'Pending' &&
+        ['Pending', 'Assigned'].includes(String(asset.status || '').trim())
+    );
+}
+
 export function isPendingInboxRowVisible(row) {
     if (!row) return false;
     if (isAcceptedAssignmentOutcomeInboxRow(row)) return false;
     const requestType = String(row.requestType || row.type || '').trim();
+    if (requestType === 'Asset Assignment' || requestType === 'Asset') {
+        let meta = null;
+        try {
+            meta = typeof row?.extra3 === 'string' ? JSON.parse(row.extra3) : row?.extra3;
+        } catch {
+            meta = null;
+        }
+        if (meta?.isBulkAssignment === true) {
+            const bulkAssets = Array.isArray(row.bulkAssets) ? row.bulkAssets : [];
+            if (bulkAssets.length && !bulkAssets.some((asset) => isAssignmentAcknowledgmentStillPending(asset))) {
+                return false;
+            }
+        } else if (row.asset && !isAssignmentAcknowledgmentStillPending(row.asset)) {
+            return false;
+        }
+    }
     // Utility contract expiry bells are disabled — keep payment / status-change rows.
     if (requestType === 'Utility Contract Expiry') return false;
     if (requestType === 'Asset Owner On Duty') return true;

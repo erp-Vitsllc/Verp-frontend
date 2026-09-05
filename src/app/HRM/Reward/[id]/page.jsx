@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, use, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useMemo } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Sidebar from '@/components/Sidebar';
@@ -34,8 +34,26 @@ import { canEditRewardCertificate } from '../utils/rewardPermissionAccess';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 import PermissionGuard from '@/components/PermissionGuard';
 
-export default function RewardDetailsPage({ params }) {
-    const { id } = use(params);
+function toTitleCase(str) {
+    if (!str) return '';
+    return str
+        .toLowerCase()
+        .split(' ')
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+}
+
+function designationOf(emp) {
+    return String(emp?.designation || emp?.role || '').trim();
+}
+
+function keepIfUnchanged(prev, next) {
+    return String(prev ?? '') === String(next ?? '') ? prev : next;
+}
+
+export default function RewardDetailsPage() {
+    const params = useParams();
+    const id = decodeURIComponent(String(params?.id || ''));
     const router = useRouter();
     const handleListReturnBack = useListReturnBack();
     const { toast } = useToast();
@@ -49,7 +67,6 @@ export default function RewardDetailsPage({ params }) {
     const [actionLoading, setActionLoading] = useState(false);
     const [imageError, setImageError] = useState(false);
     const [allEmployees, setAllEmployees] = useState([]);
-    const [certLoading, setCertLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('rewardDetails'); // 'rewardDetails' | 'attachments'
     const [showCertEditModal, setShowCertEditModal] = useState(false);
     const [isResubmittingModal, setIsResubmittingModal] = useState(false);
@@ -122,7 +139,8 @@ export default function RewardDetailsPage({ params }) {
             // Simple fetch for now, can be optimized
             try {
                 const res = await axiosInstance.get('/Employee');
-                setAllEmployees(res.data.employees || res.data);
+                const list = res.data?.employees ?? res.data;
+                setAllEmployees(Array.isArray(list) ? list : []);
             } catch (e) {
                 console.error("Failed to fetch employees", e);
             }
@@ -637,16 +655,25 @@ export default function RewardDetailsPage({ params }) {
 
 
 
-    // Name formatting logic
     const rawName = (employee ? `${employee.firstName} ${employee.lastName}` : '') || reward?.employeeName || '';
-    const formattedName = rawName.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+    const formattedName = rawName.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
     const prefix = employee?.gender?.toLowerCase() === 'male' ? 'Mr. ' : (employee?.gender?.toLowerCase() === 'female' ? 'Ms. ' : '');
-
-    // Helper function for consistent Title Case
-    const toTitleCase = (str) => {
-        if (!str) return '';
-        return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-    };
+    const rewardKey = String(reward?._id || reward?.rewardId || '');
+    const employeeKey = String(employee?._id || employee?.employeeId || '');
+    const reporteeKey =
+        employee?.primaryReportee && typeof employee.primaryReportee === 'object'
+            ? String(employee.primaryReportee._id || employee.primaryReportee.employeeId || '')
+            : String(employee?.primaryReportee || '');
+    const certKey = [
+        reward?.certHeader,
+        reward?.certSubHeader,
+        reward?.certPresentationText,
+        reward?.certSigner1Name,
+        reward?.certSigner1Title,
+        reward?.certSigner2Name,
+        reward?.certSigner2Title,
+    ].join('|');
+    const employeeListKey = Array.isArray(allEmployees) ? String(allEmployees.length) : '0';
 
     const formatDate = (value) => {
         if (!value) return '—';
@@ -657,92 +684,94 @@ export default function RewardDetailsPage({ params }) {
         }
     };
 
-    // Sync state with fetching data
-    // Sync state with fetching data
     useEffect(() => {
-        const updateSigners = async () => {
-            if (reward) {
-                setCertLoading(true);
-                // Remove editableTitle and editableName state management
-                // setEditableTitle(reward.title || '');
-                setHeaderText(reward.certHeader || 'Certificate');
-                setSubHeaderText(reward.certSubHeader || 'Of Appreciation');
-                setPresentationText(reward.certPresentationText || 'This certificate is presented to');
+        if (!reward) {
+            return undefined;
+        }
 
-                // Dynamic Signer 1: Prefer Primary Reportee (HOD) — use their live designation
-                const PLACEHOLDER_SIGNER_NAME = 'Nivil Ali';
-                const PLACEHOLDER_SIGNER_TITLE = 'Managing Director';
-                let defaultSignerName = PLACEHOLDER_SIGNER_NAME;
-                let defaultSignerTitle = '';
+        let cancelled = false;
 
-                const resolveReporteeProfile = async (rep) => {
-                    if (!rep) return null;
-                    if (typeof rep === 'string') {
-                        try {
-                            const repRes = await axiosInstance.get(`/Employee/${rep}`);
-                            return repRes.data.employee || repRes.data;
-                        } catch (err) {
-                            console.warn('Failed to fetch primary reportee details:', err);
-                            return null;
-                        }
-                    }
-                    // Populated object may omit designation — fetch full profile when needed
-                    if (!rep.designation && !rep.role && (rep._id || rep.employeeId)) {
-                        try {
-                            const repRes = await axiosInstance.get(`/Employee/${rep.employeeId || rep._id}`);
-                            return repRes.data.employee || repRes.data || rep;
-                        } catch (err) {
-                            console.warn('Failed to fetch reportee designation:', err);
-                            return rep;
-                        }
-                    }
-                    return rep;
-                };
-
-                const designationOf = (emp) =>
-                    (emp?.designation || emp?.role || '').trim();
-
-                if (employee?.primaryReportee) {
-                    const rep = await resolveReporteeProfile(employee.primaryReportee);
-                    if (rep) {
-                        const repName = `${rep.firstName || ''} ${rep.lastName || ''}`.trim();
-                        if (repName) defaultSignerName = toTitleCase(repName);
-                        const liveTitle = designationOf(rep);
-                        if (liveTitle) defaultSignerTitle = liveTitle;
-                    }
+        const resolveReporteeProfile = async (rep) => {
+            if (!rep) return null;
+            if (typeof rep === 'string') {
+                try {
+                    const repRes = await axiosInstance.get(`/Employee/${rep}`);
+                    return repRes.data.employee || repRes.data;
+                } catch (err) {
+                    console.warn('Failed to fetch primary reportee details:', err);
+                    return null;
                 }
+            }
+            if (!rep.designation && !rep.role && (rep._id || rep.employeeId)) {
+                try {
+                    const repRes = await axiosInstance.get(`/Employee/${rep.employeeId || rep._id}`);
+                    return repRes.data.employee || repRes.data || rep;
+                } catch (err) {
+                    console.warn('Failed to fetch reportee designation:', err);
+                    return rep;
+                }
+            }
+            return rep;
+        };
 
-                // If a custom signer name was saved, prefer that employee's live designation
-                const savedName = (reward.certSigner1Name || '').trim();
-                const useSavedName = savedName && savedName !== PLACEHOLDER_SIGNER_NAME;
-                if (useSavedName && Array.isArray(allEmployees) && allEmployees.length) {
-                    const nameLower = savedName.toLowerCase();
-                    const matched = allEmployees.find((e) => {
-                        const full = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
-                        return full === nameLower;
-                    });
-                    const liveTitle = designationOf(matched);
+        const updateSigners = async () => {
+            const PLACEHOLDER_SIGNER_NAME = 'Nivil Ali';
+            const PLACEHOLDER_SIGNER_TITLE = 'Managing Director';
+            let defaultSignerName = PLACEHOLDER_SIGNER_NAME;
+            let defaultSignerTitle = '';
+
+            if (employee?.primaryReportee) {
+                const rep = await resolveReporteeProfile(employee.primaryReportee);
+                if (rep) {
+                    const repName = `${rep.firstName || ''} ${rep.lastName || ''}`.trim();
+                    if (repName) defaultSignerName = toTitleCase(repName);
+                    const liveTitle = designationOf(rep);
                     if (liveTitle) defaultSignerTitle = liveTitle;
                 }
-
-                const savedTitle = (reward.certSigner1Title || '').trim();
-                // Prefer live employee designation over stale/placeholder saved title
-                setSigner1Name(useSavedName ? savedName : defaultSignerName);
-                setSigner1Title(
-                    defaultSignerTitle ||
-                    (savedTitle && savedTitle !== PLACEHOLDER_SIGNER_TITLE ? savedTitle : '') ||
-                    PLACEHOLDER_SIGNER_TITLE
-                );
-
-                setSigner2Name(reward.certSigner2Name || 'Raseel Muhammad');
-                setSigner2Title(reward.certSigner2Title || 'CEO');
-
-                setCertLoading(false);
             }
+
+            const savedName = (reward.certSigner1Name || '').trim();
+            const useSavedName = Boolean(savedName && savedName !== PLACEHOLDER_SIGNER_NAME);
+            if (useSavedName && Array.isArray(allEmployees) && allEmployees.length) {
+                const nameLower = savedName.toLowerCase();
+                const matched = allEmployees.find((e) => {
+                    const full = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
+                    return full === nameLower;
+                });
+                const liveTitle = designationOf(matched);
+                if (liveTitle) defaultSignerTitle = liveTitle;
+            }
+
+            const savedTitle = (reward.certSigner1Title || '').trim();
+            const nextHeader = reward.certHeader || 'Certificate';
+            const nextSubHeader = reward.certSubHeader || 'Of Appreciation';
+            const nextPresentation = reward.certPresentationText || 'This certificate is presented to';
+            const nextSigner1Name = useSavedName ? savedName : defaultSignerName;
+            const nextSigner1Title =
+                defaultSignerTitle ||
+                (savedTitle && savedTitle !== PLACEHOLDER_SIGNER_TITLE ? savedTitle : '') ||
+                PLACEHOLDER_SIGNER_TITLE;
+            const nextSigner2Name = reward.certSigner2Name || 'Raseel Muhammad';
+            const nextSigner2Title = reward.certSigner2Title || 'CEO';
+
+            if (cancelled) return;
+            setHeaderText((prev) => keepIfUnchanged(prev, nextHeader));
+            setSubHeaderText((prev) => keepIfUnchanged(prev, nextSubHeader));
+            setPresentationText((prev) => keepIfUnchanged(prev, nextPresentation));
+            setSigner1Name((prev) => keepIfUnchanged(prev, nextSigner1Name));
+            setSigner1Title((prev) => keepIfUnchanged(prev, nextSigner1Title));
+            setSigner2Name((prev) => keepIfUnchanged(prev, nextSigner2Name));
+            setSigner2Title((prev) => keepIfUnchanged(prev, nextSigner2Title));
         };
 
         updateSigners();
-    }, [reward, employee, rawName, prefix, allEmployees]);
+        return () => {
+            cancelled = true;
+        };
+        // Primitive keys only — object identities for reward/employee/allEmployees
+        // must not retrigger this effect or signer setState loops the page.
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by rewardKey/employeeKey/certKey
+    }, [rewardKey, employeeKey, reporteeKey, certKey, employeeListKey]);
 
     const handleDownloadCertificate = async () => {
         try {
@@ -805,11 +834,16 @@ export default function RewardDetailsPage({ params }) {
 
     // Removed handleSaveInline as it is no longer needed
 
-    if (loading || (reward && certLoading)) {
+    if (loading) {
         return (
-            <div className="flex min-h-screen w-full bg-[#F2F6F9] items-center justify-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500"></div>
-            </div>
+            <PermissionGuard moduleId="hrm_reward" permissionType="view">
+                <div className="flex min-h-screen w-full bg-[#F2F6F9]">
+                    <Sidebar />
+                    <div className="flex flex-1 items-center justify-center">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500"></div>
+                    </div>
+                </div>
+            </PermissionGuard>
         );
     }
 

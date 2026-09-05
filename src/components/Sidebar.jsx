@@ -592,30 +592,32 @@ export default function Sidebar() {
             pathname.startsWith('/HRM') ||
             pathname.startsWith('/Company')
         ) {
-            setOpenMenu('HRM');
+            setOpenMenu((prev) => (prev === 'HRM' ? prev : 'HRM'));
 
             // Sub-module detection for HRM
             if (isAssetSectionPath(pathname) || pathname.includes('/Asset')) {
-                setOpenSubmenu('HRM-Asset');
+                setOpenSubmenu((prev) => (prev === 'HRM-Asset' ? prev : 'HRM-Asset'));
             } else if (isPayrollSectionPath(pathname)) {
-                setOpenSubmenu('HRM-Payroll');
+                setOpenSubmenu((prev) => (prev === 'HRM-Payroll' ? prev : 'HRM-Payroll'));
             }
         }
         // CRM Detection
         else if (pathname.startsWith('/CRM')) {
-            setOpenMenu('CRM');
+            setOpenMenu((prev) => (prev === 'CRM' ? prev : 'CRM'));
         }
         // Accounts Detection (Vendors, Expenses, Bills, Payments Made, Payments)
         else if (pathname.startsWith('/Accounts')) {
-            setOpenMenu('Accounts');
+            setOpenMenu((prev) => (prev === 'Accounts' ? prev : 'Accounts'));
         }
         // Settings Detection
         else if (pathname.startsWith('/Settings')) {
-            setOpenMenu('Settings');
+            setOpenMenu((prev) => (prev === 'Settings' ? prev : 'Settings'));
             if (pathname.includes('/User') || pathname.includes('/Group')) {
-                setOpenSubmenu('Settings-Users & Groups');
+                setOpenSubmenu((prev) =>
+                    prev === 'Settings-Users & Groups' ? prev : 'Settings-Users & Groups',
+                );
             } else if (pathname.includes('/FlowChart')) {
-                setOpenSubmenu('Settings-Flowchart');
+                setOpenSubmenu((prev) => (prev === 'Settings-Flowchart' ? prev : 'Settings-Flowchart'));
             }
         }
         // Dashboard Detection
