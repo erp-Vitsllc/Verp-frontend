@@ -49,6 +49,8 @@ export default function SalaryDmfApprovalPanel({
     variant = 'card',
     showActions = true,
     startButtonClass = '',
+    approveButtonClass = '',
+    rejectButtonClass = '',
     hideStart = false,
     openStartConfirm = false,
     onOpenStartConfirmChange,
@@ -178,13 +180,17 @@ export default function SalaryDmfApprovalPanel({
         </button>
     );
 
+    const actLabel = current?.label ? `Approve (${current.label})` : 'Approve';
     const actBtns = dmf?.canAct ? (
         <>
             <button
                 type="button"
                 onClick={() => setRejectOpen(true)}
                 disabled={disabled}
-                className="h-10 rounded-xl border border-red-200 bg-white px-4 text-sm font-semibold text-red-600 disabled:opacity-60"
+                className={
+                    rejectButtonClass ||
+                    'h-10 rounded-xl border border-red-200 bg-white px-4 text-sm font-semibold text-red-600 disabled:opacity-60'
+                }
             >
                 Reject
             </button>
@@ -192,10 +198,13 @@ export default function SalaryDmfApprovalPanel({
                 type="button"
                 onClick={handleApprove}
                 disabled={disabled}
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white disabled:opacity-60"
+                className={
+                    approveButtonClass ||
+                    'inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white disabled:opacity-60'
+                }
             >
                 {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                Approve
+                {actLabel}
             </button>
         </>
     ) : (

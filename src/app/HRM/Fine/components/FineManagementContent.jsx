@@ -1044,7 +1044,13 @@ function FineManagementContent({
                                                 const isGroupSeparated = canViewGroupFinePartiesIndividually(fine.fineStatus);
                                                 const canExpandGroup = isGroupRow && isGroupSeparated && (fine.groupMembers?.length > 0);
 
-                                                const focusIds = (fine._ids || [fine._id]).filter(Boolean).map(String);
+                                                const focusIds = [
+                                                    ...(fine._ids || [fine._id]),
+                                                    fine.fineId,
+                                                    fine.baseFineId,
+                                                ]
+                                                    .filter(Boolean)
+                                                    .map(String);
                                                 const rowFocusId = focusIds[0] || fine._id;
 
                                                 // Pending group = one common request; navigate to shared detail.

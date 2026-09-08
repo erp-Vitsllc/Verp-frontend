@@ -13,20 +13,33 @@ import {
     fetchSalaryPendingInbox,
     getCachedPendingInbox,
 } from '@/utils/pendingInboxFetch';
-import { countVisibleSalaryPendingInbox, mergeSalaryInboxWithPendingEnrollments } from '../utils/salaryPendingInboxCount';
+import { countVisibleSalaryPendingInbox, buildSalaryBellInbox } from '../utils/salaryPendingInboxCount';
 
 function salaryHref(row) {
     const raw = row?.raw || row;
     if (raw?.href) return String(raw.href);
-    const employeeId =
-        raw?.subjectEmployeeId ||
-        raw?.employeeId ||
-        row?.subjectEmployeeId ||
-        '';
-    if (employeeId) return `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`;
-    const monthKey = raw?.monthKey || '';
+    let meta = {};
+    try {
+        meta = typeof raw?.extra3 === 'object' ? raw.extra3 : JSON.parse(String(raw?.extra3 || '{}'));
+    } catch {
+        meta = {};
+    }
+    if (meta.href) return String(meta.href);
+    const monthKey = String(raw?.monthKey || meta.monthKey || '').trim();
     if (monthKey) return `/HRM/Salary/${encodeURIComponent(monthKey)}`;
+    const employeeId = String(
+        raw?.subjectEmployeeId || raw?.employeeId || row?.subjectEmployeeId || '',
+    ).trim();
+    if (employeeId) return `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`;
     return '';
+}
+
+function mergeBellItems(list, enrollmentOverview, includePendingEnrollments, months) {
+    return buildSalaryBellInbox(list, {
+        overview: enrollmentOverview,
+        includePendingEnrollments,
+        months,
+    });
 }
 
 export default function PendingSalaryRequestsModal({
@@ -35,6 +48,8 @@ export default function PendingSalaryRequestsModal({
     onRefreshParent,
     onPendingInboxCount,
     enrollmentOverview = null,
+    includePendingEnrollments = false,
+    months = [],
 }) {
     const { toast } = useToast();
     const router = useRouter();
@@ -52,7 +67,7 @@ export default function PendingSalaryRequestsModal({
     const load = useCallback(async ({ force = false } = {}) => {
         const cached = !force ? getCachedPendingInbox(SALARY_PENDING_INBOX_ENDPOINT) : null;
         if (cached && itemsRef.current.length === 0) {
-            const merged = mergeSalaryInboxWithPendingEnrollments(cached, enrollmentOverview);
+            const merged = mergeBellItems(cached, enrollmentOverview, includePendingEnrollments, months);
             setItems(merged);
             const count = countVisibleSalaryPendingInbox(merged);
             if (typeof onPendingInboxCount === 'function') {
@@ -61,7 +76,7 @@ export default function PendingSalaryRequestsModal({
         }
 
         if (cached && !force) {
-            const merged = mergeSalaryInboxWithPendingEnrollments(cached, enrollmentOverview);
+            const merged = mergeBellItems(cached, enrollmentOverview, includePendingEnrollments, months);
             setItems(merged);
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(countVisibleSalaryPendingInbox(merged));
@@ -76,7 +91,7 @@ export default function PendingSalaryRequestsModal({
         else setRefreshing(true);
         try {
             const list = await fetchSalaryPendingInbox(axiosInstance, { force });
-            const merged = mergeSalaryInboxWithPendingEnrollments(list, enrollmentOverview);
+            const merged = mergeBellItems(list, enrollmentOverview, includePendingEnrollments, months);
             setItems(merged);
             const count = countVisibleSalaryPendingInbox(merged);
             if (typeof onPendingInboxCount === 'function') {
@@ -89,7 +104,7 @@ export default function PendingSalaryRequestsModal({
                 title: 'Error',
                 description: e?.response?.data?.message || 'Could not load salary notifications.',
             });
-            const fallback = mergeSalaryInboxWithPendingEnrollments([], enrollmentOverview);
+            const fallback = mergeBellItems([], enrollmentOverview, includePendingEnrollments, months);
             if (itemsRef.current.length === 0) setItems(fallback);
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(countVisibleSalaryPendingInbox(fallback));
@@ -98,7 +113,7 @@ export default function PendingSalaryRequestsModal({
             setLoading(false);
             setRefreshing(false);
         }
-    }, [toast, onPendingInboxCount, enrollmentOverview]);
+    }, [toast, onPendingInboxCount, enrollmentOverview, includePendingEnrollments, months]);
 
     useEffect(() => {
         if (!isOpen) return;

@@ -20,6 +20,7 @@ import { policyFormFromApi } from '../utils/salaryPolicyForm';
 import SalaryDmfApprovalPanel from './SalaryDmfApprovalPanel';
 import { monthPayrollProcessStatusLabel, payrollPendingForLabel } from '../utils/payrollApprovalStatus';
 import { navigateFromList } from '@/utils/listReturnNavigation';
+import { buildFineListPath } from '@/utils/fineNotificationRouting';
 import './SalaryMonthControlCentre.css';
 
 const ALL_TAB_KEY = 'all';
@@ -844,15 +845,33 @@ function PaymentProcessCard({
     );
 }
 
+function isPayrollFineItem(item) {
+    const key = String(item?.id || '');
+    const title = String(item?.title || '');
+    const path = String(item?.path || '');
+    if (key.startsWith('fine-')) return true;
+    if (/fine/i.test(title) && !key.startsWith('hub-') && !key.startsWith('loan-')) return true;
+    return /^\/HRM\/Fine(\/|\?|$)/i.test(path);
+}
+
+function payrollFineListHref(item) {
+    const focusFine = String(item?.fineId || item?.requestId || '').trim();
+    return buildFineListPath({
+        status: 'Pending',
+        tab: item?.isGroup ? 'group' : 'individual',
+        ...(focusFine ? { focusFine } : {}),
+    });
+}
+
 function blockerTaskPath(item) {
     const id = String(item?.employeeId || '').trim();
     const key = String(item?.id || '');
     const category = String(item?.category || '');
+    if (isPayrollFineItem(item)) return payrollFineListHref(item);
     if (key.startsWith('hub-')) {
         const hubId = key.slice(4);
         return hubId ? `/dashboard?hubRequestId=${encodeURIComponent(hubId)}` : '/dashboard';
     }
-    if (key.startsWith('fine-')) return '/HRM/Fine';
     if (key.startsWith('loan-') || category === 'finance') return '/HRM/LoanAndAdvance';
     if (category === 'attendance' || category === 'leave' || category === 'overtime' || category === 'compoff') {
         return id ? `/HRM/Leave?employee=${encodeURIComponent(id)}` : '/HRM/Leave';
@@ -929,7 +948,10 @@ function employeePendingStatusLabel(items) {
 }
 
 function blockerReviewHref(item) {
-    return item?.path || blockerTaskPath(item);
+    if (isPayrollFineItem(item)) return payrollFineListHref(item);
+    const path = String(item?.path || '').trim();
+    if (/^\/HRM\/Fine\/[^/?#]+/i.test(path)) return payrollFineListHref(item);
+    return path || blockerTaskPath(item);
 }
 
 function blockerDue(item) {
@@ -1095,7 +1117,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             setPolicy(policyRes?.data ? policyFormFromApi(policyRes.data) : null);
             const data = registerRes?.data || null;
             setRegister(data);
-            setMonthDmf(dmfRes?.data?.dmf || null);
+            setMonthDmf(dmfRes?.data?.dmf || data?.dmf || null);
             setPaymentBatches((data?.payments || []).map(paymentBatchFromApi).filter(Boolean));
         } finally {
             setLoading(false);
@@ -1913,25 +1935,25 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         kind="month"
                         monthKey={parsed.monthKey}
                         dmf={monthDmf}
-                        ready // TEST: was readinessChecks.percent === 100
+                        ready
                         hideStart
                         openStartConfirm={approvalPrompt}
                         onOpenStartConfirmChange={setApprovalPrompt}
                         startButtonClass="spcc-btn spcc-btn--primary"
+                        approveButtonClass="spcc-btn spcc-btn--approve"
+                        rejectButtonClass="spcc-btn spcc-btn--reject"
                         onUpdated={(payload) => setMonthDmf(payload?.dmf || payload)}
                     />
-                    <button
-                        type="button"
-                        className="spcc-btn spcc-btn--primary"
-                        disabled={!canStartMonthApproval}
-                        title={canStartMonthApproval ? `Process salary ${monthLabel}` : approverOnlyTitle}
-                        onClick={() => {
-                            if (!canStartMonthApproval) return;
-                            setApprovalPrompt(true);
-                        }}
-                    >
-                        Process salary {monthLabel}
-                    </button>
+                    {canStartMonthApproval ? (
+                        <button
+                            type="button"
+                            className="spcc-btn spcc-btn--primary"
+                            title={`Process salary ${monthLabel}`}
+                            onClick={() => setApprovalPrompt(true)}
+                        >
+                            Process salary {monthLabel}
+                        </button>
+                    ) : null}
                     <button
                         type="button"
                         className="spcc-btn spcc-btn--ghost"
@@ -1988,6 +2010,20 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                     View payroll history →
                 </Link>
             </section>
+
+            {dmfStatus === 'pending' || dmfStatus === 'approved' || dmfStatus === 'rejected' ? (
+                <div className="spcc-approval">
+                    <SalaryDmfApprovalPanel
+                        kind="month"
+                        monthKey={parsed.monthKey}
+                        dmf={monthDmf}
+                        ready
+                        hideStart
+                        showActions={false}
+                        onUpdated={(payload) => setMonthDmf(payload?.dmf || payload)}
+                    />
+                </div>
+            ) : null}
 
             {loading ? (
                 <div className="spcc-loading">

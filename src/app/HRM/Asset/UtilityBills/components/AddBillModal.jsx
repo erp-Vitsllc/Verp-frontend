@@ -362,7 +362,7 @@ function entryContractAmount(entry) {
 function resolveRowAttachment(rows, index, utilityAttachment) {
     if (index < 0 || index >= rows.length) return null;
     const row = rows[index];
-    if (row.attachmentMode === 'new') {
+    if (row.attachmentMode === 'new' || (!row.attachmentMode && row.attachment?.name)) {
         return row.attachment || null;
     }
     if (row.attachmentMode === 'above') {
@@ -371,7 +371,11 @@ function resolveRowAttachment(rows, index, utilityAttachment) {
         }
         return resolveRowAttachment(rows, index - 1, utilityAttachment);
     }
-    return null;
+    return row.attachment?.name ? row.attachment : null;
+}
+
+function attachmentIsPresent(attachment) {
+    return Boolean(String(attachment?.name || '').trim());
 }
 
 function buildRowsFromEntries(entries, draftRows = []) {
@@ -828,9 +832,9 @@ function collectPayloadRows(
         // Acc2 is optional — Zoho bill debit uses Account from Add more (line prices).
         const shares = resolvePayShares(payBy, difference);
         const attachment = resolveRowAttachment(rows, i, utilityAttachment);
-        if (row.attachmentMode === 'new' && !row.attachment?.name) {
+        if (!attachmentIsPresent(attachment)) {
             return {
-                error: `Upload an attachment for account ${row.accountNo}, or choose Use above.`,
+                error: `Upload an attachment for account ${row.accountNo}.`,
                 payloadRows: null,
             };
         }
@@ -2112,7 +2116,7 @@ export default function AddBillModal({
                                             Actual Amount
                                         </th>
                                         <th className="px-3 py-3 text-center font-semibold whitespace-nowrap">
-                                            Attachment
+                                            Attachment <span className="text-red-500">*</span>
                                         </th>
                                     </tr>
                                 </thead>
@@ -2357,11 +2361,20 @@ export default function AddBillModal({
                                                                 e.stopPropagation();
                                                                 setAttachMenuIndex(index);
                                                             }}
-                                                            className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-500 hover:bg-teal-600 text-white text-xs font-semibold disabled:opacity-40 transition-colors shadow-sm"
+                                                            className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-xs font-semibold disabled:opacity-40 transition-colors shadow-sm ${
+                                                                row.selected && !resolved?.name
+                                                                    ? 'bg-teal-500 hover:bg-teal-600 ring-2 ring-red-400 ring-offset-1'
+                                                                    : 'bg-teal-500 hover:bg-teal-600'
+                                                            }`}
                                                         >
                                                             <Upload size={13} strokeWidth={2.25} />
-                                                            Upload
+                                                            {resolved?.name ? 'Replace' : 'Upload'}
                                                         </button>
+                                                        {row.selected && !resolved?.name ? (
+                                                            <span className="text-[10px] font-semibold text-red-500">
+                                                                Required
+                                                            </span>
+                                                        ) : null}
 
                                                         {resolved?.name ? (
                                                             <button

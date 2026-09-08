@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Trash2, Loader2, Bell } from 'lucide-react';
+import { Trash2, Loader2, Bell, Check } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -19,7 +19,8 @@ import SalaryHeaderActions from './components/SalaryHeaderActions';
 import PendingSalaryRequestsModal from './components/PendingSalaryRequestsModal';
 import {
     countVisibleSalaryPendingInbox,
-    mergeSalaryInboxWithPendingEnrollments,
+    buildSalaryBellInbox,
+    notifySalaryPendingInboxChanged,
     SALARY_PENDING_INBOX_CHANGED,
 } from './utils/salaryPendingInboxCount';
 import { fetchSalaryPendingInbox } from '@/utils/pendingInboxFetch';
@@ -35,8 +36,8 @@ function formatAed(value) {
 }
 
 const MONTH_ROW_GRID =
-    'grid w-full min-w-[640px] items-center gap-x-2 sm:gap-x-3 ' +
-    'grid-cols-[2.25rem_minmax(7.5rem,1.1fr)_minmax(6.5rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_3.25rem_4.25rem_minmax(5.25rem,0.8fr)]';
+    'grid w-full min-w-[760px] items-center gap-x-2 sm:gap-x-3 ' +
+    'grid-cols-[2.25rem_minmax(7.5rem,1.1fr)_minmax(6.5rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_3.25rem_4.25rem_minmax(7.5rem,1fr)]';
 
 const COLUMNS = [
     { key: 'slNo', label: 'SL', className: 'text-left' },
@@ -49,6 +50,8 @@ const COLUMNS = [
     { key: 'deduction', label: 'Deduction', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
     { key: 'processStatus', label: 'Process', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
 ];
+const APPROVAL_COL_CLASS =
+    'w-[10.5rem] shrink-0 px-1 text-[9px] font-semibold tracking-normal text-gray-600';
 
 function employeeMatchesCompanyFilter(emp, company) {
     if (!company) return true;
@@ -87,6 +90,9 @@ function SalaryPageContent() {
     const [viewerIsSalaryHr, setViewerIsSalaryHr] = useState(false);
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
+    const [actingMonthKey, setActingMonthKey] = useState('');
+    const [rejectRow, setRejectRow] = useState(null);
+    const [rejectReason, setRejectReason] = useState('');
     const [yearFilter, setYearFilter] = useState(initialFilters.year);
     const [companyFilter, setCompanyFilter] = useState(initialFilters.company);
     const [employeeId, setEmployeeId] = useState(initialFilters.employeeId);
@@ -147,13 +153,21 @@ function SalaryPageContent() {
     const fetchPendingInboxCount = useCallback(async ({ force = false } = {}) => {
         try {
             const items = await fetchSalaryPendingInbox(axiosInstance, { skipToast: true, force });
-            const merged = mergeSalaryInboxWithPendingEnrollments(items, enrollmentOverview);
+            const merged = buildSalaryBellInbox(items, {
+                overview: enrollmentOverview,
+                includePendingEnrollments: viewerIsSalaryHr,
+                months,
+            });
             setPendingInboxCount(countVisibleSalaryPendingInbox(merged));
         } catch {
-            const merged = mergeSalaryInboxWithPendingEnrollments([], enrollmentOverview);
+            const merged = buildSalaryBellInbox([], {
+                overview: enrollmentOverview,
+                includePendingEnrollments: viewerIsSalaryHr,
+                months,
+            });
             setPendingInboxCount(countVisibleSalaryPendingInbox(merged));
         }
-    }, [enrollmentOverview]);
+    }, [enrollmentOverview, viewerIsSalaryHr, months]);
 
     useEffect(() => {
         fetchPendingInboxCount();
@@ -229,6 +243,63 @@ function SalaryPageContent() {
         }
     }
 
+    const showApprovalCol = months.some((row) => row.canAct);
+
+    async function approveMonth(row) {
+        if (!row?.monthKey || actingMonthKey) return;
+        setActingMonthKey(row.monthKey);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/salary-register/${encodeURIComponent(row.monthKey)}/dmf/approve`,
+            );
+            const next = res.data?.dmf || res.data;
+            toast({
+                title:
+                    String(next?.status || '').toLowerCase() === 'approved'
+                        ? 'Processed'
+                        : next?.statusLabel || 'Approved',
+            });
+            notifySalaryPendingInboxChanged();
+            await fetchRegister();
+        } catch (err) {
+            toast({
+                title: err?.response?.data?.message || 'Could not approve',
+                variant: 'destructive',
+            });
+        } finally {
+            setActingMonthKey('');
+        }
+    }
+
+    async function confirmRejectMonth() {
+        const reason = String(rejectReason || '').trim();
+        if (!reason) {
+            toast({ title: 'Enter a rejection reason', variant: 'destructive' });
+            return;
+        }
+        const row = rejectRow;
+        if (!row?.monthKey) return;
+        setActingMonthKey(row.monthKey);
+        try {
+            await axiosInstance.post(
+                `/Employee/salary-register/${encodeURIComponent(row.monthKey)}/dmf/reject`,
+                { reason },
+            );
+            toast({ title: 'Rejected' });
+            setRejectRow(null);
+            setRejectReason('');
+            notifySalaryPendingInboxChanged();
+            await fetchRegister();
+        } catch (err) {
+            toast({
+                title: err?.response?.data?.message || 'Could not reject',
+                variant: 'destructive',
+            });
+        } finally {
+            setActingMonthKey('');
+        }
+    }
+
     return (
         <PermissionGuard
             moduleId="hrm_salary"
@@ -247,21 +318,19 @@ function SalaryPageContent() {
                         style={{ backgroundColor: '#F2F6F9' }}
                     >
                         <ErpPageHeader title="Salary">
-                            {viewerIsSalaryHr ? (
-                                <button
-                                    type="button"
-                                    onClick={() => setPendingInboxModalOpen(true)}
-                                    className="relative p-1.5 sm:p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
-                                    title="Salary notifications assigned to you"
-                                >
-                                    <Bell size={20} />
-                                    {pendingInboxCount > 0 ? (
-                                        <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-black leading-none flex items-center justify-center border-2 border-white shadow-sm tabular-nums">
-                                            {pendingInboxCount > 99 ? '99+' : pendingInboxCount}
-                                        </span>
-                                    ) : null}
-                                </button>
-                            ) : null}
+                            <button
+                                type="button"
+                                onClick={() => setPendingInboxModalOpen(true)}
+                                className="relative p-1.5 sm:p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
+                                title="Salary notifications assigned to you"
+                            >
+                                <Bell size={20} />
+                                {pendingInboxCount > 0 ? (
+                                    <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-black leading-none flex items-center justify-center border-2 border-white shadow-sm tabular-nums">
+                                        {pendingInboxCount > 99 ? '99+' : pendingInboxCount}
+                                    </span>
+                                ) : null}
+                            </button>
                             <SalaryHeaderActions enrollLabel="Salary Enrollment" />
                         </ErpPageHeader>
 
@@ -302,8 +371,9 @@ function SalaryPageContent() {
                         ) : null}
 
                         <div className="w-full max-w-full overflow-x-auto">
-                            <div className="min-w-[640px]">
-                                <div className={`${MONTH_ROW_GRID} px-3 sm:px-4 py-2 text-gray-700`}>
+                            <div className="min-w-[760px]">
+                                <div className="flex items-center">
+                                    <div className={`${MONTH_ROW_GRID} min-w-0 flex-1 px-3 sm:px-4 py-2 text-gray-700`}>
                                     {COLUMNS.map((col) => (
                                         <span
                                             key={col.key}
@@ -318,6 +388,11 @@ function SalaryPageContent() {
                                                 : col.label}
                                         </span>
                                     ))}
+                                    </div>
+                                    {showApprovalCol ? (
+                                        <span className={APPROVAL_COL_CLASS}>Approval</span>
+                                    ) : null}
+                                    {canDeleteMonth ? <span className="w-9 shrink-0" /> : null}
                                 </div>
 
                                 {loading ? (
@@ -404,6 +479,40 @@ function SalaryPageContent() {
                                                         {row.processStatus || 'Pending'}
                                                     </span>
                                                 </NavButton>
+                                                {showApprovalCol ? (
+                                                    <div className="flex w-[10.5rem] shrink-0 items-center justify-end gap-1 px-1">
+                                                        {row.canAct ? (
+                                                            <>
+                                                                <button
+                                                                    type="button"
+                                                                    title="Reject"
+                                                                    disabled={Boolean(actingMonthKey)}
+                                                                    onClick={() => {
+                                                                        setRejectRow(row);
+                                                                        setRejectReason('');
+                                                                    }}
+                                                                    className="h-7 rounded-lg border border-red-200 bg-white px-2 text-[10px] font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                                                >
+                                                                    Reject
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    title="Approve"
+                                                                    disabled={Boolean(actingMonthKey)}
+                                                                    onClick={() => approveMonth(row)}
+                                                                    className="inline-flex h-7 items-center gap-1 rounded-lg bg-emerald-600 px-2 text-[10px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                                                                >
+                                                                    {actingMonthKey === row.monthKey ? (
+                                                                        <Loader2 size={12} className="animate-spin" />
+                                                                    ) : (
+                                                                        <Check size={12} />
+                                                                    )}
+                                                                    Approve
+                                                                </button>
+                                                            </>
+                                                        ) : null}
+                                                    </div>
+                                                ) : null}
                                                 {canDeleteMonth ? (
                                                     <button
                                                         type="button"
@@ -423,6 +532,51 @@ function SalaryPageContent() {
                     </div>
                 </div>
             </div>
+            {rejectRow ? (
+                <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+                    <button
+                        type="button"
+                        className="absolute inset-0 bg-slate-900/30"
+                        aria-label="Close"
+                        onClick={() => {
+                            if (actingMonthKey) return;
+                            setRejectRow(null);
+                            setRejectReason('');
+                        }}
+                    />
+                    <div className="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+                        <h3 className="text-base font-bold text-slate-800">Reject {rejectRow.month}?</h3>
+                        <textarea
+                            value={rejectReason}
+                            onChange={(event) => setRejectReason(event.target.value)}
+                            rows={4}
+                            placeholder="Reason"
+                            className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                        />
+                        <div className="mt-5 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                disabled={Boolean(actingMonthKey)}
+                                onClick={() => {
+                                    setRejectRow(null);
+                                    setRejectReason('');
+                                }}
+                                className="h-10 rounded-xl border px-4 text-sm font-semibold"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={Boolean(actingMonthKey)}
+                                onClick={confirmRejectMonth}
+                                className="h-10 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-60"
+                            >
+                                {actingMonthKey === rejectRow.monthKey ? 'Rejecting…' : 'Reject'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
             {pendingDelete ? (
                 <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
                     <button
@@ -465,6 +619,8 @@ function SalaryPageContent() {
                 onRefreshParent={() => fetchPendingInboxCount({ force: true })}
                 onPendingInboxCount={setPendingInboxCount}
                 enrollmentOverview={enrollmentOverview}
+                includePendingEnrollments={viewerIsSalaryHr}
+                months={months}
             />
         </PermissionGuard>
     );

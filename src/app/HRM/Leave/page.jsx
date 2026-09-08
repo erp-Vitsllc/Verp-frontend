@@ -608,7 +608,7 @@ export default function LeavePage() {
                             </button>
                             <button
                                 type="button"
-                                onClick={() => router.push('/HRM/Leave/salary-policy')}
+                                onClick={() => router.push('/HRM/Salary/salary-policy')}
                                 className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
                             >
                                 <Wallet size={18} />

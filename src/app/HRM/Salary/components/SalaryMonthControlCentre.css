@@ -88,6 +88,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
     height: 32px;
     padding: 0 14px;
     border-radius: 10px;
@@ -118,6 +119,29 @@
     background: #1648c0;
 }
 
+.spcc-btn--approve {
+    background: #047857;
+    color: #fff;
+}
+
+.spcc-btn--approve:hover {
+    background: #065f46;
+}
+
+.spcc-btn--reject {
+    background: #fff;
+    border-color: #fecaca;
+    color: #dc2626;
+}
+
+.spcc-btn--reject:hover {
+    background: #fef2f2;
+}
+
+.spcc-approval {
+    margin: 0 0 12px;
+}
+
 .spcc-btn--soft {
     width: 100%;
     justify-content: center;
@@ -138,7 +162,9 @@
 }
 
 .spcc-btn--primary:disabled,
-.spcc-btn--ghost:disabled {
+.spcc-btn--ghost:disabled,
+.spcc-btn--approve:disabled,
+.spcc-btn--reject:disabled {
     opacity: 0.45;
     cursor: not-allowed;
 }
