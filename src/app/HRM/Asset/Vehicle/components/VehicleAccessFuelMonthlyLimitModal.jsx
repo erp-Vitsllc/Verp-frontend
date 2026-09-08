@@ -24,6 +24,10 @@ function rowsFromVehicles(vehicles) {
     }));
 }
 
+function rowKey(row) {
+    return String(row?.vehicleId || '');
+}
+
 export default function VehicleAccessFuelMonthlyLimitModal({
     isOpen,
     onClose,
@@ -35,23 +39,55 @@ export default function VehicleAccessFuelMonthlyLimitModal({
 }) {
     const { toast } = useToast();
     const [rows, setRows] = useState([]);
+    const [selected, setSelected] = useState(() => new Set());
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
 
     useEffect(() => {
         if (!isOpen) return;
         setRows(rowsFromVehicles(vehicles));
+        setSelected(new Set());
         setError('');
         setSaving(false);
     }, [isOpen, vehicles]);
 
     if (!isOpen) return null;
 
+    const allChecked = rows.length > 0 && rows.every((row) => selected.has(rowKey(row)));
+    const someChecked = rows.some((row) => selected.has(rowKey(row)));
+
+    const toggleAll = () => {
+        if (allChecked) {
+            setSelected(new Set());
+            return;
+        }
+        setSelected(new Set(rows.map((row) => rowKey(row)).filter(Boolean)));
+        if (error) setError('');
+    };
+
+    const toggleRow = (vehicleId) => {
+        const key = String(vehicleId);
+        setSelected((current) => {
+            const next = new Set(current);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+        if (error) setError('');
+    };
+
     const setLimit = (vehicleId, value) => {
-        const next = sanitizeLimit(value);
+        const nextLimit = sanitizeLimit(value);
         setRows((current) =>
-            current.map((row) => (row.vehicleId === vehicleId ? { ...row, limit: next } : row)),
+            current.map((row) => (row.vehicleId === vehicleId ? { ...row, limit: nextLimit } : row)),
         );
+        setSelected((current) => {
+            const next = new Set(current);
+            const key = String(vehicleId);
+            if (Number(nextLimit) > 0) next.add(key);
+            else next.delete(key);
+            return next;
+        });
         if (error) setError('');
     };
 
@@ -83,12 +119,17 @@ export default function VehicleAccessFuelMonthlyLimitModal({
 
     const createLimits = async () => {
         if (!canCreate) return;
-        const missing = rows.find((row) => {
+        const chosen = rows.filter((row) => selected.has(rowKey(row)));
+        if (!chosen.length) {
+            setError('Check at least one assigned vehicle, or enter a monthly limit.');
+            return;
+        }
+        const missing = chosen.find((row) => {
             const n = Number(row.limit);
             return !Number.isFinite(n) || n <= 0;
         });
         if (missing) {
-            setError('Enter a monthly limit for every vehicle.');
+            setError('Enter a monthly limit for every checked vehicle.');
             return;
         }
 
@@ -96,7 +137,7 @@ export default function VehicleAccessFuelMonthlyLimitModal({
         try {
             const res = await axiosInstance.post('/VehicleFuel/monthly-limits', {
                 monthKey,
-                limits: rows.map((row) => ({
+                limits: chosen.map((row) => ({
                     vehicleId: row.vehicleId,
                     monthlyLimit: Number(row.limit),
                 })),
@@ -126,7 +167,7 @@ export default function VehicleAccessFuelMonthlyLimitModal({
                             Monthly limit
                         </h3>
                         <p className="text-xs text-slate-500 mt-1">
-                            {monthLabel || 'Selected month'} — Create emails the assigned employee, or their HOD if they have no company email.
+                            {monthLabel || 'Selected month'} — Assigned vehicles only. Checked or limited vehicles will not appear here again this month. Create emails the assigned employee, or their HOD if they have no company email.
                         </p>
                     </div>
                     <button
@@ -144,6 +185,18 @@ export default function VehicleAccessFuelMonthlyLimitModal({
                         <table className="w-full text-sm border-collapse min-w-[640px]">
                             <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
                                 <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                    <th className="px-4 py-3 w-12">
+                                        <input
+                                            type="checkbox"
+                                            checked={allChecked}
+                                            ref={(el) => {
+                                                if (el) el.indeterminate = someChecked && !allChecked;
+                                            }}
+                                            onChange={toggleAll}
+                                            disabled={saving}
+                                            aria-label="Select all assigned vehicles"
+                                        />
+                                    </th>
                                     <th className="px-4 py-3 w-16">Sl</th>
                                     <th className="px-4 py-3">Vehicle no</th>
                                     <th className="px-4 py-3">Name</th>
@@ -153,6 +206,15 @@ export default function VehicleAccessFuelMonthlyLimitModal({
                             <tbody>
                                 {rows.map((row, index) => (
                                     <tr key={row.vehicleId} className="border-b border-slate-100">
+                                        <td className="px-4 py-2.5">
+                                            <input
+                                                type="checkbox"
+                                                checked={selected.has(rowKey(row))}
+                                                onChange={() => toggleRow(row.vehicleId)}
+                                                disabled={saving}
+                                                aria-label={`Select ${row.vehicleNo || row.name || 'vehicle'}`}
+                                            />
+                                        </td>
                                         <td className="px-4 py-2.5 text-slate-600 font-semibold tabular-nums">
                                             {index + 1}
                                         </td>

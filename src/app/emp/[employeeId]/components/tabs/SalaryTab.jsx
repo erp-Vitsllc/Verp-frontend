@@ -57,6 +57,7 @@ import {
 import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
 import FinePayChoiceModal from '@/app/HRM/Fine/components/FinePayChoiceModal';
 import FineVendorCreditModal from '@/app/HRM/Fine/components/FineVendorCreditModal';
+import FineEmployeePayModal from '@/app/HRM/Fine/components/FineEmployeePayModal';
 import { formatRewardPaymentLabel, formatRewardStatusLabel, isRewardVisibleOnEmployeeProfile, isRewardPaymentEligible } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import { canAccountsPayCashReward, buildRewardPaymentPrefill } from '@/app/HRM/Reward/utils/rewardPaymentPrefill';
 import {
@@ -73,6 +74,7 @@ import LoanPaymentReceiptsExpandPanel, {
     LoanDocumentExpandButton,
 } from '@/app/HRM/LoanAndAdvance/components/LoanPaymentReceiptsDropdown';
 import {
+    getFinePaymentsForDocuments,
     getLoanRepaymentPaymentsForDocuments,
 } from '@/app/HRM/LoanAndAdvance/utils/loanPaymentReceipts';
 import { MonthYearPicker } from '@/components/ui/month-year-picker';
@@ -89,12 +91,8 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import PaymentReceipt from '@/app/Accounts/Payments/components/PaymentReceipt';
 import {
-    getPaymentAmountTextClass,
     getPaymentStatusBadgeClass,
-    getPaymentStatusLabel,
-    getPaymentStatusSurfaceClass,
     isPaymentCountableTowardPaid,
     shouldShowPaymentInHistory,
 } from '@/utils/paymentStatusDisplay';
@@ -1130,11 +1128,8 @@ export default function SalaryTab({
         }
     };
 
-    const [expandedFineId, setExpandedFineId] = useState(null);
+    const [expandedFineDocId, setExpandedFineDocId] = useState(null);
     const [expandedLoanDocId, setExpandedLoanDocId] = useState(null);
-    const [finePayments, setFinePayments] = useState([]);
-    const [loadingPayments, setLoadingPayments] = useState(false);
-    const [selectedInvoice, setSelectedInvoice] = useState(null);
     const [allEmployeePayments, setAllEmployeePayments] = useState([]);
     const [selectedFinesForPayment, setSelectedFinesForPayment] = useState([]);
     const [fineFilterStartMonth, setFineFilterStartMonth] = useState('');
@@ -1145,6 +1140,7 @@ export default function SalaryTab({
     const [finePayChoiceOpen, setFinePayChoiceOpen] = useState(false);
     const [finePayChoiceFine, setFinePayChoiceFine] = useState(null);
     const [fineVendorCreditOpen, setFineVendorCreditOpen] = useState(false);
+    const [fineEmployeePayOpen, setFineEmployeePayOpen] = useState(false);
 
     useEffect(() => {
         const ref = profileBackHandlerRef;
@@ -1152,6 +1148,10 @@ export default function SalaryTab({
         ref.current = () => {
             if (fineVendorCreditOpen) {
                 setFineVendorCreditOpen(false);
+                return true;
+            }
+            if (fineEmployeePayOpen) {
+                setFineEmployeePayOpen(false);
                 return true;
             }
             if (finePayChoiceOpen) {
@@ -1163,10 +1163,6 @@ export default function SalaryTab({
                 setFineCompanyRefundOpen(false);
                 setFineCompanyRefundFines([]);
                 setLoanCompanyRefundLoans([]);
-                return true;
-            }
-            if (selectedInvoice) {
-                setSelectedInvoice(null);
                 return true;
             }
             if (showCertificate && selectedCertificate) {
@@ -1252,8 +1248,8 @@ export default function SalaryTab({
         profileBackHandlerRef,
         finePayChoiceOpen,
         fineVendorCreditOpen,
+        fineEmployeePayOpen,
         fineCompanyRefundOpen,
-        selectedInvoice,
         showCertificate,
         selectedCertificate,
         showHistoryModal,
@@ -1748,39 +1744,15 @@ export default function SalaryTab({
         router.push(`/HRM/LoanAndAdvance/${typeSlug}-${mongoId}`);
     };
 
-    const toggleFineExpansion = async (fineId, referenceId) => {
-        if (expandedFineId === fineId) {
-            setExpandedFineId(null);
-            setFinePayments([]);
-            return;
-        }
-
-        setExpandedFineId(fineId);
-        setLoadingPayments(true);
-        try {
-            const res = await axiosInstance.get('/Payment', {
-                params: {
-                    relatedEntityType: 'Fine',
-                    referenceId: referenceId,
-                    // We want to show all payments for this fine, but the user asked for "only that users fine show dropdownly"
-                    // So we filter by paidBy (employee profile)
-                    paidBy: employeeId
-                }
-            });
-            const fetched = res.data.payments || res.data || [];
-            setFinePayments(
-                fetched.filter((p) => shouldShowPaymentInHistory(p.status))
-            );
-        } catch (error) {
-            console.error('Error fetching fine payments:', error);
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: 'Failed to fetch payment history'
-            });
-        } finally {
-            setLoadingPayments(false);
-        }
+    const refreshEmployeePayments = () => {
+        axiosInstance
+            .get('/Payment', { params: { paidBy: employeeId } })
+            .then((res) => {
+                const pays = res.data?.payments || res.data || [];
+                setAllEmployeePayments(Array.isArray(pays) ? pays : []);
+            })
+            .catch(() => {});
+        if (fetchEmployee) fetchEmployee();
     };
 
     const normalizePaymentAttachmentForViewer = (attachment, fallbackName = 'Payment Attachment') => {
@@ -1863,35 +1835,82 @@ export default function SalaryTab({
         const fineRouteId = fine.fineId || fine._id;
         if (!fineRouteId) return;
 
+        const messageFromError = async (err) => {
+            const data = err?.response?.data;
+            if (typeof Blob !== 'undefined' && data instanceof Blob) {
+                try {
+                    const parsed = JSON.parse(await data.text());
+                    if (parsed?.message) return parsed.message;
+                } catch {
+                    /* ignore */
+                }
+            }
+            return err?.response?.data?.message || err?.message || 'Failed to load fine form PDF.';
+        };
+
+        const blobFromResponse = async (response) => {
+            const contentType = String(response.headers?.['content-type'] || '');
+            const blob = new Blob([response.data], { type: 'application/pdf' });
+            if (contentType.includes('application/json') || blob.size < 500) {
+                let message = 'Failed to load fine form PDF.';
+                try {
+                    const parsed = JSON.parse(await blob.text());
+                    if (parsed?.message) message = parsed.message;
+                } catch {
+                    /* ignore */
+                }
+                throw new Error(message);
+            }
+            return blob;
+        };
+
         try {
-            const response = await axiosInstance.get(`/Fine/${encodeURIComponent(fineRouteId)}/pdf`, {
-                responseType: 'blob',
+            const encoded = encodeURIComponent(fineRouteId);
+            let blob;
+            try {
+                const approved = await axiosInstance.get(`/Fine/${encoded}/approved-report-pdf`, {
+                    responseType: 'blob',
+                    params: {
+                        ...(employeeId ? { employeeId } : {}),
+                        fresh: 1,
+                        t: fine.updatedAt || fine.awardedDate || '',
+                    },
+                });
+                blob = await blobFromResponse(approved);
+            } catch (approvedErr) {
+                try {
+                    const fallback = await axiosInstance.get(`/Fine/${encoded}/pdf`, {
+                        responseType: 'blob',
+                    });
+                    blob = await blobFromResponse(fallback);
+                } catch (fallbackErr) {
+                    throw new Error(
+                        (await messageFromError(fallbackErr)) ||
+                            (await messageFromError(approvedErr)),
+                    );
+                }
+            }
+
+            const dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error('Failed to read the fine form PDF.'));
+                reader.readAsDataURL(blob);
             });
-            const blob = response.data;
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                onViewDocument({
-                    data: reader.result,
-                    name: `FineForm-${fine.fineId || fineRouteId}.pdf`,
-                    mimeType: 'application/pdf',
-                    moduleId: 'hrm_fine',
-                    allowDownload: accSalaryFine.download,
-                });
-            };
-            reader.onerror = () => {
-                toast({
-                    variant: 'destructive',
-                    title: 'Cannot open fine form',
-                    description: 'Failed to read the fine form PDF.',
-                });
-            };
-            reader.readAsDataURL(blob);
+
+            onViewDocument({
+                data: dataUrl,
+                name: `FineForm-${fine.fineId || fineRouteId}.pdf`,
+                mimeType: 'application/pdf',
+                moduleId: 'hrm_fine',
+                allowDownload: accSalaryFine.download,
+            });
         } catch (err) {
             console.error('Failed to load fine form PDF:', err);
             toast({
                 variant: 'destructive',
                 title: 'Cannot open fine form',
-                description: err.response?.data?.message || 'Failed to load fine form PDF.',
+                description: err?.message || 'Failed to load fine form PDF.',
             });
         }
     };
@@ -3997,8 +4016,16 @@ export default function SalaryTab({
                                             const individualShare = isFineMonthFilterActive
                                                 ? getFineFilteredDueAmount(fine)
                                                 : calculateEmployeeFineShare(fine);
-                                            const isExpanded = expandedFineId === (fine._id || index);
                                             const fineKey = String(fine.fineId || fine._id);
+                                            const invoiceReceipts = getFinePaymentsForDocuments(
+                                                fine,
+                                                allEmployeePayments,
+                                            );
+                                            const hasFineForm = ['Approved', 'Paid'].includes(fine.fineStatus);
+                                            const hasUpload = hasFineUploadedAttachment(fine);
+                                            const fineDocCount =
+                                                invoiceReceipts.length + (hasFineForm ? 1 : 0) + (hasUpload ? 1 : 0);
+                                            const isDocExpanded = expandedFineDocId === fineKey;
 
                                             const relatedPayments = allEmployeePayments.filter(p =>
                                                 (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
@@ -4042,7 +4069,7 @@ export default function SalaryTab({
                                                                 : undefined
                                                         }
                                                         onClick={(e) => openFineDetails(fine, e)}
-                                                        className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/30' : ''}`}
+                                                        className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${isDocExpanded ? 'bg-emerald-50/30' : ''}`}
                                                     >
                                                         <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                                                             <input
@@ -4056,17 +4083,6 @@ export default function SalaryTab({
                                                         </td>
                                                         <td className="py-3 px-4 text-sm font-bold text-gray-700">
                                                             <div className="flex items-center gap-2">
-                                                                <button
-                                                                    type="button"
-                                                                    className="p-0.5 rounded hover:bg-gray-100"
-                                                                    title={isExpanded ? 'Hide receipts' : 'Show receipts'}
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        toggleFineExpansion(fine._id || index, fine.fineId);
-                                                                    }}
-                                                                >
-                                                                    {isExpanded ? <ChevronDown size={14} className="text-blue-500" /> : <ChevronRight size={14} className="text-gray-400" />}
-                                                                </button>
                                                                 {fine.fineId || '—'}
                                                                 {pendingFinePayments.length > 0 ? (
                                                                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight ${getPaymentStatusBadgeClass('Processing')}`}>
@@ -4152,33 +4168,17 @@ export default function SalaryTab({
                                                                 })()}
                                                             </div>
                                                         </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                                                {hasFineUploadedAttachment(fine) && (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => handleViewFineUploadedAttachment(fine, e)}
-                                                                        className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
-                                                                        title="View attachment"
-                                                                    >
-                                                                        <FileText size={18} />
-                                                                    </button>
-                                                                )}
-                                                                {['Approved', 'Paid'].includes(fine.fineStatus) && (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => handleViewFineFormPdf(fine, e)}
-                                                                        className="text-emerald-600 hover:text-emerald-700 transition-colors p-1 hover:bg-emerald-50 rounded"
-                                                                        title="View fine form PDF"
-                                                                    >
-                                                                        <Download size={18} />
-                                                                    </button>
-                                                                )}
-                                                                {!hasFineUploadedAttachment(fine) &&
-                                                                    !['Approved', 'Paid'].includes(fine.fineStatus) && (
-                                                                        <span className="text-gray-400">—</span>
-                                                                    )}
-                                                            </div>
+                                                        <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                            <LoanDocumentExpandButton
+                                                                receiptCount={fineDocCount}
+                                                                isExpanded={isDocExpanded}
+                                                                disabled={fineDocCount === 0}
+                                                                onToggle={() =>
+                                                                    setExpandedFineDocId((prev) =>
+                                                                        prev === fineKey ? null : fineKey,
+                                                                    )
+                                                                }
+                                                            />
                                                         </td>
                                                         <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
                                                             {paymentLabel === 'Not Paid' && canPayCompany ? (
@@ -4211,99 +4211,35 @@ export default function SalaryTab({
                                                             </button>
                                                         </td>
                                                     </tr>
-                                                    {isExpanded && (
+                                                    {isDocExpanded ? (
                                                         <tr>
                                                             <td colSpan={12} className="bg-gray-50/50 p-4">
-                                                                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                                                                    <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <History size={14} className="text-blue-500" />
-                                                                            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payment Receipts</h4>
-                                                                        </div>
-                                                                        <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100 italic">
-                                                                            Individual History
-                                                                        </span>
-                                                                    </div>
-                                                                    <div className="p-0">
-                                                                        {loadingPayments ? (
-                                                                            <div className="p-8 text-center">
-                                                                                <div className="w-6 h-6 border-2 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-2"></div>
-                                                                                <p className="text-xs text-gray-400 font-bold uppercase tracking-tight">Loading receipts...</p>
-                                                                            </div>
-                                                                        ) : finePayments.length === 0 ? (
-                                                                            <div className="p-8 text-center text-gray-400 text-xs font-bold uppercase tracking-widest">
-                                                                                No payment receipts found for this fine.
-                                                                            </div>
-                                                                        ) : (
-                                                                            <table className="w-full text-left text-sm">
-                                                                                <thead>
-                                                                                    <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                                                                                        <th className="px-4 py-2">Receipt No</th>
-                                                                                        <th className="px-4 py-2">Date</th>
-                                                                                        <th className="px-4 py-2">Amount</th>
-                                                                                        <th className="px-4 py-2">Status</th>
-                                                                                        <th className="px-4 py-2">Attachment</th>
-                                                                                        <th className="px-4 py-2 text-right">Action</th>
-                                                                                    </tr>
-                                                                                </thead>
-                                                                                <tbody>
-                                                                                    {finePayments.map((pay) => (
-                                                                                        <tr key={pay._id} className={`border-b border-slate-50 transition-colors group ${getPaymentStatusSurfaceClass(pay.status)}`}>
-                                                                                            <td className="px-4 py-3 font-bold text-slate-700">{pay.paymentId}</td>
-                                                                                            <td className="px-4 py-3 text-slate-500">{new Date(pay.paymentDate || pay.createdAt).toLocaleDateString()}</td>
-                                                                                            <td className={`px-4 py-3 font-black ${getPaymentAmountTextClass(pay.status)}`}>AED {pay.amount?.toFixed(2)}</td>
-                                                                                            <td className="px-4 py-3">
-                                                                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${getPaymentStatusBadgeClass(pay.status)}`}>
-                                                                                                    {getPaymentStatusLabel(pay.status)}
-                                                                                                </span>
-                                                                                            </td>
-                                                                                            <td className="px-4 py-3">
-                                                                                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                                                                                    {(() => {
-                                                                                                        const viewerDoc = normalizePaymentAttachmentForViewer(
-                                                                                                            pay.attachment,
-                                                                                                            `${pay.paymentId || 'Payment'}-attachment`
-                                                                                                        );
-                                                                                                        if (!viewerDoc) {
-                                                                                                            return <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide">No File</span>;
-                                                                                                        }
-                                                                                                        return (
-                                                                                                            <button
-                                                                                                                onClick={() =>
-                                                                                                                    onViewDocument({
-                                                                                                                        ...viewerDoc,
-                                                                                                                        moduleId: 'hrm_fine',
-                                                                                                                        allowDownload: accSalaryFine.download,
-                                                                                                                    })
-                                                                                                                }
-                                                                                                                className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
-                                                                                                                title="View Attachment"
-                                                                                                            >
-                                                                                                                <FileText size={16} />
-                                                                                                            </button>
-                                                                                                        );
-                                                                                                    })()}
-                                                                                                </div>
-                                                                                            </td>
-                                                                                            <td className="px-4 py-3 text-right">
-                                                                                                <button
-                                                                                                    onClick={() => setSelectedInvoice(pay)}
-                                                                                                    className="text-blue-600 hover:text-blue-700 font-bold text-[10px] uppercase tracking-widest flex items-center gap-1 ml-auto group"
-                                                                                                >
-                                                                                                    View Invoice
-                                                                                                    <ArrowRightLeft size={12} className="group-hover:translate-x-1 transition-transform" />
-                                                                                                </button>
-                                                                                            </td>
-                                                                                        </tr>
-                                                                                    ))}
-                                                                                </tbody>
-                                                                            </table>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
+                                                                <LoanPaymentReceiptsExpandPanel
+                                                                    receipts={invoiceReceipts}
+                                                                    extraDocuments={[
+                                                                        hasFineForm
+                                                                            ? {
+                                                                                id: `${fineKey}-form`,
+                                                                                title: 'Fine form',
+                                                                                subtitle: 'Approved fine form PDF',
+                                                                                onView: () => handleViewFineFormPdf(fine),
+                                                                            }
+                                                                            : null,
+                                                                        hasUpload
+                                                                            ? {
+                                                                                id: `${fineKey}-upload`,
+                                                                                title: 'Uploaded attachment',
+                                                                                subtitle: 'Original supporting document',
+                                                                                onView: () => handleViewFineUploadedAttachment(fine),
+                                                                            }
+                                                                            : null,
+                                                                    ]}
+                                                                    emptyMessage="No payment invoices yet"
+                                                                    onPaymentsChanged={refreshEmployeePayments}
+                                                                />
                                                             </td>
                                                         </tr>
-                                                    )}
+                                                    ) : null}
                                                 </React.Fragment>
                                             );
                                         })
@@ -6533,6 +6469,26 @@ export default function SalaryTab({
                     setFinePayChoiceOpen(false);
                     setFineVendorCreditOpen(true);
                 }}
+                onEmployeePay={() => {
+                    setFinePayChoiceOpen(false);
+                    setFineEmployeePayOpen(true);
+                }}
+            />
+
+            <FineEmployeePayModal
+                isOpen={fineEmployeePayOpen}
+                fine={finePayChoiceFine}
+                employeeId={employeeId}
+                onClose={() => {
+                    setFineEmployeePayOpen(false);
+                    setFinePayChoiceFine(null);
+                }}
+                onSuccess={() => {
+                    setFineEmployeePayOpen(false);
+                    setFinePayChoiceFine(null);
+                    setSelectedFinesForPayment([]);
+                    refreshEmployeePayments();
+                }}
             />
 
             <FineVendorCreditModal
@@ -6548,14 +6504,7 @@ export default function SalaryTab({
                     setFineVendorCreditOpen(false);
                     setFinePayChoiceFine(null);
                     setSelectedFinesForPayment([]);
-                    axiosInstance
-                        .get('/Payment', { params: { paidBy: employeeId } })
-                        .then((res) => {
-                            const pays = res.data?.payments || res.data || [];
-                            setAllEmployeePayments(Array.isArray(pays) ? pays : []);
-                        })
-                        .catch(() => { });
-                    if (fetchEmployee) fetchEmployee();
+                    refreshEmployeePayments();
                 }}
             />
 
@@ -6577,47 +6526,9 @@ export default function SalaryTab({
                     setFineCompanyRefundFines([]);
                     setLoanCompanyRefundLoans([]);
                     setSelectedFinesForPayment([]);
-                    axiosInstance
-                        .get('/Payment', { params: { paidBy: employeeId } })
-                        .then((res) => {
-                            const pays = res.data?.payments || res.data || [];
-                            setAllEmployeePayments(Array.isArray(pays) ? pays : []);
-                        })
-                        .catch(() => { });
-                    if (fetchEmployee) fetchEmployee();
+                    refreshEmployeePayments();
                 }}
             />
-
-            {/* Invoice Viewer Modal */}
-            {selectedInvoice && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden">
-                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-                            <h3 className="text-lg font-black text-gray-800 uppercase tracking-widest flex items-center gap-2">
-                                <FileText className="text-blue-600" size={20} />
-                                Payment Invoice
-                            </h3>
-                            <button
-                                onClick={() => setSelectedInvoice(null)}
-                                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
-                            >
-                                <X size={24} />
-                            </button>
-                        </div>
-                        <div className="flex-1 overflow-auto p-4 md:p-8 bg-gray-100/50">
-                            <PaymentReceipt payment={selectedInvoice} />
-                        </div>
-                        <div className="p-6 bg-white border-t border-gray-100 flex justify-end">
-                            <button
-                                onClick={() => setSelectedInvoice(null)}
-                                className="px-8 py-3 bg-gray-100 text-gray-600 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div >
     );
 }

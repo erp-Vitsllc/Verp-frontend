@@ -404,7 +404,7 @@ export function buildUnderstandableNotificationTitle(item = {}) {
         }
         case 'Vehicle Access Fuel Reminder': {
             const e1 = sanitizeNotificationText(item.extra1 || '');
-            return e1 || 'Assigned vehicles have to add this month bill to be added';
+            return e1 || 'Assigned vehicles have to add this month monthly limit';
         }
         default:
             return expiryTitle || type || 'Request';

@@ -31,9 +31,19 @@ function gpsRangeCaption(gps) {
     return `${from} → ${to}`;
 }
 
+function vehicleAssignmentLabel(vehicle) {
+    const status = String(vehicle?.status || '').trim();
+    if (status) return status;
+    if (vehicle?.assigned === true) return 'Assigned';
+    if (vehicle?.assigned === false) return 'Unassigned';
+    return '';
+}
+
 function vehicleLabel(vehicle) {
     if (!vehicle) return '';
-    return [vehicle.plate, vehicle.name].filter(Boolean).join(' — ') || vehicle.assetId || '';
+    const base = [vehicle.plate, vehicle.name].filter(Boolean).join(' — ') || vehicle.assetId || '';
+    const assignment = vehicleAssignmentLabel(vehicle);
+    return assignment ? `${base} (${assignment})` : base;
 }
 
 function positiveLimit(value) {

@@ -65,7 +65,12 @@ export function LoanDocumentExpandButton({
 export default function LoanPaymentReceiptsExpandPanel({
     loan,
     payments = [],
+    receipts: receiptsOverride,
     requestAttachment = null,
+    requestDocTitle = 'Loan request document',
+    requestDocSubtitle = 'Original application attachment',
+    extraDocuments = [],
+    emptyMessage = 'No repayment invoices yet',
     onViewRequestAttachment,
     onPaymentsChanged,
     moduleId = 'hrm_loan',
@@ -74,8 +79,11 @@ export default function LoanPaymentReceiptsExpandPanel({
 }) {
     const { toast } = useToast();
     const [retryingId, setRetryingId] = useState(null);
-    const receipts = getLoanRepaymentPaymentsForDocuments(loan, payments);
+    const receipts = Array.isArray(receiptsOverride)
+        ? receiptsOverride
+        : getLoanRepaymentPaymentsForDocuments(loan, payments);
     const hasRequestDoc = Boolean(requestAttachment);
+    const extraDocs = Array.isArray(extraDocuments) ? extraDocuments.filter(Boolean) : [];
 
     const handleRetryZoho = async (pay) => {
         const id = pay?._id;
@@ -122,8 +130,8 @@ export default function LoanPaymentReceiptsExpandPanel({
             {hasRequestDoc ? (
                 <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                        <p className="text-xs font-bold text-slate-800">Loan request document</p>
-                        <p className="text-[10px] text-slate-500">Original application attachment</p>
+                        <p className="text-xs font-bold text-slate-800">{requestDocTitle}</p>
+                        <p className="text-[10px] text-slate-500">{requestDocSubtitle}</p>
                     </div>
                     <button
                         type="button"
@@ -136,9 +144,31 @@ export default function LoanPaymentReceiptsExpandPanel({
                 </div>
             ) : null}
 
+            {extraDocs.map((doc, index) => (
+                <div
+                    key={doc.id || `${doc.title || 'doc'}-${index}`}
+                    className="px-4 py-3 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-3"
+                >
+                    <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-800">{doc.title}</p>
+                        {doc.subtitle ? (
+                            <p className="text-[10px] text-slate-500">{doc.subtitle}</p>
+                        ) : null}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => doc.onView?.()}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-[10px] font-black uppercase tracking-wider text-slate-700 hover:bg-slate-50"
+                    >
+                        <FileText size={14} />
+                        View
+                    </button>
+                </div>
+            ))}
+
             {receipts.length === 0 ? (
                 <div className="p-8 text-center text-gray-400 text-xs font-bold uppercase tracking-widest">
-                    No repayment invoices yet
+                    {emptyMessage}
                 </div>
             ) : (
                 <table className="w-full text-left text-sm">

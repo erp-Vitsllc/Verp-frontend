@@ -127,7 +127,7 @@ export default function VehicleAccessFuelCloseMonthlyModal({
                             Close monthly fuel
                         </h3>
                         <p className="text-xs text-slate-500 mt-1">
-                            {monthLabel || 'Selected month'} — Close checked open fuel bills. Email goes to the owner, or their HOD if they have no company email, and HR.
+                            {monthLabel || 'Selected month'} — Close checked open fuel bills. Closed vehicles will not appear here again. Email goes to the owner, or their HOD if they have no company email, and HR.
                         </p>
                     </div>
                     <button

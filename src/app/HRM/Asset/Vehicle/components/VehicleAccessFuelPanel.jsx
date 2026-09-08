@@ -109,6 +109,7 @@ export default function VehicleAccessFuelPanel({
     const [canManage, setCanManage] = useState(false);
     const [canDelete, setCanDelete] = useState(() => isAdmin());
     const [vehicles, setVehicles] = useState([]);
+    const [pendingLimit, setPendingLimit] = useState([]);
     const [added, setAdded] = useState([]);
     const [notAdded, setNotAdded] = useState([]);
     const [summary, setSummary] = useState({
@@ -149,6 +150,7 @@ export default function VehicleAccessFuelPanel({
                 skipToast: true,
             });
             setVehicles(Array.isArray(res.data?.vehicles) ? res.data.vehicles : []);
+            setPendingLimit(Array.isArray(res.data?.pendingLimit) ? res.data.pendingLimit : []);
             setAdded(Array.isArray(res.data?.added) ? res.data.added : []);
             setNotAdded(Array.isArray(res.data?.notAdded) ? res.data.notAdded : []);
             setSummary({
@@ -172,6 +174,7 @@ export default function VehicleAccessFuelPanel({
                 description: error?.response?.data?.message || 'Try again in a moment.',
             });
             setVehicles([]);
+            setPendingLimit([]);
             setAdded([]);
             setNotAdded([]);
             setCanCreateMonthlyLimit(false);
@@ -204,13 +207,13 @@ export default function VehicleAccessFuelPanel({
 
     const pendingLimitVehicles = useMemo(
         () =>
-            (notAdded || []).map((row) => ({
-                _id: row.vehicleId,
-                name: row.vehicleName,
-                plate: row.plateNo || row.vehicleNumber,
-                fuelMonthlyLimit: Number(row.monthlyLimit) || 0,
+            (pendingLimit || []).map((row) => ({
+                _id: row._id || row.vehicleId,
+                name: row.name || row.vehicleName,
+                plate: row.plate || row.plateNo || row.vehicleNumber,
+                fuelMonthlyLimit: Number(row.fuelMonthlyLimit ?? row.monthlyLimit) || 0,
             })),
-        [notAdded],
+        [pendingLimit],
     );
 
     const openMonthlyFuelBills = useMemo(

@@ -104,11 +104,11 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                 params: { monthKey },
                 skipToast: true,
             });
-            const pending = (Array.isArray(res.data?.notAdded) ? res.data.notAdded : []).map((row) => ({
-                _id: row.vehicleId,
-                name: row.vehicleName,
-                plate: row.plateNo || row.vehicleNumber,
-                fuelMonthlyLimit: Number(row.monthlyLimit) || 0,
+            const pending = (Array.isArray(res.data?.pendingLimit) ? res.data.pendingLimit : []).map((row) => ({
+                _id: row._id || row.vehicleId,
+                name: row.name || row.vehicleName,
+                plate: row.plate || row.plateNo || row.vehicleNumber,
+                fuelMonthlyLimit: Number(row.fuelMonthlyLimit ?? row.monthlyLimit) || 0,
             }));
             setLimitVehicles(pending);
             setLimitMonthKey(res.data?.monthKey || monthKey);

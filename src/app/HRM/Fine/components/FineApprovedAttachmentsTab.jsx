@@ -6,6 +6,8 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { loadPdfJs } from '@/app/emp/[employeeId]/utils/lazyLibraries';
 import { format } from 'date-fns';
+import LoanPaymentReceiptsExpandPanel from '@/app/HRM/LoanAndAdvance/components/LoanPaymentReceiptsDropdown';
+import { getFinePaymentsForDocuments } from '@/app/HRM/LoanAndAdvance/utils/loanPaymentReceipts';
 
 function formatApprovalDate(value) {
     if (!value) return null;
@@ -97,6 +99,7 @@ export default function FineApprovedAttachmentsTab({
     const [loading, setLoading] = useState(true);
     const [downloading, setDownloading] = useState(false);
     const [error, setError] = useState('');
+    const [invoicePayments, setInvoicePayments] = useState([]);
     const pdfBlobRef = useRef(null);
 
     const reportTitle = reportTitleForFine(fine);
@@ -105,6 +108,42 @@ export default function FineApprovedAttachmentsTab({
         () => collectCorrespondingAttachments(fine, downloadFileName),
         [fine, downloadFileName],
     );
+    const invoiceReceipts = useMemo(
+        () => getFinePaymentsForDocuments(fine, invoicePayments),
+        [fine, invoicePayments],
+    );
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadInvoices = async () => {
+            if (!fine?.fineId && !fine?._id) {
+                setInvoicePayments([]);
+                return;
+            }
+            try {
+                const res = await axiosInstance.get('/Payment', {
+                    params: {
+                        relatedEntityType: 'Fine',
+                        ...(fine?.fineId ? { referenceId: fine.fineId } : {}),
+                        ...(fine?._id ? { relatedEntityId: fine._id } : {}),
+                        ...(employeeId ? { paidBy: employeeId } : {}),
+                        limit: 100,
+                    },
+                });
+                if (cancelled) return;
+                const pays = res.data?.payments || res.data || [];
+                setInvoicePayments(Array.isArray(pays) ? pays : []);
+            } catch {
+                if (!cancelled) setInvoicePayments([]);
+            }
+        };
+
+        loadInvoices();
+        return () => {
+            cancelled = true;
+        };
+    }, [fine?._id, fine?.fineId, employeeId]);
 
     useEffect(() => {
         let cancelled = false;
@@ -333,6 +372,15 @@ export default function FineApprovedAttachmentsTab({
                     )}
                 </div>
             </div>
+
+            {invoiceReceipts.length > 0 ? (
+                <div className="mt-4">
+                    <LoanPaymentReceiptsExpandPanel
+                        receipts={invoiceReceipts}
+                        emptyMessage="No payment invoices yet"
+                    />
+                </div>
+            ) : null}
         </div>
     );
 }

@@ -22,6 +22,7 @@ import FineApprovedAttachmentsTab from '../components/FineApprovedAttachmentsTab
 import FineCompanyRefundModal from '../components/FineCompanyRefundModal';
 import FinePayChoiceModal from '../components/FinePayChoiceModal';
 import FineVendorCreditModal from '../components/FineVendorCreditModal';
+import FineEmployeePayModal from '../components/FineEmployeePayModal';
 import FineWorkflowHistoryPanel from '../components/FineWorkflowHistoryPanel';
 import {
     buildFineVendorPaymentPrefill,
@@ -291,6 +292,7 @@ function FineDetailsPageContent() {
     const [fineRefundOpen, setFineRefundOpen] = useState(false);
     const [finePayChoiceOpen, setFinePayChoiceOpen] = useState(false);
     const [fineVendorCreditOpen, setFineVendorCreditOpen] = useState(false);
+    const [fineEmployeePayOpen, setFineEmployeePayOpen] = useState(false);
     const openedRefundFromQueryRef = useRef(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [isResubmittingModal, setIsResubmittingModal] = useState(false);
@@ -812,14 +814,21 @@ function FineDetailsPageContent() {
     };
 
     const handlePaidByEmployee = () => {
-        openConfirmation({
-            action: 'paidByEmployee',
-            title: 'Paid by employee',
-            description:
-                'Mark this fine Paid for the employee. No Zoho entry will be created. This shows as Paid on the employee profile payment.',
-            confirmText: 'Mark paid',
-            variant: 'default',
-        });
+        const parties = (fine?.assignedEmployees || []).filter(
+            (e) =>
+                e?.employeeId &&
+                e.employeeId !== 'VEGA-HR-0000' &&
+                e.employeeId !== 'VEGA_INTERNAL',
+        );
+        if (!parties.length) {
+            toast({
+                variant: 'destructive',
+                title: 'No employee party',
+                description: 'This fine has no employee to record payment for.',
+            });
+            return;
+        }
+        setFineEmployeePayOpen(true);
     };
 
     const handlePayVendorBill = () => {
@@ -2937,6 +2946,25 @@ function FineDetailsPageContent() {
                                 onVendorCredit={() => {
                                     setFinePayChoiceOpen(false);
                                     setFineVendorCreditOpen(true);
+                                }}
+                                onEmployeePay={() => {
+                                    setFinePayChoiceOpen(false);
+                                    setFineEmployeePayOpen(true);
+                                }}
+                            />
+                            <FineEmployeePayModal
+                                isOpen={fineEmployeePayOpen}
+                                fine={fine}
+                                employeeId={employeeOwnerId || employeeDetails?.employeeId || ''}
+                                onClose={() => setFineEmployeePayOpen(false)}
+                                onSuccess={async () => {
+                                    setFineEmployeePayOpen(false);
+                                    try {
+                                        const fineRes = await axiosInstance.get(`/Fine/${id}`);
+                                        setFine(fineRes.data);
+                                    } catch (e) {
+                                        console.error('Failed to refresh fine after employee pay', e);
+                                    }
                                 }}
                             />
                             <FineVendorCreditModal

@@ -12,6 +12,7 @@ import { buildEntityPaymentSchedule } from '../utils/buildEntityPaymentSchedule'
 import EntityPaymentScheduleBoxes from './EntityPaymentScheduleBoxes';
 import { buildRewardPaymentPrefill } from '@/app/HRM/Reward/utils/rewardPaymentPrefill';
 import { buildLoanPaymentPrefill } from '@/app/HRM/LoanAndAdvance/utils/loanPaymentPrefill';
+import { openPaymentReceiptInNewTab } from '@/app/HRM/LoanAndAdvance/utils/loanPaymentReceipts';
 import {
     getPaymentAmountTextClass,
     getPaymentStatusBadgeClass,
@@ -534,9 +535,28 @@ export default function EntityPaymentDetailsCard({
                             ) : entityType === 'Fine' && (entityRecord?.sourceOfIncome || 'Salary') === 'End of Service' ? (
                                 <PaymentList
                                     payments={eosPayments.length > 0 ? eosPayments : visiblePayments}
-                                    onSelect={setSelectedInvoice}
+                                    onSelect={openPaymentReceiptInNewTab}
                                     emptyMessage="No payments recorded yet"
                                 />
+                            ) : entityType === 'Fine' ? (
+                                <>
+                                    <PaymentList
+                                        payments={salaryPayments}
+                                        onSelect={openPaymentReceiptInNewTab}
+                                        emptyMessage="No payments recorded yet"
+                                    />
+                                    {eosPayments.length > 0 ? (
+                                        <div className="mt-5">
+                                            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700 mb-2">
+                                                End of Service
+                                            </p>
+                                            <PaymentList
+                                                payments={eosPayments}
+                                                onSelect={openPaymentReceiptInNewTab}
+                                            />
+                                        </div>
+                                    ) : null}
+                                </>
                             ) : (
                                 <>
                                     <PaymentList
