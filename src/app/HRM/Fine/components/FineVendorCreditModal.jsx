@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Select from 'react-select';
-import { Loader2, Plus, Trash2, Upload, X } from 'lucide-react';
+import { Link2, Loader2, Plus, Trash2, Upload, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { useZohoOrganizations } from '@/hooks/useZohoOrganizations';
@@ -224,6 +224,8 @@ export default function FineVendorCreditModal({
     const [taxes, setTaxes] = useState([]);
     const [loadingLists, setLoadingLists] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [reconnectLoading, setReconnectLoading] = useState(false);
+    const [zohoAuthError, setZohoAuthError] = useState('');
 
     const balance = fine ? Math.max(0, Number(getFineBalance(fine)) || 0) : 0;
 
@@ -243,6 +245,7 @@ export default function FineVendorCreditModal({
         setDiscountPercent('0');
         setNotes('');
         setAttachment(null);
+        setZohoAuthError('');
         setLines([
             newLine({
                 description,
@@ -400,6 +403,34 @@ export default function FineVendorCreditModal({
         }
     };
 
+    const reconnectZoho = useCallback(async () => {
+        if (!organizationId) return;
+        setReconnectLoading(true);
+        try {
+            const response = await axiosInstance.get('/zoho/auth-url', {
+                params: { organizationId },
+                skipToast: true,
+            });
+            const url = response?.data?.data?.authorizationUrl;
+            if (!url) throw new Error('Authorization URL was not returned');
+            const popup = window.open(url, '_blank', 'noopener,noreferrer');
+            if (!popup) window.location.assign(url);
+            toast({
+                title: 'Approve Zoho access',
+                description:
+                    'Sign in as a Zoho user who can create Vendor Credits, accept debitnotes.CREATE, then Save again.',
+            });
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Reconnect failed',
+                description: err?.response?.data?.message || err?.message || 'Could not open Zoho auth.',
+            });
+        } finally {
+            setReconnectLoading(false);
+        }
+    }, [organizationId, toast]);
+
     const handleSave = async () => {
         if (!fine?._id && !fine?.fineId) {
             toast({ variant: 'destructive', title: 'Fine missing', description: 'Open a fine first.' });
@@ -503,13 +534,17 @@ export default function FineVendorCreditModal({
             onSuccess?.();
             onClose?.();
         } catch (err) {
+            const message =
+                err?.response?.data?.message ||
+                err?.message ||
+                'Could not create the Zoho vendor credit. Reconnect Zoho if debitnotes (Vendor Credits) scope is missing.';
+            if (/not authorized|debitnotes|vendorcredits|reconnect zoho/i.test(message)) {
+                setZohoAuthError(message);
+            }
             toast({
                 variant: 'destructive',
                 title: 'Vendor credit failed',
-                description:
-                    err?.response?.data?.message ||
-                    err?.message ||
-                    'Could not create the Zoho vendor credit. Reconnect Zoho if vendorcredits scope is missing.',
+                description: message,
             });
         } finally {
             setSaving(false);
@@ -541,7 +576,7 @@ export default function FineVendorCreditModal({
 
                 <div className="px-5 py-4 overflow-y-auto flex-1 min-h-0 space-y-4">
                     {(showZohoOrgPicker || activeZohoOrg) && (
-                        <div className="flex justify-end">
+                        <div className="flex items-center justify-end gap-2">
                             <ZohoOrganizationPicker
                                 options={zohoOrgOptions}
                                 value={organizationId}
@@ -549,8 +584,28 @@ export default function FineVendorCreditModal({
                                 loading={zohoOrgLoading || loadingLists}
                                 size="sm"
                             />
+                            <button
+                                type="button"
+                                disabled={reconnectLoading || !organizationId}
+                                onClick={() => void reconnectZoho()}
+                                title="Reconnect Zoho with Vendor Credits permission"
+                                className="shrink-0 h-8 px-2.5 rounded border border-amber-300 bg-amber-50 text-amber-900 text-xs font-semibold inline-flex items-center gap-1 disabled:opacity-50"
+                            >
+                                {reconnectLoading ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                    <Link2 size={14} />
+                                )}
+                                Reconnect Zoho
+                            </button>
                         </div>
                     )}
+
+                    {zohoAuthError ? (
+                        <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
+                            {zohoAuthError}
+                        </div>
+                    ) : null}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-3">
                         <div>

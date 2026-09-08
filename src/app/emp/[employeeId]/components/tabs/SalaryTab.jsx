@@ -44,7 +44,6 @@ import {
     ensureAssetFlowchartRoleMeta,
     getCachedAssetFlowchartRoleMeta,
 } from '@/utils/assetFlowchartModuleAccess';
-import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
@@ -251,69 +250,6 @@ function isProfileToolsAsset(asset) {
     return Boolean(asset) && !isProfileVehicleAsset(asset);
 }
 
-function isFineApprovedFormAttachment(item) {
-    const source = String(item?.source || '').trim();
-    return source === 'approved-form' || source === 'asset-loss-report';
-}
-
-function fineAttachmentIdentity(item) {
-    if (item == null) return '';
-    if (typeof item === 'string') return item.trim();
-    return String(item.publicId || item.url || item.href || item.name || item.label || '').trim();
-}
-
-function collectFineSupportingAttachments(fine) {
-    const list = [];
-    const seen = new Set();
-    const add = (item, fallbackTitle) => {
-        if (!item) return;
-        if (isFineApprovedFormAttachment(item)) return;
-        const key = fineAttachmentIdentity(item);
-        if (!key || seen.has(key)) return;
-        seen.add(key);
-        list.push({
-            item,
-            title: item.label || item.name || fallbackTitle || 'Attachment',
-        });
-    };
-
-    add(fine?.attachment, 'Uploaded attachment');
-    (fine?.attachments || []).forEach((item, index) => add(item, `Attachment ${index + 1}`));
-    (fine?.approvalAttachments || []).forEach((item) => add(item, 'Supporting document'));
-    return list;
-}
-
-function fineAttachmentOpenScore(item) {
-    if (!item) return 0;
-    if (item.data || item.base64) return 4;
-    if (item.publicId) return 3;
-    if (item.url || item.href) return 2;
-    return 1;
-}
-
-function pickBestFineAttachment(rows) {
-    if (!rows?.length) return null;
-    return [...rows].sort((a, b) => fineAttachmentOpenScore(b.item) - fineAttachmentOpenScore(a.item))[0]?.item || null;
-}
-
-function findFineSupportingAttachment(fine, hint) {
-    const rows = collectFineSupportingAttachments(fine);
-    if (!rows.length) return null;
-    if (!hint) return pickBestFineAttachment(rows);
-    const hintKey = fineAttachmentIdentity(hint);
-    const hintName = String(hint?.name || hint?.label || '').trim().toLowerCase();
-    const matches = rows.filter((row) => {
-        const key = fineAttachmentIdentity(row.item);
-        const name = String(row.item?.name || '').toLowerCase();
-        return (hintKey && key === hintKey) || (hintName && name === hintName);
-    });
-    return pickBestFineAttachment(matches.length ? matches : rows);
-}
-
-function isUsableViewerDoc(doc) {
-    return Boolean(doc && !doc.error && (doc.data || doc.storageRef || doc.url || doc.publicId));
-}
-
 /** Avoid infinite setState loops: only return a new array when ids actually change. */
 function pruneSelectionToValidIds(prev, validIds) {
     const next = prev.filter((id) => validIds.has(String(id)));
@@ -418,7 +354,6 @@ export default function SalaryTab({
 
     const accSalaryHistory = employeeProfileCardCrudAccess('hrm_employees_view_salary');
     const canDeleteSalaryHistory = canDeleteEmployeeCard(employee, accSalaryHistory.delete);
-    const accSalaryFine = crudAccessUnion(['hrm_fine', 'hrm_fine_add']);
     const accSalaryReward = crudAccessUnion(['hrm_reward', 'hrm_reward_create']);
     const accSalaryLoans = crudAccessUnion([
         'hrm_loan',
@@ -1191,9 +1126,6 @@ export default function SalaryTab({
     };
 
     const [expandedFineDocId, setExpandedFineDocId] = useState(null);
-    const [fineDocDetailsById, setFineDocDetailsById] = useState({});
-    const [fineDocLoadingId, setFineDocLoadingId] = useState(null);
-    const fineDocDetailsRef = useRef({});
     const [expandedLoanDocId, setExpandedLoanDocId] = useState(null);
     const [allEmployeePayments, setAllEmployeePayments] = useState([]);
     const [selectedFinesForPayment, setSelectedFinesForPayment] = useState([]);
@@ -1833,163 +1765,6 @@ export default function SalaryTab({
             name: attachment.name || fallbackName,
             mimeType: attachment.mimeType || attachment.type || 'application/pdf'
         };
-    };
-
-    const loadFineDocumentSources = async (fine) => {
-        const id = String(fine?.fineId || fine?._id || '').trim();
-        if (!id) return null;
-        if (fineDocDetailsRef.current[id]) return fineDocDetailsRef.current[id];
-
-        setFineDocLoadingId(id);
-        try {
-            const { data } = await axiosInstance.get(`/Fine/${encodeURIComponent(id)}`);
-            if (data) {
-                fineDocDetailsRef.current[id] = data;
-                setFineDocDetailsById((prev) => ({ ...prev, [id]: data }));
-                return data;
-            }
-        } catch (err) {
-            console.error('Failed to load fine documents:', err);
-        } finally {
-            setFineDocLoadingId((current) => (current === id ? null : current));
-        }
-        return null;
-    };
-
-    const handleViewFineUploadedAttachment = async (fine, hint, e) => {
-        e?.stopPropagation();
-        const detail = (await loadFineDocumentSources(fine)) || fine;
-        const preferred =
-            findFineSupportingAttachment(detail, hint) ||
-            findFineSupportingAttachment(fine, hint);
-        const candidates = [];
-        if (preferred) candidates.push(preferred);
-        for (const row of collectFineSupportingAttachments(detail)) {
-            if (row.item && !candidates.includes(row.item)) candidates.push(row.item);
-        }
-
-        let opened = false;
-        let lastError = 'Fine attachment is missing or unavailable.';
-
-        for (const match of candidates) {
-            const fallbackName = match?.name || hint?.name || `${fine.fineId || 'Fine'}-attachment`;
-            let resolved = await resolveAttachmentForViewer(match, {
-                name: fallbackName,
-                mimeType: match.mimeType || match.type || 'application/pdf',
-            });
-            if (!isUsableViewerDoc(resolved)) {
-                resolved = normalizePaymentAttachmentForViewer(match, fallbackName);
-            }
-            if (!isUsableViewerDoc(resolved)) {
-                lastError = resolved?.error || lastError;
-                continue;
-            }
-
-            onViewDocument({
-                publicId: match.publicId || resolved.storageRef,
-                data: resolved.data || match.url || match.publicId,
-                storageRef: resolved.storageRef,
-                name: resolved.name || fallbackName,
-                mimeType: resolved.mimeType || match.mimeType || 'application/pdf',
-                moduleId: 'hrm_fine',
-                allowDownload: accSalaryFine.download,
-            });
-            opened = true;
-            break;
-        }
-
-        if (!opened) {
-            toast({
-                variant: 'destructive',
-                title: 'Cannot open attachment',
-                description: lastError,
-            });
-        }
-    };
-
-    const handleViewFineFormPdf = async (fine, e) => {
-        e?.stopPropagation();
-        const fineRouteId = fine.fineId || fine._id;
-        if (!fineRouteId) return;
-
-        const messageFromError = async (err) => {
-            const data = err?.response?.data;
-            if (typeof Blob !== 'undefined' && data instanceof Blob) {
-                try {
-                    const parsed = JSON.parse(await data.text());
-                    if (parsed?.message) return parsed.message;
-                } catch {
-                    /* ignore */
-                }
-            }
-            return err?.response?.data?.message || err?.message || 'Failed to load fine form PDF.';
-        };
-
-        const blobFromResponse = async (response) => {
-            const contentType = String(response.headers?.['content-type'] || '');
-            const blob = new Blob([response.data], { type: 'application/pdf' });
-            if (contentType.includes('application/json') || blob.size < 500) {
-                let message = 'Failed to load fine form PDF.';
-                try {
-                    const parsed = JSON.parse(await blob.text());
-                    if (parsed?.message) message = parsed.message;
-                } catch {
-                    /* ignore */
-                }
-                throw new Error(message);
-            }
-            return blob;
-        };
-
-        try {
-            const encoded = encodeURIComponent(fineRouteId);
-            let blob;
-            try {
-                const approved = await axiosInstance.get(`/Fine/${encoded}/approved-report-pdf`, {
-                    responseType: 'blob',
-                    params: {
-                        ...(employeeId ? { employeeId } : {}),
-                        fresh: 1,
-                        t: fine.updatedAt || fine.awardedDate || '',
-                    },
-                });
-                blob = await blobFromResponse(approved);
-            } catch (approvedErr) {
-                try {
-                    const fallback = await axiosInstance.get(`/Fine/${encoded}/pdf`, {
-                        responseType: 'blob',
-                    });
-                    blob = await blobFromResponse(fallback);
-                } catch (fallbackErr) {
-                    throw new Error(
-                        (await messageFromError(fallbackErr)) ||
-                        (await messageFromError(approvedErr)),
-                    );
-                }
-            }
-
-            const dataUrl = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.onerror = () => reject(new Error('Failed to read the fine form PDF.'));
-                reader.readAsDataURL(blob);
-            });
-
-            onViewDocument({
-                data: dataUrl,
-                name: `FineForm-${fine.fineId || fineRouteId}.pdf`,
-                mimeType: 'application/pdf',
-                moduleId: 'hrm_fine',
-                allowDownload: accSalaryFine.download,
-            });
-        } catch (err) {
-            console.error('Failed to load fine form PDF:', err);
-            toast({
-                variant: 'destructive',
-                title: 'Cannot open fine form',
-                description: err?.message || 'Failed to load fine form PDF.',
-            });
-        }
     };
 
     useEffect(() => {
@@ -4098,15 +3873,8 @@ export default function SalaryTab({
                                                 fine,
                                                 allEmployeePayments,
                                             );
-                                            const detailFine = fineDocDetailsById[fineKey] || fine;
-                                            const supportingAttachments = collectFineSupportingAttachments(detailFine);
-                                            const hasFineForm = ['Approved', 'Paid'].includes(fine.fineStatus);
-                                            const fineDocCount =
-                                                invoiceReceipts.length +
-                                                (hasFineForm ? 1 : 0) +
-                                                supportingAttachments.length;
+                                            const fineDocCount = invoiceReceipts.length;
                                             const isDocExpanded = expandedFineDocId === fineKey;
-                                            const isDocLoading = fineDocLoadingId === fineKey;
 
                                             const relatedPayments = allEmployeePayments.filter(p =>
                                                 (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
@@ -4258,9 +4026,6 @@ export default function SalaryTab({
                                                                     setExpandedFineDocId((prev) =>
                                                                         prev === fineKey ? null : fineKey,
                                                                     );
-                                                                    if (expandedFineDocId !== fineKey) {
-                                                                        loadFineDocumentSources(fine);
-                                                                    }
                                                                 }}
                                                             />
                                                         </td>
@@ -4300,34 +4065,8 @@ export default function SalaryTab({
                                                             <td colSpan={12} className="bg-gray-50/50 p-4">
                                                                 <LoanPaymentReceiptsExpandPanel
                                                                     receipts={invoiceReceipts}
-                                                                    title={
-                                                                        invoiceReceipts.length
-                                                                            ? 'Payment invoices'
-                                                                            : 'Documents'
-                                                                    }
-                                                                    extraDocuments={[
-                                                                        hasFineForm
-                                                                            ? {
-                                                                                id: `${fineKey}-form`,
-                                                                                title: 'Fine form',
-                                                                                subtitle: isDocLoading
-                                                                                    ? 'Loading approved fine form…'
-                                                                                    : 'Approved fine form PDF',
-                                                                                onView: () => handleViewFineFormPdf(fine),
-                                                                            }
-                                                                            : null,
-                                                                        ...supportingAttachments.map((row, attachIndex) => ({
-                                                                            id: `${fineKey}-att-${fineAttachmentIdentity(row.item) || attachIndex}`,
-                                                                            title: row.title,
-                                                                            subtitle: row.item?.mimeType || 'Original supporting document',
-                                                                            onView: () => handleViewFineUploadedAttachment(fine, row.item),
-                                                                        })),
-                                                                    ]}
-                                                                    emptyMessage={
-                                                                        isDocLoading
-                                                                            ? 'Loading documents…'
-                                                                            : 'No payment invoices yet'
-                                                                    }
+                                                                    title="Payment invoices"
+                                                                    emptyMessage="No payment invoices yet"
                                                                     onPaymentsChanged={refreshEmployeePayments}
                                                                 />
                                                             </td>
