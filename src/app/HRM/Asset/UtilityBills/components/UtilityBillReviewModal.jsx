@@ -535,16 +535,19 @@ export default function UtilityBillReviewModal({
     // Only the user the batch is pending with (Accounts / HR / Pay) may edit or act
     const canEdit = Boolean(batch?.canEdit);
     const canApproveReject = Boolean(batch?.canApproveReject ?? batch?.canEdit);
+    const canCreatorResend = Boolean(batch?.canCreatorResend);
     const canPay = Boolean(batch?.canPay);
     const needsZohoOpen = Boolean(batch?.needsZohoOpen);
     const isHrStage = String(batch?.status || '') === 'Pending HR';
     const canHrDraft = canApproveReject && isHrStage;
-    const isViewerOnly = Boolean(batch) && !canEdit && !canPay && !needsZohoOpen;
-    // Accounts / HR can open Add Bills UI to fix expense accounts, amounts, etc. before Pay.
+    const isViewerOnly =
+        Boolean(batch) && !canEdit && !canPay && !needsZohoOpen && !canCreatorResend;
+    // Current approver / Pay only — not the other department, and not after first approver acted.
     const canEditDetails =
         Boolean(batch) &&
         String(batch?.status || '') !== 'Paid' &&
-        Boolean(batch?.actorIsAccounts || batch?.actorIsHr || canEdit || canPay || needsZohoOpen);
+        Boolean(canEdit || canPay || needsZohoOpen);
+    const showCreatorResend = canCreatorResend && !canApproveReject && !canPay;
 
     const editBillsForModal = useMemo(() => {
         const bills = Array.isArray(batch?.bills) ? batch.bills : [];
@@ -562,7 +565,8 @@ export default function UtilityBillReviewModal({
         if (!id) return { ok: false };
         setEditSaving(true);
         try {
-            await axiosInstance.put(`/UtilityBill/batch/${id}`, {
+            const res = await axiosInstance.put(`/UtilityBill/batch/${id}`, {
+                resend: showCreatorResend,
                 rows: (payload?.rows || []).map((row) => ({
                     billId: row.billId,
                     entryId: row.entryId,
@@ -593,8 +597,12 @@ export default function UtilityBillReviewModal({
                 })),
             });
             toast({
-                title: 'Bill details saved',
-                description: 'Zoho will use the updated accounts on Retry / Pay.',
+                title: res.data?.resent ? 'Edited and resent' : 'Bill details saved',
+                description:
+                    res.data?.message ||
+                    (res.data?.resent
+                        ? 'Sent again to the next approver.'
+                        : 'Zoho will use the updated accounts on Retry / Pay.'),
             });
             setEditOpen(false);
             onChanged?.();
@@ -1259,7 +1267,9 @@ export default function UtilityBillReviewModal({
                                             ? 'Same as Add Bills — full bill fields, edit Actual / Contract Paid By / Upload before Approve.'
                                             : canPay
                                               ? 'Select bills, then Pay — stores the Zoho bill and marks payment successful.'
-                                              : isViewerOnly
+                                              : showCreatorResend
+                                                ? 'You created this bill. Edit and Resend while waiting on the next person. That button goes after they act.'
+                                                : isViewerOnly
                                                 ? `View only — pending ${batch?.pendingWithName || 'approver'} (${batch?.statusLabel || batch?.status || ''}).`
                                                 : ''}
                                 </span>
@@ -1920,6 +1930,17 @@ export default function UtilityBillReviewModal({
                                         Edit
                                     </button>
                                 ) : null}
+                                {showCreatorResend ? (
+                                    <button
+                                        type="button"
+                                        disabled={acting || editSaving || !editBillsForModal.length}
+                                        onClick={() => setEditOpen(true)}
+                                        title="Edit this bill and send it again to the next approver"
+                                        className="px-4 py-2 rounded-xl border border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-900 text-sm font-semibold disabled:opacity-50"
+                                    >
+                                        Edit and Resend
+                                    </button>
+                                ) : null}
                                 {needsZohoRetry ? (
                                     <button
                                         type="button"
@@ -2141,6 +2162,7 @@ export default function UtilityBillReviewModal({
                 utilityAttachment={utilityAttachment}
                 editBills={editBillsForModal}
                 editBatchId={String(batch?.batchId || batchId || '')}
+                creatorResend={showCreatorResend}
                 onSubmit={handleSaveEditedBills}
                 saving={editSaving}
             />

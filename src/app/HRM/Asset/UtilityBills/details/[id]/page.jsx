@@ -537,6 +537,9 @@ function UtilityBillDetailsPageContent() {
             latestApprovalRequest?.canPay,
     );
     const approvalCanEdit = approvalCanAct || approvalCanPay;
+    const approvalCanCreatorResend = Boolean(
+        approvalIsPending && latestApprovalRequest?.canCreatorResend && !approvalCanAct,
+    );
     const approvalRequesterName =
         String(latestApprovalRequest?.requestedByName || '').trim() || '—';
     const approvalEmployeeName = approvalIsPending
@@ -1229,8 +1232,12 @@ function UtilityBillDetailsPageContent() {
                         const isNotPaid = bill.status === 'Approved';
                         const isPaid = bill.status === 'Paid';
                         const canApproveReject = Boolean(bill.canApproveReject);
+                        const canCreatorResend = Boolean(bill.canCreatorResend);
                         const actionBatchId = bill.batchId || bill._id;
                         const showEdit = Boolean(canApproveReject && actionBatchId);
+                        const showCreatorResend = Boolean(
+                            canCreatorResend && !canApproveReject && actionBatchId,
+                        );
                         const vendorPayLabel = isPaid
                             ? 'Paid'
                             : isNotPaid
@@ -1432,6 +1439,17 @@ function UtilityBillDetailsPageContent() {
                                             >
                                                 <Pencil size={12} />
                                                 Edit
+                                            </button>
+                                        ) : null}
+                                        {showCreatorResend ? (
+                                            <button
+                                                type="button"
+                                                onClick={openBatchReview}
+                                                title="Edit and resend to the next approver"
+                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-white border border-teal-200 text-teal-700 hover:bg-teal-50 text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                                            >
+                                                <Pencil size={12} />
+                                                Edit and Resend
                                             </button>
                                         ) : null}
                                         {canAdminDelete ? (
@@ -1793,7 +1811,20 @@ function UtilityBillDetailsPageContent() {
                                             </div>
 
                                             <div className="grid grid-cols-2 gap-1.5 sm:gap-2 shrink-0">
-                                                {approvalCanEdit ? (
+                                                {approvalCanCreatorResend ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={approvalActing}
+                                                        onClick={() =>
+                                                            openBillReview(latestApprovalRequest)
+                                                        }
+                                                        title="Edit and resend to the next approver"
+                                                        className="col-span-2 inline-flex items-center justify-center gap-1 rounded-lg border border-teal-200 bg-white px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-teal-700 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    >
+                                                        <Pencil size={12} />
+                                                        Edit and Resend
+                                                    </button>
+                                                ) : approvalCanEdit ? (
                                                     <button
                                                         type="button"
                                                         disabled={approvalActing}
@@ -1813,7 +1844,7 @@ function UtilityBillDetailsPageContent() {
                                                 ) : (
                                                     <span />
                                                 )}
-                                                {approvalCanPay ? (
+                                                {approvalCanCreatorResend ? null : approvalCanPay ? (
                                                     <button
                                                         type="button"
                                                         disabled={approvalActing}
@@ -1846,7 +1877,7 @@ function UtilityBillDetailsPageContent() {
                                                         {approvalActing ? 'Saving…' : 'Reject'}
                                                     </button>
                                                 )}
-                                                {approvalCanPay ? null : (
+                                                {approvalCanCreatorResend || approvalCanPay ? null : (
                                                     <button
                                                         type="button"
                                                         disabled={!approvalCanAct || approvalActing}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
-import { useRouter, useSearchParams, useParams } from 'next/navigation';
+import { useRouter, useSearchParams, useParams, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
@@ -19,8 +19,10 @@ import { format } from 'date-fns';
 import Image from 'next/image';
 import FineFormCards from '../components/FineFormCards';
 import FineApprovedAttachmentsTab from '../components/FineApprovedAttachmentsTab';
+import FineCompanyRefundModal from '../components/FineCompanyRefundModal';
+import FinePayChoiceModal from '../components/FinePayChoiceModal';
+import FineVendorCreditModal from '../components/FineVendorCreditModal';
 import FineWorkflowHistoryPanel from '../components/FineWorkflowHistoryPanel';
-import FineManagementZohoFields from '../components/FineManagementZohoFields';
 import {
     buildFineVendorPaymentPrefill,
     canAccountsPayFineVendorBill,
@@ -56,6 +58,7 @@ import {
 } from '@/utils/finePayableAmount';
 import { canUserActOnFineStage } from '@/utils/fineStageAuth';
 import { notifyFinePendingInboxChanged } from '../utils/finePendingInboxCount';
+import { resolveFinePartiesZohoGate } from '../utils/finePartiesZohoGate';
 import { APPROVED_FINE_STATUSES, deriveFineScheduleMonthYears } from '../utils/fineScheduleUtils';
 import { buildEmployeeFinancials } from '../utils/employeeFineFinancials';
 import { isApprovedLoanRecord } from '../../LoanAndAdvance/utils/loanScheduleUtils';
@@ -268,6 +271,7 @@ function FineDetailsPageContent() {
     }
 
     const router = useRouter();
+    const pathname = usePathname();
     const searchParams = useSearchParams();
     const partyParam = searchParams.get('party');
     const partyEmployeeId = searchParams.get('employeeId');
@@ -284,6 +288,10 @@ function FineDetailsPageContent() {
     const [isAssetController, setIsAssetController] = useState(false);
     const [flowchartRows, setFlowchartRows] = useState([]);
     const [checkingPermissions, setCheckingPermissions] = useState(true);
+    const [fineRefundOpen, setFineRefundOpen] = useState(false);
+    const [finePayChoiceOpen, setFinePayChoiceOpen] = useState(false);
+    const [fineVendorCreditOpen, setFineVendorCreditOpen] = useState(false);
+    const openedRefundFromQueryRef = useRef(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [isResubmittingModal, setIsResubmittingModal] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
@@ -303,13 +311,6 @@ function FineDetailsPageContent() {
     const [summaryViewMode, setSummaryViewMode] = useState('count'); // 'count', 'amount', 'remaining'
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [rejectionReason, setRejectionReason] = useState('');
-    const [managementZoho, setManagementZoho] = useState({
-        zohoVendorId: '',
-        zohoVendorName: '',
-        expenseAccountId: '',
-        expenseAccountName: '',
-        zohoOrganizationId: '',
-    });
     const [partyPayables, setPartyPayables] = useState([]);
     const [accountsApprovePayable, setAccountsApprovePayable] = useState({
         expenseAccountId: '',
@@ -543,63 +544,35 @@ function FineDetailsPageContent() {
                     className: "bg-green-50 border-green-200 text-green-800"
                 });
             } else if (action === 'enterZoho' || action === 'paidByEmployee') {
-                const groupParties = Array.isArray(partyPayables) && partyPayables.length > 0
-                    ? partyPayables
-                    : buildGroupMembersForFine(fine).map((p) => ({
-                        fineRecordId: p.fineRecordId,
-                        fineId: p.fineId,
-                        employeeName: p.employeeName,
-                        expenseAccountId: p.expenseAccountId || '',
-                        expenseAccountName: p.expenseAccountName || '',
-                        payableConfirmed: Boolean(p.payableConfirmed),
-                    }));
+                const zohoGate = resolveFinePartiesZohoGate(fine, partyPayables);
 
-                if (action === 'enterZoho') {
-                    const vendorId = String(
-                        managementZoho.zohoVendorId || fine?.zohoVendorId || '',
-                    ).trim();
-                    const vendorName = String(
-                        managementZoho.zohoVendorName ||
-                            fine?.zohoVendorName ||
-                            fine?.fineSource ||
-                            '',
-                    ).trim();
-                    const missingPayable = groupParties.some(
-                        (p) => !String(p.expenseAccountId || '').trim(),
-                    );
-                    if (!vendorId && !vendorName) {
-                        toast({
-                            title: 'Vendor required',
-                            description: 'Set Vendor on the Fine Parties card before Enter in Zoho.',
-                            variant: 'destructive',
-                        });
-                        return;
-                    }
-                    if (groupParties.length > 0 && missingPayable) {
-                        toast({
-                            title: 'Payable required',
-                            description: 'Fill Payable for every party before Enter in Zoho.',
-                            variant: 'destructive',
-                        });
-                        return;
-                    }
+                if (action === 'enterZoho' && !zohoGate.vendorOk) {
+                    toast({
+                        title: 'Vendor required',
+                        description: 'Select Vendor on the Fine Parties card first.',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
+                if (action === 'enterZoho' && !zohoGate.payableOk) {
+                    toast({
+                        title: 'Payable required',
+                        description: zohoGate.missingPayableNames.length
+                            ? `Fill Payable on Fine Parties first. Incomplete: ${zohoGate.missingPayableNames.join(', ')}.`
+                            : 'Fill Payable on the Fine Parties card first.',
+                        variant: 'destructive',
+                    });
+                    return;
                 }
 
                 res = await axiosInstance.put(`/Fine/${targetId}/accounts-payment`, {
                     action: action === 'enterZoho' ? 'enter_zoho' : 'paid_by_employee',
-                    partyPayables: groupParties,
-                    zohoVendorId: managementZoho.zohoVendorId || fine?.zohoVendorId || '',
-                    zohoVendorName:
-                        managementZoho.zohoVendorName ||
-                        fine?.zohoVendorName ||
-                        fine?.fineSource ||
-                        '',
-                    zohoOrganizationId:
-                        managementZoho.zohoOrganizationId || fine?.zohoOrganizationId || '',
-                    expenseAccountId:
-                        managementZoho.expenseAccountId || fine?.expenseAccountId || '',
-                    expenseAccountName:
-                        managementZoho.expenseAccountName || fine?.expenseAccountName || '',
+                    partyPayables: zohoGate.parties,
+                    zohoVendorId: zohoGate.vendorId,
+                    zohoVendorName: zohoGate.vendorName,
+                    zohoOrganizationId: fine?.zohoOrganizationId || '',
+                    expenseAccountId: zohoGate.expenseAccountId,
+                    expenseAccountName: zohoGate.expenseAccountName,
                 });
                 if (res?.data?.fine) {
                     setFine((prev) =>
@@ -794,12 +767,45 @@ function FineDetailsPageContent() {
         });
     };
 
+    const handlePartyVendorChange = useCallback((vendor) => {
+        if (!vendor) return;
+        setFine((prev) =>
+            prev
+                ? {
+                    ...prev,
+                    zohoVendorId: vendor.zohoVendorId ?? prev.zohoVendorId,
+                    zohoVendorName: vendor.zohoVendorName ?? prev.zohoVendorName,
+                    fineSource: vendor.fineSource ?? prev.fineSource,
+                }
+                : prev,
+        );
+    }, []);
+
     const handleEnterInZoho = () => {
+        const gate = resolveFinePartiesZohoGate(fine, partyPayables);
+        if (!gate.vendorOk) {
+            toast({
+                title: 'Vendor required',
+                description: 'Select Vendor on the Fine Parties card first.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        if (!gate.payableOk) {
+            toast({
+                title: 'Payable required',
+                description: gate.missingPayableNames.length
+                    ? `Fill Payable on Fine Parties first. Incomplete: ${gate.missingPayableNames.join(', ')}.`
+                    : 'Fill Payable on the Fine Parties card first.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
         openConfirmation({
             action: 'enterZoho',
-            title: 'Enter in Zoho',
-            description:
-                'Create the Zoho vendor bill the same way as before. Employee payment stays unpaid.',
+            title: 'Ready to go to Zoho?',
+            description: `Fine Parties is ready. Vendor: ${gate.vendorName}. Create the Zoho vendor bill? Employee payment stays unpaid.`,
             confirmText: 'Enter in Zoho',
             variant: 'default',
         });
@@ -1311,6 +1317,22 @@ function FineDetailsPageContent() {
 
         fetchAllDetails();
     }, [id, toast, partyParam, partyEmployeeId]);
+
+    useEffect(() => {
+        openedRefundFromQueryRef.current = false;
+    }, [id]);
+
+    useEffect(() => {
+        if (!fine || searchParams.get('pay') !== 'refund') return;
+        if (openedRefundFromQueryRef.current) return;
+        openedRefundFromQueryRef.current = true;
+        setActiveTab('fineForm');
+        setFinePayChoiceOpen(true);
+        const next = new URLSearchParams(searchParams.toString());
+        next.delete('pay');
+        const qs = next.toString();
+        router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }, [fine, searchParams, pathname, router]);
 
     // Fetch Asset / Vehicle details for Loss & Damage and vehicle-linked fines
     useEffect(() => {
@@ -1887,32 +1909,13 @@ function FineDetailsPageContent() {
                                         </div>
                                     )}
                                 {confirmConfig.action === 'enterZoho' ? (
-                                    <div className="mt-4 space-y-3 text-left">
-                                        <FineManagementZohoFields
-                                            organizationId={
-                                                managementZoho.zohoOrganizationId ||
-                                                fine?.zohoOrganizationId ||
-                                                ''
-                                            }
-                                            value={managementZoho}
-                                            onChange={setManagementZoho}
-                                            requireExpenseAccount={
-                                                !String(fine?.expenseAccountId || '').trim() &&
-                                                !(
-                                                    Array.isArray(partyPayables) &&
-                                                    partyPayables.length > 0 &&
-                                                    partyPayables.every((p) =>
-                                                        String(p.expenseAccountId || '').trim(),
-                                                    )
-                                                ) &&
-                                                !buildGroupMembersForFine(fine).every((p) =>
-                                                    String(p.expenseAccountId || '').trim(),
-                                                )
-                                            }
-                                            fineSourceHint={
-                                                fine?.fineSource || fine?.zohoVendorName || ''
-                                            }
-                                        />
+                                    <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-left">
+                                        <p className="text-xs font-semibold text-emerald-900">
+                                            Fine Parties is ready
+                                        </p>
+                                        <p className="mt-1 text-[11px] text-emerald-900/90">
+                                            Vendor and Payable are filled. Confirm to create the Zoho bill.
+                                        </p>
                                     </div>
                                 ) : null}
                             </AlertDialogHeader>
@@ -1930,19 +1933,18 @@ function FineDetailsPageContent() {
                                             toast({ title: "Reason Required", description: "Please enter a reason for rejection.", variant: "destructive" });
                                             return;
                                         }
-                                        if (
-                                            confirmConfig.action === 'enterZoho' &&
-                                            !managementZoho.zohoVendorId &&
-                                            !fine?.zohoVendorId &&
-                                            !String(fine?.fineSource || fine?.zohoVendorName || '').trim()
-                                        ) {
-                                            toast({
-                                                title: 'Vendor missing',
-                                                description:
-                                                    'Set Vendor on the Fine Parties card before Enter in Zoho.',
-                                                variant: 'destructive',
-                                            });
-                                            return;
+                                        if (confirmConfig.action === 'enterZoho') {
+                                            const gate = resolveFinePartiesZohoGate(fine, partyPayables);
+                                            if (!gate.ready) {
+                                                toast({
+                                                    title: !gate.vendorOk ? 'Vendor required' : 'Payable required',
+                                                    description: !gate.vendorOk
+                                                        ? 'Select Vendor on the Fine Parties card first.'
+                                                        : 'Fill Payable on the Fine Parties card first.',
+                                                    variant: 'destructive',
+                                                });
+                                                return;
+                                            }
                                         }
                                         if (
                                             confirmConfig.action === 'approve' &&
@@ -2191,28 +2193,6 @@ function FineDetailsPageContent() {
                                                     </div>,
                                                 );
                                             }
-                                            if (canSettleApprovedPayment && !actionLoading) {
-                                                cells.push(
-                                                    <button
-                                                        key="enter-zoho"
-                                                        type="button"
-                                                        onClick={handleEnterInZoho}
-                                                        className={`${compactBox} border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100`}
-                                                    >
-                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate">Enter in Zoho</span>
-                                                        <Wallet className="w-5 h-5 shrink-0" />
-                                                    </button>,
-                                                    <button
-                                                        key="paid-by-emp"
-                                                        type="button"
-                                                        onClick={handlePaidByEmployee}
-                                                        className={`${compactBox} border-green-100 bg-green-50 text-green-700 hover:bg-green-100`}
-                                                    >
-                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate">Paid by employee</span>
-                                                        <Check className="w-5 h-5 shrink-0" />
-                                                    </button>,
-                                                );
-                                            }
                                             cells.push(
                                                 <div key="total" className={`${compactBox} bg-red-50 border-red-100`}>
                                                     <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide truncate">Total Fine</span>
@@ -2328,9 +2308,45 @@ function FineDetailsPageContent() {
                                             }
                                         }
 
+                                        const showSettleButtons = Boolean(
+                                            isApprovedState && canSettleApprovedPayment,
+                                        );
+
                                         return (
-                                            <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full min-w-0 shrink-0">
-                                                {cells.slice(0, 6)}
+                                            <div className="flex h-full min-h-0 w-full flex-col">
+                                                <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full min-w-0 shrink-0">
+                                                    {cells.slice(0, 6)}
+                                                </div>
+                                                {showSettleButtons ? (
+                                                    <div className="mt-auto grid grid-cols-2 gap-2 pt-3 print:hidden">
+                                                        <button
+                                                            type="button"
+                                                            onClick={handlePaidByEmployee}
+                                                            disabled={actionLoading}
+                                                            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                                        >
+                                                            {actionLoading ? (
+                                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                                            ) : (
+                                                                <Check className="h-4 w-4 shrink-0" />
+                                                            )}
+                                                            Paid by employee
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleEnterInZoho}
+                                                            disabled={actionLoading}
+                                                            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                                        >
+                                                            {actionLoading ? (
+                                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                                            ) : (
+                                                                <Wallet className="h-4 w-4 shrink-0" />
+                                                            )}
+                                                            Enter in Zoho
+                                                        </button>
+                                                    </div>
+                                                ) : null}
                                             </div>
                                         );
                                     })()}
@@ -2507,6 +2523,7 @@ function FineDetailsPageContent() {
                                     canSettleApprovedPayment
                                 }
                                 onPartyPayablesChange={setPartyPayables}
+                                onVendorChange={handlePartyVendorChange}
                                 allowPay={canAccountsPayFineEmployeeShare(
                                     fine,
                                     currentUser,
@@ -2516,6 +2533,7 @@ function FineDetailsPageContent() {
                                     ),
                                     flowchartRows,
                                 )}
+                                onPay={() => setFinePayChoiceOpen(true)}
                                 onPaymentSuccess={async () => {
                                     try {
                                         const fineRes = await axiosInstance.get(`/Fine/${id}`);
@@ -2908,6 +2926,62 @@ function FineDetailsPageContent() {
                                     scheduleOnlyEdit={false}
                                 />
                             )}
+                            <FinePayChoiceModal
+                                isOpen={finePayChoiceOpen}
+                                fineId={fine?.fineId || ''}
+                                onClose={() => setFinePayChoiceOpen(false)}
+                                onExpenseRefund={() => {
+                                    setFinePayChoiceOpen(false);
+                                    setFineRefundOpen(true);
+                                }}
+                                onVendorCredit={() => {
+                                    setFinePayChoiceOpen(false);
+                                    setFineVendorCreditOpen(true);
+                                }}
+                            />
+                            <FineVendorCreditModal
+                                isOpen={fineVendorCreditOpen}
+                                fine={fine}
+                                employeeId={employeeOwnerId || employeeDetails?.employeeId || ''}
+                                getFineBalance={(row) => {
+                                    const share = employeeOwnerId
+                                        ? getEmpShare(row, employeeOwnerId)
+                                        : computeFinePayableTotal(row);
+                                    return Math.max(0, Number(share || 0) - (Number(row?.paidAmount) || 0));
+                                }}
+                                onClose={() => setFineVendorCreditOpen(false)}
+                                onSuccess={async () => {
+                                    setFineVendorCreditOpen(false);
+                                    try {
+                                        const fineRes = await axiosInstance.get(`/Fine/${id}`);
+                                        setFine(fineRes.data);
+                                    } catch (e) {
+                                        console.error('Failed to refresh fine after vendor credit', e);
+                                    }
+                                }}
+                            />
+                            <FineCompanyRefundModal
+                                isOpen={fineRefundOpen}
+                                employee={employeeDetails}
+                                employeeId={employeeOwnerId || employeeDetails?.employeeId || ''}
+                                fines={fine ? [fine] : []}
+                                getFineBalance={(row) => {
+                                    const share = employeeOwnerId
+                                        ? getEmpShare(row, employeeOwnerId)
+                                        : computeFinePayableTotal(row);
+                                    return Math.max(0, Number(share || 0) - (Number(row?.paidAmount) || 0));
+                                }}
+                                onClose={() => setFineRefundOpen(false)}
+                                onSuccess={async () => {
+                                    setFineRefundOpen(false);
+                                    try {
+                                        const fineRes = await axiosInstance.get(`/Fine/${id}`);
+                                        setFine(fineRes.data);
+                                    } catch (e) {
+                                        console.error('Failed to refresh fine after expense refund', e);
+                                    }
+                                }}
+                            />
                         </>
                     )}
                 </div>

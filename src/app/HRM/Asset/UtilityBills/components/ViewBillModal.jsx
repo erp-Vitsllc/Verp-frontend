@@ -86,9 +86,17 @@ export default function ViewBillModal({
     const isNotPaid = status === 'Approved';
     const isPaid = status === 'Paid';
     const isLocked = isNotPaid || isPaid || status === 'Rejected';
-    const canEdit = !isLocked && typeof onEdit === 'function' && Boolean(bill.canApproveReject);
+    const canCreatorResend = Boolean(bill.canCreatorResend);
+    const canEdit =
+        !isLocked &&
+        typeof onEdit === 'function' &&
+        Boolean(bill.canApproveReject || canCreatorResend);
     const isPendingHr = status === 'Pending HR';
-    const actionLabel = isPendingHr ? 'Approve' : 'Review';
+    const actionLabel = canCreatorResend
+        ? 'Edit and Resend'
+        : isPendingHr
+          ? 'Approve'
+          : 'Review';
     const billFile =
         bill.attachment?.name && (bill.attachment.dataUrl || bill.attachment.name)
             ? bill.attachment
@@ -153,7 +161,9 @@ export default function ViewBillModal({
                         <p className="text-xs text-gray-500 mt-0.5">
                             {isLocked
                                 ? 'Read only — Approved / Paid bills cannot be edited.'
-                                : canEdit
+                                : canCreatorResend
+                                  ? 'You created this bill — Edit and Resend until the next person acts.'
+                                  : canEdit
                                   ? isPendingHr
                                       ? 'Pending HR — use Approve to review and decide.'
                                       : 'Pending bill — use Review to change fields.'

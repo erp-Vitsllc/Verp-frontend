@@ -18,7 +18,7 @@ import { FALLBACK_WORK_LOCATIONS, normalizeWorkLocationKey, workLocationLabel } 
 import { toCalendarMonthDay, toPayrollMonthDay } from '../utils/payrollMonthDay';
 import { policyFormFromApi } from '../utils/salaryPolicyForm';
 import SalaryDmfApprovalPanel from './SalaryDmfApprovalPanel';
-import { payrollApprovalStatusLabel } from '../utils/payrollApprovalStatus';
+import { monthPayrollProcessStatusLabel, payrollPendingForLabel } from '../utils/payrollApprovalStatus';
 import { navigateFromList } from '@/utils/listReturnNavigation';
 import './SalaryMonthControlCentre.css';
 
@@ -912,6 +912,22 @@ function blockerResponsibleDisplay(item) {
     return '—';
 }
 
+function employeePendingStatusLabel(items) {
+    const owners = [];
+    const seen = new Set();
+    for (const item of Array.isArray(items) ? items : []) {
+        const label = blockerResponsibleDisplay(item);
+        if (!label || label === '—') continue;
+        const key = label.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        owners.push(label);
+    }
+    if (!owners.length) return 'Pending';
+    if (owners.length === 1) return `Pending for ${owners[0]}`;
+    return `Pending for ${owners[0]} +${owners.length - 1}`;
+}
+
 function blockerReviewHref(item) {
     return item?.path || blockerTaskPath(item);
 }
@@ -1381,7 +1397,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             rows,
             pendingApprovals,
             categories: REQUEST_CATEGORIES.length,
-            statusLabel: payrollApprovalStatusLabel(monthDmf),
+            statusLabel: monthPayrollProcessStatusLabel(monthDmf),
             doneCount,
             requests,
         };
@@ -1562,8 +1578,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     function openPaymentMethodPicker() {
         if (String(monthDmf?.status || '') !== 'approved') {
             toast({
-                title: 'Complete approval first',
-                description: 'A payment slot can be added only after Management approves.',
+                title: 'Salary not processed',
+                description: 'A payment slot can be added only after Process salary is approved (Accounts → HR → Management).',
             });
             return;
         }
@@ -1606,8 +1622,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         if (!selectedIds.length || savingPayment || !parsed?.monthKey) return;
         if (String(monthDmf?.status || '') !== 'approved') {
             toast({
-                title: 'Complete approval first',
-                description: 'A payment slot can be added only after Management approves.',
+                title: 'Salary not processed',
+                description: 'A payment slot can be added only after Process salary is approved (Accounts → HR → Management).',
             });
             return;
         }
@@ -1639,6 +1655,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
 
     async function handleValidate() {
         if (!parsed?.monthKey) return;
+        if (!monthDmf?.canAct && !monthDmf?.canStart) return;
         const beforeIds = new Set(
             (Array.isArray(register?.enrollmentOverview?.pendingRequests)
                 ? register.enrollmentOverview.pendingRequests
@@ -1671,27 +1688,25 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             const stillPending = afterIds.size;
             const enrolled = Number(data.enrollmentOverview?.enrolled) || 0;
             const isClear = enrolled > 0 && pending.length === 0;
-            const payrollLabel = payrollApprovalStatusLabel(monthDmf);
+            const payrollLabel = monthPayrollProcessStatusLabel(monthDmf);
 
             if (isClear) {
                 if (dmfStatus === 'idle' || dmfStatus === 'rejected' || !dmfStatus) {
-                    setApprovalPrompt(true);
                     toast({
                         title: 'Payroll is 100% ready',
-                        description:
-                            'Send for approval. Status will be Pending Accounts, then Pending HR, then Pending Management. Slots open after Approved.',
+                        description: `Click Process salary ${monthLabel}. Email and notification go to Accounts, then HR, then Management. Slots open after Processed.`,
                     });
                     return;
                 }
                 if (dmfStatus === 'pending') {
                     toast({
                         title: payrollLabel,
-                        description: 'Email and notification are with the current approver. Slots open after Approved.',
+                        description: 'Email and notification are with the current approver. Slots open after Processed.',
                     });
                     return;
                 }
                 toast({
-                    title: 'Approved',
+                    title: 'Processed',
                     description: 'Salary slots are open.',
                 });
                 return;
@@ -1714,6 +1729,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     }
 
     function handleReminder() {
+        if (!monthDmf?.canAct && !monthDmf?.canStart) return;
         openBlockers();
     }
 
@@ -1828,9 +1844,14 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     }, [paymentBatches, paymentEmployees]);
     const dmfApproved = String(monthDmf?.status || '') === 'approved';
     const dmfStatus = String(monthDmf?.status || 'idle');
-    const canStartMonthApproval =
-        readinessChecks.percent === 100 &&
-        (dmfStatus === 'idle' || dmfStatus === 'rejected' || !dmfStatus);
+    const processStatusLabel = monthPayrollProcessStatusLabel(monthDmf);
+    const pendingForLabel = payrollPendingForLabel(monthDmf);
+    const canStartMonthApproval = Boolean(monthDmf?.canStart);
+    const canActOnMonthApproval = Boolean(monthDmf?.canAct);
+    const canUseApproverActions = canStartMonthApproval || canActOnMonthApproval;
+    const approverOnlyTitle = pendingForLabel
+        ? `Pending for ${pendingForLabel}. Only that approver can use this.`
+        : 'Only the current payroll approver can use this.';
     const canProcessPayment =
         dmfApproved &&
         payrollRows.some((emp) => !processedPaymentIds.has(String(emp.employeeId || '')));
@@ -1892,19 +1913,39 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         kind="month"
                         monthKey={parsed.monthKey}
                         dmf={monthDmf}
-                        ready={readinessChecks.percent === 100}
+                        ready // TEST: was readinessChecks.percent === 100
                         hideStart
                         openStartConfirm={approvalPrompt}
                         onOpenStartConfirmChange={setApprovalPrompt}
                         startButtonClass="spcc-btn spcc-btn--primary"
                         onUpdated={(payload) => setMonthDmf(payload?.dmf || payload)}
                     />
-                    <button type="button" className="spcc-btn spcc-btn--ghost" onClick={handleReminder}>
+                    <button
+                        type="button"
+                        className="spcc-btn spcc-btn--primary"
+                        disabled={!canStartMonthApproval}
+                        title={canStartMonthApproval ? `Process salary ${monthLabel}` : approverOnlyTitle}
+                        onClick={() => {
+                            if (!canStartMonthApproval) return;
+                            setApprovalPrompt(true);
+                        }}
+                    >
+                        Process salary {monthLabel}
+                    </button>
+                    <button
+                        type="button"
+                        className="spcc-btn spcc-btn--ghost"
+                        disabled={!canUseApproverActions}
+                        title={canUseApproverActions ? 'Send reminder' : approverOnlyTitle}
+                        onClick={handleReminder}
+                    >
                         Send reminder
                     </button>
                     <button
                         type="button"
-                        className={canStartMonthApproval ? 'spcc-btn spcc-btn--primary' : 'spcc-btn spcc-btn--ghost'}
+                        className="spcc-btn spcc-btn--ghost"
+                        disabled={!canUseApproverActions}
+                        title={canUseApproverActions ? 'Validate payroll' : approverOnlyTitle}
                         onClick={handleValidate}
                     >
                         Validate payroll
@@ -1919,9 +1960,16 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                 </div>
                 <div className="spcc-status__item">
                     <span className="spcc-status__label">Current status</span>
-                    <div className="spcc-status__value">
+                    <div className="spcc-status__value" title={processStatusLabel}>
                         <span className={`spcc-dot${dmfApproved ? ' spcc-dot--ok' : ''}`} />
-                        {payrollApprovalStatusLabel(monthDmf)}
+                        {processStatusLabel}
+                    </div>
+                </div>
+                <div className="spcc-status__item">
+                    <span className="spcc-status__label">Process status</span>
+                    <div className="spcc-status__value" title={processStatusLabel}>
+                        <span className={`spcc-dot${dmfApproved ? ' spcc-dot--ok' : ''}`} />
+                        {processStatusLabel}
                     </div>
                 </div>
                 <div className="spcc-status__item spcc-status__item--grow">
@@ -2088,7 +2136,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                 <span className="spcc-metric__sub">
                                     {dmfApproved
                                         ? 'Slots appear here after you process a payment.'
-                                        : 'Slots open after approval.'}
+                                        : 'Slots open after salary is Processed.'}
                                 </span>
                             )}
                         </MetricCard>
@@ -2205,10 +2253,11 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                 const processed = processedPaymentIds.has(id);
                                                 const blockerCount = Number(view.requestCountByEmployee?.[id]) || 0;
                                                 const pending = !processed && blockerCount > 0;
+                                                const pendingItems = view.pendingByEmployee?.[id] || [];
                                                 const status = processed
                                                     ? 'Processed'
                                                     : pending
-                                                      ? 'Pending'
+                                                      ? employeePendingStatusLabel(pendingItems)
                                                       : 'Ready';
                                                 const netSalary = emp.actualSalary ?? emp.monthlySalary;
                                                 return (
@@ -2245,7 +2294,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                                     type="button"
                                                                     className="spcc-status-open"
                                                                     onClick={() => setReadinessEmployeeId(id)}
-                                                                    title={`${blockerCount} pending payroll item${blockerCount === 1 ? '' : 's'}`}
+                                                                    title={status}
                                                                 >
                                                                     <StatusPill tone="warn">
                                                                         {pending ? status : `${blockerCount} pending`}
@@ -2402,7 +2451,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                 <span className="spcc-pay-add__kicker">Locked</span>
                                 <span className="spcc-pay-add__title">Slot {nextSlotNo}</span>
                                 <span className="spcc-btn spcc-btn--ghost spcc-pay-add__btn">
-                                    After management approval
+                                    After Processed
                                 </span>
                             </div>
                         ) : null}

@@ -53,9 +53,8 @@ import {
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { ASSET_FOCUS_PREFIX, buildAssetFocusElementId, resolveAccessoryFocusCard } from '@/utils/assetNotificationRouting';
 import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
-import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import EmployeeNameLink from '@/components/EmployeeNameLink';
-import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
+import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { isAccessoryHiddenFromLiveAssetView, isAssetStatusBlockingUnattach, isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
 import { isLeaveActive, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, getAssetDetailsPrimaryStatusLabel, getAssetWaitingForDisplayName, userIsPendingAssetActionApprover } from '@/utils/assetStatusHelpers';
 // AccessoriesModal import removed - no longer needed
@@ -1576,18 +1575,16 @@ function AssetDetailsPageContent() {
     };
 
     const [responseFile, setResponseFile] = useState(null);
-    const [viewingDocument, setViewingDocument] = useState(null);
     const openFilePreview = useCallback(async (attachment, label = 'Attachment') => {
-        setViewingDocument({ data: '', name: label, mimeType: 'application/pdf', loading: true });
-        const resolved = await resolveAttachmentForViewer(attachment, { name: label });
-        if (!resolved || resolved.error) {
-            setViewingDocument(null);
-            if (resolved?.error) {
-                toast({ variant: 'destructive', title: 'Cannot open attachment', description: resolved.error });
-            }
-            return;
+        // Open the tab in this click (Safari blocks popups after async work / useEffect).
+        const result = await openAttachmentInNewTab(attachment, { name: label });
+        if (!result.ok) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot open attachment',
+                description: result.error || 'The file could not be loaded.',
+            });
         }
-        setViewingDocument({ ...resolved, loading: false });
     }, [toast]);
 
     const openPendingRequestView = useCallback((source, fallbackAction = '') => {
@@ -3837,13 +3834,13 @@ function AssetDetailsPageContent() {
                                                             const isDisabled = isAccessRestricted || isAccessoryTabLocked;
 
                                                             return (
-                                                                <label className={`flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold cursor-pointer transition-all shadow-sm ${isAccessRestricted || isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                                <label className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold cursor-pointer transition-all shadow-sm ${isAccessRestricted || isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
                                                                     Add Image
                                                                     <input
                                                                         type="file"
                                                                         accept={ERP_JPEG_ACCEPT}
-                                                                        className="hidden"
+                                                                        className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
                                                                         disabled={isDisabled}
                                                                         onChange={(e) => {
                                                                             if (isAccessRestricted || isAccessoryTabLocked) return;
@@ -3890,47 +3887,53 @@ function AssetDetailsPageContent() {
                                                             }
                                                             return (
                                                                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                                                                    {allImages.map((img) => (
-                                                                        <div key={img._id} className="group relative rounded-2xl overflow-hidden border border-slate-100 shadow-sm bg-slate-50 aspect-square">
-                                                                            <div className="absolute inset-0 w-full h-full">
+                                                                    {allImages.map((img) => {
+                                                                        const imageSrc = typeof img === 'string' ? img : img.url;
+                                                                        return (
+                                                                        <div key={img._id || imageSrc} className="group relative rounded-2xl overflow-hidden border border-slate-100 shadow-sm bg-slate-50 aspect-square">
+                                                                            <button
+                                                                                type="button"
+                                                                                className="absolute inset-0 z-[1] w-full h-full cursor-pointer appearance-none bg-transparent border-0 p-0"
+                                                                                aria-label={img.caption || 'Open asset image'}
+                                                                                onClick={() => {
+                                                                                    if (imageSrc) {
+                                                                                        void openFilePreview(imageSrc, img.caption || 'Asset image');
+                                                                                    }
+                                                                                }}
+                                                                            >
                                                                                 <StorageImage
-                                                                                    src={img.url}
+                                                                                    src={imageSrc}
                                                                                     alt={img.caption || 'Asset image'}
-                                                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer"
-                                                                                    onClick={() => {
-                                                                                        if (img.url) {
-                                                                                            openFilePreview(img.url, img.caption || 'Asset image');
-                                                                                        }
-                                                                                    }}
+                                                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none"
                                                                                 />
-                                                                            </div>
-                                                                            {/* Overlay */}
-                                                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-                                                                            {/* Info bar */}
-                                                                            <div className="absolute bottom-0 left-0 right-0 p-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                                {img.caption && (
-                                                                                    <p className="text-white text-[10px] font-semibold truncate leading-tight">{img.caption}</p>
-                                                                                )}
-                                                                                <p className="text-white/70 text-[9px] font-normal">
-                                                                                    {img.date ? new Date(img.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
-                                                                                </p>
-                                                                            </div>
-                                                                            {/* Delete (not for main) */}
+                                                                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                                                                                <div className="absolute bottom-0 left-0 right-0 p-2.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                                                                    {img.caption && (
+                                                                                        <p className="text-white text-[10px] font-semibold truncate leading-tight">{img.caption}</p>
+                                                                                    )}
+                                                                                    <p className="text-white/70 text-[9px] font-normal">
+                                                                                        {img.date ? new Date(img.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+                                                                                    </p>
+                                                                                </div>
+                                                                            </button>
                                                                             {img._id !== '__main__' && (
                                                                                 <button
                                                                                     type="button"
                                                                                     disabled={isAccessoryTabLocked}
-                                                                                    onClick={() => {
+                                                                                    onClick={(e) => {
+                                                                                        e.preventDefault();
+                                                                                        e.stopPropagation();
                                                                                         if (isAccessoryTabLocked) return;
                                                                                         setImageDeleteConfirm({ isOpen: true, imageId: img._id });
                                                                                     }}
-                                                                                    className={`absolute top-2 right-2 w-7 h-7 rounded-full bg-red-500/80 hover:bg-red-600 text-white flex items-center justify-center transition-opacity shadow-md ${isAccessoryTabLocked ? 'opacity-30 cursor-not-allowed pointer-events-none' : 'opacity-0 group-hover:opacity-100'}`}
+                                                                                    className={`absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-red-500/80 hover:bg-red-600 text-white flex items-center justify-center transition-opacity shadow-md ${isAccessoryTabLocked ? 'opacity-30 cursor-not-allowed pointer-events-none' : 'opacity-0 group-hover:opacity-100'}`}
                                                                                 >
                                                                                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                                                                                 </button>
                                                                             )}
                                                                         </div>
-                                                                    ))}
+                                                                        );
+                                                                    })}
                                                                 </div>
                                                             );
                                                         })()}
@@ -4007,11 +4010,6 @@ function AssetDetailsPageContent() {
                         </div>
                     </div>
 
-                    <DocumentViewerModal
-                        isOpen={!!viewingDocument}
-                        onClose={() => setViewingDocument(null)}
-                        viewingDocument={viewingDocument}
-                    />
                     <PendingAssetRequestViewModal
                         isOpen={!!pendingRequestView}
                         request={pendingRequestView}

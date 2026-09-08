@@ -11,6 +11,7 @@ const VEHICLE_ONLY_TYPES = new Set([
     'Vehicle Mortgage Close',
     'Vehicle Disposition Request',
     'Vehicle Document Expiry Reminder',
+    'Vehicle Access Fuel Reminder',
 ]);
 
 const FLEET_SHARED_TYPES = new Set(['Asset Approval', 'Asset Assignment', 'Asset Return']);

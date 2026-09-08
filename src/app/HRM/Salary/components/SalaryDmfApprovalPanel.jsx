@@ -11,7 +11,7 @@ const MONTH_STEP_ORDER = ['accounts', 'hr', 'management'];
 const FULL_STEP_ORDER = ['user1', 'accounts', 'hr', 'management'];
 
 function monthChainCopy() {
-    return 'Accounts → HR → Management. Salary slots open after Management approves.';
+    return 'Accounts → HR → Management. Status becomes Processed after Management. Salary slots open only then.';
 }
 
 function prettyDate(value) {
@@ -62,7 +62,7 @@ export default function SalaryDmfApprovalPanel({
     const stepOrder = isMonth ? MONTH_STEP_ORDER : FULL_STEP_ORDER;
 
     const status = String(dmf?.status || 'idle');
-    const showStart = Boolean(ready && (dmf?.canStart || status === 'idle' || status === 'rejected' || !status));
+    const showStart = Boolean(ready && dmf?.canStart);
     const inFlight = status === 'pending' || status === 'approved' || status === 'rejected';
     const showPanel = isMonth || showStart || inFlight || confirmStart || openStartConfirm;
 
@@ -91,7 +91,11 @@ export default function SalaryDmfApprovalPanel({
     const current = steps.find((step) => step.key === dmf?.currentStepKey) || steps.find((s) => s.status === 'pending');
 
     useEffect(() => {
-        if (!openStartConfirm || !showStart) return undefined;
+        if (!openStartConfirm) return undefined;
+        if (!showStart) {
+            onOpenStartConfirmChange?.(false);
+            return undefined;
+        }
         setConfirmStart(true);
         onOpenStartConfirmChange?.(false);
         return undefined;
@@ -125,7 +129,7 @@ export default function SalaryDmfApprovalPanel({
         if (payload) {
             setConfirmStart(false);
             const next = payload?.dmf || payload;
-            toast({ title: payrollApprovalStatusLabel(next) || 'Pending Accounts' });
+            toast({ title: payrollApprovalStatusLabel(next) || 'Pending for Accounts' });
         }
     }
 
@@ -133,7 +137,13 @@ export default function SalaryDmfApprovalPanel({
         const payload = await call('approve');
         if (!payload) return;
         const next = payload?.dmf || payload;
-        toast({ title: payrollApprovalStatusLabel(next) || 'Approved' });
+            toast({
+                title: isMonth
+                    ? String(next?.status || '').toLowerCase() === 'approved'
+                        ? 'Processed'
+                        : payrollApprovalStatusLabel(next)
+                    : payrollApprovalStatusLabel(next) || 'Approved',
+            });
     }
 
     async function handleReject() {
@@ -164,7 +174,7 @@ export default function SalaryDmfApprovalPanel({
             }
         >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-            Approval
+            {isMonth ? 'Process salary' : 'Approval'}
         </button>
     );
 
@@ -197,15 +207,15 @@ export default function SalaryDmfApprovalPanel({
     const headerActions =
         status === 'approved' ? (
             <span className="inline-flex h-10 items-center rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800">
-                Approved
+                {isMonth ? 'Processed' : 'Approved'}
             </span>
         ) : status === 'pending' ? (
             actBtns
         ) : showStart && !hideStart ? (
             startBtn
-        ) : (
+        ) : hideStart ? null : (
             <span className="inline-flex h-10 items-center rounded-xl border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-800">
-                Pending
+                {payrollApprovalStatusLabel(dmf)}
             </span>
         );
 
@@ -220,7 +230,9 @@ export default function SalaryDmfApprovalPanel({
                         aria-label="Close"
                     />
                     <div className="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
-                        <h3 className="text-base font-bold text-slate-800">Send for approval?</h3>
+                        <h3 className="text-base font-bold text-slate-800">
+                            {isMonth ? 'Process this salary month?' : 'Send for approval?'}
+                        </h3>
                         <p className="mt-3 text-sm text-slate-600">
                             {isMonth
                                 ? monthChainCopy()

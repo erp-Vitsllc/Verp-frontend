@@ -16,6 +16,41 @@ function blobToObjectUrl(blob, mimeType) {
     return window.URL.createObjectURL(typed);
 }
 
+function looksLikeImageDocument(viewingDocument, extra = '') {
+    const mime = String(viewingDocument?.mimeType || '').toLowerCase();
+    if (mime.startsWith('image/')) return true;
+    const haystack = [
+        viewingDocument?.name,
+        viewingDocument?.storageRef,
+        viewingDocument?.data,
+        extra,
+    ]
+        .map((part) => String(part || '').toLowerCase())
+        .join(' ');
+    return (
+        /\.(jpe?g|png)(?:\?|#|$|\/)/i.test(haystack) ||
+        haystack.includes('image/jpeg') ||
+        haystack.includes('image/png') ||
+        haystack.includes('image/jpg')
+    );
+}
+
+function viewerSrcForDocument(url, { asImage }) {
+    if (!url) return url;
+    if (asImage) {
+        // Safari will not load blob: or data: URLs in <img> when a hash is appended.
+        return String(url).split('#')[0];
+    }
+    if (String(url).includes('#')) return url;
+    return `${url}#toolbar=0`;
+}
+
+function safeImageSrc(url) {
+    const stripped = String(url || '').split('#')[0];
+    if (stripped.startsWith('blob:') || stripped.startsWith('data:')) return stripped;
+    return sanitizeUrl(stripped);
+}
+
 export default function DocumentViewerContent({
     viewingDocument,
     onClose,
@@ -28,6 +63,7 @@ export default function DocumentViewerContent({
     const [isLoadingSrc, setIsLoadingSrc] = useState(false);
     const [loadError, setLoadError] = useState(null);
     const [zoom, setZoom] = useState(100);
+    const [treatAsImage, setTreatAsImage] = useState(false);
     const blobUrlRef = useRef(null);
 
     const usesStorageProxy = Boolean(viewingDocument?.storageRef);
@@ -40,6 +76,7 @@ export default function DocumentViewerContent({
         setIsLoadingSrc(false);
         setLoadError(null);
         setZoom(100);
+        setTreatAsImage(false);
 
         if (blobUrlRef.current) {
             window.URL.revokeObjectURL(blobUrlRef.current);
@@ -56,7 +93,12 @@ export default function DocumentViewerContent({
             if (cancelled) return;
             const url = blobToObjectUrl(blob, mimeType);
             blobUrlRef.current = url;
-            setDocumentSrc(`${url}#toolbar=0`);
+            const asImage = looksLikeImageDocument(
+                viewingDocument,
+                `${blob.type || ''} ${mimeType || ''}`,
+            );
+            setTreatAsImage(asImage);
+            setDocumentSrc(viewerSrcForDocument(url, { asImage }));
             setIsLoadingSrc(false);
         };
 
@@ -88,7 +130,9 @@ export default function DocumentViewerContent({
         }
 
         if (typeof docData === 'string' && docData.startsWith('data:')) {
-            setDocumentSrc(`${docData}#toolbar=0`);
+            const asImage = looksLikeImageDocument(viewingDocument, docData);
+            setTreatAsImage(asImage);
+            setDocumentSrc(viewerSrcForDocument(docData, { asImage }));
             return undefined;
         }
 
@@ -143,7 +187,9 @@ export default function DocumentViewerContent({
                         msg.toLowerCase().includes('cors')
                     ) {
                         if (!cancelled) {
-                            setDocumentSrc(`${docData}#toolbar=0`);
+                            const asImage = looksLikeImageDocument(viewingDocument, docData);
+                            setTreatAsImage(asImage);
+                            setDocumentSrc(viewerSrcForDocument(docData, { asImage }));
                             setIsLoadingSrc(false);
                         }
                         return;
@@ -161,7 +207,10 @@ export default function DocumentViewerContent({
                 cleanData = cleanData.split(',')[1];
             }
             const mimeType = viewingDocument.mimeType || 'application/pdf';
-            setDocumentSrc(`data:${mimeType};base64,${cleanData}#toolbar=0`);
+            const dataUrl = `data:${mimeType};base64,${cleanData}`;
+            const asImage = looksLikeImageDocument(viewingDocument, dataUrl);
+            setTreatAsImage(asImage);
+            setDocumentSrc(viewerSrcForDocument(dataUrl, { asImage }));
         } catch {
             fail('Invalid document data format.');
         }
@@ -255,8 +304,8 @@ export default function DocumentViewerContent({
 
     const mime = viewingDocument?.mimeType?.toLowerCase() || '';
     const name = viewingDocument?.name?.toLowerCase() || '';
-    const isImage = mime.startsWith('image/') || /\.(jpg|jpeg|png)$/.test(name);
-    const isPdf = mime.includes('pdf') || name.endsWith('.pdf');
+    const isImage = treatAsImage || looksLikeImageDocument(viewingDocument, documentSrc);
+    const isPdf = !isImage && (mime.includes('pdf') || name.endsWith('.pdf'));
 
     return (
         <div className={`flex flex-col bg-slate-100 ${embedded ? 'h-full min-h-[640px] rounded-b-2xl' : 'min-h-screen'}`}>
@@ -344,7 +393,7 @@ export default function DocumentViewerContent({
                         >
                             {isImage && !isPdf ? (
                                 <img
-                                    src={sanitizeUrl(documentSrc)}
+                                    src={safeImageSrc(documentSrc)}
                                     alt={viewingDocument.name}
                                     className="max-w-full h-auto mx-auto shadow-md rounded border border-slate-200 bg-white"
                                 />

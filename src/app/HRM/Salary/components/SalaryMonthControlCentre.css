@@ -137,13 +137,18 @@
     color: var(--spcc-blue);
 }
 
-.spcc-btn--primary:disabled {
+.spcc-btn--primary:disabled,
+.spcc-btn--ghost:disabled {
     opacity: 0.45;
     cursor: not-allowed;
 }
 
 .spcc-btn--primary:disabled:hover {
     background: var(--spcc-blue);
+}
+
+.spcc-btn--ghost:disabled:hover {
+    background: #fff;
 }
 
 .spcc-shell .spcc-pay-cards {
@@ -1173,6 +1178,15 @@
     flex: none;
 }
 
+.spcc-pay-row .spcc-pill {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 18px;
+}
+
 .spcc-pill--ok {
     background: var(--spcc-green-bg);
     color: var(--spcc-green);
@@ -1665,7 +1679,7 @@
         minmax(0, 0.58fr)
         minmax(0, 0.58fr)
         minmax(0, 0.68fr)
-        minmax(0, 0.55fr);
+        minmax(0, 0.9fr);
     gap: 8px;
     align-items: center;
     padding: 6px 2px;

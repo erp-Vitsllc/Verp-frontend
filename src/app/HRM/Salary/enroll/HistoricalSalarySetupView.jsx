@@ -3202,7 +3202,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             >
                 <p className="mt-3 text-sm text-slate-600">
                     {isSalaryHr
-                        ? 'This enrolls the employee from the VERP salary start date and locks the historical record. No further HR approval is required.'
+                        ? 'This enrolls the employee and locks the historical record. Salary slips start on the 1st of the month after enrollment. No further HR approval is required.'
                         : 'This sends the profile to flowchart HR for approval. The employee is not enrolled until HR approves.'}
                 </p>
                 <div className="mt-5 flex justify-end gap-2">
@@ -3249,8 +3249,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             </ModalShell>
             <ModalShell open={showApprove} title="Approve salary profile?" onClose={() => setShowApprove(false)}>
                 <p className="mt-3 text-sm text-slate-600">
-                    This enrolls the employee from the VERP salary start date, locks the historical record, and
-                    emails the user who submitted the profile.
+                    This enrolls the employee, locks the historical record, and emails the user who submitted
+                    the profile. Salary slips start on the 1st of the month after enrollment.
                 </p>
                 <div className="mt-5 flex justify-end gap-2">
                     <button type="button" onClick={() => setShowApprove(false)} className="h-10 rounded-xl border px-4 text-sm font-semibold">

@@ -55,6 +55,8 @@ import {
     isAccountsFinanceUser,
 } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
 import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
+import FinePayChoiceModal from '@/app/HRM/Fine/components/FinePayChoiceModal';
+import FineVendorCreditModal from '@/app/HRM/Fine/components/FineVendorCreditModal';
 import { formatRewardPaymentLabel, formatRewardStatusLabel, isRewardVisibleOnEmployeeProfile, isRewardPaymentEligible } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import { canAccountsPayCashReward, buildRewardPaymentPrefill } from '@/app/HRM/Reward/utils/rewardPaymentPrefill';
 import {
@@ -1140,11 +1142,23 @@ export default function SalaryTab({
     const [fineCompanyRefundOpen, setFineCompanyRefundOpen] = useState(false);
     const [fineCompanyRefundFines, setFineCompanyRefundFines] = useState([]);
     const [loanCompanyRefundLoans, setLoanCompanyRefundLoans] = useState([]);
+    const [finePayChoiceOpen, setFinePayChoiceOpen] = useState(false);
+    const [finePayChoiceFine, setFinePayChoiceFine] = useState(null);
+    const [fineVendorCreditOpen, setFineVendorCreditOpen] = useState(false);
 
     useEffect(() => {
         const ref = profileBackHandlerRef;
         if (!ref) return undefined;
         ref.current = () => {
+            if (fineVendorCreditOpen) {
+                setFineVendorCreditOpen(false);
+                return true;
+            }
+            if (finePayChoiceOpen) {
+                setFinePayChoiceOpen(false);
+                setFinePayChoiceFine(null);
+                return true;
+            }
             if (fineCompanyRefundOpen) {
                 setFineCompanyRefundOpen(false);
                 setFineCompanyRefundFines([]);
@@ -1236,6 +1250,8 @@ export default function SalaryTab({
         };
     }, [
         profileBackHandlerRef,
+        finePayChoiceOpen,
+        fineVendorCreditOpen,
         fineCompanyRefundOpen,
         selectedInvoice,
         showCertificate,
@@ -1442,6 +1458,7 @@ export default function SalaryTab({
     };
 
     const getFinePaidAmount = (fine) => {
+        if (!fine) return 0;
         const fineId = String(fine.fineId || '');
         const baseMatch = fineId.match(/^(VEGA-FINE-\d+)/i);
         const baseId = baseMatch ? baseMatch[1] : fineId;
@@ -1522,6 +1539,7 @@ export default function SalaryTab({
     };
 
     const getFineFilteredDueAmount = (fine) => {
+        if (!fine) return 0;
         const share = calculateEmployeeFineShare(fine);
         const duration = Math.max(1, parseInt(fine.payableDuration, 10) || 1);
         const monthlyAmount = share / duration;
@@ -1534,6 +1552,7 @@ export default function SalaryTab({
     };
 
     const getFineFilteredBalance = (fine) => {
+        if (!fine) return 0;
         const share = calculateEmployeeFineShare(fine);
         const duration = Math.max(1, parseInt(fine.payableDuration, 10) || 1);
         const monthlyAmount = share / duration;
@@ -1668,6 +1687,10 @@ export default function SalaryTab({
     };
 
     const handlePaySelectedFines = () => {
+        if (selectedPayableFines.length === 1) {
+            openFinePayRefund(selectedPayableFines[0]);
+            return;
+        }
         startCompanyFineRefund(selectedPayableFines);
     };
 
@@ -1684,6 +1707,28 @@ export default function SalaryTab({
         if (!fineRouteId) return;
         saveListReturnState(`${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`);
         router.push(`/HRM/Fine/${encodeURIComponent(fineRouteId)}`);
+    };
+
+    const openFinePayRefund = (fine, e) => {
+        e?.stopPropagation();
+        if (!fine) return;
+        if (
+            !canAccountsPayFineEmployeeShare(
+                fine,
+                currentUser,
+                getFineFilteredBalance(fine),
+                accountsFlowchartRows,
+            )
+        ) {
+            toast({
+                variant: 'destructive',
+                title: 'Accounts only',
+                description: 'Only Accounts can record Expense Refund or Vendor Credit from this profile.',
+            });
+            return;
+        }
+        setFinePayChoiceFine(fine);
+        setFinePayChoiceOpen(true);
     };
 
     const openRewardDetails = (reward, e) => {
@@ -4139,9 +4184,9 @@ export default function SalaryTab({
                                                             {paymentLabel === 'Not Paid' && canPayCompany ? (
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => startCompanyFineRefund([fine])}
+                                                                    onClick={(e) => openFinePayRefund(fine, e)}
                                                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider shadow-sm active:scale-95 transition-all"
-                                                                    title="Pay fine — Expense Refund (Zoho Banking)"
+                                                                    title="Pay — Expense Refund or Vendor Credit"
                                                                 >
                                                                     <Wallet size={14} />
                                                                     Pay
@@ -6470,6 +6515,49 @@ export default function SalaryTab({
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <FinePayChoiceModal
+                isOpen={finePayChoiceOpen}
+                fineId={finePayChoiceFine?.fineId || ''}
+                onClose={() => {
+                    setFinePayChoiceOpen(false);
+                    setFinePayChoiceFine(null);
+                }}
+                onExpenseRefund={() => {
+                    const selected = finePayChoiceFine;
+                    setFinePayChoiceOpen(false);
+                    setFinePayChoiceFine(null);
+                    if (selected) startCompanyFineRefund([selected]);
+                }}
+                onVendorCredit={() => {
+                    setFinePayChoiceOpen(false);
+                    setFineVendorCreditOpen(true);
+                }}
+            />
+
+            <FineVendorCreditModal
+                isOpen={fineVendorCreditOpen}
+                fine={finePayChoiceFine}
+                employeeId={employeeId}
+                getFineBalance={getFineFilteredBalance}
+                onClose={() => {
+                    setFineVendorCreditOpen(false);
+                    setFinePayChoiceFine(null);
+                }}
+                onSuccess={() => {
+                    setFineVendorCreditOpen(false);
+                    setFinePayChoiceFine(null);
+                    setSelectedFinesForPayment([]);
+                    axiosInstance
+                        .get('/Payment', { params: { paidBy: employeeId } })
+                        .then((res) => {
+                            const pays = res.data?.payments || res.data || [];
+                            setAllEmployeePayments(Array.isArray(pays) ? pays : []);
+                        })
+                        .catch(() => { });
+                    if (fetchEmployee) fetchEmployee();
+                }}
+            />
 
             <FineCompanyRefundModal
                 isOpen={fineCompanyRefundOpen}

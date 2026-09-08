@@ -38,6 +38,7 @@ export default function StorageImage({
             className={className}
             loading="lazy"
             decoding="async"
+            draggable={false}
             onClick={onClick}
         />
     );

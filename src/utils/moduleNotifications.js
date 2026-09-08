@@ -710,6 +710,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         'Vehicle Mortgage Close',
         'Vehicle Disposition Request',
         'Vehicle Document Expiry Reminder',
+        'Vehicle Access Fuel Reminder',
     ];
 
     const isModuleOwnedPending = (item) => {

@@ -35,6 +35,7 @@ export const VEHICLE_MODULE_TYPES = new Set([
     'Vehicle Mortgage Close',
     'Vehicle Disposition Request',
     'Vehicle Document Expiry Reminder',
+    'Vehicle Access Fuel Reminder',
     'Employee Vehicle Request',
 ]);
 
@@ -323,6 +324,7 @@ export function formatCommandCenterSubtype(item = {}) {
     if (type === 'Employee Document Expiry Reminder') return 'Employee Document Expiry';
     if (type === 'Document Expiry Reminder') return 'Company Document Expiry';
     if (type === 'Vehicle Document Expiry Reminder') return 'Vehicle Document Expiry';
+    if (type === 'Vehicle Access Fuel Reminder') return 'Access Fuel';
     if (type === 'Asset Overdue') return 'Service overdue';
     if (type === 'Group Fine Request') return 'Group Fine';
     if (type === 'Fine') return 'Fine Request';

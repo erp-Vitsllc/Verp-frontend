@@ -561,11 +561,29 @@ export function SalarySlipFields({ slip, onPatch }) {
     );
 }
 
+function monthTitle(ym) {
+    const match = String(ym || '').match(/^(\d{4})-(\d{2})$/);
+    if (!match) return '';
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
+    return date.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function salaryMonthsEmptyCopy({ enrolled, fromMonth }) {
+    if (!enrolled) {
+        return 'This employee is not enrolled. Salary slips start on the 1st of the month after enrollment.';
+    }
+    const title = monthTitle(fromMonth);
+    if (title) return `The first salary slip will appear on 1 ${title}.`;
+    return 'No salary months yet for this employee.';
+}
+
 export default function SalarySlipPreviewPanel({ employeeId }) {
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const [months, setMonths] = useState([]);
+    const [enrolled, setEnrolled] = useState(false);
+    const [fromMonth, setFromMonth] = useState('');
     const [listLoading, setListLoading] = useState(true);
     const [listError, setListError] = useState('');
     const query = searchParams?.toString() || '';
@@ -581,6 +599,8 @@ export default function SalarySlipPreviewPanel({ employeeId }) {
             setListLoading(true);
             setListError('');
             setMonths([]);
+            setEnrolled(false);
+            setFromMonth('');
             try {
                 const res = await axiosInstance.get(
                     `/Employee/salary-enroll/${encodeURIComponent(employeeId)}/historical/salary-slips`,
@@ -588,6 +608,8 @@ export default function SalarySlipPreviewPanel({ employeeId }) {
                 );
                 if (cancelled) return;
                 setMonths(Array.isArray(res.data?.months) ? res.data.months : []);
+                setEnrolled(Boolean(res.data?.enrolled));
+                setFromMonth(String(res.data?.fromMonth || ''));
             } catch (err) {
                 if (!cancelled) {
                     setListError(err?.response?.data?.message || 'Could not load salary months.');
@@ -608,7 +630,7 @@ export default function SalarySlipPreviewPanel({ employeeId }) {
             <div className="border-b border-gray-200 px-4 py-3">
                 <h3 className="text-sm font-semibold text-[#0F172A]">Salary months</h3>
                 <p className="mt-0.5 text-xs text-slate-500">
-                    Open a month to view and edit that salary slip.
+                    Slips start on the 1st of the month after enrollment. Open a month to view and edit that salary slip.
                 </p>
             </div>
 
@@ -641,7 +663,7 @@ export default function SalarySlipPreviewPanel({ employeeId }) {
                         ) : months.length === 0 ? (
                             <tr>
                                 <td colSpan={7} className="px-4 py-16 text-center text-slate-500">
-                                    No salary months yet for this employee.
+                                    {salaryMonthsEmptyCopy({ enrolled, fromMonth })}
                                 </td>
                             </tr>
                         ) : (

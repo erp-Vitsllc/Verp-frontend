@@ -6,7 +6,6 @@ import { useToast } from '@/hooks/use-toast';
 import { MonthPicker } from '@/components/ui/date-picker';
 import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import axiosInstance from '@/utils/axios';
-import { isAdmin } from '@/utils/permissions';
 
 function currentMonthKey() {
     const now = new Date();
@@ -118,7 +117,6 @@ export default function VehicleFuelModal({
     const isEditEntry = Boolean(editingEntry?._id);
     const monthClosed = activeBill?.status === 'closed';
     const canSave = canManage && !saving && (!monthClosed || isEditEntry);
-    const canEditMonthlyLimit = isAdmin();
     const vehicleLocked = Boolean(lockVehicle || asset?._id || asset?.id);
     const selectedVehicle = useMemo(
         () => vehicles.find((v) => String(v._id) === String(vehicleId)) || null,
@@ -158,8 +156,8 @@ export default function VehicleFuelModal({
             editingEntry?.amount != null
                 ? String(editingEntry.amount)
                 : existingBill?.amountUsed != null
-                  ? String(existingBill.amountUsed)
-                  : '',
+                    ? String(existingBill.amountUsed)
+                    : '',
         );
         setMonthlyLimit(billPositiveLimit(existingBill) || '');
         setFileName(
@@ -172,10 +170,10 @@ export default function VehicleFuelModal({
         setGpsStats(
             existingBill?.kmRun != null || existingBill?.idleTimeLabel
                 ? {
-                      kmRun: Number(existingBill.kmRun) || 0,
-                      idleTimeMinutes: Number(existingBill.idleTimeMinutes) || 0,
-                      idleTimeLabel: existingBill.idleTimeLabel || '0 min',
-                  }
+                    kmRun: Number(existingBill.kmRun) || 0,
+                    idleTimeMinutes: Number(existingBill.idleTimeMinutes) || 0,
+                    idleTimeLabel: existingBill.idleTimeLabel || '0 min',
+                }
                 : null,
         );
         setErrors({});
@@ -219,10 +217,10 @@ export default function VehicleFuelModal({
                 const bill = res.data?.data || local || null;
                 const gps = res.data?.gps || (bill
                     ? {
-                          kmRun: Number(bill.kmRun) || 0,
-                          idleTimeMinutes: Number(bill.idleTimeMinutes) || 0,
-                          idleTimeLabel: bill.idleTimeLabel || '0 min',
-                      }
+                        kmRun: Number(bill.kmRun) || 0,
+                        idleTimeMinutes: Number(bill.idleTimeMinutes) || 0,
+                        idleTimeLabel: bill.idleTimeLabel || '0 min',
+                    }
                     : null);
                 setGpsStats(gps);
                 if (existingBill?._id || editingEntry?._id) return;
@@ -271,15 +269,14 @@ export default function VehicleFuelModal({
         const n = Number(amount);
         if (!Number.isFinite(n) || n <= 0) next.amount = 'Enter a valid amount.';
         const vehicleLimit = Number(defaultMonthlyLimit(asset, selectedVehicle));
-        const limit = Number(monthlyLimit);
-        if (isUpdate && canEditMonthlyLimit) {
-            if (!Number.isFinite(limit) || limit <= 0) next.monthlyLimit = 'Enter a valid monthly limit.';
-        } else if (
+        const existingLimit = Number(billPositiveLimit(activeBill));
+        if (
             !isUpdate &&
-            (!Number.isFinite(limit) || limit <= 0) &&
             (!Number.isFinite(vehicleLimit) || vehicleLimit <= 0)
         ) {
-            next.monthlyLimit = 'Set a monthly limit on the vehicle, or enter one here.';
+            next.monthlyLimit = 'Create a monthly limit first.';
+        } else if (isUpdate && (!Number.isFinite(existingLimit) || existingLimit <= 0) && (!Number.isFinite(vehicleLimit) || vehicleLimit <= 0)) {
+            next.monthlyLimit = 'Create a monthly limit first.';
         }
         setErrors(next);
         return Object.keys(next).length === 0;
@@ -315,22 +312,14 @@ export default function VehicleFuelModal({
                 vehicleId: vehicleLocked ? lockedVehicleId || vehicleId : vehicleId,
                 monthKey,
                 amount: Number(amount),
-                ...(!isUpdate || canEditMonthlyLimit
-                    ? {
-                          monthlyLimit:
-                              Number(monthlyLimit) ||
-                              Number(defaultMonthlyLimit(asset, selectedVehicle)) ||
-                              undefined,
-                      }
-                    : {}),
                 ...(attachment ? { attachment } : {}),
             };
             const billId = billIdOf(activeBill);
             const res = isEditEntry
                 ? await axiosInstance.put(`/VehicleFuel/${billId}/entries/${editingEntry._id}`, payload)
                 : isUpdate
-                  ? await axiosInstance.put(`/VehicleFuel/${billId}`, payload)
-                  : await axiosInstance.post('/VehicleFuel', payload);
+                    ? await axiosInstance.put(`/VehicleFuel/${billId}`, payload)
+                    : await axiosInstance.post('/VehicleFuel', payload);
             toast({
                 title: isEditEntry ? 'Saved' : isUpdate ? 'Updated' : 'Created',
                 description:
@@ -388,34 +377,32 @@ export default function VehicleFuelModal({
                 }
             >
                 {isInline ? null : (
-                <div className="flex items-center justify-between px-6 py-5 border-b border-slate-50 bg-slate-50/40">
-                    <div className="flex items-center gap-3">
-                        <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center">
-                            <Fuel size={20} />
+                    <div className="flex items-center justify-between px-6 py-5 border-b border-slate-50 bg-slate-50/40">
+                        <div className="flex items-center gap-3">
+                            <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center">
+                                <Fuel size={20} />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-black text-slate-900 uppercase tracking-widest">
+                                    {isEditEntry ? 'Edit Fuel' : isUpdate ? 'Update Fuel' : 'Add Fuel'}
+                                </h2>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                    {isEditEntry
+                                        ? 'Change this fuel entry without adding a new one'
+                                        : isUpdate
+                                            ? 'Existing month — monthly limit locked'
+                                            : 'Create this month’s petrol bill'}
+                                </p>
+                            </div>
                         </div>
-                        <div>
-                            <h2 className="text-lg font-black text-slate-900 uppercase tracking-widest">
-                                {isEditEntry ? 'Edit Fuel' : isUpdate ? 'Update Fuel' : 'Add Fuel'}
-                            </h2>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                {isEditEntry
-                                    ? 'Change this fuel entry without adding a new one'
-                                    : isUpdate
-                                      ? canEditMonthlyLimit
-                                        ? 'Existing month — Super User can edit monthly limit'
-                                        : 'Existing month — monthly limit locked'
-                                      : 'Create this month’s petrol bill'}
-                            </p>
-                        </div>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-white"
+                        >
+                            <X size={20} />
+                        </button>
                     </div>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-white"
-                    >
-                        <X size={20} />
-                    </button>
-                </div>
                 )}
 
                 <div className={isInline ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' : 'px-6 py-5 space-y-4'}>
@@ -497,23 +484,14 @@ export default function VehicleFuelModal({
                             min="0"
                             step="0.01"
                             value={monthlyLimit}
-                            onChange={(e) => setMonthlyLimit(e.target.value)}
-                            disabled={
-                                monthClosed ||
-                                (isUpdate
-                                    ? !canEditMonthlyLimit
-                                    : Boolean(defaultMonthlyLimit(asset, selectedVehicle)))
-                            }
+                            readOnly
+                            disabled
                             placeholder="0.00"
-                            className={`w-full h-11 px-4 rounded-xl border bg-slate-50 text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:text-slate-400 disabled:cursor-not-allowed ${errors.monthlyLimit ? 'border-red-400' : 'border-slate-200'}`}
+                            className={`w-full h-11 px-4 rounded-xl border bg-slate-100 text-slate-800 outline-none disabled:text-slate-500 disabled:cursor-not-allowed ${errors.monthlyLimit ? 'border-red-400' : 'border-slate-200'}`}
                         />
-                        {isUpdate && !canEditMonthlyLimit ? (
-                            <p className="text-[11px] text-slate-400 mt-1">Monthly limit cannot be changed after create.</p>
-                        ) : isUpdate && canEditMonthlyLimit ? (
-                            <p className="text-[11px] text-slate-400 mt-1">Only Super User can change the monthly limit after create.</p>
-                        ) : defaultMonthlyLimit(asset, selectedVehicle) ? (
-                            <p className="text-[11px] text-slate-400 mt-1">Filled automatically from this vehicle.</p>
-                        ) : null}
+                        <p className="text-[11px] text-slate-400 mt-1">
+                            Monthly limit is set from Monthly Limit and cannot be changed here.
+                        </p>
                         {errors.monthlyLimit && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.monthlyLimit}</p>}
                     </div>
 
@@ -562,14 +540,14 @@ export default function VehicleFuelModal({
                             Cancel
                         </button>
                     ) : (
-                    <button
-                        type="button"
-                        disabled={!canManage || !isUpdate || closing || monthClosed}
-                        onClick={() => setConfirmClose(true)}
-                        className="px-4 py-2.5 rounded-xl border border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-white disabled:opacity-40"
-                    >
-                        Close
-                    </button>
+                        <button
+                            type="button"
+                            disabled={!canManage || !isUpdate || closing || monthClosed}
+                            onClick={() => setConfirmClose(true)}
+                            className="px-4 py-2.5 rounded-xl border border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-white disabled:opacity-40"
+                        >
+                            Close
+                        </button>
                     )}
                     <button
                         type="button"

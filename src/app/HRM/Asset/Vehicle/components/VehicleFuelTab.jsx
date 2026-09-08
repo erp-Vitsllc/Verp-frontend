@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import axiosInstance from '@/utils/axios';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import VehicleFuelModal from './VehicleFuelModal';
+import VehicleAccessFuelMonthlyLimitModal from './VehicleAccessFuelMonthlyLimitModal';
 import VehicleFuelPreviousToggle from './VehicleFuelPreviousToggle';
 import { canAccessAddFuel } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 import {
@@ -16,6 +17,11 @@ import {
     previousFuelEntries,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleFuelPreviousEntries';
 import { isAdmin } from '@/utils/permissions';
+
+function currentMonthKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
 
 function formatAmount(value) {
     const n = Number(value);
@@ -50,6 +56,13 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
     const [deleting, setDeleting] = useState(false);
     const [viewingDocument, setViewingDocument] = useState(null);
     const [openPreviousId, setOpenPreviousId] = useState('');
+    const [limitModalOpen, setLimitModalOpen] = useState(false);
+    const [limitVehicles, setLimitVehicles] = useState([]);
+    const [limitMonthKey, setLimitMonthKey] = useState(currentMonthKey);
+    const [limitMonthLabel, setLimitMonthLabel] = useState('');
+    const [canCreateMonthlyLimit, setCanCreateMonthlyLimit] = useState(false);
+    const [monthlyLimitDisabledReason, setMonthlyLimitDisabledReason] = useState('');
+    const [canEditFuel, setCanEditFuel] = useState(false);
 
     const loadBills = useCallback(async () => {
         if (!vehicleId) {
@@ -63,6 +76,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
             setRows(Array.isArray(res.data?.data) ? res.data.data : []);
             setCanManage(Boolean(res.data?.canManage));
             setCanDelete(Boolean(res.data?.canDelete) || isAdmin());
+            setCanEditFuel(Boolean(res.data?.canEditFuel));
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -83,16 +97,48 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
         }
     }, []);
 
+    const loadMonthlyLimitState = useCallback(async () => {
+        const monthKey = currentMonthKey();
+        try {
+            const res = await axiosInstance.get('/VehicleFuel/access-list', {
+                params: { monthKey },
+                skipToast: true,
+            });
+            const pending = (Array.isArray(res.data?.notAdded) ? res.data.notAdded : []).map((row) => ({
+                _id: row.vehicleId,
+                name: row.vehicleName,
+                plate: row.plateNo || row.vehicleNumber,
+                fuelMonthlyLimit: Number(row.monthlyLimit) || 0,
+            }));
+            setLimitVehicles(pending);
+            setLimitMonthKey(res.data?.monthKey || monthKey);
+            setLimitMonthLabel(res.data?.monthLabel || '');
+            setCanCreateMonthlyLimit(Boolean(res.data?.canCreateMonthlyLimit));
+            setMonthlyLimitDisabledReason(res.data?.monthlyLimitDisabledReason || '');
+        } catch {
+            setLimitVehicles([]);
+            setCanCreateMonthlyLimit(false);
+            setMonthlyLimitDisabledReason('');
+        }
+    }, []);
+
     useEffect(() => {
         loadBills();
         loadVehicles();
-    }, [loadBills, loadVehicles]);
+        loadMonthlyLimitState();
+    }, [loadBills, loadVehicles, loadMonthlyLimitState]);
+
+    useEffect(() => {
+        if (!canCreateMonthlyLimit) setLimitModalOpen(false);
+    }, [canCreateMonthlyLimit]);
 
     const allowHrActions = isFlowchartHr || canManage || canAccessAddFuel();
     const allowDelete = canDelete || isAdmin();
+    const allowEditFuel = Boolean(isFlowchartHr || canEditFuel);
 
     const handleSaved = (saved) => {
         loadBills();
+        loadMonthlyLimitState();
         if (saved?._id && previousFuelEntries(saved.entries).length) {
             setOpenPreviousId(String(saved._id));
         }
@@ -111,7 +157,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
     };
 
     const openEditEntry = (bill, entry) => {
-        if (!bill || !entry) return;
+        if (!allowEditFuel || !bill || !entry) return;
         setEditingBill(bill);
         setEditingEntry(entry);
         setModalOpen(true);
@@ -125,6 +171,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
             toast({ title: 'Bill closed', description: res.data?.message || 'This month’s fuel bill is closed.' });
             setClosingBill(null);
             loadBills();
+            loadMonthlyLimitState();
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -147,6 +194,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
             });
             setDeletingBill(null);
             loadBills();
+            loadMonthlyLimitState();
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -210,17 +258,32 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
 
     return (
         <div className="w-full px-2 space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
                 <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Fuel</h3>
-                {allowHrActions && (
-                    <button
-                        type="button"
-                        onClick={openAdd}
-                        className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 flex items-center gap-2"
-                    >
-                        <PlusCircle size={14} /> Add Fuel
-                    </button>
-                )}
+                {allowHrActions ? (
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setLimitModalOpen(true)}
+                            disabled={!canCreateMonthlyLimit}
+                            title={
+                                canCreateMonthlyLimit
+                                    ? 'Create monthly limits'
+                                    : monthlyLimitDisabledReason || 'Monthly Limit is not available'
+                            }
+                            className="px-6 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-teal-700"
+                        >
+                            Monthly Limit
+                        </button>
+                        <button
+                            type="button"
+                            onClick={openAdd}
+                            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 flex items-center gap-2"
+                        >
+                            <PlusCircle size={14} /> Add Fuel
+                        </button>
+                    </div>
+                ) : null}
             </div>
 
             {loading ? (
@@ -340,6 +403,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                                         {allowHrActions && currentEntry ? (
                                                             <VehicleFuelEditButton
                                                                 title="Edit current fuel"
+                                                                disabled={!allowEditFuel}
                                                                 onClick={() => openEditEntry(row, currentEntry)}
                                                             />
                                                         ) : null}
@@ -434,6 +498,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                                                                         </span>
                                                                                         {allowHrActions ? (
                                                                                             <VehicleFuelEditButton
+                                                                                                disabled={!allowEditFuel}
                                                                                                 onClick={() => openEditEntry(row, entry)}
                                                                                             />
                                                                                         ) : null}
@@ -484,6 +549,20 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                 knownBills={rows}
                 canManage={allowHrActions}
                 lockVehicle
+            />
+
+            <VehicleAccessFuelMonthlyLimitModal
+                isOpen={limitModalOpen && canCreateMonthlyLimit}
+                onClose={() => setLimitModalOpen(false)}
+                onCreated={() => {
+                    setLimitModalOpen(false);
+                    loadBills();
+                    loadMonthlyLimitState();
+                }}
+                vehicles={limitVehicles}
+                monthKey={limitMonthKey}
+                monthLabel={limitMonthLabel}
+                canCreate={canCreateMonthlyLimit}
             />
 
             {closingBill ? (

@@ -283,6 +283,8 @@ export default function EntityPaymentDetailsCard({
     /** When false, Pay is hidden (e.g. non-Accounts users). */
     allowPay = true,
     onPaymentSuccess,
+    /** Fine: open the same Expense Refund modal as employee-profile Pay. */
+    onPay,
     /** Optional FineFormCard className (Reward uses this for Zoho red/green; Loan/Advance omit). */
     cardClassName = '',
 }) {
@@ -457,6 +459,10 @@ export default function EntityPaymentDetailsCard({
         }
 
         if (entityType === 'Fine') {
+            if (typeof onPay === 'function') {
+                onPay();
+                return;
+            }
             setPaymentPrefill(buildFinePrefill(entityRecord, employeeId, remaining, pathname));
         } else {
             setPaymentPrefill(buildLoanPrefill(entityRecord, remaining, pathname));

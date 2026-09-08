@@ -1029,6 +1029,8 @@ export default function AddBillModal({
     /** Existing batch bills to edit in the same Add Bills UI (Accounts / HR). */
     editBills = null,
     editBatchId = '',
+    /** Creator waiting on first approver — Save becomes Edit and Resend. */
+    creatorResend = false,
     /** Accounts may edit Account + Payable to on Item Table while viewing unpaid bills. */
     accountsCanEditLines = false,
     onAccountsSaveLines = null,
@@ -1390,7 +1392,9 @@ export default function AddBillModal({
             setRows(editRows);
             setDraftLoaded(false);
             setInfo(
-                'Edit bill details (Accounts / expense lines / amounts). Save, then Retry Zoho or Pay.',
+                creatorResend
+                    ? 'Edit the bill you submitted, then Edit and Resend to the next approver. This button goes after they act.'
+                    : 'Edit bill details (Accounts / expense lines / amounts). Save, then Retry Zoho or Pay.',
             );
             return;
         }
@@ -1499,7 +1503,7 @@ export default function AddBillModal({
         }
         // Re-filter only when occupancy actually changes (billed ids for this month).
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen, listEntries, occupancyBills, monthlyRental, utilityType, viewBill, editBills, isEditMode, initialBillMonth, applyBillMonth]);
+    }, [isOpen, listEntries, occupancyBills, monthlyRental, utilityType, viewBill, editBills, isEditMode, creatorResend, initialBillMonth, applyBillMonth]);
 
     const allSelected = rows.length > 0 && rows.every((r) => r.selected);
     const someSelected = rows.some((r) => r.selected);
@@ -1855,9 +1859,15 @@ export default function AddBillModal({
             }
 
             toast({
-                title: isEditMode ? 'Saved' : 'Completed',
+                title: isEditMode
+                    ? creatorResend
+                        ? 'Edited and resent'
+                        : 'Saved'
+                    : 'Completed',
                 description: isEditMode
-                    ? `${titleFromBillMonth(snapshotMonth)} bill details updated.`
+                    ? creatorResend
+                        ? `${titleFromBillMonth(snapshotMonth)} bill sent again to the next approver.`
+                        : `${titleFromBillMonth(snapshotMonth)} bill details updated.`
                     : `${titleFromBillMonth(snapshotMonth)} bills submitted.`,
             });
             onClose?.();
@@ -1904,7 +1914,7 @@ export default function AddBillModal({
                         ) : isEditMode ? (
                             <div className="text-left -ml-1 px-1 py-0.5">
                                 <h2 className="text-lg sm:text-xl font-bold text-gray-800">
-                                    Edit {monthTitle} Bill
+                                    {creatorResend ? 'Edit and Resend' : 'Edit'} {monthTitle} Bill
                                 </h2>
                                 <div className="flex flex-wrap items-center gap-2 mt-0.5">
                                     {utilityType ? (
@@ -1913,7 +1923,7 @@ export default function AddBillModal({
                                         </p>
                                     ) : null}
                                     <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                                        Edit
+                                        {creatorResend ? 'Resend' : 'Edit'}
                                     </span>
                                 </div>
                             </div>
@@ -2513,10 +2523,14 @@ export default function AddBillModal({
                                 >
                                     {saving
                                         ? isEditMode
-                                          ? 'Saving…'
+                                          ? creatorResend
+                                            ? 'Resending…'
+                                            : 'Saving…'
                                           : 'Submitting…'
                                         : isEditMode
-                                          ? 'Save'
+                                          ? creatorResend
+                                            ? 'Edit and Resend'
+                                            : 'Save'
                                           : 'Submit'}
                                 </button>
                             </>

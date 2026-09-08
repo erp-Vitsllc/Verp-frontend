@@ -36,7 +36,7 @@ function formatAed(value) {
 
 const MONTH_ROW_GRID =
     'grid w-full min-w-[640px] items-center gap-x-2 sm:gap-x-3 ' +
-    'grid-cols-[2.25rem_minmax(7.5rem,1.1fr)_minmax(6.5rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_3.25rem_4.25rem]';
+    'grid-cols-[2.25rem_minmax(7.5rem,1.1fr)_minmax(6.5rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_3.25rem_4.25rem_minmax(5.25rem,0.8fr)]';
 
 const COLUMNS = [
     { key: 'slNo', label: 'SL', className: 'text-left' },
@@ -47,6 +47,7 @@ const COLUMNS = [
     { key: 'basicSalary', label: 'Basic Salary', className: 'text-left' },
     { key: 'ot', label: 'OT', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
     { key: 'deduction', label: 'Deduction', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
+    { key: 'processStatus', label: 'Process', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
 ];
 
 function employeeMatchesCompanyFilter(emp, company) {
@@ -391,6 +392,16 @@ function SalaryPageContent() {
                                                     </span>
                                                     <span className="tabular-nums text-[11px] text-slate-600">
                                                         {formatAed(row.deduction)}
+                                                    </span>
+                                                    <span
+                                                        title={row.processStatus || 'Pending'}
+                                                        className={
+                                                            String(row.processStatus || '') === 'Processed'
+                                                                ? 'text-[11px] font-semibold text-emerald-700'
+                                                                : 'text-[11px] font-semibold text-amber-700'
+                                                        }
+                                                    >
+                                                        {row.processStatus || 'Pending'}
                                                     </span>
                                                 </NavButton>
                                                 {canDeleteMonth ? (

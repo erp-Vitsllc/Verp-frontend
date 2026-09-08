@@ -9,6 +9,7 @@ import {
     Eye,
     Fuel,
     PlusCircle,
+    Printer,
     RotateCcw,
     X,
 } from 'lucide-react';
@@ -17,6 +18,8 @@ import { useToast } from '@/hooks/use-toast';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import VehicleFuelModal from '@/app/HRM/Asset/Vehicle/components/VehicleFuelModal';
+import VehicleAccessFuelMonthlyLimitModal from '@/app/HRM/Asset/Vehicle/components/VehicleAccessFuelMonthlyLimitModal';
+import VehicleAccessFuelCloseMonthlyModal from '@/app/HRM/Asset/Vehicle/components/VehicleAccessFuelCloseMonthlyModal';
 import VehicleFuelEditButton from '@/app/HRM/Asset/Vehicle/components/VehicleFuelEditButton';
 import VehicleFuelPreviousToggle from '@/app/HRM/Asset/Vehicle/components/VehicleFuelPreviousToggle';
 import { MonthPicker } from '@/components/ui/date-picker';
@@ -28,6 +31,7 @@ import {
     textSortValue,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceRequestTableSort';
 import { canAccessAddFuel } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
+import { downloadAccessFuelListedVehiclesPdf } from '@/app/HRM/Asset/Vehicle/utils/accessFuelListPdf.js';
 import {
     formatFuelEntryWhen,
     latestFuelEntry,
@@ -117,6 +121,13 @@ export default function VehicleAccessFuelPanel({
     const [monthLabel, setMonthLabel] = useState('');
     const [selectedFilter, setSelectedFilter] = useState('added');
     const [formOpen, setFormOpen] = useState(false);
+    const [limitModalOpen, setLimitModalOpen] = useState(false);
+    const [closeMonthlyOpen, setCloseMonthlyOpen] = useState(false);
+    const [canCreateMonthlyLimit, setCanCreateMonthlyLimit] = useState(false);
+    const [monthlyLimitDisabledReason, setMonthlyLimitDisabledReason] = useState('');
+    const [canCloseMonthlyFuel, setCanCloseMonthlyFuel] = useState(false);
+    const [closeMonthlyDisabledReason, setCloseMonthlyDisabledReason] = useState('');
+    const [canEditFuel, setCanEditFuel] = useState(false);
     const [editingBill, setEditingBill] = useState(null);
     const [editingEntry, setEditingEntry] = useState(null);
     const [sortKey, setSortKey] = useState('vehicleName');
@@ -128,6 +139,7 @@ export default function VehicleAccessFuelPanel({
 
     const allowManage = canManage || canAccessAddFuel();
     const allowDelete = canDelete || isAdmin();
+    const allowEditFuel = Boolean(canEditFuel);
 
     const loadList = useCallback(async () => {
         setLoading(true);
@@ -148,6 +160,11 @@ export default function VehicleAccessFuelPanel({
             setMonthLabel(res.data?.monthLabel || '');
             setCanManage(Boolean(res.data?.canManage));
             setCanDelete(Boolean(res.data?.canDelete) || isAdmin());
+            setCanCreateMonthlyLimit(Boolean(res.data?.canCreateMonthlyLimit));
+            setMonthlyLimitDisabledReason(res.data?.monthlyLimitDisabledReason || '');
+            setCanCloseMonthlyFuel(Boolean(res.data?.canCloseMonthlyFuel));
+            setCloseMonthlyDisabledReason(res.data?.closeMonthlyDisabledReason || '');
+            setCanEditFuel(Boolean(res.data?.canEditFuel));
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -157,6 +174,11 @@ export default function VehicleAccessFuelPanel({
             setVehicles([]);
             setAdded([]);
             setNotAdded([]);
+            setCanCreateMonthlyLimit(false);
+            setMonthlyLimitDisabledReason('');
+            setCanCloseMonthlyFuel(false);
+            setCloseMonthlyDisabledReason('');
+            setCanEditFuel(false);
         } finally {
             setLoading(false);
         }
@@ -166,11 +188,35 @@ export default function VehicleAccessFuelPanel({
         loadList();
     }, [loadList]);
 
+    useEffect(() => {
+        if (!canCreateMonthlyLimit) setLimitModalOpen(false);
+    }, [canCreateMonthlyLimit]);
+
+    useEffect(() => {
+        if (!canCloseMonthlyFuel) setCloseMonthlyOpen(false);
+    }, [canCloseMonthlyFuel]);
+
     const visibleRows = useMemo(() => {
         if (selectedFilter === 'not-added') return notAdded;
         if (selectedFilter === 'exceeded') return added.filter((row) => row.limitExceeded);
         return added;
     }, [selectedFilter, added, notAdded]);
+
+    const pendingLimitVehicles = useMemo(
+        () =>
+            (notAdded || []).map((row) => ({
+                _id: row.vehicleId,
+                name: row.vehicleName,
+                plate: row.plateNo || row.vehicleNumber,
+                fuelMonthlyLimit: Number(row.monthlyLimit) || 0,
+            })),
+        [notAdded],
+    );
+
+    const openMonthlyFuelBills = useMemo(
+        () => (added || []).filter((row) => row?._id && !row.noFuel && row.status !== 'closed'),
+        [added],
+    );
 
     const handleSort = useCallback(
         (key) => {
@@ -241,7 +287,7 @@ export default function VehicleAccessFuelPanel({
     };
 
     const openEditEntry = (row, entry) => {
-        if (row?.noFuel || !entry) return;
+        if (!allowEditFuel || row?.noFuel || !entry) return;
         setEditingBill(row);
         setEditingEntry(entry);
         setFormOpen(true);
@@ -331,6 +377,37 @@ export default function VehicleAccessFuelPanel({
                 ? 'Current month fuel records'
                 : 'Fuel added vehicles';
 
+    const printListedVehicles = () => {
+        if (!sortedRows.length) return;
+        try {
+            downloadAccessFuelListedVehiclesPdf({
+                title: 'Access Fuel',
+                subtitle: `${listTitle}${monthLabel ? ` — ${monthLabel}` : ''}`,
+                headers: FUEL_COLUMNS.map((column) => column.label),
+                rows: sortedRows.map((row) => [
+                    String(row.slNo ?? ''),
+                    row.vehicleName || '—',
+                    row.plateNo || row.vehicleNumber || '—',
+                    row.vehicleOwner || '—',
+                    `${row.monthLabel || monthLabel || '—'}${row.status === 'closed' ? ' (Closed)' : ''}${row.noFuel ? ' (Not added)' : ''}`,
+                    formatAmount(row.monthlyLimit),
+                    row.noFuel ? '—' : formatAmount(row.amountUsed),
+                    formatKm(row.kmRun),
+                    row.idleTimeLabel || '—',
+                ]),
+                columnWeights: [8, 18, 12, 16, 14, 12, 12, 10, 12],
+                columnAlign: ['left', 'left', 'left', 'left', 'left', 'right', 'right', 'right', 'left'],
+                fileName: `access-fuel-${selectedFilter}-${monthKey}.pdf`,
+            });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not create PDF',
+                description: error?.message || 'Try again in a moment.',
+            });
+        }
+    };
+
     return (
         <div className="bg-white rounded-2xl border border-teal-200 shadow-sm mb-4 sm:mb-6 overflow-hidden">
             <div className="flex items-start justify-between gap-3 px-4 sm:px-6 py-4 border-b border-slate-100 bg-teal-50/40">
@@ -350,6 +427,36 @@ export default function VehicleAccessFuelPanel({
                     </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                    {allowManage ? (
+                        <button
+                            type="button"
+                            onClick={() => setCloseMonthlyOpen(true)}
+                            disabled={!canCloseMonthlyFuel}
+                            title={
+                                canCloseMonthlyFuel
+                                    ? 'Close monthly fuel'
+                                    : closeMonthlyDisabledReason || 'Close Monthly Fuel is not available'
+                            }
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-rose-700 disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-rose-600"
+                        >
+                            Close Monthly Fuel
+                        </button>
+                    ) : null}
+                    {allowManage ? (
+                        <button
+                            type="button"
+                            onClick={() => setLimitModalOpen(true)}
+                            disabled={!canCreateMonthlyLimit}
+                            title={
+                                canCreateMonthlyLimit
+                                    ? 'Create monthly limits'
+                                    : monthlyLimitDisabledReason || 'Monthly Limit is not available'
+                            }
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-700 text-white text-[10px] font-black uppercase tracking-widest hover:bg-teal-800 disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-teal-700"
+                        >
+                            Monthly Limit
+                        </button>
+                    ) : null}
                     <div className="min-w-[150px]">
                         <MonthPicker value={monthKey} onChange={setMonthKey} />
                     </div>
@@ -453,6 +560,31 @@ export default function VehicleAccessFuelPanel({
                 />
             ) : null}
 
+            <VehicleAccessFuelMonthlyLimitModal
+                isOpen={limitModalOpen && canCreateMonthlyLimit}
+                onClose={() => setLimitModalOpen(false)}
+                onCreated={() => {
+                    setLimitModalOpen(false);
+                    loadList();
+                }}
+                vehicles={pendingLimitVehicles}
+                monthKey={monthKey}
+                monthLabel={monthLabel}
+                canCreate={canCreateMonthlyLimit}
+            />
+
+            <VehicleAccessFuelCloseMonthlyModal
+                isOpen={closeMonthlyOpen && canCloseMonthlyFuel}
+                onClose={() => setCloseMonthlyOpen(false)}
+                onClosed={() => {
+                    setCloseMonthlyOpen(false);
+                    loadList();
+                }}
+                bills={openMonthlyFuelBills}
+                monthKey={monthKey}
+                monthLabel={monthLabel}
+            />
+
             <div className="border-t border-slate-100">
                 <div className="px-4 sm:px-6 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between gap-2">
                     <h3 className="text-xs font-black uppercase tracking-widest text-slate-600">
@@ -461,13 +593,29 @@ export default function VehicleAccessFuelPanel({
                             <span className="ml-2 text-teal-700 tabular-nums">({visibleRows.length})</span>
                         ) : null}
                     </h3>
-                    {!loading && selectedFilter !== 'not-added' ? (
-                        <span className="text-[11px] font-black uppercase tracking-widest text-teal-700 tabular-nums whitespace-nowrap">
-                            {formatAmount(
-                                visibleRows.reduce((sum, row) => sum + (Number(row.amountUsed) || 0), 0),
-                            )}
-                        </span>
-                    ) : null}
+                    <div className="flex items-center gap-2 shrink-0">
+                        {!loading && selectedFilter !== 'not-added' ? (
+                            <span className="text-[11px] font-black uppercase tracking-widest text-teal-700 tabular-nums whitespace-nowrap">
+                                {formatAmount(
+                                    visibleRows.reduce((sum, row) => sum + (Number(row.amountUsed) || 0), 0),
+                                )}
+                            </span>
+                        ) : null}
+                        <button
+                            type="button"
+                            onClick={printListedVehicles}
+                            disabled={loading || !sortedRows.length}
+                            title={
+                                sortedRows.length
+                                    ? 'Download the vehicles listed now as PDF'
+                                    : 'No vehicles listed to print'
+                            }
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 disabled:opacity-45 disabled:cursor-not-allowed"
+                        >
+                            <Printer size={14} />
+                            Print
+                        </button>
+                    </div>
                 </div>
                 <div className="overflow-hidden">
                     {loading ? (
@@ -587,6 +735,7 @@ export default function VehicleAccessFuelPanel({
                                                             ) : (
                                                                 <VehicleFuelEditButton
                                                                     title="Edit current fuel"
+                                                                    disabled={!allowEditFuel}
                                                                     onClick={() => openEditEntry(row, currentEntry)}
                                                                 />
                                                             )
@@ -657,6 +806,7 @@ export default function VehicleAccessFuelPanel({
                                                                   </span>
                                                                   {allowManage ? (
                                                                       <VehicleFuelEditButton
+                                                                          disabled={!allowEditFuel}
                                                                           onClick={() => openEditEntry(row, entry)}
                                                                       />
                                                                   ) : null}

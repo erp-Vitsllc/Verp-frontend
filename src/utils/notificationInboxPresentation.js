@@ -402,6 +402,10 @@ export function buildUnderstandableNotificationTitle(item = {}) {
             const title = e1 || 'Vehicle Service Request';
             return appendVehicleServiceStageToTitle(title, item);
         }
+        case 'Vehicle Access Fuel Reminder': {
+            const e1 = sanitizeNotificationText(item.extra1 || '');
+            return e1 || 'Assigned vehicles have to add this month bill to be added';
+        }
         default:
             return expiryTitle || type || 'Request';
     }

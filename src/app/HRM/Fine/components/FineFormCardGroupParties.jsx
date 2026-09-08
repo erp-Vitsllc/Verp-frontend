@@ -121,6 +121,7 @@ export default function FineFormCardGroupParties({
     formatDate,
     canEditPartyPayables = false,
     onPartyPayablesChange,
+    onVendorChange,
 }) {
     const { toast } = useToast();
     const [accounts, setAccounts] = useState([]);
@@ -382,9 +383,13 @@ export default function FineFormCardGroupParties({
 
     const handleVendorChange = async (nextLabel) => {
         setLocalVendor(nextLabel);
-        if (!dropdownsEnabled) return;
-
         const match = matchZohoVendorByName(vendors, nextLabel);
+        onVendorChange?.({
+            zohoVendorId: match?.id || '',
+            zohoVendorName: nextLabel,
+            fineSource: nextLabel,
+        });
+        if (!dropdownsEnabled) return;
 
         setSavingVendor(true);
         try {
@@ -489,6 +494,10 @@ export default function FineFormCardGroupParties({
 
     const allRowsCompleted = allPayablesFilled;
 
+    const vendorFilled = Boolean(
+        String(localVendor || fine?.zohoVendorId || fine?.zohoVendorName || fine?.fineSource || '').trim(),
+    );
+
     const payableStatus = (() => {
         const status = String(fine.fineStatus || '');
         const hasBill = Boolean(String(fine.zohoBillId || '').trim());
@@ -505,11 +514,15 @@ export default function FineFormCardGroupParties({
             return { label: 'Locked for Accounts', className: 'text-gray-500' };
         }
 
-        if (!allPayablesFilled || !allRowsCompleted) {
-            return { label: 'Not filled', className: 'text-amber-700' };
+        if (!vendorFilled) {
+            return { label: 'Vendor required', className: 'text-amber-700' };
         }
 
-        return { label: 'Ready for billing', className: 'text-blue-700' };
+        if (!allPayablesFilled || !allRowsCompleted) {
+            return { label: 'Payable required', className: 'text-amber-700' };
+        }
+
+        return { label: 'Ready for Zoho', className: 'text-blue-700' };
     })();
 
     const thClass =
@@ -575,8 +588,8 @@ export default function FineFormCardGroupParties({
             {dropdownsEnabled ? (
                 <p className="mb-3 text-[10px] text-indigo-700 bg-indigo-50/80 rounded-lg px-3 py-2">
                     {isSingleParty
-                        ? 'Fill Vendor and Payable. When set, status is Ready for billing — Management approval creates one Zoho Bill.'
-                        : 'Fill Vendor and Payable for each row. When all payables are set, status is Ready for billing — Management approval creates one Zoho Bill with these parties as Item Table lines.'}
+                        ? 'Fill Vendor and Payable. When both are set, status is Ready for Zoho — then Enter in Zoho can proceed.'
+                        : 'Fill Vendor and Payable for each row. When both are set, status is Ready for Zoho — then Enter in Zoho can proceed.'}
                 </p>
             ) : null}
 

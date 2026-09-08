@@ -14,9 +14,18 @@ export const ALLOWED_ATTACHMENT_MIMES = new Set(['application/pdf', 'image/jpeg'
 
 function pickMimeFromName(fileName, fallback = 'application/pdf') {
     const n = String(fileName || '').toLowerCase();
-    if (/\.png($|\?)/.test(n)) return 'image/png';
-    if (/\.jpe?g($|\?)/.test(n)) return 'image/jpeg';
-    if (/\.pdf($|\?)/.test(n)) return 'application/pdf';
+    if (/\.png(?:$|\?|#)/i.test(n)) return 'image/png';
+    if (/\.jpe?g(?:$|\?|#)/i.test(n)) return 'image/jpeg';
+    if (/\.pdf(?:$|\?|#)/i.test(n)) return 'application/pdf';
+    return fallback;
+}
+
+function firstResolvedMime(hints, fallback = 'application/pdf') {
+    for (const hint of hints) {
+        if (!hint) continue;
+        const mime = pickMimeFromName(hint, '');
+        if (mime) return mime;
+    }
     return fallback;
 }
 
@@ -385,10 +394,19 @@ function resolveStorageViewerMeta(attachment, ref, { name, mimeType }) {
         (typeof coalesced === 'object' && (coalesced.name || coalesced.fileName)) ||
         ref.name ||
         name;
+    const coalescedMime =
+        typeof coalesced === 'object' ? coalesced.mimeType || coalesced.mime : '';
     const resolvedMime =
-        (typeof coalesced === 'object' && (coalesced.mimeType || coalesced.mime)) ||
+        coalescedMime ||
         mimeType ||
-        pickMimeFromName(fileName);
+        firstResolvedMime([
+            fileName,
+            ref?.name,
+            ref?.key,
+            ref?.url,
+            typeof coalesced === 'string' ? coalesced : '',
+            typeof coalesced === 'object' ? coalesced.url || coalesced.publicId || coalesced.href : '',
+        ]);
     return { fileName, resolvedMime };
 }
 
@@ -569,10 +587,23 @@ function detachPreviewTabOpener(win) {
     }
 }
 
+function toAbsoluteAppUrl(url) {
+    if (!url || typeof url !== 'string') return url;
+    if (/^(https?:|blob:|data:)/i.test(url)) return url;
+    if (typeof window === 'undefined') return url;
+    try {
+        return new URL(url, window.location.origin).href;
+    } catch {
+        return url;
+    }
+}
+
 function openUrlForDocumentViewer(url, preOpenedWindow) {
+    const absoluteUrl = toAbsoluteAppUrl(url);
     if (preOpenedWindow && !preOpenedWindow.closed) {
         try {
-            preOpenedWindow.location.href = url;
+            // Safari resolves relative hrefs against about:blank (not the app origin).
+            preOpenedWindow.location.href = absoluteUrl;
             detachPreviewTabOpener(preOpenedWindow);
             return true;
         } catch {
@@ -582,7 +613,7 @@ function openUrlForDocumentViewer(url, preOpenedWindow) {
 
     try {
         const link = document.createElement('a');
-        link.href = url;
+        link.href = absoluteUrl;
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
         document.body.appendChild(link);
@@ -593,13 +624,13 @@ function openUrlForDocumentViewer(url, preOpenedWindow) {
         /* try window.open */
     }
 
-    const opened = window.open(url, '_blank');
+    const opened = window.open(absoluteUrl, '_blank');
     if (opened) {
         detachPreviewTabOpener(opened);
         return true;
     }
 
-    window.location.assign(url);
+    window.location.assign(absoluteUrl);
     return true;
 }
 
@@ -610,8 +641,8 @@ export function openDocumentViewerFromPayload(payload, { preOpenedWindow } = {})
     }
     try {
         const id = storeDocumentViewerSessionPayload(payload);
-        const url = `/view-document?id=${encodeURIComponent(id)}`;
-        openUrlForDocumentViewer(url, preOpenedWindow);
+        const path = `/view-document?id=${encodeURIComponent(id)}`;
+        openUrlForDocumentViewer(path, preOpenedWindow);
         return { ok: true };
     } catch (err) {
         if (preOpenedWindow && !preOpenedWindow.closed) {

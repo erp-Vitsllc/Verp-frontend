@@ -104,22 +104,101 @@ function liabilitySummary(type, rows, readTotal, readPaid, readThisMonth) {
     const employeePay = sumMoney(list, readPaid);
     const thisMonthDeduction = sumMoney(list, readThisMonth);
     const pending = money(Math.max(0, total - employeePay));
-    const balance = money(Math.max(0, total - employeePay - thisMonthDeduction));
     return {
         type,
         count: list.length,
         label: `${type} (${list.length})`,
         total,
         pending,
-        balance,
+        balance: pending,
         thisMonthDeduction,
-        remainingAfterDeduction: balance,
+        remainingAfterDeduction: money(Math.max(0, total - thisMonthDeduction)),
     };
+}
+
+function totalOfLiability(row, readTotal) {
+    return money(Math.max(0, money(readTotal(row))));
+}
+
+/** This-month deduction cannot exceed Total. Values at or under Total are allowed. */
+export function clampThisMonthDeduction(value, limit) {
+    const cap = money(limit);
+    if (cap <= 0) return 0;
+    return money(Math.min(Math.max(0, money(value)), cap));
+}
+
+function allocateThisMonth(rows, requested, predicate, readTotal) {
+    const list = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
+    const targets = list.filter((row) => (!predicate || predicate(row)) && isApprovedLiability(row));
+    const weights = targets.map((row) => totalOfLiability(row, readTotal));
+    const cap = money(weights.reduce((sum, value) => sum + value, 0));
+    let left = clampThisMonthDeduction(requested, cap);
+    const weightSum = weights.reduce((sum, value) => sum + value, 0);
+    let allocated = 0;
+    targets.forEach((row, index) => {
+        const share = weightSum <= 0
+            ? 0
+            : index === targets.length - 1
+                ? money(left - allocated)
+                : money((left * weights[index]) / weightSum);
+        const capped = Math.min(Math.max(0, share), weights[index]);
+        row.thisMonthAmount = capped;
+        row.thisMonth = formatAed(capped);
+        allocated = money(allocated + capped);
+    });
+    return list;
+}
+
+const THIS_MONTH_READERS = {
+    Fine: {
+        listKey: 'fines',
+        predicate: null,
+        readTotal: (row) => row.originalAmount ?? row.amount,
+        readPaid: (row) => row.paidAmount ?? row.paid,
+        overrideKey: 'Fine',
+    },
+    Loan: {
+        listKey: 'loanSchedule',
+        predicate: (row) => !/advance/i.test(String(row?.type || '')),
+        readTotal: (row) => row.originalAmount ?? row.original ?? row.amount,
+        readPaid: (row) => row.paidAmount ?? row.paidToDate ?? row.paid,
+        overrideKey: 'Loan',
+    },
+    Utility: {
+        listKey: 'utilities',
+        predicate: null,
+        readTotal: (row) => row.originalAmount ?? row.total ?? row.amount,
+        readPaid: (row) => row.paidAmount ?? row.paid,
+        overrideKey: 'Utility',
+    },
+    'Salary Advance': {
+        listKey: 'loanSchedule',
+        predicate: (row) => /advance/i.test(String(row?.type || '')),
+        readTotal: (row) => row.originalAmount ?? row.original ?? row.amount,
+        readPaid: (row) => row.paidAmount ?? row.paidToDate ?? row.paid,
+        overrideKey: 'Salary Advance',
+    },
+};
+
+export function applyCategoryThisMonthOnDraft(draft, type, rawAmount) {
+    const spec = THIS_MONTH_READERS[type];
+    if (!spec || !draft) return draft;
+    draft[spec.listKey] = allocateThisMonth(
+        draft[spec.listKey],
+        rawAmount,
+        spec.predicate,
+        spec.readTotal,
+    );
+    draft.thisMonthOverrides = {
+        ...(draft.thisMonthOverrides || {}),
+        [spec.overrideKey]: true,
+    };
+    return draft;
 }
 
 /**
  * Approved loan, fine, utility and salary advance for this employee.
- * Balance = total − employee pay − this month's salary deduction.
+ * This month deduction is limited by Total. Remaining is Total minus this month's deduction.
  */
 export function buildSalarySlipBalanceRows(slip) {
     const loans = Array.isArray(slip?.loanSchedule) ? slip.loanSchedule : [];
@@ -293,7 +372,10 @@ function pushDetailsIntoDeductions(slip) {
     if (fineTotal > 0 || (slip.fines || []).length) {
         deductions = setDeductionAmount(deductions, 'Fine', fineTotal);
     }
-    const utilTotal = (slip.utilities || []).reduce((sum, row) => sum + money(row.total ?? row.amount), 0);
+    const utilTotal = (slip.utilities || []).reduce(
+        (sum, row) => sum + money(row.thisMonthAmount ?? row.thisMonth),
+        0,
+    );
     deductions = setDeductionAmount(deductions, 'Utility Excess', utilTotal);
     return { ...slip, deductions };
 }
@@ -340,7 +422,9 @@ export function recalcSlip(slip) {
             .reduce((sum, row) => sum + money(row.thisMonthAmount), 0),
     );
     const fine = money(fines.reduce((sum, row) => sum + money(row.thisMonthAmount), 0));
-    const utilityExcess = money(utilities.reduce((sum, row) => sum + money(row.total), 0));
+    const utilityExcess = money(
+        utilities.reduce((sum, row) => sum + money(row.thisMonthAmount ?? row.thisMonth), 0),
+    );
     return {
         ...slip,
         earnings,
@@ -369,7 +453,14 @@ export function recalcSlip(slip) {
 
 export function applySlipSectionPatch(slip, section, updater) {
     const draft = updater(JSON.parse(JSON.stringify(slip || {})));
-    const fromDetails = new Set(['attendanceDeductions', 'loans', 'fines', 'utilities']);
+    const fromDetails = new Set(['attendanceDeductions', 'loans', 'fines', 'utilities', 'thisMonthDeduction']);
+    if (section === 'fines') {
+        draft.thisMonthOverrides = { ...(draft.thisMonthOverrides || {}), Fine: true };
+    } else if (section === 'loans') {
+        draft.thisMonthOverrides = { ...(draft.thisMonthOverrides || {}), Loan: true, 'Salary Advance': true };
+    } else if (section === 'utilities') {
+        draft.thisMonthOverrides = { ...(draft.thisMonthOverrides || {}), Utility: true };
+    }
     const synced = fromDetails.has(section) ? pushDetailsIntoDeductions(draft) : draft;
     return recalcSlip(synced);
 }

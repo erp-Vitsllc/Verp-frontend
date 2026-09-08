@@ -62,6 +62,7 @@ export default function FineFormCards(props) {
             employeeId={fineEmployeeId}
             isPayable={isApprovedFineStatus(fine.fineStatus) && fineTotalPayable > 0}
             allowPay={Boolean(props.allowPay)}
+            onPay={props.onPay}
             onPaymentSuccess={props.onPaymentSuccess}
         />
     ) : null;
@@ -84,6 +85,7 @@ export default function FineFormCards(props) {
                         formatDate={props.formatDate}
                         canEditPartyPayables={Boolean(props.canEditPartyPayables)}
                         onPartyPayablesChange={props.onPartyPayablesChange}
+                        onVendorChange={props.onVendorChange}
                     />
                 </div>
             </div>
@@ -101,6 +103,7 @@ export default function FineFormCards(props) {
             formatDate={props.formatDate}
             canEditPartyPayables={Boolean(props.canEditPartyPayables)}
             onPartyPayablesChange={props.onPartyPayablesChange}
+            onVendorChange={props.onVendorChange}
         />
     );
 

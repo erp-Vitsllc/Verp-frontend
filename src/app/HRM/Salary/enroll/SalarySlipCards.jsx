@@ -3,7 +3,9 @@
 import { MinusCircle, Table2, Wallet } from 'lucide-react';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import {
+    applyCategoryThisMonthOnDraft,
     buildSalarySlipBalanceRows,
+    clampThisMonthDeduction,
     formatAed,
     mapComponent,
     money,
@@ -11,7 +13,7 @@ import {
 } from './salarySlipEdit';
 
 const FIELD =
-    'h-9 w-full min-w-0 rounded-lg border border-[#E2E8F0] bg-white px-2.5 text-sm text-[#0F172A] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15';
+    'h-9 w-full min-w-0 rounded-lg border border-[#E2E8F0] bg-white px-2.5 text-sm text-[#0F172A] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:cursor-not-allowed disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]';
 const FIELD_RO =
     'h-10 w-full min-w-0 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm text-[#0F172A] outline-none';
 const TH =
@@ -189,7 +191,7 @@ const BALANCE_HEADERS = [
     'Remaining after deduction',
 ];
 
-function BalanceScheduleTable({ rows }) {
+function BalanceScheduleTable({ rows, onThisMonthChange }) {
     return (
         <div className="overflow-x-auto rounded-xl border border-[#EEF2F6]">
             <table className="w-full min-w-[760px] border-collapse text-left text-sm">
@@ -217,8 +219,15 @@ function BalanceScheduleTable({ rows }) {
                             <td className="whitespace-nowrap px-3 py-3 tabular-nums text-[#64748B]">
                                 {formatAed(row.balance)}
                             </td>
-                            <td className={`whitespace-nowrap px-3 py-3 tabular-nums ${amountToneClass('deduct')}`}>
-                                {formatAed(row.thisMonthDeduction)}
+                            <td className="whitespace-nowrap px-3 py-2">
+                                <AmountCell
+                                    label={`${row.type} this month deduction`}
+                                    amount={row.thisMonthDeduction}
+                                    tone="deduct"
+                                    max={row.total}
+                                    disabled={money(row.total) <= 0}
+                                    onChange={(value) => onThisMonthChange?.(row.type, value)}
+                                />
                             </td>
                             <td className={`whitespace-nowrap px-3 py-3 tabular-nums ${amountToneClass('net')}`}>
                                 {formatAed(row.remainingAfterDeduction)}
@@ -242,39 +251,37 @@ function sumThisMonth(rows, read) {
     return money((Array.isArray(rows) ? rows : []).reduce((sum, row) => sum + money(read(row)), 0));
 }
 
+const CARD_TO_BALANCE_TYPE = {
+    Loan: 'Loan',
+    Fine: 'Fine',
+    'Utility Excess': 'Utility',
+    'Salary Advance': 'Salary Advance',
+};
+
 function liveDeductionAmount(slip, name) {
-    const row = pickComponent(slip?.deductions, name);
-    const fromRow = money(row?.amount);
-    if (fromRow > 0) return fromRow;
-    const recon = slip?.reconciliation || {};
     if (name === 'Fine') {
-        return money(recon.fine) || sumThisMonth(slip?.fines, (item) => item.thisMonthAmount ?? item.thisMonth);
+        return sumThisMonth(slip?.fines, (item) => item.thisMonthAmount ?? item.thisMonth);
     }
     if (name === 'Loan') {
-        return (
-            money(recon.loan) ||
-            sumThisMonth(
-                (slip?.loanSchedule || []).filter((item) => !/advance/i.test(String(item.type || ''))),
-                (item) => item.thisMonthAmount ?? item.thisMonth,
-            )
+        return sumThisMonth(
+            (slip?.loanSchedule || []).filter((item) => !/advance/i.test(String(item.type || ''))),
+            (item) => item.thisMonthAmount ?? item.thisMonth,
         );
     }
     if (name === 'Salary Advance') {
-        return (
-            money(recon.salaryAdvance) ||
-            sumThisMonth(
-                (slip?.loanSchedule || []).filter((item) => /advance/i.test(String(item.type || ''))),
-                (item) => item.thisMonthAmount ?? item.thisMonth,
-            )
+        return sumThisMonth(
+            (slip?.loanSchedule || []).filter((item) => /advance/i.test(String(item.type || ''))),
+            (item) => item.thisMonthAmount ?? item.thisMonth,
         );
     }
     if (name === 'Utility Excess') {
-        return (
-            money(recon.utilityExcess) ||
-            sumThisMonth(slip?.utilities, (item) => item.total ?? item.thisMonthAmount ?? item.amount)
-        );
+        return sumThisMonth(slip?.utilities, (item) => item.thisMonthAmount ?? item.thisMonth);
     }
-    return fromRow;
+    return money(pickComponent(slip?.deductions, name).amount);
+}
+
+function patchThisMonthDeduction(onPatch, type, value) {
+    onPatch('thisMonthDeduction', (draft) => applyCategoryThisMonthOnDraft(draft, type, value));
 }
 
 function liveSalaryAmount(slip, name) {
@@ -317,16 +324,25 @@ function monthlyPeriodLabel(name, slip) {
     return 'Monthly';
 }
 
-function AmountCell({ label, amount, tone, onChange }) {
-    const editable = typeof onChange === 'function';
+function AmountCell({ label, amount, tone, onChange, max, disabled }) {
+    const cap = max == null ? null : money(max);
+    const locked = disabled || (cap != null && cap <= 0);
+    const editable = typeof onChange === 'function' && !locked;
     return (
         <div className="flex items-center gap-2">
             <input
                 type="number"
                 step="0.01"
+                min={0}
+                max={cap != null && cap > 0 ? cap : undefined}
+                disabled={locked}
                 readOnly={!editable}
                 value={moneyInputValue(amount)}
-                onChange={(e) => onChange?.(e.target.value)}
+                onChange={(e) => {
+                    if (!editable) return;
+                    const raw = e.target.value;
+                    onChange(cap != null ? clampThisMonthDeduction(raw, cap) : raw);
+                }}
                 className={`${editable ? FIELD : FIELD_RO} ${amountToneClass(tone)}`}
                 aria-label={`${label} amount`}
             />
@@ -516,10 +532,16 @@ export default function SalarySlipCards({ slip, onPatch }) {
         };
     });
     const lopTotal = money(lopRows.reduce((sum, row) => sum + money(row.amount), 0));
+    const balanceRows = buildSalarySlipBalanceRows(slip);
+    const deductionLimitByType = Object.fromEntries(
+        balanceRows.map((row) => [row.type, money(row.total)]),
+    );
 
     const otherDeductionRows = OTHER_DEDUCTION_ROWS.map((item, index) => {
         const amount = liveDeductionAmount(slip, item.name);
         const times = Number(otherTimes[item.timesKey]) || (amount > 0 ? 1 : 0);
+        const type = CARD_TO_BALANCE_TYPE[item.name];
+        const limit = type ? money(deductionLimitByType[type]) : null;
         return {
             key: item.name,
             sl: index + 1,
@@ -531,9 +553,15 @@ export default function SalarySlipCards({ slip, onPatch }) {
                     label={item.name}
                     amount={amount}
                     tone="deduct"
-                    onChange={(value) =>
-                        patchNamedComponent(onPatch, 'deductions', item.name, { amount: value })
-                    }
+                    max={limit}
+                    disabled={limit != null && limit <= 0}
+                    onChange={(value) => {
+                        if (type) {
+                            patchThisMonthDeduction(onPatch, type, value);
+                            return;
+                        }
+                        patchNamedComponent(onPatch, 'deductions', item.name, { amount: value });
+                    }}
                 />
             ),
         };
@@ -545,7 +573,6 @@ export default function SalarySlipCards({ slip, onPatch }) {
     const totalEarnings = money(monthlyEarningTotal + annualEarningTotal);
     const zohoSalary = money(totalEarnings - lopTotal);
     const netSalaryPayable = money(totalEarnings - lopTotal - otherDeductionTotal);
-    const balanceRows = buildSalarySlipBalanceRows(slip);
 
     return (
         <div className="flex w-full min-w-0 flex-col gap-3">
@@ -628,9 +655,12 @@ export default function SalarySlipCards({ slip, onPatch }) {
                 iconBg="bg-slate-50"
                 iconColor="text-slate-600"
                 title="Deduction"
-                subtitle="This employee only. Approved loan, fine, utility and salary advance. Balance = total − employee pay − this month salary deduction."
+                subtitle="This employee only. Unpaid prior-month loan, fine, utility and advance parts carry into this month. This month deduction cannot exceed Total. Remaining = Total − this month deduction."
             >
-                <BalanceScheduleTable rows={balanceRows} />
+                <BalanceScheduleTable
+                    rows={balanceRows}
+                    onThisMonthChange={(type, value) => patchThisMonthDeduction(onPatch, type, value)}
+                />
             </FineFormCard>
         </div>
     );
