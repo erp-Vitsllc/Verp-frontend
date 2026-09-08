@@ -100,6 +100,11 @@ function toMonthStartDate(value) {
     return month ? `${month}-01` : '';
 }
 
+function currentMonthKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
 /** First month whose 1st is after the joining date (VERP start is always day 1). */
 function firstVerpMonthAfterJoining(joiningDate) {
     if (!ISO.test(joiningDate)) return '';
@@ -107,6 +112,14 @@ function firstVerpMonthAfterJoining(joiningDate) {
     const month = Number(joiningDate.slice(5, 7));
     if (month === 12) return `${year + 1}-01`;
     return `${year}-${String(month + 1).padStart(2, '0')}`;
+}
+
+/** VERP start cannot be before the current month, or the month after joining. */
+function earliestSelectableVerpMonth(joiningDate) {
+    const afterJoining = firstVerpMonthAfterJoining(joiningDate);
+    const current = currentMonthKey();
+    if (!afterJoining) return current;
+    return afterJoining > current ? afterJoining : current;
 }
 
 function formatSignedDays(value) {
@@ -1535,8 +1548,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [showCreate, setShowCreate] = useState(false);
     const [showApprove, setShowApprove] = useState(false);
     const [showRevoke, setShowRevoke] = useState(false);
-    const [joiningModal, setJoiningModal] = useState(false);
-    const [pendingJoining, setPendingJoining] = useState('');
     const [reopenModal, setReopenModal] = useState(false);
     const [returnModal, setReturnModal] = useState(false);
     const [rejectModal, setRejectModal] = useState(false);
@@ -1546,8 +1557,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [resetPassword, setResetPassword] = useState('');
     const [resetPasswordVisible, setResetPasswordVisible] = useState(false);
     const [resetting, setResetting] = useState(false);
-    const lastFetchedVerpRef = useRef('');
-    const pendingJoiningRef = useRef('');
+    const lastFetchedPeriodRef = useRef('');
     const [savedSnapshot, setSavedSnapshot] = useState('');
 
     const applyPayload = useCallback((payload) => {
@@ -1575,7 +1585,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         setPaymentCycles(nextCycles);
         setLeaveComplete(nextLeaveComplete);
         setBenefitsComplete(nextBenefitsComplete);
-        lastFetchedVerpRef.current = nextVerp;
+        lastFetchedPeriodRef.current = `${nextJoining}|${nextVerp}`;
         setJoiningDateReason('');
         setSavedSnapshot(
             buildFormSnapshot({
@@ -1628,25 +1638,30 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     }, [employeeId, fetchProfile]);
 
     useEffect(() => {
-        if (!employeeId || loading || !verpStartDate || lastFetchedVerpRef.current === verpStartDate) return undefined;
+        if (!employeeId || loading || !verpStartDate || !joiningDate) return undefined;
+        const periodKey = `${joiningDate}|${verpStartDate}`;
+        if (lastFetchedPeriodRef.current === periodKey) return undefined;
         const handle = setTimeout(async () => {
             try {
                 const res = await axiosInstance.get(
                     `/Employee/salary-enroll/${encodeURIComponent(employeeId)}/historical`,
-                    { skipToast: true, params: { verpStartDate } },
+                    { skipToast: true, params: { verpStartDate, contractJoiningDate: joiningDate } },
                 );
-                lastFetchedVerpRef.current = verpStartDate;
+                lastFetchedPeriodRef.current = periodKey;
                 setData((prev) => ({
                     ...(prev || {}),
                     workingDays: res.data?.workingDays || 0,
                     weeklyOffs: res.data?.weeklyOffs || 0,
                     holidays: res.data?.holidays || 0,
                     calendarDays: res.data?.calendarDays || 0,
+                    historicalFrom: res.data?.historicalFrom || joiningDate,
                     historicalTo: res.data?.historicalTo || '',
                     cycleDays: res.data?.cycleDays || prev?.cycleDays,
                     policy: res.data?.policy || prev?.policy,
                     calculation: res.data?.calculation || prev?.calculation,
                     leaveMultipliers: res.data?.leaveMultipliers || prev?.leaveMultipliers,
+                    eligibleBalance: res.data?.eligibleBalance,
+                    liveAttendance: res.data?.liveAttendance || prev?.liveAttendance,
                 }));
                 setLeaveRecords((prev) =>
                     mergeServerLeave(
@@ -1659,7 +1674,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                         `/Employee/salary-enroll/${encodeURIComponent(employeeId)}/historical`,
                         {
                             verpStartDate,
-                            contractJoiningDate: res.data?.contractJoiningDate || joiningDate,
+                            contractJoiningDate: joiningDate,
                         },
                         { skipToast: true },
                     );
@@ -1669,7 +1684,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             }
         }, 280);
         return () => clearTimeout(handle);
-    }, [employeeId, verpStartDate, loading]);
+    }, [employeeId, joiningDate, verpStartDate, loading]);
 
     const historicalTo = verpStartDate ? addDays(verpStartDate, -1) : '';
     const cycleDays = policyLeaveWorkingDays(data?.policy, data?.cycleDays);
@@ -2341,22 +2356,10 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     <div className="relative">
                                                         {permissions.canChangeJoiningDate || (enrolled && isSalaryHr && !pendingHr) ? (
                                                             <DatePicker
-                                                                value={pendingJoining || joiningDate}
+                                                                value={joiningDate}
                                                                 onChange={(value) => {
-                                                                    if (!value || value === joiningDate) {
-                                                                        pendingJoiningRef.current = '';
-                                                                        setPendingJoining('');
-                                                                        return;
-                                                                    }
-                                                                    pendingJoiningRef.current = value;
-                                                                    setPendingJoining(value);
-                                                                }}
-                                                                onOpenChange={(open) => {
-                                                                    if (open) return;
-                                                                    const next = pendingJoiningRef.current;
-                                                                    if (next && next !== joiningDate) {
-                                                                        window.setTimeout(() => setJoiningModal(true), 150);
-                                                                    }
+                                                                    if (!value || value === joiningDate) return;
+                                                                    setJoiningDate(value);
                                                                 }}
                                                                 className="h-11 w-full rounded-lg"
                                                             />
@@ -2385,12 +2388,10 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         disabled={locked}
                                                         placeholder="Select month"
                                                         className="h-11 w-full rounded-lg"
-                                                        minMonth={firstVerpMonthAfterJoining(joiningDate) || undefined}
-                                                        fromYear={
-                                                            joiningDate && ISO.test(joiningDate)
-                                                                ? Number(joiningDate.slice(0, 4))
-                                                                : undefined
-                                                        }
+                                                        minMonth={earliestSelectableVerpMonth(joiningDate)}
+                                                        fromYear={Number(
+                                                            earliestSelectableVerpMonth(joiningDate).slice(0, 4),
+                                                        )}
                                                     />
                                                 </label>
                                                 <label className="block">
@@ -3062,24 +3063,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     </button>
                 </div>
             </ModalShell>
-            <ReasonModal
-                key={joiningModal ? 'joining-open' : 'joining-closed'}
-                open={joiningModal}
-                title="Reason for joining date change"
-                confirmLabel="Update date"
-                onClose={() => {
-                    setJoiningModal(false);
-                    pendingJoiningRef.current = '';
-                    setPendingJoining('');
-                }}
-                onConfirm={(reason) => {
-                    setJoiningDate(pendingJoining);
-                    setJoiningDateReason(reason);
-                    setJoiningModal(false);
-                    pendingJoiningRef.current = '';
-                    setPendingJoining('');
-                }}
-            />
             <ReasonModal
                 key={reopenModal ? 'reopen-open' : 'reopen-closed'}
                 open={reopenModal}

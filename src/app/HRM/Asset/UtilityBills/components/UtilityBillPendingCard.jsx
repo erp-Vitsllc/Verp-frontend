@@ -1,13 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, X } from 'lucide-react';
 import { formatAed } from '../utils/utilityBillStats';
 import { MONTH_OPTIONS } from '../utils/utilityOverviewStats';
 import { hexToRgba, utilityTypeColor, utilityTypeIcon } from '../utils/utilityTypeVisuals';
-
-const PREVIEW_COUNT = 5;
 
 function typeIndex(typeName, typeNames = []) {
     const i = typeNames.findIndex(
@@ -29,7 +27,7 @@ function periodBadge(row) {
     }
     if (row?.period === 'previous') {
         return {
-            label: monthName || 'Earlier month',
+            label: month ? month.label.slice(0, 3) : 'Earlier',
             className: 'bg-[#FDECEE] text-[#E11D48]',
         };
     }
@@ -39,14 +37,15 @@ function periodBadge(row) {
     };
 }
 
-function PendingRow({ row, typeNames, onNavigate }) {
+function PendingRow({ row, typeNames, onNavigate, showPeriodBadge = true }) {
     const index = typeIndex(row.type, typeNames);
     const color = utilityTypeColor(index);
     const Icon = utilityTypeIcon(row.type, index);
     const badge = periodBadge(row);
     const href = String(row.href || '').trim();
-    const className =
-        'grid h-9 w-full grid-cols-[minmax(0,1.15fr)_minmax(0,0.9fr)_auto] items-center gap-1.5 rounded-lg border px-2 py-1 text-left transition-shadow hover:shadow-sm';
+    const className = showPeriodBadge
+        ? 'grid h-9 w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-lg border px-1.5 py-1 text-left transition-shadow hover:shadow-sm'
+        : 'grid h-9 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-lg border px-1.5 py-1 text-left transition-shadow hover:shadow-sm';
     const body = (
         <>
             <div className="flex min-w-0 items-center gap-1.5">
@@ -61,14 +60,16 @@ function PendingRow({ row, typeNames, onNavigate }) {
                     <p className="truncate text-[8px] font-medium leading-tight text-[#94A3B8]">{row.type}</p>
                 </div>
             </div>
-            <p className="px-1 text-center text-[11px] font-bold tabular-nums text-[#1A2B48] sm:text-[12px]">
+            <p className="px-0.5 text-right text-[10px] font-bold tabular-nums text-[#1A2B48] sm:text-[11px]">
                 {formatAed(row.amount)}
             </p>
-            <span
-                className={`inline-flex shrink-0 justify-self-end whitespace-nowrap rounded-full px-2 py-0.5 text-[8px] font-semibold leading-none sm:text-[9px] ${badge.className}`}
-            >
-                {badge.label}
-            </span>
+            {showPeriodBadge ? (
+                <span
+                    className={`inline-flex shrink-0 justify-self-end whitespace-nowrap rounded-full px-1.5 py-0.5 text-[8px] font-semibold leading-none sm:text-[9px] ${badge.className}`}
+                >
+                    {badge.label}
+                </span>
+            ) : null}
         </>
     );
 
@@ -92,8 +93,68 @@ function PendingRow({ row, typeNames, onNavigate }) {
     );
 }
 
-function PendingBillsModal({ open, onClose, rows, typeNames, totalAmount }) {
+function PendingColumn({
+    title,
+    count,
+    amount,
+    rows,
+    typeNames,
+    emptyLabel,
+    showPeriodBadge,
+    headerClassName,
+    titleClassName,
+    countClassName,
+    amountClassName,
+}) {
+    return (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-1">
+            <div className={`flex h-[46px] shrink-0 flex-col justify-center rounded-lg border px-2 py-1 ${headerClassName}`}>
+                <p className={`text-[8px] font-bold uppercase tracking-[0.08em] leading-none sm:text-[9px] ${titleClassName}`}>
+                    {title}
+                </p>
+                <div className="mt-0.5 flex items-baseline justify-between gap-2">
+                    <p className={`text-[13px] font-extrabold leading-none ${countClassName}`}>
+                        {count} {count === 1 ? 'Bill' : 'Bills'}
+                    </p>
+                    <p className={`text-[10px] font-bold tabular-nums leading-none ${amountClassName}`}>
+                        {formatAed(amount)}
+                    </p>
+                </div>
+            </div>
+            {rows.length === 0 ? (
+                <div className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-[#E5EAF0] bg-[#F8FAFC] px-2">
+                    <p className="text-center text-[10px] leading-snug text-[#94A3B8]">{emptyLabel}</p>
+                </div>
+            ) : (
+                <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-0.5">
+                    {rows.map((row) => (
+                        <PendingRow
+                            key={row.id || `${row.type}-${row.subtitle}`}
+                            row={row}
+                            typeNames={typeNames}
+                            showPeriodBadge={showPeriodBadge}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function PendingBillsModal({
+    open,
+    onClose,
+    currentLabel,
+    currentRows,
+    previousRows,
+    typeNames,
+    totalAmount,
+}) {
     if (!open) return null;
+
+    const currentCount = currentRows.length;
+    const previousCount = previousRows.length;
+    const totalCount = currentCount + previousCount;
 
     return (
         <div
@@ -101,14 +162,14 @@ function PendingBillsModal({ open, onClose, rows, typeNames, totalAmount }) {
             onClick={onClose}
         >
             <div
-                className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+                className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 sm:px-5">
                     <div>
                         <h2 className="text-lg font-bold text-[#1A2B48]">All Pending Bills</h2>
                         <p className="mt-0.5 text-xs font-medium text-[#94A3B8]">
-                            {rows.length} {rows.length === 1 ? 'bill' : 'bills'} · {formatAed(totalAmount)}
+                            {totalCount} {totalCount === 1 ? 'bill' : 'bills'} · {formatAed(totalAmount)}
                         </p>
                     </div>
                     <button
@@ -120,19 +181,47 @@ function PendingBillsModal({ open, onClose, rows, typeNames, totalAmount }) {
                         <X size={20} />
                     </button>
                 </div>
-                <div className="space-y-1.5 overflow-y-auto px-4 py-3 sm:px-5">
-                    {rows.length === 0 ? (
-                        <p className="py-10 text-center text-sm text-[#94A3B8]">No pending bills.</p>
-                    ) : (
-                        rows.map((row) => (
-                            <PendingRow
-                                key={row.id || `${row.type}-${row.subtitle}`}
-                                row={row}
-                                typeNames={typeNames}
-                                onNavigate={onClose}
-                            />
-                        ))
-                    )}
+                <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto px-4 py-3 sm:grid-cols-2 sm:px-5">
+                    <div>
+                        <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#C2410C]">
+                            {currentLabel} pending
+                        </p>
+                        {currentCount === 0 ? (
+                            <p className="py-6 text-center text-sm text-[#94A3B8]">No pending bills.</p>
+                        ) : (
+                            <div className="space-y-1.5">
+                                {currentRows.map((row) => (
+                                    <PendingRow
+                                        key={row.id || `${row.type}-${row.subtitle}`}
+                                        row={row}
+                                        typeNames={typeNames}
+                                        onNavigate={onClose}
+                                        showPeriodBadge={false}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <div>
+                        <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#E11D48]">
+                            Previous Bill Pending
+                        </p>
+                        {previousCount === 0 ? (
+                            <p className="py-6 text-center text-sm text-[#94A3B8]">No pending bills.</p>
+                        ) : (
+                            <div className="space-y-1.5">
+                                {previousRows.map((row) => (
+                                    <PendingRow
+                                        key={row.id || `${row.type}-${row.subtitle}`}
+                                        row={row}
+                                        typeNames={typeNames}
+                                        onNavigate={onClose}
+                                        showPeriodBadge
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
                 <div className="flex justify-end border-t border-gray-100 px-4 py-3 sm:px-5">
                     <button
@@ -152,15 +241,9 @@ export default function UtilityBillPendingCard({ pending = {}, typeNames = [] })
     const [modalOpen, setModalOpen] = useState(false);
     const current = pending.current || { count: 0, amount: 0, rows: [] };
     const previous = pending.previous || { count: 0, amount: 0, rows: [] };
-    const windowRows = pending.windowRows || [];
-    const allRows = pending.allRows || [];
-
-    const previewRows = useMemo(() => windowRows.slice(0, PREVIEW_COUNT), [windowRows]);
-    const modalRows = allRows.length ? allRows : windowRows;
-    const modalTotal = modalRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-
+    const currentRows = current.rows || [];
+    const previousRows = previous.rows || [];
     const currentLabel = current.monthLabel || 'Previous month';
-    const previousLabel = previous.monthLabel || 'Earlier month';
 
     return (
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -169,56 +252,38 @@ export default function UtilityBillPendingCard({ pending = {}, typeNames = [] })
                     Bill Pending
                 </h3>
                 <p className="shrink-0 text-[10px] font-medium leading-tight text-[#94A3B8] sm:text-[11px]">
-                    {currentLabel} and {previousLabel}
+                    {currentLabel} and earlier
                 </p>
             </div>
 
-            <div className="mb-1.5 grid shrink-0 grid-cols-2 gap-1.5">
-                <div className="flex h-[46px] flex-col justify-center rounded-lg border border-[#FDBA74] bg-[#FFF7ED] px-2 py-1">
-                    <p className="text-[8px] font-bold uppercase tracking-[0.08em] leading-none text-[#C2410C] sm:text-[9px]">
-                        {currentLabel} Pending
-                    </p>
-                    <div className="mt-0.5 flex items-baseline justify-between gap-2">
-                        <p className="text-[13px] font-extrabold leading-none text-[#EA580C]">
-                            {current.count} {current.count === 1 ? 'Bill' : 'Bills'}
-                        </p>
-                        <p className="text-[10px] font-bold tabular-nums leading-none text-[#C2410C]">
-                            {formatAed(current.amount)}
-                        </p>
-                    </div>
-                </div>
-                <div className="flex h-[46px] flex-col justify-center rounded-lg border border-[#FECDD3] bg-[#FFF1F2] px-2 py-1">
-                    <p className="text-[8px] font-bold uppercase tracking-[0.08em] leading-none text-[#E11D48] sm:text-[9px]">
-                        {previousLabel} Pending
-                    </p>
-                    <div className="mt-0.5 flex items-baseline justify-between gap-2">
-                        <p className="text-[13px] font-extrabold leading-none text-[#E11D48]">
-                            {previous.count} {previous.count === 1 ? 'Bill' : 'Bills'}
-                        </p>
-                        <p className="text-[10px] font-bold tabular-nums leading-none text-[#BE123C]">
-                            {formatAed(previous.amount)}
-                        </p>
-                    </div>
-                </div>
+            <div className="flex min-h-0 flex-1 gap-1.5">
+                <PendingColumn
+                    title={`${currentLabel} Pending`}
+                    count={current.count}
+                    amount={current.amount}
+                    rows={currentRows}
+                    typeNames={typeNames}
+                    emptyLabel={`No pending bills for ${currentLabel}.`}
+                    showPeriodBadge={false}
+                    headerClassName="border-[#FDBA74] bg-[#FFF7ED]"
+                    titleClassName="text-[#C2410C]"
+                    countClassName="text-[#EA580C]"
+                    amountClassName="text-[#C2410C]"
+                />
+                <PendingColumn
+                    title="Previous Bill Pending"
+                    count={previous.count}
+                    amount={previous.amount}
+                    rows={previousRows}
+                    typeNames={typeNames}
+                    emptyLabel="No earlier pending bills."
+                    showPeriodBadge
+                    headerClassName="border-[#FECDD3] bg-[#FFF1F2]"
+                    titleClassName="text-[#E11D48]"
+                    countClassName="text-[#E11D48]"
+                    amountClassName="text-[#BE123C]"
+                />
             </div>
-
-            {previewRows.length === 0 ? (
-                <div className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-[#E5EAF0] bg-[#F8FAFC] px-3">
-                    <p className="text-center text-xs text-[#94A3B8]">
-                        No pending bills for {currentLabel} or {previousLabel}.
-                    </p>
-                </div>
-            ) : (
-                <div className="min-h-0 flex-1 space-y-1 overflow-hidden">
-                    {previewRows.map((row) => (
-                        <PendingRow
-                            key={row.id || `${row.type}-${row.subtitle}`}
-                            row={row}
-                            typeNames={typeNames}
-                        />
-                    ))}
-                </div>
-            )}
 
             <div className="mt-1 flex shrink-0 items-center justify-between gap-2 pt-0">
                 <p className="text-[12px] font-bold text-[#1A2B48]">
@@ -238,9 +303,11 @@ export default function UtilityBillPendingCard({ pending = {}, typeNames = [] })
             <PendingBillsModal
                 open={modalOpen}
                 onClose={() => setModalOpen(false)}
-                rows={modalRows}
+                currentLabel={currentLabel}
+                currentRows={currentRows}
+                previousRows={previousRows}
                 typeNames={typeNames}
-                totalAmount={modalTotal}
+                totalAmount={pending.totalAmount || 0}
             />
         </div>
     );

@@ -1,4 +1,4 @@
-import { shouldShowPaymentInHistory } from '@/utils/paymentStatusDisplay';
+import { isPaymentCountableTowardPaid, shouldShowPaymentInHistory } from '@/utils/paymentStatusDisplay';
 
 const RECEIPT_CACHE_PREFIX = 'verp:paymentReceipt:';
 
@@ -56,7 +56,7 @@ export function getFinePaymentsForDocuments(fine, allPayments = []) {
     const fineCode = String(fine.fineId || '');
 
     const matched = (allPayments || []).filter((p) => {
-        if (!shouldShowPaymentInHistory(p.status)) return false;
+        if (!isPaymentCountableTowardPaid(p.status)) return false;
         const type = String(p.relatedEntityType || '').trim();
         if (type && type !== 'Fine') return false;
         const refOk = fineCode && String(p.referenceId || '') === fineCode;

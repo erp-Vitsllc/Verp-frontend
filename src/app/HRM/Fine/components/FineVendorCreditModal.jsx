@@ -2,13 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Select from 'react-select';
-import { Loader2, Plus, Trash2, X } from 'lucide-react';
+import { Loader2, Plus, Trash2, Upload, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { useZohoOrganizations } from '@/hooks/useZohoOrganizations';
 import ZohoOrganizationPicker from '@/components/ZohoOrganizationPicker';
 import { mapZohoVendors } from '@/utils/zohoVendors';
 import { mapZohoLocations, mapZohoPaymentAccounts } from '@/utils/zohoVendorPayments';
+import {
+    ERP_ATTACHMENT_ACCEPT,
+    ERP_ATTACHMENT_HINT,
+    validateErpUploadFile,
+} from '@/utils/uploadFileTypes';
 
 const selectStyles = {
     control: (base, state) => ({
@@ -150,6 +155,15 @@ function computeTotals({ lines, taxes, taxLevel, isInclusive, discountPercent, t
     };
 }
 
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Could not read file'));
+        reader.readAsDataURL(file);
+    });
+}
+
 function newLine({ description = '', accountId = '', rate = '', taxId = '' } = {}) {
     return {
         key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -202,6 +216,7 @@ export default function FineVendorCreditModal({
     const [transactionTaxId, setTransactionTaxId] = useState('');
     const [discountPercent, setDiscountPercent] = useState('0');
     const [notes, setNotes] = useState('');
+    const [attachment, setAttachment] = useState(null);
     const [lines, setLines] = useState(() => [newLine()]);
     const [vendors, setVendors] = useState([]);
     const [accounts, setAccounts] = useState([]);
@@ -217,8 +232,9 @@ export default function FineVendorCreditModal({
         const description = `Fine ${fine.fineId || ''} · ${fine.fineType || ''}`.trim();
         setDate(todayInputValue());
         setVendorId(String(fine.zohoVendorId || '').trim());
-        setCreditNoteNumber('');
-        setOrderNumber(String(fine.fineId || '').trim());
+        const sourceId = String(fine.fineId || fine.loanId || fine.referenceId || '').trim();
+        setCreditNoteNumber(sourceId);
+        setOrderNumber(sourceId);
         setTaxTreatment('vat_registered');
         setPlaceOfSupply('DU');
         setIsInclusiveTax(false);
@@ -226,6 +242,7 @@ export default function FineVendorCreditModal({
         setTransactionTaxId('');
         setDiscountPercent('0');
         setNotes('');
+        setAttachment(null);
         setLines([
             newLine({
                 description,
@@ -354,6 +371,35 @@ export default function FineVendorCreditModal({
         setLines((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
     };
 
+    const handleAttachment = async (event) => {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file) return;
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid attachment',
+                description: check.message,
+            });
+            return;
+        }
+        try {
+            const data = await readFileAsDataUrl(file);
+            setAttachment({
+                name: file.name,
+                mimeType: file.type || '',
+                data: typeof data === 'string' ? data : '',
+            });
+        } catch {
+            toast({
+                variant: 'destructive',
+                title: 'Attachment failed',
+                description: 'Could not read the selected file.',
+            });
+        }
+    };
+
     const handleSave = async () => {
         if (!fine?._id && !fine?.fineId) {
             toast({ variant: 'destructive', title: 'Fine missing', description: 'Open a fine first.' });
@@ -437,6 +483,15 @@ export default function FineVendorCreditModal({
                 expenseAccountId: lines[0].accountId,
                 expenseAccountName: firstAccount?.name || firstAccount?.label || '',
                 line_items: lineItems,
+                ...(attachment?.data
+                    ? {
+                          attachment: {
+                              name: attachment.name,
+                              mimeType: attachment.mimeType,
+                              data: attachment.data,
+                          },
+                      }
+                    : {}),
             });
 
             toast({
@@ -519,7 +574,7 @@ export default function FineVendorCreditModal({
                                 value={creditNoteNumber}
                                 onChange={(e) => setCreditNoteNumber(e.target.value)}
                                 className={inputClass}
-                                placeholder="Auto from Zoho"
+                                placeholder="Fine / loan ID"
                             />
                         </div>
                         <div>
@@ -761,14 +816,45 @@ export default function FineVendorCreditModal({
                     </button>
 
                     <div className="flex flex-col md:flex-row gap-6">
-                        <div className="flex-1">
-                            <label className={labelMuted}>Notes</label>
-                            <textarea
-                                value={notes}
-                                onChange={(e) => setNotes(e.target.value)}
-                                rows={4}
-                                className="w-full px-3 py-2 border border-gray-300 rounded text-[13px] focus:outline-none focus:border-blue-500"
-                            />
+                        <div className="flex-1 space-y-3">
+                            <div>
+                                <label className={labelMuted}>Notes</label>
+                                <textarea
+                                    value={notes}
+                                    onChange={(e) => setNotes(e.target.value)}
+                                    rows={4}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded text-[13px] focus:outline-none focus:border-blue-500"
+                                />
+                            </div>
+                            <div>
+                                <label className={labelMuted}>Attachments</label>
+                                <label className="inline-flex cursor-pointer items-center gap-2 rounded border border-gray-300 bg-white px-3 py-2 text-[12px] font-semibold text-gray-700 hover:bg-gray-50">
+                                    <Upload size={14} />
+                                    Upload File
+                                    <input
+                                        type="file"
+                                        className="hidden"
+                                        accept={ERP_ATTACHMENT_ACCEPT}
+                                        onChange={(event) => void handleAttachment(event)}
+                                    />
+                                </label>
+                                {attachment?.name ? (
+                                    <div className="mt-1.5 flex items-center gap-2">
+                                        <span className="text-[12px] text-gray-600 truncate">
+                                            {attachment.name}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setAttachment(null)}
+                                            className="text-[11px] font-semibold text-rose-600 hover:underline"
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <p className="mt-1 text-[11px] text-gray-400">{ERP_ATTACHMENT_HINT}</p>
+                                )}
+                            </div>
                         </div>
                         <div className="w-full md:w-[280px] text-[13px] space-y-2">
                             <div className="flex justify-between">

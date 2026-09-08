@@ -195,9 +195,10 @@ export default function VehicleAccessFuelPanel({
         if (!canCreateMonthlyLimit) setLimitModalOpen(false);
     }, [canCreateMonthlyLimit]);
 
-    useEffect(() => {
-        if (!canCloseMonthlyFuel) setCloseMonthlyOpen(false);
-    }, [canCloseMonthlyFuel]);
+    const monthlyFuelBills = useMemo(
+        () => (added || []).filter((row) => row?._id && !row.noFuel),
+        [added],
+    );
 
     const visibleRows = useMemo(() => {
         if (selectedFilter === 'not-added') return notAdded;
@@ -380,15 +381,15 @@ export default function VehicleAccessFuelPanel({
                 ? 'Current month fuel records'
                 : 'Fuel added vehicles';
 
-    const printListedVehicles = () => {
-        if (!sortedRows.length) return;
+    const printVehicleList = (sourceRows, subtitle, fileSuffix) => {
+        if (!sourceRows.length) return;
         try {
             downloadAccessFuelListedVehiclesPdf({
                 title: 'Access Fuel',
-                subtitle: `${listTitle}${monthLabel ? ` — ${monthLabel}` : ''}`,
+                subtitle,
                 headers: FUEL_COLUMNS.map((column) => column.label),
-                rows: sortedRows.map((row) => [
-                    String(row.slNo ?? ''),
+                rows: sourceRows.map((row, index) => [
+                    String(row.slNo ?? index + 1),
                     row.vehicleName || '—',
                     row.plateNo || row.vehicleNumber || '—',
                     row.vehicleOwner || '—',
@@ -400,7 +401,7 @@ export default function VehicleAccessFuelPanel({
                 ]),
                 columnWeights: [8, 18, 12, 16, 14, 12, 12, 10, 12],
                 columnAlign: ['left', 'left', 'left', 'left', 'left', 'right', 'right', 'right', 'left'],
-                fileName: `access-fuel-${selectedFilter}-${monthKey}.pdf`,
+                fileName: `access-fuel-${fileSuffix}-${monthKey}.pdf`,
             });
         } catch (error) {
             toast({
@@ -410,6 +411,27 @@ export default function VehicleAccessFuelPanel({
             });
         }
     };
+
+    const printListedVehicles = () =>
+        printVehicleList(sortedRows, `${listTitle}${monthLabel ? ` — ${monthLabel}` : ''}`, selectedFilter);
+
+    const headerPrintRows = monthlyFuelBills.length
+        ? monthlyFuelBills
+        : sortedRows.length
+          ? sortedRows
+          : notAdded;
+    const printHeaderVehicles = () =>
+        printVehicleList(
+            headerPrintRows,
+            `${
+                monthlyFuelBills.length
+                    ? 'Fuel added vehicles'
+                    : sortedRows.length
+                      ? listTitle
+                      : 'Not added vehicles'
+            }${monthLabel ? ` — ${monthLabel}` : ''}`,
+            monthlyFuelBills.length ? 'added' : sortedRows.length ? selectedFilter : 'not-added',
+        );
 
     return (
         <div className="bg-white rounded-2xl border border-teal-200 shadow-sm mb-4 sm:mb-6 overflow-hidden">
@@ -430,6 +452,20 @@ export default function VehicleAccessFuelPanel({
                     </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                    <button
+                        type="button"
+                        onClick={printHeaderVehicles}
+                        disabled={loading || !headerPrintRows.length}
+                        title={
+                            headerPrintRows.length
+                                ? 'Print the listed vehicles'
+                                : 'No vehicles listed to print'
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 disabled:opacity-45 disabled:cursor-not-allowed"
+                    >
+                        <Printer size={14} />
+                        Print
+                    </button>
                     {allowManage ? (
                         <button
                             type="button"
@@ -577,10 +613,9 @@ export default function VehicleAccessFuelPanel({
             />
 
             <VehicleAccessFuelCloseMonthlyModal
-                isOpen={closeMonthlyOpen && canCloseMonthlyFuel}
+                isOpen={closeMonthlyOpen}
                 onClose={() => setCloseMonthlyOpen(false)}
                 onClosed={() => {
-                    setCloseMonthlyOpen(false);
                     loadList();
                 }}
                 bills={openMonthlyFuelBills}

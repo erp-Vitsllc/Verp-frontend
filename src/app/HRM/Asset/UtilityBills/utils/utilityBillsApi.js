@@ -32,6 +32,16 @@ export async function fetchUtilityOverviewBills() {
     return Array.isArray(res.data?.bills) ? res.data.bills : [];
 }
 
+/** Full bill for View Bill (includes attachment and Zoho fields). */
+export async function fetchUtilityBillById(id) {
+    const billId = String(id || '').trim();
+    if (!billId) return null;
+    const res = await axiosInstance.get(`/UtilityBill/${encodeURIComponent(billId)}`, {
+        skipToast: true,
+    });
+    return res.data?.bill || null;
+}
+
 export async function fetchUtilityEntry(id) {
     const res = await axiosInstance.get(`/UtilityBill/entries/${encodeURIComponent(String(id))}`, {
         skipToast: true,

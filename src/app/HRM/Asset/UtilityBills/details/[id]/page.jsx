@@ -361,6 +361,7 @@ function UtilityBillDetailsPageContent() {
     const [currentUser, setCurrentUser] = useState(null);
     const [flowchartRows, setFlowchartRows] = useState([]);
     const [reviewBatchId, setReviewBatchId] = useState('');
+    const [reviewBillId, setReviewBillId] = useState('');
     const [approvalActing, setApprovalActing] = useState(false);
     const [statusChangeOpen, setStatusChangeOpen] = useState(false);
     const [statusChangeSaving, setStatusChangeSaving] = useState(false);
@@ -373,6 +374,7 @@ function UtilityBillDetailsPageContent() {
     /** YYYY-MM from payment-day notification click. */
     const [addBillPrefillMonth, setAddBillPrefillMonth] = useState('');
     const [editEntryOpen, setEditEntryOpen] = useState(false);
+    const [resubmitBills, setResubmitBills] = useState(null);
 
     const focusBillId = searchParams?.get('billId') || '';
     const addBillFromQuery = String(searchParams?.get('addBill') || '') === '1';
@@ -539,6 +541,10 @@ function UtilityBillDetailsPageContent() {
     const approvalCanEdit = approvalCanAct || approvalCanPay;
     const approvalCanCreatorResend = Boolean(
         approvalIsPending && latestApprovalRequest?.canCreatorResend && !approvalCanAct,
+    );
+    const approvalCanResubmitRejected = Boolean(
+        String(latestApprovalRequest?.status || '') === 'Rejected' &&
+            latestApprovalRequest?.canCreatorResend,
     );
     const approvalRequesterName =
         String(latestApprovalRequest?.requestedByName || '').trim() || '—';
@@ -797,39 +803,56 @@ function UtilityBillDetailsPageContent() {
                       attachment: payload.attachment || null,
                   },
               ];
+        const mappedRows = rows.map((row) => ({
+            billId: row.billId || row._id || '',
+            entryId: entry.id,
+            actualAmount: row.actualAmount,
+            contractAmount: row.contractAmount ?? monthlyRental,
+            accountNo: row.accountNo || entry.values?.accountNumber || '',
+            provider: row.provider || entry.values?.provider || '',
+            paymentDay: row.paymentDay ?? entry.values?.paymentDay ?? entry.values?.paymentDate,
+            billNumber: row.billNumber,
+            billDate: row.billDate || '',
+            expenseAccountId: row.expenseAccountId || payload.expenseAccountId,
+            expenseAccountName: row.expenseAccountName || payload.expenseAccountName,
+            partyAccountId: row.partyAccountId || '',
+            partyAccountName: row.partyAccountName || '',
+            partyAccountCode: row.partyAccountCode || '',
+            differenceAmount: row.difference,
+            payBy: row.payBy,
+            companyDiffAmount: row.companyDiffAmount,
+            employeeDiffAmount: row.employeeDiffAmount,
+            companyPayAmount: row.companyPayAmount,
+            employeePayAmount: row.employeePayAmount,
+            payByCompanyId: row.payByCompanyId,
+            payByCompanyName: row.payByCompanyName,
+            payByEmployeeId: row.payByEmployeeId,
+            payByEmployeeName: row.payByEmployeeName,
+            attachment: row.attachment || null,
+            lineItems: Array.isArray(row.lineItems) ? row.lineItems : [],
+        }));
         setSavingBill(true);
         try {
+            if (payload.isEdit && payload.editBatchId) {
+                await axiosInstance.put(`/UtilityBill/batch/${payload.editBatchId}`, {
+                    resend: true,
+                    rows: mappedRows,
+                });
+                if (!payload.keepOpen) {
+                    setAddBillOpen(false);
+                    setResubmitBills(null);
+                    setViewBill(null);
+                }
+                invalidateAssetPendingInbox('tools');
+                clearModuleNotificationFeedsCache();
+                loadBills();
+                return { ok: true };
+            }
             const res = await axiosInstance.post('/UtilityBill/batch', {
                 utilityType: entry.type,
                 billMonth: payload.billMonth,
                 notes: payload.notes || '',
-                rows: rows.map((row) => ({
-                    entryId: entry.id,
-                    actualAmount: row.actualAmount,
-                    contractAmount: row.contractAmount ?? monthlyRental,
-                    accountNo: row.accountNo || entry.values?.accountNumber || '',
-                    provider: row.provider || entry.values?.provider || '',
-                    paymentDay: row.paymentDay ?? entry.values?.paymentDay ?? entry.values?.paymentDate,
-                    billNumber: row.billNumber,
-                    billDate: row.billDate || '',
-                    expenseAccountId: row.expenseAccountId || payload.expenseAccountId,
-                    expenseAccountName: row.expenseAccountName || payload.expenseAccountName,
-                    partyAccountId: row.partyAccountId || '',
-                    partyAccountName: row.partyAccountName || '',
-                    partyAccountCode: row.partyAccountCode || '',
-                    differenceAmount: row.difference,
-                    payBy: row.payBy,
-                    companyDiffAmount: row.companyDiffAmount,
-                    employeeDiffAmount: row.employeeDiffAmount,
-                    companyPayAmount: row.companyPayAmount,
-                    employeePayAmount: row.employeePayAmount,
-                    payByCompanyId: row.payByCompanyId,
-                    payByCompanyName: row.payByCompanyName,
-                    payByEmployeeId: row.payByEmployeeId,
-                    payByEmployeeName: row.payByEmployeeName,
-                    attachment: row.attachment || null,
-                    lineItems: Array.isArray(row.lineItems) ? row.lineItems : [],
-                })),
+                rows: mappedRows,
             });
             if (payload.clearDraftOnSuccess) {
                 clearUtilityBillDraft(entry.type);
@@ -847,7 +870,7 @@ function UtilityBillDetailsPageContent() {
         } catch (err) {
             toast({
                 variant: 'destructive',
-                title: 'Could not submit bill',
+                title: payload.isEdit ? 'Could not send bill again' : 'Could not submit bill',
                 description: err?.response?.data?.message || 'Please try again.',
             });
             return { ok: false };
@@ -957,27 +980,55 @@ function UtilityBillDetailsPageContent() {
         }
     };
 
+    const openRejectedResubmit = (bill) => {
+        if (!bill?._id) return;
+        setViewBill(null);
+        setReviewBatchId('');
+        setReviewBillId('');
+        setAddBillOpen(false);
+        setResubmitBills([bill]);
+    };
+
     const openBillReview = (bill) => {
+        if (String(bill?.status || '') === 'Rejected') {
+            openRejectedResubmit(bill);
+            return;
+        }
+        if (bill?.canCreatorResend && !bill?.canApproveReject) {
+            setViewBill(null);
+            setReviewBatchId('');
+            setReviewBillId('');
+            setAddBillOpen(false);
+            setResubmitBills([bill]);
+            return;
+        }
         const id = bill?.batchId || bill?._id;
         if (!id) return;
         setViewBill(null);
+        setResubmitBills(null);
+        setReviewBillId(String(bill?._id || ''));
         setReviewBatchId(String(id));
     };
 
     const closeBillReview = () => {
         setReviewBatchId('');
+        setReviewBillId('');
     };
 
     const handleHeaderApproval = async (decision) => {
         const id = latestApprovalRequest?.batchId || latestApprovalRequest?._id;
-        if (!id || !approvalCanAct || approvalActing) return;
+        const billId = String(latestApprovalRequest?._id || '').trim();
+        if (!id || !billId || !approvalCanAct || approvalActing) return;
         if (decision === 'reject') {
             const ok = window.confirm('Reject this bill request?');
             if (!ok) return;
         }
         setApprovalActing(true);
         try {
-            const res = await axiosInstance.put(`/UtilityBill/batch/${id}/respond`, { decision });
+            const res = await axiosInstance.put(`/UtilityBill/batch/${id}/respond`, {
+                decision,
+                rows: billId ? [{ billId, entryId: latestApprovalRequest?.entryId || '' }] : [],
+            });
             const label = String(res.data?.statusLabel || res.data?.status || '');
             const returnedTo = String(res.data?.returnedTo || '').toLowerCase();
             const zohoSync = Array.isArray(res.data?.zohoSync) ? res.data.zohoSync : [];
@@ -1445,11 +1496,15 @@ function UtilityBillDetailsPageContent() {
                                             <button
                                                 type="button"
                                                 onClick={openBatchReview}
-                                                title="Edit and resend to the next approver"
+                                                title={
+                                                    bill.status === 'Rejected'
+                                                        ? 'Edit this rejected bill and send it again'
+                                                        : 'Edit and resend to the next approver'
+                                                }
                                                 className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-white border border-teal-200 text-teal-700 hover:bg-teal-50 text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
                                             >
                                                 <Pencil size={12} />
-                                                Edit and Resend
+                                                {bill.status === 'Rejected' ? 'Edit' : 'Edit and Resend'}
                                             </button>
                                         ) : null}
                                         {canAdminDelete ? (
@@ -1811,7 +1866,20 @@ function UtilityBillDetailsPageContent() {
                                             </div>
 
                                             <div className="grid grid-cols-2 gap-1.5 sm:gap-2 shrink-0">
-                                                {approvalCanCreatorResend ? (
+                                                {approvalCanResubmitRejected ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={approvalActing}
+                                                        onClick={() =>
+                                                            openRejectedResubmit(latestApprovalRequest)
+                                                        }
+                                                        title="Edit this rejected bill and send it again"
+                                                        className="col-span-2 inline-flex items-center justify-center gap-1 rounded-lg border border-teal-200 bg-white px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-teal-700 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    >
+                                                        <Pencil size={12} />
+                                                        Edit
+                                                    </button>
+                                                ) : approvalCanCreatorResend ? (
                                                     <button
                                                         type="button"
                                                         disabled={approvalActing}
@@ -1844,7 +1912,7 @@ function UtilityBillDetailsPageContent() {
                                                 ) : (
                                                     <span />
                                                 )}
-                                                {approvalCanCreatorResend ? null : approvalCanPay ? (
+                                                {approvalCanCreatorResend || approvalCanResubmitRejected ? null : approvalCanPay ? (
                                                     <button
                                                         type="button"
                                                         disabled={approvalActing}
@@ -2115,11 +2183,12 @@ function UtilityBillDetailsPageContent() {
             />
 
             <AddBillModal
-                isOpen={addBillOpen || Boolean(viewBill)}
+                isOpen={addBillOpen || Boolean(viewBill) || Boolean(resubmitBills?.length)}
                 onClose={() => {
-                    const id = viewBill?._id;
+                    const id = viewBill?._id || resubmitBills?.[0]?._id;
                     setAddBillOpen(false);
                     setViewBill(null);
+                    setResubmitBills(null);
                     setAddBillPrefillMonth('');
                     if (id) {
                         window.setTimeout(() => {
@@ -2131,7 +2200,7 @@ function UtilityBillDetailsPageContent() {
                     }
                 }}
                 entries={
-                    viewBill
+                    viewBill || resubmitBills?.length
                         ? entry
                             ? [entry]
                             : []
@@ -2146,6 +2215,16 @@ function UtilityBillDetailsPageContent() {
                 onSubmit={handleAddBill}
                 saving={savingBill || savingLineAccounts}
                 viewBill={viewBill}
+                editBills={resubmitBills}
+                editBatchId={String(resubmitBills?.[0]?.batchId || '')}
+                creatorResend={Boolean(resubmitBills?.length)}
+                onEditViewBill={(bill) => {
+                    if (String(bill?.status || '') === 'Rejected') {
+                        openRejectedResubmit(bill);
+                        return;
+                    }
+                    openBillReview(bill);
+                }}
                 accountsCanEditLines={viewBillAllowsAccountsLineEdit}
                 onAccountsSaveLines={handleAccountsSaveLines}
                 initialBillMonth={addBillPrefillMonth}
@@ -2154,6 +2233,7 @@ function UtilityBillDetailsPageContent() {
             <UtilityBillReviewModal
                 isOpen={Boolean(reviewBatchId)}
                 batchId={reviewBatchId}
+                focusBillId={reviewBillId}
                 entries={entry ? [entry] : []}
                 existingBills={bills}
                 utilityAttachment={utilityConfig?.attachment || null}

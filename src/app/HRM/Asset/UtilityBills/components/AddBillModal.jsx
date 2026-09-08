@@ -1040,9 +1040,14 @@ export default function AddBillModal({
     onAccountsSaveLines = null,
     /** YYYY-MM from a payment-day notification — open Add Bills on that month. */
     initialBillMonth = '',
+    /** From view mode: open the same bill for edit / resend. */
+    onEditViewBill = null,
 }) {
     const isViewMode = Boolean(viewBill) && !editBills;
     const isEditMode = Array.isArray(editBills) && editBills.length > 0;
+    const isRejectedResubmit =
+        isEditMode &&
+        (editBills || []).some((bill) => String(bill?.status || '') === 'Rejected');
     const accountPayableEditable = Boolean(isViewMode && accountsCanEditLines);
     const [rows, setRows] = useState([]);
     const [error, setError] = useState('');
@@ -1396,7 +1401,9 @@ export default function AddBillModal({
             setRows(editRows);
             setDraftLoaded(false);
             setInfo(
-                creatorResend
+                isRejectedResubmit
+                    ? 'This bill was rejected. Edit it, then Edit and Resend to send it through the same approval flow.'
+                    : creatorResend
                     ? 'Edit the bill you submitted, then Edit and Resend to the next approver. This button goes after they act.'
                     : 'Edit bill details (Accounts / expense lines / amounts). Save, then Retry Zoho or Pay.',
             );
@@ -1507,7 +1514,7 @@ export default function AddBillModal({
         }
         // Re-filter only when occupancy actually changes (billed ids for this month).
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen, listEntries, occupancyBills, monthlyRental, utilityType, viewBill, editBills, isEditMode, creatorResend, initialBillMonth, applyBillMonth]);
+    }, [isOpen, listEntries, occupancyBills, monthlyRental, utilityType, viewBill, editBills, isEditMode, isRejectedResubmit, creatorResend, initialBillMonth, applyBillMonth]);
 
     const allSelected = rows.length > 0 && rows.every((r) => r.selected);
     const someSelected = rows.some((r) => r.selected);
@@ -2517,6 +2524,18 @@ export default function AddBillModal({
                         >
                             {isViewMode ? 'Close' : 'Cancel'}
                         </button>
+                        {isViewMode &&
+                        String(viewBill?.status || '') === 'Rejected' &&
+                        viewBill?.canCreatorResend &&
+                        typeof onEditViewBill === 'function' ? (
+                            <button
+                                type="button"
+                                onClick={() => onEditViewBill(viewBill)}
+                                className="px-4 py-2 rounded-xl border border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-900 text-sm font-semibold"
+                            >
+                                Edit
+                            </button>
+                        ) : null}
                         {!isViewMode ? (
                             <>
                                 {!isEditMode ? (

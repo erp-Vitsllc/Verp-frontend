@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Printer, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -21,21 +21,74 @@ export default function VehicleAccessFuelCloseMonthlyModal({
     monthLabel,
 }) {
     const { toast } = useToast();
+    const sessionKeyRef = useRef('');
     const [selected, setSelected] = useState(() => new Set());
+    const [listedRows, setListedRows] = useState([]);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
 
-    const rows = useMemo(
-        () => (Array.isArray(bills) ? bills : []).filter((row) => row?._id && row.status !== 'closed'),
+    const incoming = useMemo(
+        () => (Array.isArray(bills) ? bills : []).filter((row) => row?._id && !row.noFuel),
         [bills],
     );
 
+    const rows = useMemo(
+        () => listedRows.filter((row) => row.status !== 'closed'),
+        [listedRows],
+    );
+
+    const printRows = listedRows;
+
+    useEffect(() => {
+        if (!isOpen) {
+            sessionKeyRef.current = '';
+            setListedRows([]);
+            setSelected(new Set());
+            setError('');
+            setSaving(false);
+            return;
+        }
+
+        const session = String(monthKey || '');
+        if (sessionKeyRef.current !== session) {
+            sessionKeyRef.current = session;
+            setListedRows(incoming);
+            setSelected(new Set());
+            setError('');
+            setSaving(false);
+            return;
+        }
+
+        setListedRows((current) => {
+            if (!current.length) return incoming;
+            const nextById = new Map(incoming.map((row) => [String(row._id), row]));
+            const seen = new Set();
+            const merged = current.map((row) => {
+                const id = String(row._id);
+                seen.add(id);
+                return nextById.get(id) || { ...row, status: 'closed' };
+            });
+            incoming.forEach((row) => {
+                const id = String(row._id);
+                if (!seen.has(id)) merged.push(row);
+            });
+            return merged;
+        });
+    }, [isOpen, monthKey, incoming]);
+
     useEffect(() => {
         if (!isOpen) return;
-        setSelected(new Set());
-        setError('');
-        setSaving(false);
-    }, [isOpen, monthKey]);
+        setSelected((current) => {
+            const openIds = new Set(rows.map((row) => String(row._id)));
+            let changed = false;
+            const next = new Set();
+            current.forEach((id) => {
+                if (openIds.has(id)) next.add(id);
+                else changed = true;
+            });
+            return changed ? next : current;
+        });
+    }, [isOpen, rows]);
 
     if (!isOpen) return null;
 
@@ -63,21 +116,22 @@ export default function VehicleAccessFuelCloseMonthlyModal({
     };
 
     const printListedVehicles = () => {
-        if (!rows.length) return;
+        if (!printRows.length) return;
         try {
             downloadAccessFuelListedVehiclesPdf({
                 title: 'Close monthly fuel',
                 subtitle: monthLabel || monthKey || 'Selected month',
-                headers: ['Sl', 'Vehicle no', 'Name', 'Owner', 'Amount used'],
-                rows: rows.map((row, index) => [
+                headers: ['Sl', 'Vehicle no', 'Name', 'Owner', 'Amount used', 'Status'],
+                rows: printRows.map((row, index) => [
                     String(index + 1),
                     row.plateNo || row.vehicleNumber || '—',
                     row.vehicleName || '—',
                     row.vehicleOwner || '—',
                     formatAmount(row.amountUsed),
+                    row.status === 'closed' ? 'Closed' : 'Open',
                 ]),
-                columnWeights: [8, 16, 24, 32, 20],
-                columnAlign: ['left', 'left', 'left', 'left', 'right'],
+                columnWeights: [8, 16, 22, 26, 16, 12],
+                columnAlign: ['left', 'left', 'left', 'left', 'right', 'left'],
                 fileName: `close-monthly-fuel-${monthKey || 'month'}.pdf`,
             });
         } catch (err) {
@@ -106,6 +160,13 @@ export default function VehicleAccessFuelCloseMonthlyModal({
                 title: 'Monthly fuel closed',
                 description: res.data?.message || 'Selected fuel bills are closed.',
             });
+            const closedIds = new Set(billIds);
+            setListedRows((current) =>
+                current.map((row) =>
+                    closedIds.has(String(row._id)) ? { ...row, status: 'closed' } : row,
+                ),
+            );
+            setSelected(new Set());
             onClosed?.();
         } catch (err) {
             toast({
@@ -127,7 +188,7 @@ export default function VehicleAccessFuelCloseMonthlyModal({
                             Close monthly fuel
                         </h3>
                         <p className="text-xs text-slate-500 mt-1">
-                            {monthLabel || 'Selected month'} — Close checked open fuel bills. Closed vehicles will not appear here again. Email goes to the owner, or their HOD if they have no company email, and HR.
+                            {monthLabel || 'Selected month'} — Close checked open fuel bills. Print stays available after close for the vehicles listed here. Email goes to the owner, or their HOD if they have no company email, and HR.
                         </p>
                     </div>
                     <button
@@ -141,7 +202,7 @@ export default function VehicleAccessFuelCloseMonthlyModal({
                 </div>
 
                 <div className="overflow-auto flex-1">
-                    {rows.length ? (
+                    {printRows.length ? (
                         <table className="w-full text-sm border-collapse min-w-[640px]">
                             <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
                                 <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
@@ -153,7 +214,7 @@ export default function VehicleAccessFuelCloseMonthlyModal({
                                                 if (el) el.indeterminate = someChecked && !allChecked;
                                             }}
                                             onChange={toggleAll}
-                                            disabled={saving}
+                                            disabled={saving || !rows.length}
                                             aria-label="Select all"
                                         />
                                     </th>
@@ -165,18 +226,25 @@ export default function VehicleAccessFuelCloseMonthlyModal({
                                 </tr>
                             </thead>
                             <tbody>
-                                {rows.map((row, index) => {
+                                {printRows.map((row, index) => {
                                     const id = String(row._id);
+                                    const closed = row.status === 'closed';
                                     return (
                                         <tr key={id} className="border-b border-slate-100">
                                             <td className="px-4 py-2.5">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selected.has(id)}
-                                                    onChange={() => toggleRow(id)}
-                                                    disabled={saving}
-                                                    aria-label={`Select ${row.plateNo || row.vehicleName || 'vehicle'}`}
-                                                />
+                                                {closed ? (
+                                                    <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-500">
+                                                        Closed
+                                                    </span>
+                                                ) : (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selected.has(id)}
+                                                        onChange={() => toggleRow(id)}
+                                                        disabled={saving}
+                                                        aria-label={`Select ${row.plateNo || row.vehicleName || 'vehicle'}`}
+                                                    />
+                                                )}
                                             </td>
                                             <td className="px-4 py-2.5 text-slate-600 font-semibold tabular-nums">
                                                 {index + 1}
@@ -207,9 +275,9 @@ export default function VehicleAccessFuelCloseMonthlyModal({
                         <button
                             type="button"
                             onClick={printListedVehicles}
-                            disabled={saving || !rows.length}
+                            disabled={saving || !printRows.length}
                             title={
-                                rows.length
+                                printRows.length
                                     ? 'Download the vehicles listed now as PDF'
                                     : 'No vehicles listed to print'
                             }
@@ -225,7 +293,7 @@ export default function VehicleAccessFuelCloseMonthlyModal({
                         disabled={saving}
                         className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 disabled:opacity-50"
                     >
-                        Cancel
+                        {rows.length ? 'Cancel' : 'Done'}
                     </button>
                     <button
                         type="button"

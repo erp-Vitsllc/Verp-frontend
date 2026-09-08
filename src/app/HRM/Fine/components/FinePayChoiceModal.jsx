@@ -3,7 +3,7 @@
 import { Receipt, UserCheck, Wallet, X } from 'lucide-react';
 
 /**
- * First step after Pay: Expense Refund, Vendor Credit, or Pay by Employee.
+ * First step after Pay: Expense Refund, Vendor Credit, and optionally Pay by Employee.
  */
 export default function FinePayChoiceModal({
     isOpen,
@@ -11,9 +11,12 @@ export default function FinePayChoiceModal({
     onExpenseRefund,
     onVendorCredit,
     onEmployeePay,
+    showEmployeePay = true,
     fineId = '',
 }) {
     if (!isOpen) return null;
+
+    const showEmployeeOption = showEmployeePay && typeof onEmployeePay === 'function';
 
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/45">
@@ -36,7 +39,7 @@ export default function FinePayChoiceModal({
                     </button>
                 </div>
 
-                <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className={`p-5 grid grid-cols-1 gap-3 ${showEmployeeOption ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
                     <button
                         type="button"
                         onClick={onExpenseRefund}
@@ -61,17 +64,19 @@ export default function FinePayChoiceModal({
                         </span>
                     </button>
 
-                    <button
-                        type="button"
-                        onClick={onEmployeePay}
-                        className="flex flex-col items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-4 text-left hover:border-amber-400 hover:bg-amber-100/80 transition-colors"
-                    >
-                        <UserCheck className="text-amber-800" size={22} />
-                        <span className="text-sm font-semibold text-amber-900">Pay by Employee</span>
-                        <span className="text-[11px] text-amber-800/80 leading-snug">
-                            Salary or cash. Emails the same receipt invoice to the employee.
-                        </span>
-                    </button>
+                    {showEmployeeOption ? (
+                        <button
+                            type="button"
+                            onClick={onEmployeePay}
+                            className="flex flex-col items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-4 text-left hover:border-amber-400 hover:bg-amber-100/80 transition-colors"
+                        >
+                            <UserCheck className="text-amber-800" size={22} />
+                            <span className="text-sm font-semibold text-amber-900">Pay by Employee</span>
+                            <span className="text-[11px] text-amber-800/80 leading-snug">
+                                Salary or cash. Emails the same receipt invoice to the employee.
+                            </span>
+                        </button>
+                    ) : null}
                 </div>
             </div>
         </div>

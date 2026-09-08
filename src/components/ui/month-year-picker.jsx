@@ -130,13 +130,25 @@ export function MonthYearPicker({
         })
     }
 
+    const now = new Date()
+    const currentMonthIndex = now.getMonth()
+    const currentYearNow = now.getFullYear()
+    const previousMonthDate = new Date(currentYearNow, currentMonthIndex - 1, 1)
+    const previousMonthIndex = previousMonthDate.getMonth()
+    const previousYearNow = previousMonthDate.getFullYear()
+
     const goToCurrentMonth = () => {
-        const now = new Date()
-        if (isMonthDisabled(now.getMonth(), now.getFullYear())) return
-        applyMonth(now.getMonth(), now.getFullYear())
+        if (isMonthDisabled(currentMonthIndex, currentYearNow)) return
+        applyMonth(currentMonthIndex, currentYearNow)
     }
 
-    const currentMonthDisabled = isMonthDisabled(new Date().getMonth(), new Date().getFullYear())
+    const goToPreviousMonth = () => {
+        if (isMonthDisabled(previousMonthIndex, previousYearNow)) return
+        applyMonth(previousMonthIndex, previousYearNow)
+    }
+
+    const currentMonthDisabled = isMonthDisabled(currentMonthIndex, currentYearNow)
+    const previousMonthDisabled = isMonthDisabled(previousMonthIndex, previousYearNow)
 
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>
@@ -208,6 +220,8 @@ export function MonthYearPicker({
                         {MONTH_LABELS.map((month, index) => {
                             const isSelected =
                                 date && date.getMonth() === index && date.getFullYear() === year
+                            const isCurrentMonth = index === currentMonthIndex && year === currentYearNow
+                            const isPreviousMonth = index === previousMonthIndex && year === previousYearNow
                             const monthDisabled = isMonthDisabled(index, year)
                             return (
                                 <Button
@@ -215,13 +229,24 @@ export function MonthYearPicker({
                                     type="button"
                                     variant="ghost"
                                     disabled={monthDisabled}
+                                    title={
+                                        isPreviousMonth
+                                            ? "Previous month"
+                                            : isCurrentMonth
+                                              ? "Current month"
+                                              : undefined
+                                    }
                                     className={cn(
                                         "h-11 text-sm font-medium rounded-xl transition-all",
                                         monthDisabled
                                             ? "text-slate-300 cursor-not-allowed opacity-50 hover:bg-transparent hover:text-slate-300"
                                             : isSelected
                                               ? "bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-200"
-                                              : "hover:bg-blue-50 hover:text-blue-600 text-slate-600",
+                                              : isPreviousMonth
+                                                ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200 hover:bg-blue-100"
+                                                : isCurrentMonth
+                                                  ? "text-blue-600 ring-1 ring-blue-300 hover:bg-blue-50"
+                                                  : "hover:bg-blue-50 hover:text-blue-600 text-slate-600",
                                     )}
                                     onClick={() => applyMonth(index)}
                                 >
@@ -231,13 +256,27 @@ export function MonthYearPicker({
                         })}
                     </div>
 
-                    <div className="flex border-t border-slate-100 pt-3">
+                    <div className="flex flex-col border-t border-slate-100 pt-2">
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            disabled={previousMonthDisabled}
+                            className={cn(
+                                "w-full text-[11px] font-bold uppercase tracking-wider h-9",
+                                previousMonthDisabled
+                                    ? "text-slate-300 cursor-not-allowed hover:bg-transparent"
+                                    : "text-blue-600 hover:bg-blue-50",
+                            )}
+                            onClick={goToPreviousMonth}
+                        >
+                            Previous month
+                        </Button>
                         <Button
                             type="button"
                             variant="ghost"
                             disabled={currentMonthDisabled}
                             className={cn(
-                                "w-full text-[11px] font-bold uppercase tracking-wider h-10",
+                                "w-full text-[11px] font-bold uppercase tracking-wider h-9",
                                 currentMonthDisabled
                                     ? "text-slate-300 cursor-not-allowed hover:bg-transparent"
                                     : "text-blue-600 hover:bg-blue-50",

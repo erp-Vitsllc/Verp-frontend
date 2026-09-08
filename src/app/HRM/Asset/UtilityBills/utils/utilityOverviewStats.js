@@ -4,6 +4,7 @@ import { getMonthlyRentalAmount, isEntryActive, normalizePaymentDay, entryRequir
 import {
     billDisplayStatus,
     entryAvailableFromMonth,
+    isUnpaidUtilityBill,
     normalizeBillMonthKey,
 } from './utilityBillStats';
 
@@ -179,8 +180,14 @@ function calendarPreviousMonthKey(refDate = new Date()) {
     return calendarMonthKeyOffset(refDate, 1);
 }
 
-function calendarTwoMonthsAgoKey(refDate = new Date()) {
-    return calendarMonthKeyOffset(refDate, 2);
+function findEntryById(entries = [], entryId = '') {
+    const id = String(entryId || '').trim();
+    if (!id) return null;
+    return (
+        (Array.isArray(entries) ? entries : []).find(
+            (entry) => String(entry?.id || entry?._id || '').trim() === id,
+        ) || null
+    );
 }
 
 export function monthLabelFromYm(ym) {
@@ -288,11 +295,12 @@ export function buildPaidBillRows({ bills = [], refDate = new Date() } = {}) {
 }
 
 /**
- * Bills not yet created through the last payable bill month (previous calendar month).
- * Once any bill exists for that entry + month, it is not pending — status, approval, and Zoho do not matter.
+ * Pending rows through the last payable bill month (previous calendar month):
+ * months with no bill created, plus created bills that are not paid / not rejected.
  */
 export function buildUnpaidBillRows({ bills = [], entries = [], refDate = new Date() } = {}) {
     const list = Array.isArray(bills) ? bills : [];
+    const lastPayableYm = calendarPreviousMonthKey(refDate);
 
     const billsByEntryMonth = new Set();
     for (const bill of list) {
@@ -333,7 +341,16 @@ export function buildUnpaidBillRows({ bills = [], entries = [], refDate = new Da
         }
     }
 
-    return missingBillRows.sort(sortOverviewBillRows);
+    const unpaidCreatedRows = [];
+    for (const bill of list) {
+        if (!isUnpaidUtilityBill(bill)) continue;
+        const ym = normalizeBillMonthKey(bill?.billMonth);
+        if (!ym || ym > lastPayableYm) continue;
+        const entry = findEntryById(entries, bill?.entryId);
+        unpaidCreatedRows.push(mapBillToOverviewRow(bill, entry));
+    }
+
+    return [...missingBillRows, ...unpaidCreatedRows].sort(sortOverviewBillRows);
 }
 
 /** Active (not expired) contracts with an end date, soonest end first. */
@@ -443,23 +460,27 @@ function sumOverviewRows(rows = []) {
 }
 
 /**
- * Bills not yet created, split into last payable month vs the month before
- * (June bill is payable in July; in August the boxes are July / June).
+ * Pending bills split into:
+ * - current: last payable month only (previous calendar month), with a month name
+ * - previous: every older pending month (two months ago back to the entry create month), no month name
  */
 export function buildPendingBillOverview({ bills = [], entries = [], refDate = new Date() } = {}) {
     const unpaid = buildUnpaidBillRows({ bills, entries, refDate });
     const currentYm = calendarPreviousMonthKey(refDate);
-    const previousYm = calendarTwoMonthsAgoKey(refDate);
     const currentLabel = monthLabelFromYm(currentYm);
-    const previousLabel = monthLabelFromYm(previousYm);
 
-    const withPeriod = unpaid.map((row) => {
-        const ym = String(row.billMonth || '');
-        let period = 'earlier';
-        if (ym === currentYm) period = 'current';
-        else if (ym === previousYm) period = 'previous';
-        return { ...row, period };
-    });
+    const withPeriod = unpaid
+        .filter((row) => {
+            const ym = String(row.billMonth || '');
+            return ym && ym <= currentYm;
+        })
+        .map((row) => {
+            const ym = String(row.billMonth || '');
+            return {
+                ...row,
+                period: ym === currentYm ? 'current' : 'previous',
+            };
+        });
 
     const currentRows = withPeriod.filter((row) => row.period === 'current');
     const previousRows = withPeriod.filter((row) => row.period === 'previous');
@@ -476,8 +497,8 @@ export function buildPendingBillOverview({ bills = [], entries = [], refDate = n
         previous: {
             ...sumOverviewRows(previousRows),
             rows: previousRows,
-            monthKey: previousYm,
-            monthLabel: previousLabel,
+            monthKey: '',
+            monthLabel: '',
         },
         windowRows,
         allRows: withPeriod,

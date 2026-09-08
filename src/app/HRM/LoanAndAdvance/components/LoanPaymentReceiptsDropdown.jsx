@@ -50,7 +50,7 @@ export function LoanDocumentExpandButton({
                     ? 'border-emerald-400 bg-emerald-100 text-emerald-800'
                     : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
             }`}
-            title={isExpanded ? 'Hide invoices' : 'Show payment invoices'}
+            title={isExpanded ? 'Hide documents' : 'Show documents'}
         >
             <FileText size={15} />
             <span className="text-[10px] font-black uppercase tracking-wide">{receiptCount}</span>
@@ -71,6 +71,7 @@ export default function LoanPaymentReceiptsExpandPanel({
     requestDocSubtitle = 'Original application attachment',
     extraDocuments = [],
     emptyMessage = 'No repayment invoices yet',
+    title = 'Payment invoices',
     onViewRequestAttachment,
     onPaymentsChanged,
     moduleId = 'hrm_loan',
@@ -119,7 +120,7 @@ export default function LoanPaymentReceiptsExpandPanel({
                 <div className="flex items-center gap-2">
                     <History size={14} className="text-emerald-500" />
                     <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                        Payment invoices
+                        {title}
                     </h4>
                 </div>
                 <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 italic">
@@ -167,9 +168,11 @@ export default function LoanPaymentReceiptsExpandPanel({
             ))}
 
             {receipts.length === 0 ? (
-                <div className="p-8 text-center text-gray-400 text-xs font-bold uppercase tracking-widest">
-                    {emptyMessage}
-                </div>
+                extraDocs.length === 0 && !hasRequestDoc ? (
+                    <div className="p-8 text-center text-gray-400 text-xs font-bold uppercase tracking-widest">
+                        {emptyMessage}
+                    </div>
+                ) : null
             ) : (
                 <table className="w-full text-left text-sm">
                     <thead>

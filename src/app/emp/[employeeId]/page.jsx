@@ -75,7 +75,7 @@ import TrainingModal from './components/modals/TrainingModal';
 import BasicDetailsModal from './components/modals/BasicDetailsModal';
 import ImageUploadModal from './components/modals/ImageUploadModal';
 import DocumentViewerModal from './components/modals/DocumentViewerModal';
-import { openAttachmentInNewTab, resolveAttachmentForViewer, extractStorageReference } from '@/utils/attachmentPreview';
+import { openAttachmentInNewTab, resolveAttachmentForViewer, extractStorageReference, isInlineDocumentData } from '@/utils/attachmentPreview';
 import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, formatTenureDuration, calculateTenure, decomposeCalendarDurationUntil, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
@@ -8747,22 +8747,27 @@ function EmployeeProfilePageContent() {
         setShowDocumentViewer(true);
         setViewingDocument({ ...doc, allowDownload, loading: true });
 
-        const attachmentPayload =
-            doc.publicId != null
-                ? {
+        const attachmentPayload = isInlineDocumentData(doc.data)
+            ? {
+                data: doc.data,
+                name: doc.name,
+                mimeType: doc.mimeType,
+            }
+            : doc.publicId != null
+              ? {
                     url: doc.data,
                     publicId: doc.publicId,
                     name: doc.name,
                     mimeType: doc.mimeType,
                 }
-                : doc.data != null
-                  ? {
-                        url: doc.data,
-                        name: doc.name,
-                        mimeType: doc.mimeType,
-                        publicId: doc.publicId,
-                    }
-                  : doc;
+              : doc.data != null
+                ? {
+                    url: doc.data,
+                    name: doc.name,
+                    mimeType: doc.mimeType,
+                    publicId: doc.publicId,
+                }
+                : doc;
 
         const resolved = await resolveAttachmentForViewer(attachmentPayload, {
             name: doc.name,

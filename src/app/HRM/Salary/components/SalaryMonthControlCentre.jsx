@@ -2011,20 +2011,6 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                 </Link>
             </section>
 
-            {dmfStatus === 'pending' || dmfStatus === 'approved' || dmfStatus === 'rejected' ? (
-                <div className="spcc-approval">
-                    <SalaryDmfApprovalPanel
-                        kind="month"
-                        monthKey={parsed.monthKey}
-                        dmf={monthDmf}
-                        ready
-                        hideStart
-                        showActions={false}
-                        onUpdated={(payload) => setMonthDmf(payload?.dmf || payload)}
-                    />
-                </div>
-            ) : null}
-
             {loading ? (
                 <div className="spcc-loading">
                     <Loader2 className="animate-spin" size={22} />

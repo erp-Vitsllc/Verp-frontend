@@ -57,7 +57,6 @@ import {
 import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
 import FinePayChoiceModal from '@/app/HRM/Fine/components/FinePayChoiceModal';
 import FineVendorCreditModal from '@/app/HRM/Fine/components/FineVendorCreditModal';
-import FineEmployeePayModal from '@/app/HRM/Fine/components/FineEmployeePayModal';
 import { formatRewardPaymentLabel, formatRewardStatusLabel, isRewardVisibleOnEmployeeProfile, isRewardPaymentEligible } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import { canAccountsPayCashReward, buildRewardPaymentPrefill } from '@/app/HRM/Reward/utils/rewardPaymentPrefill';
 import {
@@ -173,14 +172,14 @@ function renderLoanAdvanceScheduleChips(loan, allPayments = []) {
             box.monthlyAmount > 0
                 ? Math.min(100, Math.max(0, (box.paidAmount / box.monthlyAmount) * 100))
                 : box.isPaid
-                  ? 100
-                  : 0;
+                    ? 100
+                    : 0;
         const hover = `${box.monthTitle || box.label}: ${formatScheduleChipAmount(box.paidAmount)} / ${formatScheduleChipAmount(box.monthlyAmount)} AED`;
         const baseClass = box.isPaid
             ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
             : box.isPartial
-              ? 'bg-rose-50 text-slate-800 border-rose-300'
-              : 'bg-rose-50 text-rose-700 border-rose-300';
+                ? 'bg-rose-50 text-slate-800 border-rose-300'
+                : 'bg-rose-50 text-rose-700 border-rose-300';
 
         return (
             <span
@@ -250,6 +249,69 @@ function isProfileVehicleAsset(asset) {
 
 function isProfileToolsAsset(asset) {
     return Boolean(asset) && !isProfileVehicleAsset(asset);
+}
+
+function isFineApprovedFormAttachment(item) {
+    const source = String(item?.source || '').trim();
+    return source === 'approved-form' || source === 'asset-loss-report';
+}
+
+function fineAttachmentIdentity(item) {
+    if (item == null) return '';
+    if (typeof item === 'string') return item.trim();
+    return String(item.publicId || item.url || item.href || item.name || item.label || '').trim();
+}
+
+function collectFineSupportingAttachments(fine) {
+    const list = [];
+    const seen = new Set();
+    const add = (item, fallbackTitle) => {
+        if (!item) return;
+        if (isFineApprovedFormAttachment(item)) return;
+        const key = fineAttachmentIdentity(item);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        list.push({
+            item,
+            title: item.label || item.name || fallbackTitle || 'Attachment',
+        });
+    };
+
+    add(fine?.attachment, 'Uploaded attachment');
+    (fine?.attachments || []).forEach((item, index) => add(item, `Attachment ${index + 1}`));
+    (fine?.approvalAttachments || []).forEach((item) => add(item, 'Supporting document'));
+    return list;
+}
+
+function fineAttachmentOpenScore(item) {
+    if (!item) return 0;
+    if (item.data || item.base64) return 4;
+    if (item.publicId) return 3;
+    if (item.url || item.href) return 2;
+    return 1;
+}
+
+function pickBestFineAttachment(rows) {
+    if (!rows?.length) return null;
+    return [...rows].sort((a, b) => fineAttachmentOpenScore(b.item) - fineAttachmentOpenScore(a.item))[0]?.item || null;
+}
+
+function findFineSupportingAttachment(fine, hint) {
+    const rows = collectFineSupportingAttachments(fine);
+    if (!rows.length) return null;
+    if (!hint) return pickBestFineAttachment(rows);
+    const hintKey = fineAttachmentIdentity(hint);
+    const hintName = String(hint?.name || hint?.label || '').trim().toLowerCase();
+    const matches = rows.filter((row) => {
+        const key = fineAttachmentIdentity(row.item);
+        const name = String(row.item?.name || '').toLowerCase();
+        return (hintKey && key === hintKey) || (hintName && name === hintName);
+    });
+    return pickBestFineAttachment(matches.length ? matches : rows);
+}
+
+function isUsableViewerDoc(doc) {
+    return Boolean(doc && !doc.error && (doc.data || doc.storageRef || doc.url || doc.publicId));
 }
 
 /** Avoid infinite setState loops: only return a new array when ids actually change. */
@@ -741,15 +803,15 @@ export default function SalaryTab({
             a.assignedTo
                 ? a
                 : {
-                      ...a,
-                      assignedTo: employee
-                          ? {
-                                _id: employee._id,
-                                firstName: employee.firstName,
-                                lastName: employee.lastName,
-                            }
-                          : a.assignedTo,
-                  },
+                    ...a,
+                    assignedTo: employee
+                        ? {
+                            _id: employee._id,
+                            firstName: employee.firstName,
+                            lastName: employee.lastName,
+                        }
+                        : a.assignedTo,
+                },
         );
         setProfileTransferModal({
             isOpen: true,
@@ -775,15 +837,15 @@ export default function SalaryTab({
             a.assignedTo
                 ? a
                 : {
-                      ...a,
-                      assignedTo: employee
-                          ? {
-                                _id: employee._id,
-                                firstName: employee.firstName,
-                                lastName: employee.lastName,
-                            }
-                          : a.assignedTo,
-                  },
+                    ...a,
+                    assignedTo: employee
+                        ? {
+                            _id: employee._id,
+                            firstName: employee.firstName,
+                            lastName: employee.lastName,
+                        }
+                        : a.assignedTo,
+                },
         );
         setProfileTransferModal({
             isOpen: true,
@@ -1129,6 +1191,9 @@ export default function SalaryTab({
     };
 
     const [expandedFineDocId, setExpandedFineDocId] = useState(null);
+    const [fineDocDetailsById, setFineDocDetailsById] = useState({});
+    const [fineDocLoadingId, setFineDocLoadingId] = useState(null);
+    const fineDocDetailsRef = useRef({});
     const [expandedLoanDocId, setExpandedLoanDocId] = useState(null);
     const [allEmployeePayments, setAllEmployeePayments] = useState([]);
     const [selectedFinesForPayment, setSelectedFinesForPayment] = useState([]);
@@ -1140,7 +1205,6 @@ export default function SalaryTab({
     const [finePayChoiceOpen, setFinePayChoiceOpen] = useState(false);
     const [finePayChoiceFine, setFinePayChoiceFine] = useState(null);
     const [fineVendorCreditOpen, setFineVendorCreditOpen] = useState(false);
-    const [fineEmployeePayOpen, setFineEmployeePayOpen] = useState(false);
 
     useEffect(() => {
         const ref = profileBackHandlerRef;
@@ -1148,10 +1212,6 @@ export default function SalaryTab({
         ref.current = () => {
             if (fineVendorCreditOpen) {
                 setFineVendorCreditOpen(false);
-                return true;
-            }
-            if (fineEmployeePayOpen) {
-                setFineEmployeePayOpen(false);
                 return true;
             }
             if (finePayChoiceOpen) {
@@ -1248,7 +1308,6 @@ export default function SalaryTab({
         profileBackHandlerRef,
         finePayChoiceOpen,
         fineVendorCreditOpen,
-        fineEmployeePayOpen,
         fineCompanyRefundOpen,
         showCertificate,
         selectedCertificate,
@@ -1751,7 +1810,7 @@ export default function SalaryTab({
                 const pays = res.data?.payments || res.data || [];
                 setAllEmployeePayments(Array.isArray(pays) ? pays : []);
             })
-            .catch(() => {});
+            .catch(() => { });
         if (fetchEmployee) fetchEmployee();
     };
 
@@ -1776,58 +1835,76 @@ export default function SalaryTab({
         };
     };
 
-    const hasFineUploadedAttachment = (fine) => {
-        const attachment = fine?.attachment;
-        if (!attachment) return false;
-        if (typeof attachment === 'string') return !!attachment.trim();
-        return !!(attachment.url || attachment.data || attachment.publicId || attachment.name);
+    const loadFineDocumentSources = async (fine) => {
+        const id = String(fine?.fineId || fine?._id || '').trim();
+        if (!id) return null;
+        if (fineDocDetailsRef.current[id]) return fineDocDetailsRef.current[id];
+
+        setFineDocLoadingId(id);
+        try {
+            const { data } = await axiosInstance.get(`/Fine/${encodeURIComponent(id)}`);
+            if (data) {
+                fineDocDetailsRef.current[id] = data;
+                setFineDocDetailsById((prev) => ({ ...prev, [id]: data }));
+                return data;
+            }
+        } catch (err) {
+            console.error('Failed to load fine documents:', err);
+        } finally {
+            setFineDocLoadingId((current) => (current === id ? null : current));
+        }
+        return null;
     };
 
-    const handleViewFineUploadedAttachment = async (fine, e) => {
+    const handleViewFineUploadedAttachment = async (fine, hint, e) => {
         e?.stopPropagation();
-        const fallbackName = fine.attachment?.name || `${fine.fineId || 'Fine'}-attachment`;
-        let resolved = await resolveAttachmentForViewer(fine.attachment, {
-            name: fallbackName,
-            mimeType: fine.attachment?.mimeType || 'application/pdf',
-        });
-
-        if (!resolved) {
-            const doc = normalizePaymentAttachmentForViewer(fine.attachment, fallbackName);
-            if (doc) resolved = doc;
+        const detail = (await loadFineDocumentSources(fine)) || fine;
+        const preferred =
+            findFineSupportingAttachment(detail, hint) ||
+            findFineSupportingAttachment(fine, hint);
+        const candidates = [];
+        if (preferred) candidates.push(preferred);
+        for (const row of collectFineSupportingAttachments(detail)) {
+            if (row.item && !candidates.includes(row.item)) candidates.push(row.item);
         }
 
-        if (!resolved && (fine.fineId || fine._id)) {
-            try {
-                const fresh = await axiosInstance.get(`/Fine/${fine.fineId || fine._id}`);
-                const freshAttachment = fresh.data?.attachment;
-                if (freshAttachment) {
-                    resolved = await resolveAttachmentForViewer(freshAttachment, {
-                        name: freshAttachment.name || fallbackName,
-                        mimeType: freshAttachment.mimeType || 'application/pdf',
-                    });
-                    if (!resolved) {
-                        resolved = normalizePaymentAttachmentForViewer(freshAttachment, fallbackName);
-                    }
-                }
-            } catch (err) {
-                console.error('Failed to load fine attachment:', err);
+        let opened = false;
+        let lastError = 'Fine attachment is missing or unavailable.';
+
+        for (const match of candidates) {
+            const fallbackName = match?.name || hint?.name || `${fine.fineId || 'Fine'}-attachment`;
+            let resolved = await resolveAttachmentForViewer(match, {
+                name: fallbackName,
+                mimeType: match.mimeType || match.type || 'application/pdf',
+            });
+            if (!isUsableViewerDoc(resolved)) {
+                resolved = normalizePaymentAttachmentForViewer(match, fallbackName);
             }
+            if (!isUsableViewerDoc(resolved)) {
+                lastError = resolved?.error || lastError;
+                continue;
+            }
+
+            onViewDocument({
+                publicId: match.publicId || resolved.storageRef,
+                data: resolved.data || match.url || match.publicId,
+                storageRef: resolved.storageRef,
+                name: resolved.name || fallbackName,
+                mimeType: resolved.mimeType || match.mimeType || 'application/pdf',
+                moduleId: 'hrm_fine',
+                allowDownload: accSalaryFine.download,
+            });
+            opened = true;
+            break;
         }
 
-        if (!resolved) {
+        if (!opened) {
             toast({
                 variant: 'destructive',
                 title: 'Cannot open attachment',
-                description: 'Fine attachment is missing or unavailable.',
+                description: lastError,
             });
-            return;
         }
-
-        onViewDocument({
-            ...resolved,
-            moduleId: 'hrm_fine',
-            allowDownload: accSalaryFine.download,
-        });
     };
 
     const handleViewFineFormPdf = async (fine, e) => {
@@ -1886,7 +1963,7 @@ export default function SalaryTab({
                 } catch (fallbackErr) {
                     throw new Error(
                         (await messageFromError(fallbackErr)) ||
-                            (await messageFromError(approvedErr)),
+                        (await messageFromError(approvedErr)),
                     );
                 }
             }
@@ -1985,10 +2062,10 @@ export default function SalaryTab({
                     const res =
                         probe?.data?.isAuthorized === true
                             ? await axiosInstance
-                                  .get(`/AssetItem/unassigned/controller/${employee.employeeId}`, {
-                                      skipToast: true,
-                                  })
-                                  .catch(() => null)
+                                .get(`/AssetItem/unassigned/controller/${employee.employeeId}`, {
+                                    skipToast: true,
+                                })
+                                .catch(() => null)
                             : null;
 
                     if (res && res.status === 200) {
@@ -4021,11 +4098,15 @@ export default function SalaryTab({
                                                 fine,
                                                 allEmployeePayments,
                                             );
+                                            const detailFine = fineDocDetailsById[fineKey] || fine;
+                                            const supportingAttachments = collectFineSupportingAttachments(detailFine);
                                             const hasFineForm = ['Approved', 'Paid'].includes(fine.fineStatus);
-                                            const hasUpload = hasFineUploadedAttachment(fine);
                                             const fineDocCount =
-                                                invoiceReceipts.length + (hasFineForm ? 1 : 0) + (hasUpload ? 1 : 0);
+                                                invoiceReceipts.length +
+                                                (hasFineForm ? 1 : 0) +
+                                                supportingAttachments.length;
                                             const isDocExpanded = expandedFineDocId === fineKey;
+                                            const isDocLoading = fineDocLoadingId === fineKey;
 
                                             const relatedPayments = allEmployeePayments.filter(p =>
                                                 (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
@@ -4173,11 +4254,14 @@ export default function SalaryTab({
                                                                 receiptCount={fineDocCount}
                                                                 isExpanded={isDocExpanded}
                                                                 disabled={fineDocCount === 0}
-                                                                onToggle={() =>
+                                                                onToggle={() => {
                                                                     setExpandedFineDocId((prev) =>
                                                                         prev === fineKey ? null : fineKey,
-                                                                    )
-                                                                }
+                                                                    );
+                                                                    if (expandedFineDocId !== fineKey) {
+                                                                        loadFineDocumentSources(fine);
+                                                                    }
+                                                                }}
                                                             />
                                                         </td>
                                                         <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
@@ -4216,25 +4300,34 @@ export default function SalaryTab({
                                                             <td colSpan={12} className="bg-gray-50/50 p-4">
                                                                 <LoanPaymentReceiptsExpandPanel
                                                                     receipts={invoiceReceipts}
+                                                                    title={
+                                                                        invoiceReceipts.length
+                                                                            ? 'Payment invoices'
+                                                                            : 'Documents'
+                                                                    }
                                                                     extraDocuments={[
                                                                         hasFineForm
                                                                             ? {
                                                                                 id: `${fineKey}-form`,
                                                                                 title: 'Fine form',
-                                                                                subtitle: 'Approved fine form PDF',
+                                                                                subtitle: isDocLoading
+                                                                                    ? 'Loading approved fine form…'
+                                                                                    : 'Approved fine form PDF',
                                                                                 onView: () => handleViewFineFormPdf(fine),
                                                                             }
                                                                             : null,
-                                                                        hasUpload
-                                                                            ? {
-                                                                                id: `${fineKey}-upload`,
-                                                                                title: 'Uploaded attachment',
-                                                                                subtitle: 'Original supporting document',
-                                                                                onView: () => handleViewFineUploadedAttachment(fine),
-                                                                            }
-                                                                            : null,
+                                                                        ...supportingAttachments.map((row, attachIndex) => ({
+                                                                            id: `${fineKey}-att-${fineAttachmentIdentity(row.item) || attachIndex}`,
+                                                                            title: row.title,
+                                                                            subtitle: row.item?.mimeType || 'Original supporting document',
+                                                                            onView: () => handleViewFineUploadedAttachment(fine, row.item),
+                                                                        })),
                                                                     ]}
-                                                                    emptyMessage="No payment invoices yet"
+                                                                    emptyMessage={
+                                                                        isDocLoading
+                                                                            ? 'Loading documents…'
+                                                                            : 'No payment invoices yet'
+                                                                    }
                                                                     onPaymentsChanged={refreshEmployeePayments}
                                                                 />
                                                             </td>
@@ -4369,7 +4462,7 @@ export default function SalaryTab({
                                                     const pays = res.data?.payments || res.data || [];
                                                     setAllEmployeePayments(Array.isArray(pays) ? pays : []);
                                                 })
-                                                .catch(() => {});
+                                                .catch(() => { });
                                             if (fetchEmployee) fetchEmployee();
                                         };
                                         return actualLoans.length > 0 ? (
@@ -4392,88 +4485,88 @@ export default function SalaryTab({
                                                 );
                                                 return (
                                                     <React.Fragment key={loan._id || index}>
-                                                    <tr
-                                                        data-nav-href={
-                                                            loan._id || loan.id
-                                                                ? `/HRM/LoanAndAdvance/${String(loan.type || 'Loan').replace(/\s+/g, '-')}-${loan._id || loan.id}`
-                                                                : undefined
-                                                        }
-                                                        className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${isDocExpanded ? 'bg-emerald-50/30' : ''}`}
-                                                        onClick={(e) => openLoanAdvanceDetails(loan, e)}
-                                                    >
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                            {loan.loanId || 'Loan'}
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                            {loan.createdAt ? formatDate(loan.createdAt) : (loan.appliedDate ? formatDate(loan.appliedDate) : '—')}
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                            AED {Number(loan.amount || 0).toFixed(2)}
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                            AED {loan.duration ? (Number(loan.amount || 0) / loan.duration).toFixed(2) : '0.00'}
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm font-medium text-gray-700">
-                                                            {statusLabel}
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm">
-                                                            <span className={paymentLabel === 'Paid' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
-                                                                {paymentLabel}
-                                                            </span>
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                            <div className="flex flex-wrap gap-1.5">
-                                                                {renderLoanAdvanceScheduleChips(loan, allEmployeePayments)}
-                                                            </div>
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
-                                                            {canPay ? (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => startLoanCompanyRefund([loan])}
-                                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
-                                                                    title="Collect loan repayment — Expense Refund (Zoho Banking)"
-                                                                >
-                                                                    <Wallet size={12} />
-                                                                    Pay
-                                                                </button>
-                                                            ) : (
-                                                                <span className="text-gray-400">—</span>
-                                                            )}
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                            <LoanDocumentExpandButton
-                                                                receiptCount={receiptCount + (requestDoc ? 1 : 0)}
-                                                                isExpanded={isDocExpanded}
-                                                                disabled={receiptCount === 0 && !requestDoc}
-                                                                onToggle={() =>
-                                                                    setExpandedLoanDocId((prev) =>
-                                                                        prev === loanKey ? null : loanKey,
-                                                                    )
-                                                                }
-                                                            />
-                                                        </td>
-                                                    </tr>
-                                                    {isDocExpanded ? (
-                                                        <tr>
-                                                            <td colSpan={9} className="bg-gray-50/50 p-4">
-                                                                <LoanPaymentReceiptsExpandPanel
-                                                                    loan={loan}
-                                                                    payments={allEmployeePayments}
-                                                                    requestAttachment={requestDoc}
-                                                                    onViewRequestAttachment={() => {
-                                                                        if (!requestDoc) return;
-                                                                        onViewDocument({
-                                                                            ...requestDoc,
-                                                                            moduleId: 'hrm_loan',
-                                                                            allowDownload: accSalaryLoans.download,
-                                                                        });
-                                                                    }}
-                                                                    onPaymentsChanged={refreshLoanPayments}
+                                                        <tr
+                                                            data-nav-href={
+                                                                loan._id || loan.id
+                                                                    ? `/HRM/LoanAndAdvance/${String(loan.type || 'Loan').replace(/\s+/g, '-')}-${loan._id || loan.id}`
+                                                                    : undefined
+                                                            }
+                                                            className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${isDocExpanded ? 'bg-emerald-50/30' : ''}`}
+                                                            onClick={(e) => openLoanAdvanceDetails(loan, e)}
+                                                        >
+                                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                                {loan.loanId || 'Loan'}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                                {loan.createdAt ? formatDate(loan.createdAt) : (loan.appliedDate ? formatDate(loan.appliedDate) : '—')}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                                AED {Number(loan.amount || 0).toFixed(2)}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                                AED {loan.duration ? (Number(loan.amount || 0) / loan.duration).toFixed(2) : '0.00'}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm font-medium text-gray-700">
+                                                                {statusLabel}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm">
+                                                                <span className={paymentLabel === 'Paid' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
+                                                                    {paymentLabel}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                                <div className="flex flex-wrap gap-1.5">
+                                                                    {renderLoanAdvanceScheduleChips(loan, allEmployeePayments)}
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
+                                                                {canPay ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => startLoanCompanyRefund([loan])}
+                                                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
+                                                                        title="Collect loan repayment — Expense Refund (Zoho Banking)"
+                                                                    >
+                                                                        <Wallet size={12} />
+                                                                        Pay
+                                                                    </button>
+                                                                ) : (
+                                                                    <span className="text-gray-400">—</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                                <LoanDocumentExpandButton
+                                                                    receiptCount={receiptCount + (requestDoc ? 1 : 0)}
+                                                                    isExpanded={isDocExpanded}
+                                                                    disabled={receiptCount === 0 && !requestDoc}
+                                                                    onToggle={() =>
+                                                                        setExpandedLoanDocId((prev) =>
+                                                                            prev === loanKey ? null : loanKey,
+                                                                        )
+                                                                    }
                                                                 />
                                                             </td>
                                                         </tr>
-                                                    ) : null}
+                                                        {isDocExpanded ? (
+                                                            <tr>
+                                                                <td colSpan={9} className="bg-gray-50/50 p-4">
+                                                                    <LoanPaymentReceiptsExpandPanel
+                                                                        loan={loan}
+                                                                        payments={allEmployeePayments}
+                                                                        requestAttachment={requestDoc}
+                                                                        onViewRequestAttachment={() => {
+                                                                            if (!requestDoc) return;
+                                                                            onViewDocument({
+                                                                                ...requestDoc,
+                                                                                moduleId: 'hrm_loan',
+                                                                                allowDownload: accSalaryLoans.download,
+                                                                            });
+                                                                        }}
+                                                                        onPaymentsChanged={refreshLoanPayments}
+                                                                    />
+                                                                </td>
+                                                            </tr>
+                                                        ) : null}
                                                     </React.Fragment>
                                                 );
                                             })
@@ -4499,7 +4592,7 @@ export default function SalaryTab({
                                                     const pays = res.data?.payments || res.data || [];
                                                     setAllEmployeePayments(Array.isArray(pays) ? pays : []);
                                                 })
-                                                .catch(() => {});
+                                                .catch(() => { });
                                             if (fetchEmployee) fetchEmployee();
                                         };
                                         return advances.length > 0 ? (
@@ -4522,88 +4615,88 @@ export default function SalaryTab({
                                                 );
                                                 return (
                                                     <React.Fragment key={advance._id || index}>
-                                                    <tr
-                                                        data-nav-href={
-                                                            advance._id || advance.id
-                                                                ? `/HRM/LoanAndAdvance/Advance-${advance._id || advance.id}`
-                                                                : undefined
-                                                        }
-                                                        className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${isDocExpanded ? 'bg-emerald-50/30' : ''}`}
-                                                        onClick={(e) => openLoanAdvanceDetails(advance, e)}
-                                                    >
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                            {advance.loanId || 'Advance'}
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                            {advance.createdAt ? formatDate(advance.createdAt) : (advance.appliedDate ? formatDate(advance.appliedDate) : '—')}
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                            AED {Number(advance.amount || 0).toFixed(2)}
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                            AED {advance.duration ? (Number(advance.amount || 0) / advance.duration).toFixed(2) : '0.00'}
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm font-medium text-gray-700">
-                                                            {statusLabel}
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm">
-                                                            <span className={paymentLabel === 'Paid' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
-                                                                {paymentLabel}
-                                                            </span>
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                            <div className="flex flex-wrap gap-1.5">
-                                                                {renderLoanAdvanceScheduleChips(advance, allEmployeePayments)}
-                                                            </div>
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
-                                                            {canPay ? (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => startLoanCompanyRefund([advance])}
-                                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
-                                                                    title="Collect advance repayment — Expense Refund (Zoho Banking)"
-                                                                >
-                                                                    <Wallet size={12} />
-                                                                    Pay
-                                                                </button>
-                                                            ) : (
-                                                                <span className="text-gray-400">—</span>
-                                                            )}
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                            <LoanDocumentExpandButton
-                                                                receiptCount={receiptCount + (requestDoc ? 1 : 0)}
-                                                                isExpanded={isDocExpanded}
-                                                                disabled={receiptCount === 0 && !requestDoc}
-                                                                onToggle={() =>
-                                                                    setExpandedLoanDocId((prev) =>
-                                                                        prev === loanKey ? null : loanKey,
-                                                                    )
-                                                                }
-                                                            />
-                                                        </td>
-                                                    </tr>
-                                                    {isDocExpanded ? (
-                                                        <tr>
-                                                            <td colSpan={9} className="bg-gray-50/50 p-4">
-                                                                <LoanPaymentReceiptsExpandPanel
-                                                                    loan={advance}
-                                                                    payments={allEmployeePayments}
-                                                                    requestAttachment={requestDoc}
-                                                                    onViewRequestAttachment={() => {
-                                                                        if (!requestDoc) return;
-                                                                        onViewDocument({
-                                                                            ...requestDoc,
-                                                                            moduleId: 'hrm_loan',
-                                                                            allowDownload: accSalaryAdvance.download,
-                                                                        });
-                                                                    }}
-                                                                    onPaymentsChanged={refreshLoanPayments}
+                                                        <tr
+                                                            data-nav-href={
+                                                                advance._id || advance.id
+                                                                    ? `/HRM/LoanAndAdvance/Advance-${advance._id || advance.id}`
+                                                                    : undefined
+                                                            }
+                                                            className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${isDocExpanded ? 'bg-emerald-50/30' : ''}`}
+                                                            onClick={(e) => openLoanAdvanceDetails(advance, e)}
+                                                        >
+                                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                                {advance.loanId || 'Advance'}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                                {advance.createdAt ? formatDate(advance.createdAt) : (advance.appliedDate ? formatDate(advance.appliedDate) : '—')}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                                AED {Number(advance.amount || 0).toFixed(2)}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                                AED {advance.duration ? (Number(advance.amount || 0) / advance.duration).toFixed(2) : '0.00'}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm font-medium text-gray-700">
+                                                                {statusLabel}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm">
+                                                                <span className={paymentLabel === 'Paid' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
+                                                                    {paymentLabel}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                                <div className="flex flex-wrap gap-1.5">
+                                                                    {renderLoanAdvanceScheduleChips(advance, allEmployeePayments)}
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
+                                                                {canPay ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => startLoanCompanyRefund([advance])}
+                                                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
+                                                                        title="Collect advance repayment — Expense Refund (Zoho Banking)"
+                                                                    >
+                                                                        <Wallet size={12} />
+                                                                        Pay
+                                                                    </button>
+                                                                ) : (
+                                                                    <span className="text-gray-400">—</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                                <LoanDocumentExpandButton
+                                                                    receiptCount={receiptCount + (requestDoc ? 1 : 0)}
+                                                                    isExpanded={isDocExpanded}
+                                                                    disabled={receiptCount === 0 && !requestDoc}
+                                                                    onToggle={() =>
+                                                                        setExpandedLoanDocId((prev) =>
+                                                                            prev === loanKey ? null : loanKey,
+                                                                        )
+                                                                    }
                                                                 />
                                                             </td>
                                                         </tr>
-                                                    ) : null}
+                                                        {isDocExpanded ? (
+                                                            <tr>
+                                                                <td colSpan={9} className="bg-gray-50/50 p-4">
+                                                                    <LoanPaymentReceiptsExpandPanel
+                                                                        loan={advance}
+                                                                        payments={allEmployeePayments}
+                                                                        requestAttachment={requestDoc}
+                                                                        onViewRequestAttachment={() => {
+                                                                            if (!requestDoc) return;
+                                                                            onViewDocument({
+                                                                                ...requestDoc,
+                                                                                moduleId: 'hrm_loan',
+                                                                                allowDownload: accSalaryAdvance.download,
+                                                                            });
+                                                                        }}
+                                                                        onPaymentsChanged={refreshLoanPayments}
+                                                                    />
+                                                                </td>
+                                                            </tr>
+                                                        ) : null}
                                                     </React.Fragment>
                                                 );
                                             })
@@ -5719,8 +5812,8 @@ export default function SalaryTab({
                     profileBulkReassignAssets[0]?.assignedCompany?.nickName ||
                     (employee
                         ? `${employee.firstName || ''} ${employee.lastName || ''}`.trim() ||
-                          employee.employeeId ||
-                          'Current holder'
+                        employee.employeeId ||
+                        'Current holder'
                         : 'Current holder')
                 }
                 onClose={() => {
@@ -6363,8 +6456,8 @@ export default function SalaryTab({
                 isAssetController={Boolean(viewerIsAssetController || isAssetController)}
                 isAssignedUser={Boolean(
                     loggedInEmployeeId &&
-                        employee?._id &&
-                        String(loggedInEmployeeId) === String(employee._id),
+                    employee?._id &&
+                    String(loggedInEmployeeId) === String(employee._id),
                 )}
                 onUpdate={() => {
                     setSelectedYourAssets([]);
@@ -6381,16 +6474,16 @@ export default function SalaryTab({
                 hideModeToggle={profileReturnModal.assets.length > 1}
                 canUseBulkReturnUi={Boolean(
                     loggedInEmployeeId &&
-                        employee?._id &&
-                        String(loggedInEmployeeId) === String(employee._id),
+                    employee?._id &&
+                    String(loggedInEmployeeId) === String(employee._id),
                 )}
                 handoverTarget={
                     typeof handoverTarget === 'object' ? handoverTarget : null
                 }
                 isAssigneeSelf={Boolean(
                     loggedInEmployeeId &&
-                        employee?._id &&
-                        String(loggedInEmployeeId) === String(employee._id),
+                    employee?._id &&
+                    String(loggedInEmployeeId) === String(employee._id),
                 )}
                 isAssetController={Boolean(viewerIsAssetController || isAssetController)}
                 onUpdate={() => {
@@ -6455,6 +6548,7 @@ export default function SalaryTab({
             <FinePayChoiceModal
                 isOpen={finePayChoiceOpen}
                 fineId={finePayChoiceFine?.fineId || ''}
+                showEmployeePay={false}
                 onClose={() => {
                     setFinePayChoiceOpen(false);
                     setFinePayChoiceFine(null);
@@ -6468,26 +6562,6 @@ export default function SalaryTab({
                 onVendorCredit={() => {
                     setFinePayChoiceOpen(false);
                     setFineVendorCreditOpen(true);
-                }}
-                onEmployeePay={() => {
-                    setFinePayChoiceOpen(false);
-                    setFineEmployeePayOpen(true);
-                }}
-            />
-
-            <FineEmployeePayModal
-                isOpen={fineEmployeePayOpen}
-                fine={finePayChoiceFine}
-                employeeId={employeeId}
-                onClose={() => {
-                    setFineEmployeePayOpen(false);
-                    setFinePayChoiceFine(null);
-                }}
-                onSuccess={() => {
-                    setFineEmployeePayOpen(false);
-                    setFinePayChoiceFine(null);
-                    setSelectedFinesForPayment([]);
-                    refreshEmployeePayments();
                 }}
             />
 

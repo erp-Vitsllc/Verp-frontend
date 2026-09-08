@@ -242,21 +242,47 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                 const amount = resolveCompanyFinePayableAmount(fine);
                 if (!(amount > 0.01)) return;
                 const fineKey = String(fine.fineId || fine._id || '');
+                const fineMongo = String(fine._id || '');
                 if (fineKey) seenFine.add(fineKey);
+                if (fineMongo) seenFine.add(fineMongo);
+                const matchingPays = (companyPayments || []).filter((p) => {
+                    if (String(p.paymentType || p.relatedEntityType || '') !== 'Fine') return false;
+                    if (!isPaymentCountableTowardPaid(p.status)) return false;
+                    const ref = String(p.referenceId || '');
+                    const rel = String(p.relatedEntityId?._id || p.relatedEntityId || '');
+                    return (fineKey && ref === fineKey) || (fineMongo && rel === fineMongo);
+                });
+                const paidFromPayments = matchingPays.reduce(
+                    (sum, p) => sum + (Number(p.amount) || 0),
+                    0,
+                );
+                const latestPay = [...matchingPays].sort(
+                    (a, b) =>
+                        new Date(b.paymentDate || b.createdAt || 0).getTime() -
+                        new Date(a.paymentDate || a.createdAt || 0).getTime(),
+                )[0] || null;
                 const vendorPaid = isZohoPaidStatus(fine.vendorBillStatus);
+                const sharePaid =
+                    paidFromPayments >= amount - 0.01 ||
+                    Number(fine.paidAmount || 0) >= amount - 0.01 ||
+                    String(fine.fineStatus || '') === 'Paid';
                 const hasZohoBill = Boolean(String(fine.zohoBillId || '').trim());
                 rows.push({
                     id: `fine:${fine._id || fine.fineId}`,
-                    paymentId: fine.fineId || '—',
+                    paymentId: latestPay?.paymentId || fine.fineId || '—',
                     type: 'Fine',
                     reference: fine.fineId || fine.billNumber || '—',
-                    paymentDate: fine.billDate || fine.awardedDate || fine.createdAt,
+                    paymentDate:
+                        latestPay?.paymentDate ||
+                        fine.billDate ||
+                        fine.awardedDate ||
+                        fine.createdAt,
                     amount,
-                    status: vendorPaid ? 'Paid' : hasZohoBill ? 'Not Paid' : 'Not Paid',
+                    status: vendorPaid || sharePaid ? 'Paid' : hasZohoBill ? 'Not Paid' : 'Not Paid',
                     billLink: fine.fineId || fine._id
                         ? `/HRM/Fine/${encodeURIComponent(fine.fineId || fine._id)}`
                         : '',
-                    payment: null,
+                    payment: latestPay,
                 });
             });
 
@@ -318,7 +344,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
         });
 
         return rows;
-    }, [fines, companyDeductions, paymentsForCompany]);
+    }, [fines, companyDeductions, paymentsForCompany, companyPayments]);
 
     const filteredRows = useMemo(
         () => listRows.filter((row) => paymentMatchesMonthRange(row, filterStartMonth, filterEndMonth)),

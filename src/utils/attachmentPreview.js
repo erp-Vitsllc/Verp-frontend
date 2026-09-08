@@ -59,6 +59,11 @@ function isHttpUrl(value) {
     return s.startsWith('http://') || s.startsWith('https://');
 }
 
+export function isInlineDocumentData(value) {
+    const s = String(value || '').trim();
+    return s.startsWith('data:') || s.startsWith('blob:');
+}
+
 const S3_STORAGE_FOLDER_PREFIXES = [
     'admin-deletion-archive',
     'asset-documents',
@@ -197,6 +202,9 @@ export function extractStorageReference(attachment) {
             const key = toKey(publicId) || publicId;
             return { key, url: urlStr || publicId, name: input.name || input.fileName };
         }
+        if (isInlineDocumentData(urlStr)) {
+            return null;
+        }
         if (urlStr) {
             const key = toKey(urlStr) || urlStr;
             return { key, url: urlStr, name: input.name || input.fileName };
@@ -277,6 +285,7 @@ export function normalizeAttachmentForViewer(attachment, { name = 'Document', mi
 
         if (url) {
             const urlStr = String(url).trim();
+            if (isInlineDocumentData(urlStr)) return { data: urlStr, name: fileName, mimeType: mime };
             if (looksLikeS3StorageKey(urlStr) || isLikelySignedStorageUrl(urlStr)) return null;
             if (isAppRouteUrl(urlStr)) {
                 return fail('This attachment link is invalid. Re-upload the file.');

@@ -346,11 +346,11 @@ export default function EntityPaymentDetailsCard({
     // Loan/Advance recorded list = employee repayments (include Zoho-failed for Retry)
     const loanRepaymentPayments = isLoanLike
         ? visiblePayments.filter(
-              (p) =>
-                  !['Failed'].includes(p.status) ||
-                  needsZohoRetry(p) ||
-                  String(p.zohoExpenseId || '').trim(),
-          )
+            (p) =>
+                !['Failed'].includes(p.status) ||
+                needsZohoRetry(p) ||
+                String(p.zohoExpenseId || '').trim(),
+        )
         : [];
 
     const handleRetryZoho = async (pay) => {
@@ -440,11 +440,11 @@ export default function EntityPaymentDetailsCard({
         if (entityType === 'Loan' || entityType === 'Advance') {
             const companyId = String(
                 entityRecord?.employee?.company?._id ||
-                    entityRecord?.employee?.company ||
-                    entityRecord?.companyId ||
-                    entityRecord?.company?._id ||
-                    entityRecord?.company ||
-                    '',
+                entityRecord?.employee?.company ||
+                entityRecord?.companyId ||
+                entityRecord?.company?._id ||
+                entityRecord?.company ||
+                '',
             ).trim();
             const prefill = buildLoanPaymentPrefill(entityRecord, {
                 returnTo: pathname,
@@ -462,12 +462,10 @@ export default function EntityPaymentDetailsCard({
         if (entityType === 'Fine') {
             if (typeof onPay === 'function') {
                 onPay();
-                return;
             }
-            setPaymentPrefill(buildFinePrefill(entityRecord, employeeId, remaining, pathname));
-        } else {
-            setPaymentPrefill(buildLoanPrefill(entityRecord, remaining, pathname));
+            return;
         }
+
         setIsPayModalOpen(true);
     };
 
@@ -500,8 +498,8 @@ export default function EntityPaymentDetailsCard({
                     isLoanLike
                         ? 'Employee repayments against this loan (not disbursement to employee)'
                         : entityType === 'Reward'
-                          ? 'Turns paid (green) after Zoho Expense posts on Accounts approval'
-                          : `Payments recorded against this ${typeLabel.toLowerCase()}`
+                            ? 'Turns paid (green) after Zoho Expense posts on Accounts approval'
+                            : `Payments recorded against this ${typeLabel.toLowerCase()}`
                 }
                 headerAction={payButton}
                 className={cardClassName}

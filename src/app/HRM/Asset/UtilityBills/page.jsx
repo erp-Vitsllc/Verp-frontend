@@ -16,6 +16,7 @@ import UtilityStatusChangeReviewModal from './components/UtilityStatusChangeRevi
 import UtilityTypeOverviewCard from './components/UtilityTypeOverviewCard';
 import UtilityBillPendingCard from './components/UtilityBillPendingCard';
 import FieldViewModal from './components/FieldViewModal';
+import UtilityBillSummaryTable from './components/UtilityBillSummaryTable';
 import PendingAssetRequestsModal from '../components/PendingAssetRequestsModal';
 import axiosInstance from '@/utils/axios';
 import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
@@ -59,6 +60,7 @@ import {
     currentPeriod,
     utilityBillYears,
 } from './utils/utilityOverviewStats';
+import { buildUtilityTypeSummaryRows } from './utils/utilityBillSummary';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import { buildUtilityBillDetailsPath } from '@/utils/assetNotificationRouting';
 
@@ -355,7 +357,7 @@ function UtilityBillsPageContent() {
     const [utilities, setUtilities] = useState([]);
     const [entries, setEntries] = useState([]);
     const [activeTypeTab, setActiveTypeTab] = useState('');
-    /** Sub-tabs under type tabs: Active | Deactivated */
+    /** Sub-tabs under type tabs: Summary | Active | Deactivated */
     const [listStatusTab, setListStatusTab] = useState('active');
     /** Search within the active utility type tab rows. */
     const [tabSearchQuery, setTabSearchQuery] = useState('');
@@ -521,6 +523,18 @@ function UtilityBillsPageContent() {
     const deactivatedStatusCount = useMemo(
         () => activeEntries.filter((e) => !isEntryActive(e)).length,
         [activeEntries],
+    );
+
+    const summaryRows = useMemo(
+        () =>
+            buildUtilityTypeSummaryRows({
+                entries,
+                bills: allTypeBills,
+                utilityType: activeTypeTab,
+                year: overviewYear,
+                month: overviewMonth,
+            }),
+        [entries, allTypeBills, activeTypeTab, overviewYear, overviewMonth],
     );
 
     const tableColumns = useMemo(() => {
@@ -1251,6 +1265,11 @@ function UtilityBillsPageContent() {
                                             <div className="flex items-center gap-3 sm:gap-5 lg:gap-8 mb-4 sm:mb-6 border-b border-gray-200 overflow-x-auto">
                                                 {[
                                                     {
+                                                        id: 'summary',
+                                                        label: 'Summary',
+                                                        count: summaryRows.length,
+                                                    },
+                                                    {
                                                         id: 'active',
                                                         label: 'Active',
                                                         count: activeStatusCount,
@@ -1292,7 +1311,9 @@ function UtilityBillsPageContent() {
 
                                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 sm:mb-4">
                                                 <h2 className="text-base sm:text-lg font-bold text-gray-800">
-                                                    {activeUtility.type} Directory
+                                                    {listStatusTab === 'summary'
+                                                        ? `${activeUtility.type} Summary`
+                                                        : `${activeUtility.type} Directory`}
                                                 </h2>
                                                 <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto w-full sm:w-auto">
                                                     <div className="relative flex-1 sm:flex-initial sm:min-w-[220px]">
@@ -1309,7 +1330,7 @@ function UtilityBillsPageContent() {
                                                             aria-label={`Search ${activeUtility.type} rows`}
                                                         />
                                                     </div>
-                                                    {listStatusTab === 'active' ? (
+                                                    {listStatusTab === 'active' || listStatusTab === 'summary' ? (
                                                         <button
                                                             type="button"
                                                             onClick={openAddBills}
@@ -1319,21 +1340,29 @@ function UtilityBillsPageContent() {
                                                             Add Bills
                                                         </button>
                                                     ) : null}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setEditingEntry(null);
-                                                            setCreateEntryOpen(true);
-                                                        }}
-                                                        className={ERP_PRIMARY_BTN}
-                                                    >
-                                                        <Plus size={18} strokeWidth={2} />
-                                                        Create {activeUtility.type}
-                                                    </button>
+                                                    {listStatusTab !== 'summary' ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setEditingEntry(null);
+                                                                setCreateEntryOpen(true);
+                                                            }}
+                                                            className={ERP_PRIMARY_BTN}
+                                                        >
+                                                            <Plus size={18} strokeWidth={2} />
+                                                            Create {activeUtility.type}
+                                                        </button>
+                                                    ) : null}
                                                 </div>
                                             </div>
 
-                                            {statusFilteredEntries.length === 0 ? (
+                                            {listStatusTab === 'summary' ? (
+                                                <UtilityBillSummaryTable
+                                                    rows={summaryRows}
+                                                    searchQuery={tabSearchQuery}
+                                                    utilityType={activeUtility.type}
+                                                />
+                                            ) : statusFilteredEntries.length === 0 ? (
                                                 <div className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     {listStatusTab === 'deactivated'
                                                         ? `No deactivated ${activeUtility.type} records.`

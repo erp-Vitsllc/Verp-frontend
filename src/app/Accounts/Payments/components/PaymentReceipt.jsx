@@ -37,9 +37,9 @@ const PaymentReceipt = ({ payment }) => {
                     setRelatedData(res.data);
                 }
 
-                // 2. Fetch all other debts for this employee
+                // 2. Fetch all other debts for this employee (not on Fine invoices — share only)
                 const empId = typeof payment.paidBy === 'object' ? payment.paidBy.employeeId : payment.paidBy;
-                if (empId) {
+                if (empId && !isFine) {
                     const [finesRes, loansRes] = await Promise.all([
                         axiosInstance.get('/Fine', { params: { employeeId: empId, status: 'Approved' } }),
                         axiosInstance.get('/Employee/loans', { params: { employeeId: empId } })
@@ -308,7 +308,6 @@ const PaymentReceipt = ({ payment }) => {
                     <h3 className="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-3">BILL TO</h3>
                     <p className="text-lg font-bold text-gray-900">{empName}</p>
                     <p className="text-sm text-gray-500 mt-1">Employee ID: <span className="font-semibold text-gray-700">{payment.paidBy?.employeeId || 'N/A'}</span></p>
-                    <p className="text-sm text-blue-600 underline font-medium mt-1">{payment.paidBy?.companyEmail || 'n/a@company.com'}</p>
                 </div>
                 <div className="text-right">
                     <h3 className="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-3">DETAILS</h3>

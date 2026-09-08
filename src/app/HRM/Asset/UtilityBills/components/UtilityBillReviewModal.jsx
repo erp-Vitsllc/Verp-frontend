@@ -185,11 +185,16 @@ function readApiError(err, fallback) {
     );
 }
 
-function buildReviewRows(entries, bills) {
-    const billByEntry = new Map((bills || []).map((b) => [String(b.entryId || ''), b]));
+function buildReviewRows(entries, bills, { focusBillId } = {}) {
+    const focusId = String(focusBillId || '').trim();
+    const scopedBills = focusId
+        ? (bills || []).filter((b) => String(b._id || b.billId || '') === focusId)
+        : bills || [];
+    const billByEntry = new Map(scopedBills.map((b) => [String(b.entryId || ''), b]));
     // Extra (not yet billed) rows: Active entries only. Already-submitted batch bills always stay.
+    // A focused bill stays on its own — do not pull in the rest of the group.
     const listEntries = (entries || []).filter(
-        (e) => billByEntry.has(String(e?.id)) || isEntryActive(e),
+        (e) => billByEntry.has(String(e?.id)) || (!focusId && isEntryActive(e)),
     );
     const entryIds = new Set(listEntries.map((e) => String(e.id)));
     const rows = listEntries.map((entry) => {
@@ -302,7 +307,7 @@ function buildReviewRows(entries, bills) {
         };
     });
 
-    (bills || []).forEach((bill) => {
+    (scopedBills || []).forEach((bill) => {
         const eid = String(bill.entryId || '');
         if (entryIds.has(eid)) return;
         const attachment = bill.attachment?.name ? bill.attachment : null;
@@ -370,6 +375,7 @@ function buildReviewRows(entries, bills) {
 export default function UtilityBillReviewModal({
     isOpen,
     batchId,
+    focusBillId = '',
     onClose,
     onChanged,
     entries: entriesProp = null,
@@ -430,7 +436,9 @@ export default function UtilityBillReviewModal({
                         data?.billMonth,
                         { excludeBillIds: batchBillIds },
                     );
-                    const built = buildReviewRows(typeEntries, data?.bills || []);
+                    const built = buildReviewRows(typeEntries, data?.bills || [], {
+                        focusBillId,
+                    });
                     const withBlocks = built.map((r) => {
                         const blocked = blockedEntryIds.has(String(r.entryId || ''));
                         if (!blocked) return { ...r, blockedByExisting: false };
@@ -520,10 +528,20 @@ export default function UtilityBillReviewModal({
         // entriesProp / existingBillsProp / utilityAttachmentProp are read once at open;
         // including them re-ran the batch GET whenever the parent list refreshed.
         // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
-    }, [isOpen, batchId, reloadKey]);
+    }, [isOpen, batchId, focusBillId, reloadKey]);
 
+    const singleBillMode = Boolean(String(focusBillId || '').trim());
     const monthTitle = useMemo(() => titleFromBillMonth(batch?.billMonth), [batch?.billMonth]);
-    const headerTitle = monthTitle ? `${monthTitle} Bill` : 'Utility Bill Review';
+    const focusedRow = singleBillMode ? rows.find((r) => String(r.billId) === String(focusBillId)) || rows[0] : null;
+    const headerTitle = monthTitle
+        ? `${monthTitle} Bill${
+              focusedRow?.accountNo && focusedRow.accountNo !== '—'
+                  ? ` · ${focusedRow.accountNo}`
+                  : focusedRow?.provider
+                    ? ` · ${focusedRow.provider}`
+                    : ''
+          }`
+        : 'Utility Bill Review';
 
     const selectedCount = rows.filter((r) => r.selected).length;
     const blockedSelectedCount = rows.filter(
@@ -532,33 +550,63 @@ export default function UtilityBillReviewModal({
     const canApproveSelected =
         selectedCount > 0 && blockedSelectedCount === 0;
 
-    // Only the user the batch is pending with (Accounts / HR / Pay) may edit or act
-    const canEdit = Boolean(batch?.canEdit);
-    const canApproveReject = Boolean(batch?.canApproveReject ?? batch?.canEdit);
-    const canCreatorResend = Boolean(batch?.canCreatorResend);
-    const canPay = Boolean(batch?.canPay);
-    const needsZohoOpen = Boolean(batch?.needsZohoOpen);
-    const isHrStage = String(batch?.status || '') === 'Pending HR';
+    const focusedBill = useMemo(() => {
+        const bills = Array.isArray(batch?.bills) ? batch.bills : [];
+        const focusId = String(focusBillId || '').trim();
+        if (!focusId) return null;
+        return bills.find((b) => String(b._id || b.billId || '') === focusId) || null;
+    }, [batch?.bills, focusBillId]);
+    const focusedStatus = String(focusedBill?.status || '');
+    const focusedZohoDraft =
+        focusedStatus === 'Approved' &&
+        String(focusedBill?.zohoBillStatus || '').toLowerCase() === 'draft';
+
+    // When a group bill is opened from one account, act on that bill only.
+    const canEdit = singleBillMode && focusedStatus
+        ? (focusedStatus === 'Pending Accounts' && Boolean(batch?.actorIsAccounts)) ||
+          (focusedStatus === 'Pending HR' && Boolean(batch?.actorIsHr))
+        : Boolean(batch?.canEdit);
+    const canApproveReject = singleBillMode && focusedStatus ? canEdit : Boolean(batch?.canApproveReject ?? batch?.canEdit);
+    const canCreatorResend = Boolean(batch?.canCreatorResend) && !canApproveReject && (
+        !singleBillMode ||
+        ['Pending Accounts', 'Pending HR', 'Rejected'].includes(focusedStatus)
+    );
+    const canPay = singleBillMode && focusedStatus
+        ? focusedStatus === 'Approved' && Boolean(batch?.actorIsAccounts) && !focusedZohoDraft
+        : Boolean(batch?.canPay);
+    const needsZohoOpen = singleBillMode
+        ? focusedZohoDraft && (Boolean(batch?.actorIsAccounts) || Boolean(batch?.actorIsHr))
+        : Boolean(batch?.needsZohoOpen);
+    const isHrStage = String((singleBillMode && focusedStatus) || batch?.status || '') === 'Pending HR';
     const canHrDraft = canApproveReject && isHrStage;
     const isViewerOnly =
         Boolean(batch) && !canEdit && !canPay && !needsZohoOpen && !canCreatorResend;
     // Current approver / Pay only — not the other department, and not after first approver acted.
     const canEditDetails =
         Boolean(batch) &&
-        String(batch?.status || '') !== 'Paid' &&
+        String((singleBillMode && focusedStatus) || batch?.status || '') !== 'Paid' &&
         Boolean(canEdit || canPay || needsZohoOpen);
     const showCreatorResend = canCreatorResend && !canApproveReject && !canPay;
 
     const editBillsForModal = useMemo(() => {
         const bills = Array.isArray(batch?.bills) ? batch.bills : [];
+        const focusId = String(focusBillId || '').trim();
+        const scoped = focusId
+            ? bills.filter((b) => String(b._id || b.billId || '') === focusId)
+            : bills;
         const selectedIds = new Set(
             rows
                 .filter((r) => r.selected && r.billId)
                 .map((r) => String(r.billId)),
         );
-        const selected = bills.filter((b) => selectedIds.has(String(b._id || b.billId || '')));
-        return selected.length ? selected : bills.filter((b) => String(b.status) !== 'Paid');
-    }, [batch?.bills, rows]);
+        const selected = scoped.filter((b) => selectedIds.has(String(b._id || b.billId || '')));
+        if (focusId) return selected.length ? selected : scoped;
+        if (selected.length) return selected;
+        if (String(batch?.status || '') === 'Rejected') {
+            return scoped.filter((b) => String(b.status) === 'Rejected');
+        }
+        return [];
+    }, [batch?.bills, batch?.status, rows, focusBillId]);
 
     const handleSaveEditedBills = async (payload) => {
         const id = String(batch?.batchId || batchId || '').trim();
@@ -819,7 +867,12 @@ export default function UtilityBillReviewModal({
     const handleRespond = async (decision) => {
         const id = batch?.batchId || batchId;
         if (!id) return;
-        const selectedRows = rows.filter((r) => r.selected);
+        const picked = rows.filter((r) => r.selected);
+        let selectedRows = picked;
+        if (!selectedRows.length && singleBillMode) {
+            const focused = rows.filter((r) => String(r.billId) === String(focusBillId));
+            selectedRows = focused.length ? focused : rows;
+        }
         if ((decision === 'approve' || decision === 'reject') && !selectedRows.length) {
             setError('Select at least one account.');
             return;
@@ -1264,21 +1317,29 @@ export default function UtilityBillReviewModal({
                                         : canHrDraft
                                           ? 'Draft → stays on HR inbox, Zoho Draft. Approve → Zoho Open, then Accounts can pay.'
                                           : canEdit
-                                            ? 'Same as Add Bills — full bill fields, edit Actual / Contract Paid By / Upload before Approve.'
+                                            ? singleBillMode
+                                              ? 'This one bill only — edit, then Approve or Reject. Other accounts from the group stay as they are.'
+                                              : 'Same as Add Bills — full bill fields, edit Actual / Contract Paid By / Upload before Approve.'
                                             : canPay
-                                              ? 'Select bills, then Pay — stores the Zoho bill and marks payment successful.'
+                                              ? singleBillMode
+                                                ? 'Pay this bill only. Other accounts from the group are not included.'
+                                                : 'Select bills, then Pay — stores the Zoho bill and marks payment successful.'
                                               : showCreatorResend
-                                                ? 'You created this bill. Edit and Resend while waiting on the next person. That button goes after they act.'
+                                                ? String(batch?.status || '') === 'Rejected'
+                                                  ? 'This bill was rejected. Edit it and send it again through the same approval flow.'
+                                                  : 'You created this bill. Edit and Resend while waiting on the next person. That button goes after they act.'
                                                 : isViewerOnly
                                                 ? `View only — pending ${batch?.pendingWithName || 'approver'} (${batch?.statusLabel || batch?.status || ''}).`
                                                 : ''}
                                 </span>
+                                {singleBillMode ? null : (
                                 <span className="text-xs text-gray-500 tabular-nums shrink-0">
                                     {selectedCount} of {rows.length} selected
                                     {submittedCount < rows.length
                                         ? ` · ${submittedCount} originally submitted`
                                         : ''}
                                 </span>
+                                )}
                             </div>
 
                             <div className="overflow-auto flex-1 min-h-0 px-4 sm:px-5 pb-3">
@@ -1286,6 +1347,7 @@ export default function UtilityBillReviewModal({
                                     <table className="min-w-[80rem] w-full text-sm">
                                         <thead className="sticky top-0 z-10 bg-gray-50">
                                             <tr className="border-b border-gray-200 text-[10px] uppercase tracking-wider text-gray-400">
+                                                {singleBillMode ? null : (
                                                 <th className="w-12 px-3 py-3 text-center font-bold">
                                                     <input
                                                         type="checkbox"
@@ -1302,6 +1364,7 @@ export default function UtilityBillReviewModal({
                                                         aria-label="Select all"
                                                     />
                                                 </th>
+                                                )}
                                                 <th className="px-3 py-3 text-center font-bold whitespace-nowrap">
                                                     Account No
                                                 </th>
@@ -1383,6 +1446,7 @@ export default function UtilityBillReviewModal({
                                                                 : 'bg-gray-50/80 opacity-60'
                                                         }
                                                     >
+                                                        {singleBillMode ? null : (
                                                         <td className="px-3 py-3.5 text-center align-middle">
                                                             <input
                                                                 type="checkbox"
@@ -1408,6 +1472,7 @@ export default function UtilityBillReviewModal({
                                                                 className="accent-teal-600 w-4 h-4 disabled:opacity-40"
                                                             />
                                                         </td>
+                                                        )}
                                                         <td className="px-3 py-3.5 text-center align-middle font-semibold text-gray-800 tabular-nums">
                                                             {row.accountNo}
                                                         </td>
@@ -1938,7 +2003,9 @@ export default function UtilityBillReviewModal({
                                         title="Edit this bill and send it again to the next approver"
                                         className="px-4 py-2 rounded-xl border border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-900 text-sm font-semibold disabled:opacity-50"
                                     >
-                                        Edit and Resend
+                                        {String(batch?.status || '') === 'Rejected'
+                                            ? 'Edit'
+                                            : 'Edit and Resend'}
                                     </button>
                                 ) : null}
                                 {needsZohoRetry ? (

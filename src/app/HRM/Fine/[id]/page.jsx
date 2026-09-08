@@ -815,16 +815,13 @@ function FineDetailsPageContent() {
 
     const handlePaidByEmployee = () => {
         const parties = (fine?.assignedEmployees || []).filter(
-            (e) =>
-                e?.employeeId &&
-                e.employeeId !== 'VEGA-HR-0000' &&
-                e.employeeId !== 'VEGA_INTERNAL',
+            (e) => e?.employeeId && e.employeeId !== 'PENDING',
         );
         if (!parties.length) {
             toast({
                 variant: 'destructive',
-                title: 'No employee party',
-                description: 'This fine has no employee to record payment for.',
+                title: 'No party to pay',
+                description: 'This fine has no employee or company party to record payment for.',
             });
             return;
         }
@@ -1160,155 +1157,155 @@ function FineDetailsPageContent() {
                         });
 
                         (async () => {
-                        try {
-                            const allFinesRes = await axiosInstance.get(`/Fine?employeeId=${empId}&limit=1000`);
-                            let allFines = [];
-                            if (allFinesRes.data && Array.isArray(allFinesRes.data.fines)) {
-                                allFines = allFinesRes.data.fines;
-                            } else if (allFinesRes.data && Array.isArray(allFinesRes.data.data)) {
-                                allFines = allFinesRes.data.data;
-                            } else if (Array.isArray(allFinesRes.data)) {
-                                allFines = allFinesRes.data;
-                            }
-
-                            setAllEmployeeFines(allFines);
-
-                            if (fineData.formSummary) {
-                                return;
-                            }
-
-                            if (allFines.length > 0 || fineData) {
-                                const processedFines = [...allFines];
-                                if (fineData && !processedFines.some(f => (f._id === fineData._id || f.fineId === fineData.fineId))) {
-                                    processedFines.push(fineData);
+                            try {
+                                const allFinesRes = await axiosInstance.get(`/Fine?employeeId=${empId}&limit=1000`);
+                                let allFines = [];
+                                if (allFinesRes.data && Array.isArray(allFinesRes.data.fines)) {
+                                    allFines = allFinesRes.data.fines;
+                                } else if (allFinesRes.data && Array.isArray(allFinesRes.data.data)) {
+                                    allFines = allFinesRes.data.data;
+                                } else if (Array.isArray(allFinesRes.data)) {
+                                    allFines = allFinesRes.data;
                                 }
 
-                                const activeFines = processedFines.filter((f) =>
-                                    APPROVED_FINE_STATUSES.includes(f.fineStatus)
-                                );
-                                const totalAmount = activeFines.reduce((sum, f) => sum + getEmpShare(f, empId), 0);
-                                const paidAmount = activeFines.reduce((sum, f) => sum + (f.paidAmount || 0), 0);
-                                const paidFines = activeFines.filter(f => f.fineStatus === 'Paid' || (getEmpShare(f) > 0 && f.paidAmount >= getEmpShare(f)));
+                                setAllEmployeeFines(allFines);
 
-                                const aggregates = {
-                                    'Vehicle': { amount: 0, paid: 0, count: 0, duration: 0 },
-                                    'Safety': { amount: 0, paid: 0, count: 0, duration: 0 },
-                                    'Project': { amount: 0, paid: 0, count: 0, duration: 0 },
-                                    'Loss': { amount: 0, paid: 0, count: 0, duration: 0 },
-                                    'Other': { amount: 0, paid: 0, count: 0, duration: 0 },
-                                };
+                                if (fineData.formSummary) {
+                                    return;
+                                }
 
-                                activeFines.forEach(f => {
-                                    const fType = (f.fineType || f.category || f.subCategory || '').toLowerCase();
-                                    let cat = 'Other';
-                                    if (fType.includes('vehicle')) cat = 'Vehicle';
-                                    else if (fType.includes('safety')) cat = 'Safety';
-                                    else if (fType.includes('project')) cat = 'Project';
-                                    else if (fType.includes('loss and damage')) cat = 'Loss';
-                                    else if (fType.includes('loss') || (fType.includes('damage') && !fType.includes('other'))) cat = 'Loss';
-                                    else if (fType.includes('property')) cat = 'Loss';
+                                if (allFines.length > 0 || fineData) {
+                                    const processedFines = [...allFines];
+                                    if (fineData && !processedFines.some(f => (f._id === fineData._id || f.fineId === fineData.fineId))) {
+                                        processedFines.push(fineData);
+                                    }
 
-                                    aggregates[cat].amount += getEmpShare(f, empId);
-                                    aggregates[cat].paid += (f.paidAmount || 0);
-                                    aggregates[cat].count += 1;
-                                    aggregates[cat].duration += (parseInt(f.payableDuration) || 1);
-                                });
+                                    const activeFines = processedFines.filter((f) =>
+                                        APPROVED_FINE_STATUSES.includes(f.fineStatus)
+                                    );
+                                    const totalAmount = activeFines.reduce((sum, f) => sum + getEmpShare(f, empId), 0);
+                                    const paidAmount = activeFines.reduce((sum, f) => sum + (f.paidAmount || 0), 0);
+                                    const paidFines = activeFines.filter(f => f.fineStatus === 'Paid' || (getEmpShare(f) > 0 && f.paidAmount >= getEmpShare(f)));
 
-                                let loanSummary = {
-                                    personalLoan: { amount: 0, duration: 0, paid: 0, count: 0 },
-                                    salaryAdvance: { amount: 0, duration: 0, paid: 0, count: 0 }
-                                };
-                                let loanInstallments = 0;
-
-                                try {
-                                    const loansRes = await axiosInstance.get(`/Employee/loans?employeeId=${empId}`);
-                                    const allLoans = Array.isArray(loansRes.data.loans) ? loansRes.data.loans :
-                                        (Array.isArray(loansRes.data.data) ? loansRes.data.data : []);
-
-                                    setAllEmployeeLoans(allLoans);
-
-                                    const approvedLoans = allLoans.filter(isApprovedLoanRecord);
-
-                                    const pLoans = approvedLoans.filter(l => (l.type || '').toLowerCase() === 'loan');
-                                    const sAdvances = approvedLoans.filter(l => (l.type || '').toLowerCase() === 'advance');
-
-                                    loanSummary.personalLoan = {
-                                        amount: pLoans.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
-                                        duration: pLoans.reduce((sum, l) => sum + (Number(l.duration) || 0), 0),
-                                        paid: pLoans.reduce((sum, l) => sum + (Number(l.paidAmount) || 0), 0),
-                                        count: pLoans.length
-                                    };
-                                    loanSummary.salaryAdvance = {
-                                        amount: sAdvances.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
-                                        duration: sAdvances.reduce((sum, l) => sum + (Number(l.duration) || 0), 0),
-                                        paid: sAdvances.reduce((sum, l) => sum + (Number(l.paidAmount) || 0), 0),
-                                        count: sAdvances.length
+                                    const aggregates = {
+                                        'Vehicle': { amount: 0, paid: 0, count: 0, duration: 0 },
+                                        'Safety': { amount: 0, paid: 0, count: 0, duration: 0 },
+                                        'Project': { amount: 0, paid: 0, count: 0, duration: 0 },
+                                        'Loss': { amount: 0, paid: 0, count: 0, duration: 0 },
+                                        'Other': { amount: 0, paid: 0, count: 0, duration: 0 },
                                     };
 
-                                    loanInstallments = approvedLoans.reduce((sum, l) => {
-                                        const amt = Number(l.amount) || 0;
-                                        const dur = Number(l.duration) || 1;
-                                        const pd = Number(l.paidAmount) || 0;
-                                        if (amt - pd > 0.5) return sum + (amt / dur);
+                                    activeFines.forEach(f => {
+                                        const fType = (f.fineType || f.category || f.subCategory || '').toLowerCase();
+                                        let cat = 'Other';
+                                        if (fType.includes('vehicle')) cat = 'Vehicle';
+                                        else if (fType.includes('safety')) cat = 'Safety';
+                                        else if (fType.includes('project')) cat = 'Project';
+                                        else if (fType.includes('loss and damage')) cat = 'Loss';
+                                        else if (fType.includes('loss') || (fType.includes('damage') && !fType.includes('other'))) cat = 'Loss';
+                                        else if (fType.includes('property')) cat = 'Loss';
+
+                                        aggregates[cat].amount += getEmpShare(f, empId);
+                                        aggregates[cat].paid += (f.paidAmount || 0);
+                                        aggregates[cat].count += 1;
+                                        aggregates[cat].duration += (parseInt(f.payableDuration) || 1);
+                                    });
+
+                                    let loanSummary = {
+                                        personalLoan: { amount: 0, duration: 0, paid: 0, count: 0 },
+                                        salaryAdvance: { amount: 0, duration: 0, paid: 0, count: 0 }
+                                    };
+                                    let loanInstallments = 0;
+
+                                    try {
+                                        const loansRes = await axiosInstance.get(`/Employee/loans?employeeId=${empId}`);
+                                        const allLoans = Array.isArray(loansRes.data.loans) ? loansRes.data.loans :
+                                            (Array.isArray(loansRes.data.data) ? loansRes.data.data : []);
+
+                                        setAllEmployeeLoans(allLoans);
+
+                                        const approvedLoans = allLoans.filter(isApprovedLoanRecord);
+
+                                        const pLoans = approvedLoans.filter(l => (l.type || '').toLowerCase() === 'loan');
+                                        const sAdvances = approvedLoans.filter(l => (l.type || '').toLowerCase() === 'advance');
+
+                                        loanSummary.personalLoan = {
+                                            amount: pLoans.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
+                                            duration: pLoans.reduce((sum, l) => sum + (Number(l.duration) || 0), 0),
+                                            paid: pLoans.reduce((sum, l) => sum + (Number(l.paidAmount) || 0), 0),
+                                            count: pLoans.length
+                                        };
+                                        loanSummary.salaryAdvance = {
+                                            amount: sAdvances.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
+                                            duration: sAdvances.reduce((sum, l) => sum + (Number(l.duration) || 0), 0),
+                                            paid: sAdvances.reduce((sum, l) => sum + (Number(l.paidAmount) || 0), 0),
+                                            count: sAdvances.length
+                                        };
+
+                                        loanInstallments = approvedLoans.reduce((sum, l) => {
+                                            const amt = Number(l.amount) || 0;
+                                            const dur = Number(l.duration) || 1;
+                                            const pd = Number(l.paidAmount) || 0;
+                                            if (amt - pd > 0.5) return sum + (amt / dur);
+                                            return sum;
+                                        }, 0);
+                                    } catch (err) {
+                                        console.error("Failed to fetch loans:", err);
+                                    }
+
+                                    const now = new Date();
+                                    const targetYM = addMonthsToYM(now.getFullYear() * 100 + (now.getMonth() + 1), 1);
+                                    const targetMonthName = monthNames[(now.getMonth() + 1) % 12];
+
+                                    const nextSalaryDeduction = activeFines.reduce((sum, f) => {
+                                        const isCurrent = (fineData && (f._id === fineData._id || f.fineId === fineData.fineId));
+                                        const record = isCurrent ? fineData : f;
+
+                                        const share = getEmpShare(record, empId);
+                                        if (share <= 0) return sum;
+
+                                        const outstanding = share - (record.paidAmount || 0);
+                                        if (outstanding <= 0) return sum;
+
+                                        const startYM = getYearMonth(record.monthStart || record.awardedDate);
+                                        const duration = parseInt(record.payableDuration) || 1;
+                                        const endYM = addMonthsToYM(startYM, duration - 1);
+
+                                        if (startYM > 0 && targetYM >= startYM && targetYM <= endYM) {
+                                            return sum + (share / duration);
+                                        }
                                         return sum;
                                     }, 0);
-                                } catch (err) {
-                                    console.error("Failed to fetch loans:", err);
+
+                                    const totalNextDeduction = nextSalaryDeduction + loanInstallments;
+
+                                    setFineSummaries({
+                                        startMonthYear: scheduleDates.startMonthYear,
+                                        endMonthYear: scheduleDates.endMonthYear,
+                                        nextSalaryDeduction: Math.round(totalNextDeduction),
+                                        targetMonthName: targetMonthName,
+                                        aggregates,
+                                        totalFineCount: activeFines.length,
+                                        totalAmount: totalAmount,
+                                        paidFineCount: paidFines.length,
+                                        paidFineAmount: paidAmount,
+                                        distinctTypesCount: Object.values(aggregates).filter(a => a.count > 0).length,
+                                        ...loanSummary,
+                                        outstandingBalance: (totalAmount - paidAmount) +
+                                            (loanSummary.personalLoan.amount - loanSummary.personalLoan.paid) +
+                                            (loanSummary.salaryAdvance.amount - loanSummary.salaryAdvance.paid)
+                                    });
                                 }
-
-                                const now = new Date();
-                                const targetYM = addMonthsToYM(now.getFullYear() * 100 + (now.getMonth() + 1), 1);
-                                const targetMonthName = monthNames[(now.getMonth() + 1) % 12];
-
-                                const nextSalaryDeduction = activeFines.reduce((sum, f) => {
-                                    const isCurrent = (fineData && (f._id === fineData._id || f.fineId === fineData.fineId));
-                                    const record = isCurrent ? fineData : f;
-
-                                    const share = getEmpShare(record, empId);
-                                    if (share <= 0) return sum;
-
-                                    const outstanding = share - (record.paidAmount || 0);
-                                    if (outstanding <= 0) return sum;
-
-                                    const startYM = getYearMonth(record.monthStart || record.awardedDate);
-                                    const duration = parseInt(record.payableDuration) || 1;
-                                    const endYM = addMonthsToYM(startYM, duration - 1);
-
-                                    if (startYM > 0 && targetYM >= startYM && targetYM <= endYM) {
-                                        return sum + (share / duration);
-                                    }
-                                    return sum;
-                                }, 0);
-
-                                const totalNextDeduction = nextSalaryDeduction + loanInstallments;
-
-                                setFineSummaries({
-                                    startMonthYear: scheduleDates.startMonthYear,
-                                    endMonthYear: scheduleDates.endMonthYear,
-                                    nextSalaryDeduction: Math.round(totalNextDeduction),
-                                    targetMonthName: targetMonthName,
-                                    aggregates,
-                                    totalFineCount: activeFines.length,
-                                    totalAmount: totalAmount,
-                                    paidFineCount: paidFines.length,
-                                    paidFineAmount: paidAmount,
-                                    distinctTypesCount: Object.values(aggregates).filter(a => a.count > 0).length,
-                                    ...loanSummary,
-                                    outstandingBalance: (totalAmount - paidAmount) +
-                                        (loanSummary.personalLoan.amount - loanSummary.personalLoan.paid) +
-                                        (loanSummary.salaryAdvance.amount - loanSummary.salaryAdvance.paid)
-                                });
+                            } catch (err) {
+                                console.error("Failed to fetch all employee fines:", err);
                             }
-                        } catch (err) {
-                            console.error("Failed to fetch all employee fines:", err);
-                        }
                         })();
 
                         axiosInstance.get(`/Employee/loans?employeeId=${empId}`).then((loansRes) => {
                             const allLoans = Array.isArray(loansRes.data.loans) ? loansRes.data.loans :
                                 (Array.isArray(loansRes.data.data) ? loansRes.data.data : []);
                             setAllEmployeeLoans(allLoans);
-                        }).catch(() => {});
+                        }).catch(() => { });
                     }
                 } else {
                     setLoading(false);
@@ -2217,13 +2214,12 @@ function FineDetailsPageContent() {
                                                 </div>,
                                                 <div
                                                     key="vendor-paid"
-                                                    className={`${compactBox} ${
-                                                        vendorPaid
+                                                    className={`${compactBox} ${vendorPaid
                                                             ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
                                                             : vendorLabel === 'Not Paid' || vendorLabel === 'Pending'
-                                                              ? 'bg-amber-50 border-amber-100 text-amber-700'
-                                                              : 'bg-gray-50 border-gray-100 text-gray-400'
-                                                    }`}
+                                                                ? 'bg-amber-50 border-amber-100 text-amber-700'
+                                                                : 'bg-gray-50 border-gray-100 text-gray-400'
+                                                        }`}
                                                 >
                                                     <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">
                                                         Paid to Vendor
@@ -2371,8 +2367,8 @@ function FineDetailsPageContent() {
                                     scroll={false}
                                     onClick={selectGroupOverview}
                                     className={`py-3 px-5 text-sm font-semibold border-b-2 transition-all duration-200 cursor-pointer ${isGroupOverviewActive
-                                            ? 'border-blue-600 text-blue-600'
-                                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                        ? 'border-blue-600 text-blue-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                                         }`}
                                     title="Group fine overview"
                                 >
@@ -2394,8 +2390,8 @@ function FineDetailsPageContent() {
                                                 selectGroupParty(member);
                                             }}
                                             className={`py-3 px-5 text-sm font-semibold border-b-2 transition-all duration-200 cursor-pointer ${active
-                                                    ? 'border-blue-600 text-blue-600'
-                                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                                ? 'border-blue-600 text-blue-600'
+                                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                                                 }`}
                                             title={member.isCompany ? 'Company share' : member.employeeId || label}
                                         >
@@ -2419,8 +2415,8 @@ function FineDetailsPageContent() {
                         {/* Sub-tabs — Fine Form / History (secondary chips under group main tabs) */}
                         <div
                             className={`w-full flex flex-wrap items-center mb-6 print:hidden ${isGroup && groupParties.length > 0
-                                    ? 'gap-2 pt-3'
-                                    : 'border-b border-gray-200'
+                                ? 'gap-2 pt-3'
+                                : 'border-b border-gray-200'
                                 }`}
                         >
                             {isGroup && groupParties.length > 0 ? (
@@ -2428,8 +2424,8 @@ function FineDetailsPageContent() {
                                     <button
                                         onClick={() => setActiveTab('fineForm')}
                                         className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${activeTab === 'fineForm'
-                                                ? 'bg-slate-800 text-white shadow-sm'
-                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
+                                            ? 'bg-slate-800 text-white shadow-sm'
+                                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
                                             }`}
                                     >
                                         Fine Form
@@ -2437,8 +2433,8 @@ function FineDetailsPageContent() {
                                     <button
                                         onClick={() => setActiveTab('historyDetails')}
                                         className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${activeTab === 'historyDetails'
-                                                ? 'bg-slate-800 text-white shadow-sm'
-                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
+                                            ? 'bg-slate-800 text-white shadow-sm'
+                                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
                                             }`}
                                     >
                                         Fine History & Details
@@ -2447,8 +2443,8 @@ function FineDetailsPageContent() {
                                         <button
                                             onClick={() => setActiveTab('approvedAttachments')}
                                             className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${activeTab === 'approvedAttachments'
-                                                    ? 'bg-slate-800 text-white shadow-sm'
-                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
+                                                ? 'bg-slate-800 text-white shadow-sm'
+                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
                                                 }`}
                                         >
                                             Attachment
@@ -2460,8 +2456,8 @@ function FineDetailsPageContent() {
                                     <button
                                         onClick={() => setActiveTab('fineForm')}
                                         className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${activeTab === 'fineForm'
-                                                ? 'border-blue-600 text-blue-600'
-                                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                            ? 'border-blue-600 text-blue-600'
+                                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                                             }`}
                                     >
                                         Fine Form
@@ -2469,8 +2465,8 @@ function FineDetailsPageContent() {
                                     <button
                                         onClick={() => setActiveTab('historyDetails')}
                                         className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${activeTab === 'historyDetails'
-                                                ? 'border-blue-600 text-blue-600'
-                                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                            ? 'border-blue-600 text-blue-600'
+                                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                                             }`}
                                     >
                                         Fine History & Details
@@ -2488,8 +2484,8 @@ function FineDetailsPageContent() {
                                         <button
                                             onClick={() => setActiveTab('approvedAttachments')}
                                             className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${activeTab === 'approvedAttachments'
-                                                    ? 'border-blue-600 text-blue-600'
-                                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                                ? 'border-blue-600 text-blue-600'
+                                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                                                 }`}
                                         >
                                             Attachment
@@ -2795,10 +2791,10 @@ function FineDetailsPageContent() {
                                                     <div>
                                                         <span className="text-xs text-gray-400 block font-medium">Status</span>
                                                         <span className={`px-2 py-0.5 rounded text-[11px] font-bold inline-block border ${String(assetDetails?.status || '').toLowerCase() === 'lost'
-                                                                ? 'bg-red-50 text-red-700 border-red-200'
-                                                                : String(assetDetails?.status || '').toLowerCase() === 'damaged'
-                                                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                                                    : 'bg-blue-50 text-blue-700 border-blue-200'
+                                                            ? 'bg-red-50 text-red-700 border-red-200'
+                                                            : String(assetDetails?.status || '').toLowerCase() === 'damaged'
+                                                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                : 'bg-blue-50 text-blue-700 border-blue-200'
                                                             }`}>
                                                             {assetDetails?.status || 'Lost'}
                                                         </span>
@@ -2935,83 +2931,80 @@ function FineDetailsPageContent() {
                                     scheduleOnlyEdit={false}
                                 />
                             )}
-                            <FinePayChoiceModal
-                                isOpen={finePayChoiceOpen}
-                                fineId={fine?.fineId || ''}
-                                onClose={() => setFinePayChoiceOpen(false)}
-                                onExpenseRefund={() => {
-                                    setFinePayChoiceOpen(false);
-                                    setFineRefundOpen(true);
-                                }}
-                                onVendorCredit={() => {
-                                    setFinePayChoiceOpen(false);
-                                    setFineVendorCreditOpen(true);
-                                }}
-                                onEmployeePay={() => {
-                                    setFinePayChoiceOpen(false);
-                                    setFineEmployeePayOpen(true);
-                                }}
-                            />
-                            <FineEmployeePayModal
-                                isOpen={fineEmployeePayOpen}
-                                fine={fine}
-                                employeeId={employeeOwnerId || employeeDetails?.employeeId || ''}
-                                onClose={() => setFineEmployeePayOpen(false)}
-                                onSuccess={async () => {
-                                    setFineEmployeePayOpen(false);
-                                    try {
-                                        const fineRes = await axiosInstance.get(`/Fine/${id}`);
-                                        setFine(fineRes.data);
-                                    } catch (e) {
-                                        console.error('Failed to refresh fine after employee pay', e);
-                                    }
-                                }}
-                            />
-                            <FineVendorCreditModal
-                                isOpen={fineVendorCreditOpen}
-                                fine={fine}
-                                employeeId={employeeOwnerId || employeeDetails?.employeeId || ''}
-                                getFineBalance={(row) => {
-                                    const share = employeeOwnerId
-                                        ? getEmpShare(row, employeeOwnerId)
-                                        : computeFinePayableTotal(row);
-                                    return Math.max(0, Number(share || 0) - (Number(row?.paidAmount) || 0));
-                                }}
-                                onClose={() => setFineVendorCreditOpen(false)}
-                                onSuccess={async () => {
-                                    setFineVendorCreditOpen(false);
-                                    try {
-                                        const fineRes = await axiosInstance.get(`/Fine/${id}`);
-                                        setFine(fineRes.data);
-                                    } catch (e) {
-                                        console.error('Failed to refresh fine after vendor credit', e);
-                                    }
-                                }}
-                            />
-                            <FineCompanyRefundModal
-                                isOpen={fineRefundOpen}
-                                employee={employeeDetails}
-                                employeeId={employeeOwnerId || employeeDetails?.employeeId || ''}
-                                fines={fine ? [fine] : []}
-                                getFineBalance={(row) => {
-                                    const share = employeeOwnerId
-                                        ? getEmpShare(row, employeeOwnerId)
-                                        : computeFinePayableTotal(row);
-                                    return Math.max(0, Number(share || 0) - (Number(row?.paidAmount) || 0));
-                                }}
-                                onClose={() => setFineRefundOpen(false)}
-                                onSuccess={async () => {
-                                    setFineRefundOpen(false);
-                                    try {
-                                        const fineRes = await axiosInstance.get(`/Fine/${id}`);
-                                        setFine(fineRes.data);
-                                    } catch (e) {
-                                        console.error('Failed to refresh fine after expense refund', e);
-                                    }
-                                }}
-                            />
                         </>
                     )}
+                    <FinePayChoiceModal
+                        isOpen={finePayChoiceOpen}
+                        fineId={fine?.fineId || ''}
+                        showEmployeePay={false}
+                        onClose={() => setFinePayChoiceOpen(false)}
+                        onExpenseRefund={() => {
+                            setFinePayChoiceOpen(false);
+                            setFineRefundOpen(true);
+                        }}
+                        onVendorCredit={() => {
+                            setFinePayChoiceOpen(false);
+                            setFineVendorCreditOpen(true);
+                        }}
+                    />
+                    <FineEmployeePayModal
+                        isOpen={fineEmployeePayOpen}
+                        fine={fine}
+                        employeeId={employeeOwnerId || employeeDetails?.employeeId || ''}
+                        onClose={() => setFineEmployeePayOpen(false)}
+                        onSuccess={async () => {
+                            setFineEmployeePayOpen(false);
+                            try {
+                                const fineRes = await axiosInstance.get(`/Fine/${id}`);
+                                setFine(fineRes.data);
+                            } catch (e) {
+                                console.error('Failed to refresh fine after employee pay', e);
+                            }
+                        }}
+                    />
+                    <FineVendorCreditModal
+                        isOpen={fineVendorCreditOpen}
+                        fine={fine}
+                        employeeId={employeeOwnerId || employeeDetails?.employeeId || ''}
+                        getFineBalance={(row) => {
+                            const share = employeeOwnerId
+                                ? getEmpShare(row, employeeOwnerId)
+                                : computeFinePayableTotal(row);
+                            return Math.max(0, Number(share || 0) - (Number(row?.paidAmount) || 0));
+                        }}
+                        onClose={() => setFineVendorCreditOpen(false)}
+                        onSuccess={async () => {
+                            setFineVendorCreditOpen(false);
+                            try {
+                                const fineRes = await axiosInstance.get(`/Fine/${id}`);
+                                setFine(fineRes.data);
+                            } catch (e) {
+                                console.error('Failed to refresh fine after vendor credit', e);
+                            }
+                        }}
+                    />
+                    <FineCompanyRefundModal
+                        isOpen={fineRefundOpen}
+                        employee={employeeDetails}
+                        employeeId={employeeOwnerId || employeeDetails?.employeeId || ''}
+                        fines={fine ? [fine] : []}
+                        getFineBalance={(row) => {
+                            const share = employeeOwnerId
+                                ? getEmpShare(row, employeeOwnerId)
+                                : computeFinePayableTotal(row);
+                            return Math.max(0, Number(share || 0) - (Number(row?.paidAmount) || 0));
+                        }}
+                        onClose={() => setFineRefundOpen(false)}
+                        onSuccess={async () => {
+                            setFineRefundOpen(false);
+                            try {
+                                const fineRes = await axiosInstance.get(`/Fine/${id}`);
+                                setFine(fineRes.data);
+                            } catch (e) {
+                                console.error('Failed to refresh fine after expense refund', e);
+                            }
+                        }}
+                    />
                 </div>
             </div>
         </>
