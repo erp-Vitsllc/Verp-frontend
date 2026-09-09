@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Download, Eye, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { billDisplayStatus, formatBillMoney } from '../utils/utilityBillStats';
+import { billDisplayStatus, formatBillMoney, utilityBillIsInZoho } from '../utils/utilityBillStats';
 import { getBillAllocationParties, getBillTotalAmount } from './UtilityBillTotalsBar';
 import {
     downloadUtilityAttachment,
@@ -85,21 +85,23 @@ export default function ViewBillModal({
     const status = String(bill.status || '');
     const isNotPaid = status === 'Approved';
     const isPaid = status === 'Paid';
+    const inZoho = utilityBillIsInZoho(bill);
     const canCreatorResend = Boolean(bill.canCreatorResend);
+    const canEditBill = Boolean(bill.canEditBill || bill.canApproveReject || canCreatorResend);
     const isRejected = status === 'Rejected';
-    const isLocked = isNotPaid || isPaid || (isRejected && !canCreatorResend);
+    const isLocked = isPaid || inZoho;
     const canEdit =
         !isLocked &&
         typeof onEdit === 'function' &&
-        Boolean(bill.canApproveReject || canCreatorResend);
+        canEditBill;
     const isPendingHr = status === 'Pending HR';
     const actionLabel = isRejected && canCreatorResend
         ? 'Edit'
         : canCreatorResend
-        ? 'Edit and Resend'
+        ? 'Edit'
         : isPendingHr
           ? 'Approve'
-          : 'Review';
+          : 'Edit';
     const billFile =
         bill.attachment?.name && (bill.attachment.dataUrl || bill.attachment.name)
             ? bill.attachment
@@ -163,11 +165,13 @@ export default function ViewBillModal({
                         </h2>
                         <p className="text-xs text-gray-500 mt-0.5">
                             {isLocked
-                                ? 'Read only — Approved / Paid bills cannot be edited.'
+                                ? inZoho
+                                    ? 'Read only — this bill is already in Zoho Books.'
+                                    : 'Read only — paid bills cannot be edited.'
                                 : isRejected && canCreatorResend
                                   ? 'This bill was rejected. Edit it and send it again through the same approval flow.'
                                 : canCreatorResend
-                                  ? 'You created this bill — Edit and Resend until the next person acts.'
+                                  ? 'You created this bill — you can edit it until it is added in Zoho. Accounts is not emailed for edits.'
                                   : canEdit
                                   ? isPendingHr
                                       ? 'Pending HR — use Approve to review and decide.'

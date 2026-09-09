@@ -1404,7 +1404,7 @@ export default function AddBillModal({
                 isRejectedResubmit
                     ? 'This bill was rejected. Edit it, then Edit and Resend to send it through the same approval flow.'
                     : creatorResend
-                    ? 'Edit the bill you submitted, then Edit and Resend to the next approver. This button goes after they act.'
+                    ? 'Edit this bill, then save. Only this bill in the group is updated. Accounts is not emailed for edits.'
                     : 'Edit bill details (Accounts / expense lines / amounts). Save, then Retry Zoho or Pay.',
             );
             return;
@@ -1871,14 +1871,16 @@ export default function AddBillModal({
 
             toast({
                 title: isEditMode
-                    ? creatorResend
+                    ? isRejectedResubmit
                         ? 'Edited and resent'
-                        : 'Saved'
+                        : 'Bill updated'
                     : 'Completed',
                 description: isEditMode
-                    ? creatorResend
-                        ? `${titleFromBillMonth(snapshotMonth)} bill sent again to the next approver.`
-                        : `${titleFromBillMonth(snapshotMonth)} bill details updated.`
+                    ? isRejectedResubmit
+                        ? `${titleFromBillMonth(snapshotMonth)} bill sent again through approval.`
+                        : creatorResend
+                          ? `${titleFromBillMonth(snapshotMonth)} bill was updated. Accounts is not emailed for edits.`
+                          : `${titleFromBillMonth(snapshotMonth)} bill details updated.`
                     : `${titleFromBillMonth(snapshotMonth)} bills submitted.`,
             });
             onClose?.();
@@ -1925,7 +1927,7 @@ export default function AddBillModal({
                         ) : isEditMode ? (
                             <div className="text-left -ml-1 px-1 py-0.5">
                                 <h2 className="text-lg sm:text-xl font-bold text-gray-800">
-                                    {creatorResend ? 'Edit and Resend' : 'Edit'} {monthTitle} Bill
+                                    {isRejectedResubmit ? 'Edit and Resend' : 'Edit'} {monthTitle} Bill
                                 </h2>
                                 <div className="flex flex-wrap items-center gap-2 mt-0.5">
                                     {utilityType ? (
@@ -1934,7 +1936,7 @@ export default function AddBillModal({
                                         </p>
                                     ) : null}
                                     <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                                        {creatorResend ? 'Resend' : 'Edit'}
+                                        {isRejectedResubmit ? 'Resend' : 'Edit'}
                                     </span>
                                 </div>
                             </div>
@@ -2525,8 +2527,7 @@ export default function AddBillModal({
                             {isViewMode ? 'Close' : 'Cancel'}
                         </button>
                         {isViewMode &&
-                        String(viewBill?.status || '') === 'Rejected' &&
-                        viewBill?.canCreatorResend &&
+                        (viewBill?.canEditBill || viewBill?.canCreatorResend) &&
                         typeof onEditViewBill === 'function' ? (
                             <button
                                 type="button"
@@ -2555,12 +2556,12 @@ export default function AddBillModal({
                                 >
                                     {saving
                                         ? isEditMode
-                                          ? creatorResend
+                                          ? isRejectedResubmit
                                             ? 'Resending…'
                                             : 'Saving…'
                                           : 'Submitting…'
                                         : isEditMode
-                                          ? creatorResend
+                                          ? isRejectedResubmit
                                             ? 'Edit and Resend'
                                             : 'Save'
                                           : 'Submit'}

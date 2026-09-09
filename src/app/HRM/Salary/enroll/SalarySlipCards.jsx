@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { MinusCircle, Table2, Wallet } from 'lucide-react';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import {
@@ -143,6 +144,10 @@ function daysTimesLabel(days, multiplier) {
 function moneyInputValue(value) {
     const n = money(value);
     return Number.isFinite(n) ? String(n) : '';
+}
+
+function isMoneyDraft(value) {
+    return value === '' || /^\d*\.?\d{0,2}$/.test(String(value));
 }
 
 function amountToneClass(tone) {
@@ -386,22 +391,53 @@ function monthlyPeriodLabel(name, slip) {
 
 function AmountCell({ label, amount, tone, onChange, max, disabled }) {
     const cap = max == null ? null : money(max);
-    const locked = disabled || (cap != null && cap <= 0);
+    const locked = Boolean(disabled);
     const editable = typeof onChange === 'function' && !locked;
+    const [focused, setFocused] = useState(false);
+    const [draft, setDraft] = useState(moneyInputValue(amount));
+
+    useEffect(() => {
+        if (!focused) setDraft(moneyInputValue(amount));
+    }, [amount, focused]);
+
+    const commit = (raw) => {
+        if (!editable) return;
+        const next = raw === '' || raw === '.' ? 0 : money(raw);
+        const capped = cap != null && cap > 0 ? clampThisMonthDeduction(next, cap) : next;
+        onChange(capped);
+        setDraft(moneyInputValue(capped));
+    };
+
     return (
         <div className="flex items-center gap-2">
             <input
-                type="number"
-                step="0.01"
-                min={0}
-                max={cap != null && cap > 0 ? cap : undefined}
+                type="text"
+                inputMode="decimal"
                 disabled={locked}
                 readOnly={!editable}
-                value={moneyInputValue(amount)}
+                value={focused ? draft : moneyInputValue(amount)}
+                onFocus={(e) => {
+                    if (!editable) return;
+                    setFocused(true);
+                    const current = money(amount);
+                    setDraft(current > 0 ? moneyInputValue(current) : '');
+                    requestAnimationFrame(() => e.target.select());
+                }}
                 onChange={(e) => {
                     if (!editable) return;
-                    const raw = e.target.value;
-                    onChange(cap != null ? clampThisMonthDeduction(raw, cap) : raw);
+                    const raw = e.target.value.replace(/,/g, '').trim();
+                    if (!isMoneyDraft(raw)) return;
+                    setDraft(raw);
+                    if (raw === '' || raw === '.') {
+                        onChange(0);
+                        return;
+                    }
+                    const next = money(raw);
+                    onChange(cap != null && cap > 0 ? clampThisMonthDeduction(next, cap) : next);
+                }}
+                onBlur={() => {
+                    setFocused(false);
+                    commit(draft);
                 }}
                 className={`${editable ? FIELD : FIELD_RO} ${amountToneClass(tone)}`}
                 aria-label={`${label} amount`}
@@ -515,8 +551,14 @@ export default function SalarySlipCards({ slip, onPatch }) {
     );
     const leaveRemaining = money(leaveBenefit.remaining);
     const ticketRemaining = money(ticketBenefit.remaining);
-    const leaveTotalBalance = money(leaveBenefit.max) || money(leaveRemaining + leaveSalaryAmount);
-    const ticketTotalBalance = money(ticketBenefit.max) || money(ticketRemaining + airTicketAmount);
+    const leaveTotalBalance =
+        money(leaveBenefit.max) ||
+        money(leaveBenefit.due) ||
+        money(leaveRemaining + leaveSalaryAmount);
+    const ticketTotalBalance =
+        money(ticketBenefit.max) ||
+        money(ticketBenefit.due) ||
+        money(ticketRemaining + airTicketAmount);
     const annualEarningRows = [
         {
             key: 'leave-salary',
@@ -551,7 +593,6 @@ export default function SalarySlipCards({ slip, onPatch }) {
                 label={row.label}
                 amount={row.amount}
                 max={row.max > 0 ? row.max : undefined}
-                disabled={row.max <= 0 && money(row.amount) <= 0}
                 onChange={(value) =>
                     patchLeaveTicketOnSlip(onPatch, {
                         yearlyName: row.name,

@@ -52,7 +52,7 @@ import AddBillModal from '../../components/AddBillModal';
 import UtilityBillReviewModal from '../../components/UtilityBillReviewModal';
 import ActivateDeactivateUtilityModal from '../../components/ActivateDeactivateUtilityModal';
 import UtilityBillStatsCards from '../../components/UtilityBillStatsCards';
-import { billDisplayStatus, formatBillMoney, entryAvailableFromMonth } from '../../utils/utilityBillStats';
+import { billDisplayStatus, formatBillMoney, entryAvailableFromMonth, utilityBillIsInZoho } from '../../utils/utilityBillStats';
 import {
     getBillAllocationParties,
     getBillTotalAmount,
@@ -375,6 +375,7 @@ function UtilityBillDetailsPageContent() {
     const [addBillPrefillMonth, setAddBillPrefillMonth] = useState('');
     const [editEntryOpen, setEditEntryOpen] = useState(false);
     const [resubmitBills, setResubmitBills] = useState(null);
+    const [deletingBillId, setDeletingBillId] = useState('');
 
     const focusBillId = searchParams?.get('billId') || '';
     const addBillFromQuery = String(searchParams?.get('addBill') || '') === '1';
@@ -805,7 +806,7 @@ function UtilityBillDetailsPageContent() {
               ];
         const mappedRows = rows.map((row) => ({
             billId: row.billId || row._id || '',
-            entryId: entry.id,
+            entryId: row.entryId || entry.id,
             actualAmount: row.actualAmount,
             contractAmount: row.contractAmount ?? monthlyRental,
             accountNo: row.accountNo || entry.values?.accountNumber || '',
@@ -989,17 +990,26 @@ function UtilityBillDetailsPageContent() {
         setResubmitBills([bill]);
     };
 
+    const openIndividualBillEdit = (bill) => {
+        if (!bill?._id) return;
+        if (String(bill?.status || '') === 'Rejected') {
+            openRejectedResubmit(bill);
+            return;
+        }
+        setViewBill(null);
+        setReviewBatchId('');
+        setReviewBillId('');
+        setAddBillOpen(false);
+        setResubmitBills([bill]);
+    };
+
     const openBillReview = (bill) => {
         if (String(bill?.status || '') === 'Rejected') {
             openRejectedResubmit(bill);
             return;
         }
         if (bill?.canCreatorResend && !bill?.canApproveReject) {
-            setViewBill(null);
-            setReviewBatchId('');
-            setReviewBillId('');
-            setAddBillOpen(false);
-            setResubmitBills([bill]);
+            openIndividualBillEdit(bill);
             return;
         }
         const id = bill?.batchId || bill?._id;
@@ -1094,22 +1104,52 @@ function UtilityBillDetailsPageContent() {
     };
 
     const handleDeleteBill = async (bill) => {
-        if (!canAdminDelete || !bill?._id) return;
+        if (!bill?._id) return;
+        if (utilityBillIsInZoho(bill)) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot delete',
+                description: 'This bill is already in Zoho Books.',
+            });
+            return;
+        }
+        if (!(bill.canDeleteBill || canAdminDelete)) return;
         const label = monthLabelFromKey(bill.billMonth) || 'this bill';
-        if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+        if (
+            !window.confirm(
+                `Delete ${label}? It will be removed from this month and from any grouped batch. This cannot be undone.`,
+            )
+        ) {
+            return;
+        }
+        setDeletingBillId(String(bill._id));
         try {
             await deleteUtilityBillApi(bill._id);
             setBills((prev) => prev.filter((b) => String(b._id) !== String(bill._id)));
             if (viewBill && String(viewBill._id) === String(bill._id)) setViewBill(null);
+            if (resubmitBills?.some((b) => String(b._id) === String(bill._id))) {
+                setResubmitBills(null);
+            }
+            setReviewBatchId('');
+            setReviewBillId('');
             invalidateAssetPendingInbox();
             clearModuleNotificationFeedsCache();
-            toast({ title: 'Bill deleted' });
+            toast({
+                title: 'Bill deleted',
+                description: ['Pending Accounts', 'Pending HR', 'Approved', 'Rejected'].includes(
+                    String(bill.status || ''),
+                )
+                    ? 'Accounts was emailed that this bill was deleted.'
+                    : 'Group totals were updated.',
+            });
         } catch (err) {
             toast({
                 variant: 'destructive',
                 title: 'Could not delete bill',
                 description: err?.response?.data?.message || 'Please try again.',
             });
+        } finally {
+            setDeletingBillId('');
         }
     };
 
@@ -1282,13 +1322,23 @@ function UtilityBillDetailsPageContent() {
                             String(bill._id) === String(pulseBillId) && pulseBillOn;
                         const isNotPaid = bill.status === 'Approved';
                         const isPaid = bill.status === 'Paid';
+                        const inZoho = utilityBillIsInZoho(bill);
                         const canApproveReject = Boolean(bill.canApproveReject);
                         const canCreatorResend = Boolean(bill.canCreatorResend);
-                        const actionBatchId = bill.batchId || bill._id;
-                        const showEdit = Boolean(canApproveReject && actionBatchId);
-                        const showCreatorResend = Boolean(
-                            canCreatorResend && !canApproveReject && actionBatchId,
-                        );
+                        const showCardEdit =
+                            !inZoho &&
+                            !isPaid &&
+                            Boolean(
+                                bill.canEditBill ||
+                                    canApproveReject ||
+                                    canCreatorResend ||
+                                    canAdminDelete,
+                            );
+                        const showCardDelete =
+                            !inZoho &&
+                            !isPaid &&
+                            Boolean(bill.canDeleteBill || canCreatorResend || canAdminDelete);
+                        const isDeleting = String(deletingBillId) === String(bill._id);
                         const vendorPayLabel = isPaid
                             ? 'Paid'
                             : isNotPaid
@@ -1297,7 +1347,6 @@ function UtilityBillDetailsPageContent() {
                         const statusText = vendorPayLabel
                             ? `Vendor Payment: ${formatBillMoney(total)} · ${vendorPayLabel}`
                             : billDisplayStatus(bill);
-                        const openBatchReview = () => openBillReview(bill);
 
                         // Subtle side border indicator class and glowing status dot
                         let statusLBorder = 'border-l-gray-300';
@@ -1351,6 +1400,30 @@ function UtilityBillDetailsPageContent() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
+                                        {showCardEdit ? (
+                                            <button
+                                                type="button"
+                                                disabled={isDeleting}
+                                                onClick={() => openIndividualBillEdit(bill)}
+                                                title="Edit this bill"
+                                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-sky-200 text-sky-700 hover:bg-sky-50 text-[10px] sm:text-[11px] font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+                                            >
+                                                <Pencil size={11} />
+                                                Edit
+                                            </button>
+                                        ) : null}
+                                        {showCardDelete ? (
+                                            <button
+                                                type="button"
+                                                disabled={isDeleting}
+                                                onClick={() => handleDeleteBill(bill)}
+                                                title="Delete this bill"
+                                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-red-200 text-red-600 hover:bg-red-50 text-[10px] sm:text-[11px] font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+                                            >
+                                                <Trash2 size={11} />
+                                                {isDeleting ? 'Deleting…' : 'Delete'}
+                                            </button>
+                                        ) : null}
                                         <span className={`w-1.5 h-1.5 rounded-full ${statusGlowDot}`} />
                                         <span
                                             className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${statusBadgeClass(bill.status)}`}
@@ -1479,43 +1552,6 @@ function UtilityBillDetailsPageContent() {
                                                 }
                                             >
                                                 Invoice
-                                            </button>
-                                        ) : null}
-                                        {showEdit ? (
-                                            <button
-                                                type="button"
-                                                onClick={openBatchReview}
-                                                title="Edit bill details"
-                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-white border border-sky-200 text-sky-700 hover:bg-sky-50 text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
-                                            >
-                                                <Pencil size={12} />
-                                                Edit
-                                            </button>
-                                        ) : null}
-                                        {showCreatorResend ? (
-                                            <button
-                                                type="button"
-                                                onClick={openBatchReview}
-                                                title={
-                                                    bill.status === 'Rejected'
-                                                        ? 'Edit this rejected bill and send it again'
-                                                        : 'Edit and resend to the next approver'
-                                                }
-                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-white border border-teal-200 text-teal-700 hover:bg-teal-50 text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
-                                            >
-                                                <Pencil size={12} />
-                                                {bill.status === 'Rejected' ? 'Edit' : 'Edit and Resend'}
-                                            </button>
-                                        ) : null}
-                                        {canAdminDelete ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => handleDeleteBill(bill)}
-                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-white border border-red-200 text-red-600 hover:bg-red-50 text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
-                                                title="Delete bill"
-                                            >
-                                                <Trash2 size={12} />
-                                                Delete
                                             </button>
                                         ) : null}
                                     </div>
@@ -2217,14 +2253,10 @@ function UtilityBillDetailsPageContent() {
                 viewBill={viewBill}
                 editBills={resubmitBills}
                 editBatchId={String(resubmitBills?.[0]?.batchId || '')}
-                creatorResend={Boolean(resubmitBills?.length)}
-                onEditViewBill={(bill) => {
-                    if (String(bill?.status || '') === 'Rejected') {
-                        openRejectedResubmit(bill);
-                        return;
-                    }
-                    openBillReview(bill);
-                }}
+                creatorResend={Boolean(
+                    resubmitBills?.length && resubmitBills[0]?.canCreatorResend,
+                )}
+                onEditViewBill={(bill) => openIndividualBillEdit(bill)}
                 accountsCanEditLines={viewBillAllowsAccountsLineEdit}
                 onAccountsSaveLines={handleAccountsSaveLines}
                 initialBillMonth={addBillPrefillMonth}

@@ -65,6 +65,20 @@ export function billDisplayStatus(bill) {
     return String(bill.status || '');
 }
 
+/** True when this ERP bill already has a Zoho Books bill id / number. */
+export function utilityBillIsInZoho(bill) {
+    if (!bill) return false;
+    if (bill.inZoho === true) return true;
+    if (String(bill.zohoBillId || '').trim()) return true;
+    if (String(bill.zohoBillNumber || '').trim()) return true;
+    if (Array.isArray(bill.zohoBillIds) && bill.zohoBillIds.some((id) => String(id || '').trim())) {
+        return true;
+    }
+    return (Array.isArray(bill.zohoLineItems) ? bill.zohoLineItems : []).some((line) =>
+        Boolean(String(line?.zohoBillId || '').trim()),
+    );
+}
+
 /** True when the bill still needs payment (not Paid / Rejected). */
 export function isUnpaidUtilityBill(bill) {
     const s = String(bill?.status || '').trim();

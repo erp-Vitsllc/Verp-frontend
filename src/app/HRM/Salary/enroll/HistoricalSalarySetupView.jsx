@@ -511,6 +511,14 @@ function remainingEntitlementOptions(options, cycles, { includeLeave = true, inc
     });
 }
 
+function isSalarySlipPayment(cycle) {
+    return (
+        String(cycle?.source || '').toLowerCase() === 'salaryslip' ||
+        String(cycle?.paymentReference || '').startsWith('salary-slip:') ||
+        Boolean(String(cycle?.salarySlipMonthKey || '').trim())
+    );
+}
+
 function paymentKindRows(cycles, kind, annualLeaves = []) {
     const list = Array.isArray(cycles) ? cycles : [];
     return list
@@ -520,10 +528,11 @@ function paymentKindRows(cycles, kind, annualLeaves = []) {
             slNo: index + 1,
             cycleIndex,
             cycle,
+            fromSalarySlip: isSalarySlipPayment(cycle),
             paymentDate:
                 kind === 'ticket'
-                    ? cycle.ticketPaymentDate || cycle.leaveSalaryPaymentDate
-                    : cycle.leaveSalaryPaymentDate || cycle.ticketPaymentDate,
+                    ? cycle.ticketPaymentDate || cycle.leaveSalaryPaymentDate || cycle.paymentDate
+                    : cycle.leaveSalaryPaymentDate || cycle.ticketPaymentDate || cycle.paymentDate,
             leaveDate: leaveDateLabel(cycle, annualLeaves),
             amount: kind === 'ticket' ? cycle.ticketAmount : cycle.leaveSalaryAmount,
             currency: cycle.currency,
@@ -561,7 +570,13 @@ function PaymentKindCard({ title, rows, emptyMessage, locked, onEdit, onRemove, 
                                 <tr
                                     key={`${title}-${row.cycleIndex}-${row.slNo}`}
                                     className={`border-b border-[#F1F5F9] last:border-0 ${
-                                        locked ? '' : 'cursor-pointer hover:bg-slate-50'
+                                        row.fromSalarySlip
+                                            ? 'bg-amber-100'
+                                            : locked
+                                              ? ''
+                                              : 'cursor-pointer hover:bg-slate-50'
+                                    } ${
+                                        row.fromSalarySlip && !locked ? 'cursor-pointer hover:bg-amber-50' : ''
                                     }`}
                                     onClick={() => {
                                         if (!locked) onEdit?.(row.cycleIndex, row.cycle);
@@ -569,7 +584,14 @@ function PaymentKindCard({ title, rows, emptyMessage, locked, onEdit, onRemove, 
                                 >
                                     <td className="px-3 py-2.5 text-[13px] tabular-nums text-[#334155]">{row.slNo}</td>
                                     <td className="px-3 py-2.5 text-[13px] text-[#334155]">
-                                        {prettyDate(row.paymentDate)}
+                                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                                            {prettyDate(row.paymentDate)}
+                                            {row.fromSalarySlip ? (
+                                                <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.06em] text-amber-900">
+                                                    Salary slip
+                                                </span>
+                                            ) : null}
+                                        </span>
                                     </td>
                                     <td className="px-3 py-2.5 text-[13px] text-[#334155]">{row.leaveDate}</td>
                                     <td className="px-3 py-2.5 text-[13px] font-semibold tabular-nums text-[#0F172A]">
@@ -3727,7 +3749,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                             <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                                                 <DetailStat
                                                     label="Leave salary total"
-                                                    value={aedMoney(leaveSalaryBalance)}
+                                                    value={aedMoney(leaveSalaryEntitlement.totalLeaveSalary)}
                                                     tone="danger"
                                                 />
                                                 <DetailStat
@@ -3757,7 +3779,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 />
                                                 <DetailStat
                                                     label="Ticket total"
-                                                    value={aedMoney(ticketBalance)}
+                                                    value={aedMoney(leaveSalaryEntitlement.totalTicketAmount)}
                                                     tone="danger"
                                                 />
                                             </div>
