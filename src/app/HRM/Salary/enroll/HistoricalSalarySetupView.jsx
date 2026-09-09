@@ -3748,8 +3748,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                             </div>
                                             <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                                                 <DetailStat
-                                                    label="Leave salary total"
-                                                    value={aedMoney(leaveSalaryEntitlement.totalLeaveSalary)}
+                                                    label="Leave salary balance"
+                                                    value={aedMoney(leaveSalaryBalance)}
                                                     tone="danger"
                                                 />
                                                 <DetailStat
@@ -3778,8 +3778,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     )} entitlements`}
                                                 />
                                                 <DetailStat
-                                                    label="Ticket total"
-                                                    value={aedMoney(leaveSalaryEntitlement.totalTicketAmount)}
+                                                    label="Ticket balance"
+                                                    value={aedMoney(ticketBalance)}
                                                     tone="danger"
                                                 />
                                             </div>
