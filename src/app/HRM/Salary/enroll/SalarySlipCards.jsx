@@ -247,6 +247,66 @@ function patchNamedComponent(onPatch, section, name, patch) {
     }));
 }
 
+function AnnualBenefitTable({ rows, total }) {
+    const afterTotal = money((rows || []).reduce((sum, row) => sum + money(row.afterUpdate), 0));
+    return (
+        <div className="overflow-x-auto rounded-xl border border-[#EEF2F6]">
+            <table className="w-full min-w-[40rem] border-collapse text-left text-sm">
+                <thead>
+                    <tr className="bg-[#F8FAFC]">
+                        {['SL', 'Earning', 'Total balance', 'Amount', 'After this update'].map((heading) => (
+                            <th
+                                key={heading}
+                                className={`${TH} ${heading === 'SL' ? 'w-12' : heading === 'Amount' ? 'w-[22%]' : ''}`}
+                            >
+                                {heading}
+                            </th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows.map((row) => (
+                        <tr key={row.key} className="border-b border-[#F1F5F9]">
+                            <td className={`${TD} tabular-nums text-[#94A3B8]`}>{row.sl}</td>
+                            <td className={`${TD} font-semibold`}>{row.label}</td>
+                            <td className={`${TD} tabular-nums text-[#0F172A]`}>{formatAed(row.totalBalance)}</td>
+                            <td className={TD}>{row.amountCell}</td>
+                            <td className={`${TD} tabular-nums font-semibold text-[#0F172A]`}>
+                                {formatAed(row.afterUpdate)}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+                <tfoot>
+                    <tr className="bg-emerald-50 text-emerald-700">
+                        <td colSpan={3} className="px-3 py-2.5 text-xs font-medium">
+                            Total
+                        </td>
+                        <td className="px-3 py-2.5 text-sm font-bold tabular-nums">{formatAed(total)}</td>
+                        <td className="px-3 py-2.5 text-sm font-bold tabular-nums">{formatAed(afterTotal)}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    );
+}
+
+function patchLeaveTicketOnSlip(onPatch, { yearlyName, monthName, overrideKey, summaryKey }, value) {
+    const amount = money(value);
+    onPatch('yearlyEarnings', (draft) => {
+        const summary = { ...(draft.summary || {}) };
+        const current = { ...(summary[summaryKey] || {}) };
+        summary[summaryKey] = { ...current, amount };
+        return {
+            ...draft,
+            yearlyEarnings: mapComponent(draft.yearlyEarnings, yearlyName, { amount, basis: 'Yearly' }),
+            earnings: mapComponent(draft.earnings, monthName, { amount, basis: 'Annual' }),
+            summary,
+            thisMonthOverrides: { ...(draft.thisMonthOverrides || {}), [overrideKey]: true },
+        };
+    });
+}
+
 function sumThisMonth(rows, read) {
     return money((Array.isArray(rows) ? rows : []).reduce((sum, row) => sum + money(read(row)), 0));
 }
@@ -453,27 +513,36 @@ export default function SalarySlipCards({ slip, onPatch }) {
         'Ticket',
         ticketBenefit.amount,
     );
-    const leaveCount = Number(leaveBenefit.count) || (leaveSalaryAmount > 0 ? 1 : 0);
-    const ticketCount = Number(ticketBenefit.count) || (airTicketAmount > 0 ? 1 : 0);
+    const leaveRemaining = money(leaveBenefit.remaining);
+    const ticketRemaining = money(ticketBenefit.remaining);
+    const leaveTotalBalance = money(leaveBenefit.max) || money(leaveRemaining + leaveSalaryAmount);
+    const ticketTotalBalance = money(ticketBenefit.max) || money(ticketRemaining + airTicketAmount);
     const annualEarningRows = [
         {
             key: 'leave-salary',
             sl: 1,
             name: 'Leave Salary',
-            section: 'yearlyEarnings',
+            monthName: 'Leave Salary',
+            overrideKey: 'leaveSalary',
+            summaryKey: 'leaveSalary',
             label: 'Annual leave salary',
-            period: unitLabel(leaveCount, 'leave'),
             amount: leaveSalaryAmount,
+            totalBalance: leaveTotalBalance,
+            afterUpdate: money(Math.max(0, leaveTotalBalance - leaveSalaryAmount)),
+            max: leaveTotalBalance,
         },
         {
             key: 'air-ticket',
             sl: 2,
             name: 'Travel Allowance',
-            altName: 'Ticket',
-            section: 'yearlyEarnings',
+            monthName: 'Ticket',
+            overrideKey: 'ticket',
+            summaryKey: 'airTicket',
             label: 'Annual leave air ticket',
-            period: unitLabel(ticketCount, 'ticket'),
             amount: airTicketAmount,
+            totalBalance: ticketTotalBalance,
+            afterUpdate: money(Math.max(0, ticketTotalBalance - airTicketAmount)),
+            max: ticketTotalBalance,
         },
     ].map((row) => ({
         ...row,
@@ -481,15 +550,16 @@ export default function SalarySlipCards({ slip, onPatch }) {
             <AmountCell
                 label={row.label}
                 amount={row.amount}
-                onChange={(value) => {
-                    patchNamedComponent(onPatch, 'yearlyEarnings', row.name, {
-                        amount: value,
-                        basis: 'Yearly',
-                    });
-                    if (row.altName) {
-                        patchNamedComponent(onPatch, 'earnings', row.altName, { amount: value });
-                    }
-                }}
+                max={row.max > 0 ? row.max : undefined}
+                disabled={row.max <= 0 && money(row.amount) <= 0}
+                onChange={(value) =>
+                    patchLeaveTicketOnSlip(onPatch, {
+                        yearlyName: row.name,
+                        monthName: row.monthName,
+                        overrideKey: row.overrideKey,
+                        summaryKey: row.summaryKey,
+                    }, value)
+                }
             />
         ),
     }));
@@ -582,7 +652,7 @@ export default function SalarySlipCards({ slip, onPatch }) {
                     iconBg="bg-teal-50"
                     iconColor="text-teal-600"
                     title="Earnings"
-                    subtitle="Monthly earnings and annual leave benefits"
+                    subtitle="Enter how much leave salary or ticket to pay this month. Amount comes off Total balance; After this update is what remains."
                 >
                     <SlipTable
                         headers={['SL', 'Basic salary', 'Period', 'Amount']}
@@ -591,12 +661,7 @@ export default function SalarySlipCards({ slip, onPatch }) {
                         total={monthlyEarningTotal}
                     />
                     <div className="mt-3">
-                        <SlipTable
-                            headers={['SL', 'Earning', 'Period', 'Amount']}
-                            rows={annualEarningRows}
-                            totalLabel="Total"
-                            total={annualEarningTotal}
-                        />
+                        <AnnualBenefitTable rows={annualEarningRows} total={annualEarningTotal} />
                     </div>
                     <GroupTotal
                         label="Total earnings"

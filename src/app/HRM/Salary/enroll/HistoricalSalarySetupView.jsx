@@ -6,6 +6,7 @@ import {
     Calendar,
     CalendarDays,
     Check,
+    ChevronRight,
     ExternalLink,
     Eye,
     EyeOff,
@@ -64,6 +65,10 @@ const LEAVE_TYPES = [
     { key: 'unauthorized', label: 'Unauthorized', color: '#EF4444' },
     { key: 'annual', label: 'Annual Leave', color: '#8B5CF6' },
     { key: 'holiday', label: 'Holiday', color: '#0F766E' },
+];
+const LEAVE_SOURCES = [
+    { key: 'manual', label: 'Manual' },
+    { key: 'system', label: 'System' },
 ];
 const CARD =
     'rounded-[12px] border border-[#E6EAF0] bg-white p-5 shadow-[0_1px_3px_rgba(15,23,42,0.06)] sm:p-6';
@@ -140,6 +145,37 @@ function formatDeductionDays(value) {
     const n = Math.max(0, Number(value) || 0);
     if (n === 0) return '0';
     return `− ${n}`;
+}
+
+function eligibilityLeaveDetailRows(rows) {
+    return (Array.isArray(rows) ? rows : []).map((row, index) => {
+        const from = row.fromDate || row.startDate || '';
+        const to = row.toDate || row.endDate || from;
+        const dated = ISO.test(String(from || '').trim());
+        const date =
+            !dated
+                ? '—'
+                : to && to !== from
+                  ? `${prettyDate(from)} — ${prettyDate(to)}`
+                  : prettyDate(from);
+        return {
+            key: String(row.id || `${leaveTypeKey(row)}-${from}-${index}`),
+            date,
+            type: leaveMeta(leaveTypeKey(row)).label,
+            count: Number(row.deductionDays ?? row.deduction ?? row.eligibleWorkingDays ?? row.actualDays) || 0,
+        };
+    });
+}
+
+function eligibilityWorkingDayRows({ from, to, workingDays, weeklyOffs, holidays, calendarDays }) {
+    const date =
+        from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from || to) || '—';
+    return [
+        { key: 'calendar', date, type: 'Calendar days', count: Number(calendarDays) || 0 },
+        { key: 'offs', date, type: 'Weekly offs excluded', count: Number(weeklyOffs) || 0 },
+        { key: 'holidays', date, type: 'Holidays excluded', count: Number(holidays) || 0 },
+        { key: 'working', date, type: 'Working days', count: Number(workingDays) || 0 },
+    ];
 }
 
 function toTitleName(value) {
@@ -371,6 +407,110 @@ function payableBalance(totalDue, alreadyPaid) {
     return remaining > 0 ? roundMoney(remaining) : 0;
 }
 
+function entitlementDateOptions(entitlement) {
+    return (Array.isArray(entitlement?.entitlements) ? entitlement.entitlements : [])
+        .filter((row) => row?.entitlementDate)
+        .map((row) => ({
+            date: row.entitlementDate,
+            entitlementNo: row.entitlementNo,
+            leaveSalary: Number(row.leaveSalary) || 0,
+            ticketAmount: Number(row.ticketAmount) || 0,
+            label: `Leave Salary ${row.entitlementNo} · ${prettyDate(row.entitlementDate)}`,
+        }));
+}
+
+function nextUnpaidEntitlementOption(options, cycles, kind, excludeIndex = -1) {
+    const list = Array.isArray(options) ? options : [];
+    const used = new Set();
+    (Array.isArray(cycles) ? cycles : []).forEach((cycle, index) => {
+        if (index === excludeIndex) return;
+        const status = String(cycle?.paymentStatus || cycle?.status || '').toLowerCase();
+        if (status === 'cancelled' || status === 'rejected' || status === 'draft') return;
+        if (kind === 'ticket' && !recordIncludesTicket(cycle)) return;
+        if (kind !== 'ticket' && !recordIncludesLeave(cycle)) return;
+        const date =
+            kind === 'ticket'
+                ? cycle?.ticketPaymentDate || cycle?.entitlementDate
+                : cycle?.leaveSalaryPaymentDate || cycle?.entitlementDate;
+        if (date) used.add(String(date));
+    });
+    return list.find((row) => row.date && !used.has(String(row.date))) || list[0] || null;
+}
+
+function isActivePaymentCycle(cycle) {
+    const status = String(cycle?.paymentStatus || cycle?.status || '').toLowerCase();
+    return status !== 'cancelled' && status !== 'rejected' && status !== 'draft';
+}
+
+function cycleKindPaymentDate(cycle, kind) {
+    if (kind === 'ticket') {
+        return String(cycle?.ticketPaymentDate || cycle?.entitlementDate || cycle?.paymentDate || '').trim();
+    }
+    return String(cycle?.leaveSalaryPaymentDate || cycle?.entitlementDate || cycle?.paymentDate || '').trim();
+}
+
+function cyclePaymentMatchesEntitlement(cycle, row, kind) {
+    if (!cycle || !row) return false;
+    const date = String(row.entitlementDate || row.date || '').trim();
+    const paymentDate = cycleKindPaymentDate(cycle, kind);
+    if (date && paymentDate && paymentDate === date) return true;
+    const entitlementNo = Number(row.entitlementNo);
+    if (entitlementNo > 0 && Number(cycle.entitlementNo) === entitlementNo) return true;
+    return false;
+}
+
+function cycleKindAmount(cycle, kind) {
+    if (kind === 'ticket') {
+        if (!recordIncludesTicket(cycle)) return 0;
+        return Number(cycle?.ticketAmount) || 0;
+    }
+    if (!recordIncludesLeave(cycle)) return 0;
+    return Number(cycle?.leaveSalaryAmount ?? cycle?.leaveSalary) || 0;
+}
+
+function entitlementKindPaidAmount(row, cycles, kind) {
+    return (Array.isArray(cycles) ? cycles : []).reduce((sum, cycle) => {
+        if (!isActivePaymentCycle(cycle)) return sum;
+        const amount = cycleKindAmount(cycle, kind);
+        if (amount <= 0 || !cyclePaymentMatchesEntitlement(cycle, row, kind)) return sum;
+        return sum + amount;
+    }, 0);
+}
+
+function remainingKindAmount(row, cycles, kind) {
+    const due = Number(kind === 'ticket' ? row?.ticketAmount : row?.leaveSalary) || 0;
+    return payableBalance(due, entitlementKindPaidAmount(row, cycles, kind));
+}
+
+function entitlementHasKindPayment(row, cycles, kind) {
+    const due = Number(kind === 'ticket' ? row?.ticketAmount : row?.leaveSalary) || 0;
+    if (due <= 0) return true;
+    return remainingKindAmount(row, cycles, kind) <= 0;
+}
+
+function entitlementPaymentStatus(row, cycles) {
+    const leavePaid = entitlementHasKindPayment(row, cycles, 'leave');
+    const ticketPaid = entitlementHasKindPayment(row, cycles, 'ticket');
+    return leavePaid && ticketPaid ? 'Paid' : 'Not completed';
+}
+
+function remainingEntitlementOptions(options, cycles, { includeLeave = true, includeTicket = false, excludeIndex = -1 } = {}) {
+    const active = (Array.isArray(cycles) ? cycles : []).filter((_, index) => index !== excludeIndex);
+    return (Array.isArray(options) ? options : []).filter((opt) => {
+        const row = {
+            ...opt,
+            entitlementDate: opt.date || opt.entitlementDate,
+            entitlementNo: opt.entitlementNo,
+        };
+        const leaveLeft = remainingKindAmount(row, active, 'leave');
+        const ticketLeft = remainingKindAmount(row, active, 'ticket');
+        if (includeLeave && includeTicket) return leaveLeft > 0 || ticketLeft > 0;
+        if (includeLeave) return leaveLeft > 0;
+        if (includeTicket) return ticketLeft > 0;
+        return true;
+    });
+}
+
 function paymentKindRows(cycles, kind, annualLeaves = []) {
     const list = Array.isArray(cycles) ? cycles : [];
     return list
@@ -464,9 +604,9 @@ function PaymentKindCard({ title, rows, emptyMessage, locked, onEdit, onRemove, 
 function EntitlementStatusBadge({ status }) {
     const key = String(status || '').toLowerCase();
     const tone =
-        key === 'eligible'
+        key === 'eligible' || key === 'paid'
             ? 'bg-emerald-50 text-emerald-700'
-            : key === 'in progress' || key === 'calculated'
+            : key === 'in progress' || key === 'calculated' || key === 'not completed'
               ? 'bg-amber-50 text-amber-700'
               : 'bg-slate-100 text-slate-600';
     return (
@@ -490,8 +630,7 @@ function EntitlementDetailsModal({ open, entitlement, cycleDays, policyLabel, on
         >
             <div className="mt-4 max-h-[70vh] space-y-4 overflow-y-auto pr-1">
                 <div className="grid grid-cols-2 gap-2 text-[12px] sm:grid-cols-3">
-                    <DetailStat label="Calculation start" value={prettyDate(entitlement.salaryPeriodStart || entitlement.eligibilityStartDate)} />
-                    <DetailStat label="Calculation end" value={prettyDate(entitlement.salaryPeriodEnd || entitlement.eligibilityEndDate)} />
+                    <DetailStat label="Date" value={prettyDate(entitlement.entitlementDate || entitlement.salaryPeriodEnd)} />
                     <DetailStat
                         label="Eligible working days"
                         value={`${Number(entitlement.eligibleDays) || 0} / ${Number(cycleDays) || 0}`}
@@ -597,7 +736,7 @@ function completedOverTotal(done, total) {
     return `${Math.max(0, Number(done) || 0)}/${Math.max(0, Number(total) || 0)}`;
 }
 
-function EntitlementTable({ entitlement, onSeeDetails }) {
+function EntitlementTable({ entitlement, paymentCycles = [], onSeeDetails }) {
     const rows = Array.isArray(entitlement?.entitlements) ? entitlement.entitlements : [];
     const next = entitlement?.nextEntitlement;
     const showNext = next && Number(next.accumulatedDays) > 0;
@@ -610,18 +749,18 @@ function EntitlementTable({ entitlement, onSeeDetails }) {
     }
     return (
         <div className="overflow-x-auto rounded-[10px] border border-[#E6EAF0]">
-            <table className="w-full min-w-[820px] text-left">
+            <table className="w-full min-w-[720px] text-left">
                 <thead>
                     <tr className="border-b border-[#EEF2F6] text-[10px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
                         <th className="px-3 py-2 font-semibold">#</th>
                         <th className="px-3 py-2 font-semibold">Entitlement</th>
-                        <th className="px-3 py-2 font-semibold">Start date</th>
-                        <th className="px-3 py-2 font-semibold">End date</th>
+                        <th className="px-3 py-2 font-semibold">Date</th>
                         <th className="px-3 py-2 font-semibold">Eligible days</th>
                         <th className="px-3 py-2 font-semibold">Leave days taken</th>
                         <th className="px-3 py-2 font-semibold">Leave salary</th>
                         <th className="px-3 py-2 font-semibold">Ticket</th>
                         <th className="px-3 py-2 font-semibold">Status</th>
+                        <th className="px-3 py-2 font-semibold">Payment status</th>
                         <th className="px-3 py-2 font-semibold" />
                     </tr>
                 </thead>
@@ -636,8 +775,9 @@ function EntitlementTable({ entitlement, onSeeDetails }) {
                             <td className="px-3 py-2.5 text-[13px] font-medium text-[#0F172A]">
                                 Leave Salary {row.entitlementNo}
                             </td>
-                            <td className="px-3 py-2.5 text-[13px] text-[#334155]">{prettyDate(row.salaryPeriodStart)}</td>
-                            <td className="px-3 py-2.5 text-[13px] text-[#334155]">{prettyDate(row.salaryPeriodEnd)}</td>
+                            <td className="px-3 py-2.5 text-[13px] text-[#334155]">
+                                {prettyDate(row.entitlementDate || row.salaryPeriodEnd)}
+                            </td>
                             <td className="px-3 py-2.5 text-[13px] tabular-nums text-[#334155]">{row.eligibleDays}</td>
                             <td className="px-3 py-2.5 text-[13px] tabular-nums text-[#334155]">
                                 {row.leaveTaken?.days || '—'}
@@ -650,6 +790,9 @@ function EntitlementTable({ entitlement, onSeeDetails }) {
                             </td>
                             <td className="px-3 py-2.5">
                                 <EntitlementStatusBadge status={row.status} />
+                            </td>
+                            <td className="px-3 py-2.5">
+                                <EntitlementStatusBadge status={entitlementPaymentStatus(row, paymentCycles)} />
                             </td>
                             <td className="px-3 py-2.5 text-right">
                                 <button
@@ -671,8 +814,9 @@ function EntitlementTable({ entitlement, onSeeDetails }) {
                                 {rows.length + 1}
                             </td>
                             <td className="px-3 py-2.5 text-[13px] font-medium text-[#64748B]">Next entitlement</td>
-                            <td className="px-3 py-2.5 text-[13px] text-[#64748B]">{prettyDate(next.startDate)}</td>
-                            <td className="px-3 py-2.5 text-[13px] text-[#64748B]">{prettyDate(next.endDate)}</td>
+                            <td className="px-3 py-2.5 text-[13px] text-[#64748B]">
+                                {prettyDate(next.entitlementDate || next.endDate)}
+                            </td>
                             <td className="px-3 py-2.5 text-[13px] tabular-nums text-[#64748B]">
                                 {next.accumulatedDays} / {next.requiredDays}
                             </td>
@@ -681,6 +825,9 @@ function EntitlementTable({ entitlement, onSeeDetails }) {
                             <td className="px-3 py-2.5 text-[13px] text-[#94A3B8]">—</td>
                             <td className="px-3 py-2.5">
                                 <EntitlementStatusBadge status={next.status} />
+                            </td>
+                            <td className="px-3 py-2.5">
+                                <EntitlementStatusBadge status="Not completed" />
                             </td>
                             <td className="px-3 py-2.5" />
                         </tr>
@@ -691,14 +838,18 @@ function EntitlementTable({ entitlement, onSeeDetails }) {
     );
 }
 
-function LeaveSalaryDetailsModal({ open, entitlement, onSeeDetails, onClose }) {
+function LeaveSalaryDetailsModal({ open, entitlement, paymentCycles = [], onSeeDetails, onClose }) {
     return (
         <ModalShell open={open} title="Leave salary details" onClose={onClose} width="max-w-5xl">
             <p className="mt-1 text-[12px] text-[#64748B]">
                 Click a row to open that entitlement&apos;s calculation details.
             </p>
             <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
-                <EntitlementTable entitlement={entitlement} onSeeDetails={onSeeDetails} />
+                <EntitlementTable
+                    entitlement={entitlement}
+                    paymentCycles={paymentCycles}
+                    onSeeDetails={onSeeDetails}
+                />
             </div>
             <div className="mt-4 flex justify-end">
                 <button type="button" onClick={onClose} className="h-10 rounded-xl border border-slate-200 px-4 text-sm font-semibold">
@@ -726,7 +877,7 @@ function LeaveTypeFilter({ value, onChange, rows }) {
 
     return (
         <div
-            className="flex flex-wrap items-center gap-1.5"
+            className="flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap"
             role="tablist"
             aria-label="Filter leave types"
         >
@@ -740,7 +891,7 @@ function LeaveTypeFilter({ value, onChange, rows }) {
                         role="tab"
                         aria-selected={selected}
                         onClick={() => onChange(selected && option.key ? '' : option.key)}
-                        className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold transition-colors ${
+                        className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold transition-colors ${
                             selected
                                 ? 'border-slate-800 bg-slate-800 text-white'
                                 : 'border-[#E2E8F0] bg-white text-[#475569] hover:border-slate-300 hover:bg-slate-50'
@@ -825,7 +976,7 @@ function AddHolidaysModal({
     }
 
     return (
-        <ModalShell open={open} title="Add the holidays" onClose={onClose} width="max-w-lg">
+        <ModalShell open={open} title="Add the holidays" onClose={onClose} width="max-w-lg" zClass="z-[100]">
             <p className="mt-1 text-[12px] text-[#64748B]">
                 Check the holidays to save. Only checked days are listed in Existing Leave History, and each row
                 reduces 1 day from the eligible day total.
@@ -1026,6 +1177,43 @@ function leaveSourceKey(row) {
     const raw = String(row?.source || 'manual').trim().toLowerCase();
     if (raw === 'erp' || raw === 'system') return 'system';
     return 'manual';
+}
+
+function leaveRowsForGroup(rows, type, source) {
+    return (Array.isArray(rows) ? rows : []).filter(
+        (row) => leaveTypeKey(row) === type && leaveSourceKey(row) === source,
+    );
+}
+
+function summarizeLeaveHistoryGroups(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const groups = [];
+    for (const type of LEAVE_TYPES) {
+        for (const source of LEAVE_SOURCES) {
+            const items = leaveRowsForGroup(list, type.key, source.key);
+            if (!items.length) continue;
+            let actualDays = 0;
+            let deductionDays = 0;
+            const multipliers = new Set();
+            items.forEach((row) => {
+                actualDays += Number(row.actualDays ?? row.eligibleWorkingDays) || 0;
+                deductionDays += Number(row.deductionDays ?? row.deduction) || 0;
+                multipliers.add(formatLeaveMultiplier(row.multiplier ?? row.rule));
+            });
+            groups.push({
+                type: type.key,
+                source: source.key,
+                label: type.label,
+                color: type.color,
+                sourceLabel: source.label,
+                count: items.length,
+                actualDays,
+                deductionDays,
+                rule: multipliers.size === 1 ? [...multipliers][0] : 'Mixed',
+            });
+        }
+    }
+    return groups;
 }
 
 function isSystemLeave(row) {
@@ -1384,10 +1572,6 @@ function AddLeaveModal({
     locked,
     leaveMultipliers,
     initial,
-    annualLeaves = [],
-    cycleDays,
-    defaultLeaveSalary,
-    paymentCycles = [],
 }) {
     const editing = Boolean(initial);
     const [leaveType, setLeaveType] = useState(initial?.leaveType || 'sick');
@@ -1396,22 +1580,7 @@ function AddLeaveModal({
     const [daysCount, setDaysCount] = useState(() => leaveCountFromRow(initial));
     const [remarks, setRemarks] = useState(initial?.remarks || '');
     const [file, setFile] = useState(null);
-    const [includeLeave, setIncludeLeave] = useState(() => recordIncludesLeave(initial));
-    const [includeTicket, setIncludeTicket] = useState(() => recordIncludesTicket(initial));
-    const [leaveSalaryAmount, setLeaveSalaryAmount] = useState(
-        () => amountInputValue(initial?.leaveSalaryAmount) || amountInputValue(defaultLeaveSalary),
-    );
-    const [ticketAmount, setTicketAmount] = useState(() => amountInputValue(initial?.ticketAmount));
-    const [reduceHistoricalWorkingDays, setReduceHistoricalWorkingDays] = useState(
-        () => recordReducesWorkingDays(initial, String(initial?.leaveType || 'sick').toLowerCase() === 'annual'),
-    );
     const skipDateAutoCount = useRef(true);
-    const options = Array.isArray(annualLeaves) ? annualLeaves : [];
-    const selectedAnnualKey = annualLeaveKey({ fromDate, toDate });
-    const thisLeaveReduced = recordReducesWorkingDays(initial, false);
-    const othersReduced = annualLeaveAlreadyReduced(paymentCycles, selectedAnnualKey);
-    const reduceLocked = thisLeaveReduced || othersReduced;
-    const reduceChecked = reduceLocked ? true : reduceHistoricalWorkingDays;
 
     const resolvedFrom = fromDate || toDate;
     const resolvedTo = toDate || fromDate;
@@ -1443,7 +1612,7 @@ function AddLeaveModal({
     const canSave = countNum > 0 && !locked && !dateError && (!datesRequired || (fromDate && toDate));
 
     return (
-        <ModalShell open={open} title={editing ? 'Edit leave record' : 'Add leave record'} onClose={onClose} width="max-w-lg">
+        <ModalShell open={open} title={editing ? 'Edit leave record' : 'Add leave record'} onClose={onClose} width="max-w-lg" zClass="z-[100]">
             <div className="mt-4 space-y-3">
                 <label className="block">
                     <FieldLabel>Leave type</FieldLabel>
@@ -1455,9 +1624,6 @@ function AddLeaveModal({
                             if (isCountOnlyLeaveType(nextType)) {
                                 setFromDate('');
                                 setToDate('');
-                            }
-                            if (String(nextType).toLowerCase() === 'annual') {
-                                setReduceHistoricalWorkingDays(true);
                             }
                         }}
                         className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
@@ -1475,30 +1641,7 @@ function AddLeaveModal({
                     </p>
                 </label>
                 {showDates ? (
-                    <>
-                        {isAnnual ? (
-                            <label className="block">
-                                <FieldLabel>Annual leave</FieldLabel>
-                                <select
-                                    value={options.some((row) => row.key === selectedAnnualKey) ? selectedAnnualKey : ''}
-                                    onChange={(e) => {
-                                        const selected = options.find((row) => row.key === e.target.value);
-                                        if (!selected) return;
-                                        setFromDate(selected.fromDate || '');
-                                        setToDate(selected.toDate || '');
-                                    }}
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-                                >
-                                    <option value="">New annual leave</option>
-                                    {options.map((row) => (
-                                        <option key={row.key} value={row.key}>
-                                            {row.label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                        ) : null}
-                        <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-3">
                             <label className="block">
                                 <FieldLabel required={datesRequired}>Start date</FieldLabel>
                                 <DatePicker
@@ -1523,7 +1666,6 @@ function AddLeaveModal({
                                 />
                             </label>
                         </div>
-                    </>
                 ) : null}
                 <label className="block">
                     <FieldLabel required>Day count</FieldLabel>
@@ -1551,28 +1693,6 @@ function AddLeaveModal({
                                 : 'Dates are not used. This count is added to the existing Manual row for this leave type. System leave stays on its own row.'}
                     </p>
                 </label>
-                {isAnnual ? (
-                    <PaymentTypeFields
-                        includeLeave={includeLeave}
-                        includeTicket={includeTicket}
-                        onLeaveChange={setIncludeLeave}
-                        onTicketChange={setIncludeTicket}
-                        leaveSalaryAmount={leaveSalaryAmount}
-                        ticketAmount={ticketAmount}
-                        onLeaveAmountChange={setLeaveSalaryAmount}
-                        onTicketAmountChange={setTicketAmount}
-                        leaveSalaryPaymentDate=""
-                        ticketPaymentDate=""
-                        onLeaveDateChange={() => {}}
-                        onTicketDateChange={() => {}}
-                        reduceHistoricalWorkingDays={reduceChecked}
-                        onReduceChange={setReduceHistoricalWorkingDays}
-                        reduceLocked={reduceLocked}
-                        cycleDays={cycleDays}
-                        defaultLeaveSalary={defaultLeaveSalary}
-                        showDates={false}
-                    />
-                ) : null}
                 {dateError ? <p className="text-xs font-medium text-red-600">{dateError}</p> : null}
                 <label className="block">
                     <FieldLabel>Remarks</FieldLabel>
@@ -1616,17 +1736,11 @@ function AddLeaveModal({
                             source: 'manual',
                             status: 'approved',
                             remarks,
-                            includeLeave: isAnnual ? includeLeave : false,
-                            includeTicket: isAnnual ? includeTicket : false,
-                            leaveSalaryAmount: isAnnual && includeLeave ? Number(leaveSalaryAmount) || 0 : 0,
-                            ticketAmount: isAnnual && includeTicket ? Number(ticketAmount) || 0 : 0,
-                            reduceHistoricalWorkingDays: isAnnual
-                                ? thisLeaveReduced
-                                    ? true
-                                    : othersReduced
-                                      ? false
-                                      : reduceChecked
-                                : false,
+                            includeLeave: Boolean(initial?.includeLeave),
+                            includeTicket: Boolean(initial?.includeTicket),
+                            leaveSalaryAmount: Number(initial?.leaveSalaryAmount) || 0,
+                            ticketAmount: Number(initial?.ticketAmount) || 0,
+                            reduceHistoricalWorkingDays: Boolean(initial?.reduceHistoricalWorkingDays),
                             attachment: uploaded || initial?.attachment || null,
                         });
                         onClose();
@@ -1659,7 +1773,41 @@ function PaymentTypeFields({
     cycleDays,
     defaultLeaveSalary,
     showDates = true,
+    dateOptions = [],
+    showReduce = true,
 }) {
+    const options = Array.isArray(dateOptions) ? dateOptions : [];
+    function DateField({ value, onChange, label }) {
+        if (options.length) {
+            return (
+                <label className="block">
+                    <FieldLabel>{label}</FieldLabel>
+                    <select
+                        value={value || ''}
+                        onChange={(e) => onChange(e.target.value)}
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                    >
+                        <option value="">Select date</option>
+                        {options.map((row) => (
+                            <option key={row.date} value={row.date}>
+                                {row.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            );
+        }
+        return (
+            <label className="block">
+                <FieldLabel>{label}</FieldLabel>
+                <DatePicker
+                    value={value}
+                    onChange={onChange}
+                    className="h-11 w-full rounded-xl"
+                />
+            </label>
+        );
+    }
     return (
         <div className="col-span-2 space-y-3">
             <div>
@@ -1688,14 +1836,11 @@ function PaymentTypeFields({
                     {includeLeave ? (
                         <>
                             {showDates ? (
-                                <label className="block">
-                                    <FieldLabel>Leave salary date</FieldLabel>
-                                    <DatePicker
-                                        value={leaveSalaryPaymentDate}
-                                        onChange={onLeaveDateChange}
-                                        className="h-11 w-full rounded-xl"
-                                    />
-                                </label>
+                                <DateField
+                                    label="Leave salary date"
+                                    value={leaveSalaryPaymentDate}
+                                    onChange={onLeaveDateChange}
+                                />
                             ) : null}
                             <label className={`block ${showDates ? '' : 'col-span-2 sm:col-span-1'}`}>
                                 <FieldLabel>Leave salary amount</FieldLabel>
@@ -1707,7 +1852,11 @@ function PaymentTypeFields({
                                     onChange={(e) => onLeaveAmountChange(e.target.value)}
                                     className="h-11 w-full rounded-xl border px-3 text-sm"
                                 />
-                                {defaultLeaveSalary ? (
+                                {options.length ? (
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                        Filled from the selected date. You can change it.
+                                    </p>
+                                ) : defaultLeaveSalary ? (
                                     <p className="mt-1 text-[11px] text-slate-500">
                                         Auto-filled from this employee&apos;s leave salary. You can change it.
                                     </p>
@@ -1718,14 +1867,11 @@ function PaymentTypeFields({
                     {includeTicket ? (
                         <>
                             {showDates ? (
-                                <label className="block">
-                                    <FieldLabel>Ticket payment date</FieldLabel>
-                                    <DatePicker
-                                        value={ticketPaymentDate}
-                                        onChange={onTicketDateChange}
-                                        className="h-11 w-full rounded-xl"
-                                    />
-                                </label>
+                                <DateField
+                                    label="Ticket payment date"
+                                    value={ticketPaymentDate}
+                                    onChange={onTicketDateChange}
+                                />
                             ) : null}
                             <label className={`block ${showDates ? '' : 'col-span-2 sm:col-span-1'}`}>
                                 <FieldLabel>Ticket amount</FieldLabel>
@@ -1736,11 +1882,17 @@ function PaymentTypeFields({
                                     onChange={(e) => onTicketAmountChange(e.target.value)}
                                     className="h-11 w-full rounded-xl border px-3 text-sm"
                                 />
+                                {options.length ? (
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                        Filled from the selected date. You can change it.
+                                    </p>
+                                ) : null}
                             </label>
                         </>
                     ) : null}
                 </div>
             ) : null}
+            {showReduce ? (
             <label className={`inline-flex items-start gap-2 text-[13px] ${reduceLocked ? 'text-[#94A3B8]' : 'text-[#334155]'}`}>
                 <input
                     type="checkbox"
@@ -1758,6 +1910,7 @@ function PaymentTypeFields({
                     ) : null}                              
                 </span>
             </label>
+            ) : null}
         </div>
     );
 }
@@ -1781,24 +1934,50 @@ function AddCycleModal({
     annualLeaves = [],
     paymentCycles = [],
     editingIndex = -1,
+    entitlements,
 }) {
     const options = Array.isArray(annualLeaves) ? annualLeaves : [];
+    const dateOptions = entitlementDateOptions(entitlements);
     const [annualLeaveKeyValue, setAnnualLeaveKeyValue] = useState(
         () => initial?.annualLeaveKey || (initial?.eligibilityStartDate
             ? annualLeaveKey({ fromDate: initial.eligibilityStartDate, toDate: initial.eligibilityEndDate })
             : ''),
     );
-    const [cycleNumber, setCycleNumber] = useState(String(initial?.cycleNumber || nextNumber || 1));
     const [includeLeave, setIncludeLeave] = useState(() => (initial ? recordIncludesLeave(initial) : true));
     const [includeTicket, setIncludeTicket] = useState(() => (initial ? recordIncludesTicket(initial) : false));
-    const [leaveSalaryPaymentDate, setLeaveSalaryPaymentDate] = useState(initial?.leaveSalaryPaymentDate || '');
-    const [leaveSalaryAmount, setLeaveSalaryAmount] = useState(
-        () => amountInputValue(initial?.leaveSalaryAmount ?? initial?.leaveSalary) || amountInputValue(defaultLeaveSalary),
-    );
-    const [ticketPaymentDate, setTicketPaymentDate] = useState(initial?.ticketPaymentDate || '');
-    const [ticketAmount, setTicketAmount] = useState(
-        () => amountInputValue(initial?.ticketAmount),
-    );
+    const remainingOptions = remainingEntitlementOptions(dateOptions, paymentCycles, {
+        includeLeave,
+        includeTicket,
+        excludeIndex: editingIndex,
+    });
+    const remainingCount = remainingOptions.length;
+    const initialCount = remainingCount > 0 ? 1 : 0;
+    const [deductCount, setDeductCount] = useState(initialCount);
+    const [paymentRows, setPaymentRows] = useState(() => {
+        const count = initialCount;
+        const usedDate = initial?.leaveSalaryPaymentDate || initial?.ticketPaymentDate || initial?.entitlementDate || '';
+        return Array.from({ length: count }, (_, index) => {
+            const option =
+                (usedDate && remainingOptions.find((row) => row.date === usedDate)) ||
+                remainingOptions[index] ||
+                null;
+            const row = {
+                ...option,
+                entitlementDate: option?.date,
+                entitlementNo: option?.entitlementNo,
+            };
+            const leaveLeft = remainingKindAmount(row, paymentCycles, 'leave');
+            const ticketLeft = remainingKindAmount(row, paymentCycles, 'ticket');
+            return {
+                date: option?.date || '',
+                entitlementNo: option?.entitlementNo || '',
+                leaveSalaryAmount:
+                    amountInputValue(initial?.leaveSalaryAmount ?? initial?.leaveSalary) ||
+                    amountInputValue(leaveLeft),
+                ticketAmount: amountInputValue(initial?.ticketAmount) || amountInputValue(ticketLeft),
+            };
+        });
+    });
     const [reduceHistoricalWorkingDays, setReduceHistoricalWorkingDays] = useState(
         () => recordReducesWorkingDays(initial, false),
     );
@@ -1809,23 +1988,83 @@ function AddCycleModal({
     const [file, setFile] = useState(null);
     const existingAttachmentName = initial?.attachment?.name || '';
 
+    function optionForDate(date) {
+        const key = String(date || '');
+        return remainingOptions.find((row) => String(row.date) === key) || null;
+    }
+
+    function amountsForOption(option) {
+        const row = {
+            ...option,
+            entitlementDate: option?.date || option?.entitlementDate,
+            entitlementNo: option?.entitlementNo,
+        };
+        return {
+            leaveSalaryAmount: amountInputValue(remainingKindAmount(row, paymentCycles, 'leave')),
+            ticketAmount: amountInputValue(remainingKindAmount(row, paymentCycles, 'ticket')),
+        };
+    }
+
+    function buildPaymentRow(date) {
+        const option = optionForDate(date) || remainingOptions.find((row) => row.date === date) || null;
+        const amounts = amountsForOption(option);
+        return {
+            date: option?.date || date || '',
+            entitlementNo: option?.entitlementNo || '',
+            leaveSalaryAmount: amounts.leaveSalaryAmount,
+            ticketAmount: amounts.ticketAmount,
+        };
+    }
+
+    function nextUnusedDates(size, currentRows = []) {
+        const pool = remainingOptions.map((row) => String(row.date || '')).filter(Boolean);
+        const used = new Set();
+        const out = [];
+        for (let index = 0; index < size; index += 1) {
+            const existing = String(currentRows[index]?.date || '');
+            let next = existing && pool.includes(existing) && !used.has(existing) ? existing : '';
+            if (!next) {
+                next = pool.find((value) => !used.has(value)) || '';
+            }
+            if (next) used.add(next);
+            out.push(next);
+        }
+        return out;
+    }
+
+    function applyDeductCount(value) {
+        const nextCount = Math.max(0, Math.min(Number(value) || 0, remainingCount));
+        setDeductCount(nextCount);
+        setPaymentRows((prev) => nextUnusedDates(nextCount, prev).map((date) => buildPaymentRow(date)));
+    }
+
+    function applyRowDate(index, date) {
+        setPaymentRows((prev) =>
+            prev.map((row, rowIndex) => (rowIndex !== index ? row : buildPaymentRow(date))),
+        );
+    }
+
+    function applyRowAmount(index, field, value) {
+        setPaymentRows((prev) =>
+            prev.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)),
+        );
+    }
+
+    function applyTicketEnabled(checked) {
+        setIncludeTicket(checked);
+    }
+
     function applyAnnualLeave(key) {
         setAnnualLeaveKeyValue(key);
-        const selected = options.find((row) => row.key === key);
-        if (!selected) return;
-        if (!leaveSalaryPaymentDate) setLeaveSalaryPaymentDate(selected.fromDate || '');
-        if (!ticketPaymentDate) setTicketPaymentDate(selected.fromDate || '');
-        if (!includeLeave && recordIncludesLeave(selected)) setIncludeLeave(true);
-        if (!includeTicket && recordIncludesTicket(selected)) setIncludeTicket(true);
-        if (!leaveSalaryAmount && recordIncludesLeave(selected)) {
-            setLeaveSalaryAmount(
-                amountInputValue(selected.leaveSalaryAmount) || amountInputValue(defaultLeaveSalary),
-            );
-        }
-        if (!ticketAmount && recordIncludesTicket(selected)) {
-            setTicketAmount(amountInputValue(selected.ticketAmount));
-        }
     }
+
+    useEffect(() => {
+        const next = Math.max(0, Math.min(deductCount || 0, remainingCount));
+        const fallback = remainingCount > 0 && next === 0 ? 1 : next;
+        if (fallback !== deductCount || paymentRows.length !== fallback) applyDeductCount(fallback);
+        // remaining list changes when leave/ticket type or unpaid rows change
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [remainingCount, includeLeave, includeTicket]);
 
     const selectedLeave = options.find((row) => row.key === annualLeaveKeyValue);
     const leaveKey = annualLeaveKeyValue || cycleAnnualLeaveKey(initial);
@@ -1835,8 +2074,8 @@ function AddCycleModal({
     const reduceChecked = reduceLocked ? true : reduceHistoricalWorkingDays;
 
     return (
-        <ModalShell open={open} title={editing ? 'Edit payment cycle' : 'Add payment cycle'} onClose={onClose} width="max-w-lg">
-            <div className="mt-4 grid grid-cols-2 gap-3">
+        <ModalShell open={open} title={editing ? 'Edit payment cycle' : 'Add payment cycle'} onClose={onClose} width="max-w-2xl">
+            <div className="mt-4 grid max-h-[70vh] grid-cols-2 gap-3 overflow-y-auto pr-1">
                 <label className="col-span-2 block">
                     <FieldLabel>Annual leave</FieldLabel>
                     <select
@@ -1851,42 +2090,125 @@ function AddCycleModal({
                             </option>
                         ))}
                     </select>
-                    {options.length === 0 ? (
-                        <p className="mt-1 text-[11px] text-slate-500">
-                            Add an annual leave record first to choose a date range here.
-                        </p>
-                    ) : null}
                 </label>
-                <PaymentTypeFields
-                    includeLeave={includeLeave}
-                    includeTicket={includeTicket}
-                    onLeaveChange={setIncludeLeave}
-                    onTicketChange={setIncludeTicket}
-                    leaveSalaryAmount={leaveSalaryAmount}
-                    ticketAmount={ticketAmount}
-                    onLeaveAmountChange={setLeaveSalaryAmount}
-                    onTicketAmountChange={setTicketAmount}
-                    leaveSalaryPaymentDate={leaveSalaryPaymentDate}
-                    ticketPaymentDate={ticketPaymentDate}
-                    onLeaveDateChange={setLeaveSalaryPaymentDate}
-                    onTicketDateChange={setTicketPaymentDate}
-                    reduceHistoricalWorkingDays={reduceChecked}
-                    onReduceChange={setReduceHistoricalWorkingDays}
-                    reduceLocked={reduceLocked}
-                    cycleDays={cycleDays}
-                    defaultLeaveSalary={defaultLeaveSalary}
-                    showDates
-                />
-                <label className="block">
-                    <FieldLabel>Cycle number</FieldLabel>
-                    <input
-                        type="number"
-                        min="1"
-                        value={cycleNumber}
-                        onChange={(e) => setCycleNumber(e.target.value)}
-                        className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm"
-                    />
+                <label className="col-span-2 block">
+                    <FieldLabel>Number of leave salary</FieldLabel>
+                    <select
+                        value={String(deductCount || 0)}
+                        onChange={(e) => applyDeductCount(e.target.value)}
+                        disabled={remainingCount === 0}
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                    >
+                        {remainingCount === 0 ? <option value="0">0</option> : null}
+                        {Array.from({ length: remainingCount }, (_, index) => index + 1).map((value) => (
+                            <option key={value} value={value}>
+                                {value}
+                            </option>
+                        ))}
+                    </select>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                        {remainingCount} remaining. {deductCount || 0} row
+                        {deductCount === 1 ? '' : 's'} will appear below.
+                    </p>
                 </label>
+                <div className="col-span-2">
+                    <FieldLabel>Payment type</FieldLabel>
+                    <div className="mt-1 flex flex-wrap gap-4">
+                        <label className="inline-flex items-center gap-2 text-[13px] text-[#334155]">
+                            <input
+                                type="checkbox"
+                                checked={includeLeave}
+                                onChange={(e) => setIncludeLeave(e.target.checked)}
+                            />
+                            Leave
+                        </label>
+                        <label className="inline-flex items-center gap-2 text-[13px] text-[#334155]">
+                            <input
+                                type="checkbox"
+                                checked={includeTicket}
+                                onChange={(e) => applyTicketEnabled(e.target.checked)}
+                            />
+                            Ticket
+                        </label>
+                    </div>
+                </div>
+                {paymentRows.map((row, index) => {
+                    const takenDates = new Set(
+                        paymentRows
+                            .map((item, itemIndex) => (itemIndex === index ? '' : String(item.date || '')))
+                            .filter(Boolean),
+                    );
+                    const amountCols = Number(includeLeave) + Number(includeTicket);
+                    const rowTitle = includeLeave && includeTicket
+                        ? `Leave / Ticket ${index + 1}`
+                        : includeTicket && !includeLeave
+                          ? `Ticket ${index + 1}`
+                          : `Leave salary ${index + 1}`;
+                    return (
+                        <div
+                            key={`payment-row-${index}`}
+                            className="col-span-2 rounded-[10px] border border-[#E6EAF0] bg-[#F8FAFC] p-3"
+                        >
+                            <p className="mb-2 text-[12px] font-semibold text-[#0F172A]">{rowTitle}</p>
+                            <div
+                                className={`grid grid-cols-1 gap-3 ${
+                                    amountCols <= 1 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'
+                                }`}
+                            >
+                                <label className="block">
+                                    <FieldLabel>Date</FieldLabel>
+                                    <select
+                                        value={String(row.date || '')}
+                                        onChange={(e) => applyRowDate(index, e.target.value)}
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                                    >
+                                        {remainingOptions.map((option) => {
+                                            const taken =
+                                                takenDates.has(String(option.date)) &&
+                                                String(option.date) !== String(row.date || '');
+                                            return (
+                                                <option
+                                                    key={option.date}
+                                                    value={option.date}
+                                                    disabled={taken}
+                                                >
+                                                    {prettyDate(option.date)}
+                                                    {taken ? ' (used)' : ''}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
+                                </label>
+                                {includeLeave ? (
+                                    <label className="block">
+                                        <FieldLabel>Leave salary amount</FieldLabel>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={row.leaveSalaryAmount}
+                                            onChange={(e) => applyRowAmount(index, 'leaveSalaryAmount', e.target.value)}
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                                        />
+                                    </label>
+                                ) : null}
+                                {includeTicket ? (
+                                    <label className="block">
+                                        <FieldLabel>Ticket amount</FieldLabel>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={row.ticketAmount}
+                                            onChange={(e) => applyRowAmount(index, 'ticketAmount', e.target.value)}
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                                        />
+                                    </label>
+                                ) : null}
+                            </div>
+                        </div>
+                    );
+                })}
                 <label className="block">
                     <FieldLabel>Currency</FieldLabel>
                     <input
@@ -1941,29 +2263,35 @@ function AddCycleModal({
                 </button>
                 <button
                     type="button"
-                    disabled={locked}
+                    disabled={locked || !paymentRows.length || (!includeLeave && !includeTicket)}
                     onClick={async () => {
-                        onSave({
-                            ...(initial || {}),
-                            cycleNumber: Number(cycleNumber) || nextNumber || 1,
+                        if (!paymentRows.length || (!includeLeave && !includeTicket)) return;
+                        const attachment = (await fileToAttachment(file)) || initial?.attachment || null;
+                        const rows = paymentRows.map((row, index) => ({
+                            ...(index === 0 ? initial || {} : {}),
+                            cycleNumber: (Number(initial?.cycleNumber) || nextNumber || 1) + index,
                             eligibilityStartDate: selectedLeave?.fromDate || initial?.eligibilityStartDate || '',
                             eligibilityEndDate: selectedLeave?.toDate || initial?.eligibilityEndDate || '',
                             entitlementDays: thisCycleReduced || (!othersReduced && reduceChecked) ? cycleDays : 0,
                             includeLeave,
                             includeTicket,
-                            leaveSalaryPaymentDate: includeLeave ? leaveSalaryPaymentDate : '',
-                            leaveSalaryAmount: includeLeave ? Number(leaveSalaryAmount) || 0 : 0,
-                            ticketPaymentDate: includeTicket ? ticketPaymentDate : '',
-                            ticketAmount: includeTicket ? Number(ticketAmount) || 0 : 0,
-                            reduceHistoricalWorkingDays: thisCycleReduced ? true : othersReduced ? false : reduceChecked,
+                            leaveSalaryPaymentDate: includeLeave ? row.date : '',
+                            leaveSalaryAmount: includeLeave ? Number(row.leaveSalaryAmount) || 0 : 0,
+                            ticketPaymentDate: includeTicket ? row.date : '',
+                            ticketAmount: includeTicket ? Number(row.ticketAmount) || 0 : 0,
+                            entitlementDate: row.date || '',
+                            entitlementNo: row.entitlementNo || optionForDate(row.date)?.entitlementNo || '',
+                            reduceHistoricalWorkingDays:
+                                thisCycleReduced ? true : othersReduced ? false : reduceChecked,
                             currency,
                             paymentReference,
                             paymentStatus,
                             verificationStatus: initial?.verificationStatus || 'verified',
                             remarks,
                             annualLeaveKey: annualLeaveKeyValue,
-                            attachment: (await fileToAttachment(file)) || initial?.attachment || null,
-                        });
+                            attachment,
+                        }));
+                        onSave(rows);
                         onClose();
                     }}
                     className="h-10 rounded-xl bg-[#2563EB] px-4 text-sm font-semibold text-white disabled:opacity-50"
@@ -2048,8 +2376,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [leaveModal, setLeaveModal] = useState(false);
     const [holidaysModal, setHolidaysModal] = useState(false);
     const [leaveTypeFilter, setLeaveTypeFilter] = useState('');
-    const [systemLeaveModal, setSystemLeaveModal] = useState(false);
-    const [systemLeaveTypeFilter, setSystemLeaveTypeFilter] = useState('');
+    const [leaveGroupModal, setLeaveGroupModal] = useState(null);
     const [leaveDraftIndex, setLeaveDraftIndex] = useState(null);
     const [cycleModal, setCycleModal] = useState(false);
     const [cycleDraft, setCycleDraft] = useState(null);
@@ -2058,7 +2385,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [leaveDeleteRow, setLeaveDeleteRow] = useState(null);
     const [entitlementDetail, setEntitlementDetail] = useState(null);
     const [leaveSalaryDetailsOpen, setLeaveSalaryDetailsOpen] = useState(false);
-    const [showBreakdown, setShowBreakdown] = useState(false);
+    const [eligibilityDetail, setEligibilityDetail] = useState(null);
     const [showCreate, setShowCreate] = useState(false);
     const [createReason, setCreateReason] = useState('');
     const [showApprove, setShowApprove] = useState(false);
@@ -2230,25 +2557,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         hiddenSystemLeave,
         verpStartDate,
     ]);
-    const systemLeaveDays = useMemo(() => {
-        return (liveLeaveRecords || [])
-            .map((row) => {
-                const fromDate = row.fromDate || row.startDate || '';
-                const toDate = row.toDate || row.endDate || fromDate;
-                return {
-                    ...row,
-                    source: 'system',
-                    leaveType: leaveTypeKey(row),
-                    fromDate,
-                    toDate,
-                };
-            })
-            .sort((a, b) => String(a.fromDate || '').localeCompare(String(b.fromDate || '')));
-    }, [liveLeaveRecords]);
-    const filteredSystemLeaveDays = useMemo(() => {
-        if (!systemLeaveTypeFilter) return systemLeaveDays;
-        return systemLeaveDays.filter((row) => leaveTypeKey(row) === systemLeaveTypeFilter);
-    }, [systemLeaveDays, systemLeaveTypeFilter]);
     const existingLeaveHistoryRows = useMemo(() => {
         const manual = (leaveRecords || []).map((row, storedIndex) => {
             const next = {
@@ -2285,6 +2593,18 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         if (!leaveTypeFilter) return existingLeaveHistoryRows;
         return existingLeaveHistoryRows.filter((row) => leaveTypeKey(row) === leaveTypeFilter);
     }, [existingLeaveHistoryRows, leaveTypeFilter]);
+    const leaveHistoryGroups = useMemo(
+        () => summarizeLeaveHistoryGroups(filteredLeaveHistoryRows),
+        [filteredLeaveHistoryRows],
+    );
+    const leaveGroupRows = useMemo(() => {
+        if (!leaveGroupModal) return [];
+        return leaveRowsForGroup(existingLeaveHistoryRows, leaveGroupModal.type, leaveGroupModal.source);
+    }, [existingLeaveHistoryRows, leaveGroupModal]);
+    useEffect(() => {
+        if (!leaveGroupModal) return;
+        if (!leaveGroupRows.length) setLeaveGroupModal(null);
+    }, [leaveGroupModal, leaveGroupRows.length]);
     const annualLeaveOptions = useMemo(
         () => listAnnualLeaveOptions(existingLeaveHistoryRows),
         [existingLeaveHistoryRows],
@@ -2430,6 +2750,101 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         if (!portalHref) return;
         navigateFromList(router, portalHref);
     }, [portalHref, router]);
+
+    function openHistoricalWorkingDaysDetail() {
+        const from = data?.historicalFrom || joiningDate;
+        const to = data?.historicalTo || historicalTo;
+        setEligibilityDetail({
+            title: 'Historical working days',
+            subtitle: from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : '',
+            rows: eligibilityWorkingDayRows({
+                from,
+                to,
+                workingDays: historicalCalc.workingDays,
+                weeklyOffs: data?.weeklyOffs,
+                holidays: data?.holidays,
+                calendarDays: data?.calendarDays || historicalCalc.calendarDays,
+            }),
+            total: historicalCalc.workingDays,
+            totalLabel: 'Working days',
+        });
+    }
+
+    function openLiveWorkingDaysDetail() {
+        const from = data?.liveAttendance?.from || toMonthStartDate(verpStartDate);
+        const to = data?.liveAttendance?.to || '';
+        const count = Number(data?.liveAttendance?.workingDays) || 0;
+        setEligibilityDetail({
+            title: 'Working days since VERP start',
+            subtitle: from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from),
+            rows: [
+                {
+                    key: 'live-working',
+                    date: from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from) || '—',
+                    type: 'Working days',
+                    count,
+                },
+            ],
+            total: count,
+            totalLabel: 'Working days',
+        });
+    }
+
+    function openHistoricalLeaveDetail() {
+        const rows = eligibilityLeaveDetailRows([
+            ...(splitLeave.leaveRecords || []),
+            ...(splitLeave.annualLeaveRecords || []),
+        ]);
+        setEligibilityDetail({
+            title: 'Historical leave deduction',
+            subtitle: 'Leave records between contract joining and the day before VERP start.',
+            rows,
+            total: Number(historicalCalc.totalLeaveDeduction) || 0,
+            totalLabel: 'Deduction days',
+        });
+    }
+
+    function openAttendanceLeaveDetail() {
+        const rows = eligibilityLeaveDetailRows(liveLeaveRecords);
+        setEligibilityDetail({
+            title: 'Attendance leave (policy)',
+            subtitle: data?.liveAttendance?.from
+                ? `${prettyDate(data.liveAttendance.from)}${
+                      data.liveAttendance.to ? ` — ${prettyDate(data.liveAttendance.to)}` : ''
+                  }`
+                : '',
+            rows,
+            total: attendanceLeaveDeduction,
+            totalLabel: 'Deduction days',
+            footer: portalHref ? (
+                <button
+                    type="button"
+                    onClick={openEmployeePortal}
+                    className="h-10 rounded-xl border px-4 text-sm font-semibold text-slate-600"
+                >
+                    Open leave portal
+                </button>
+            ) : null,
+        });
+    }
+
+    function openReservedLeaveDetail() {
+        const rows = (leaveSalaryEntitlement.entitlements || []).map((row) => ({
+            key: `reserved-${row.entitlementNo}`,
+            date: prettyDate(row.entitlementDate || row.salaryPeriodEnd),
+            type: `Leave Salary ${row.entitlementNo}`,
+            count: Number(row.eligibleDays) || Number(leaveSalaryEntitlement.requiredDaysPerEntitlement) || 0,
+        }));
+        setEligibilityDetail({
+            title: 'Leave salary reserved',
+            subtitle: `${leaveSalaryEntitlement.availableEntitlements} × ${leaveSalaryEntitlement.requiredDaysPerEntitlement} policy leave days.`,
+            rows,
+            total:
+                Number(leaveSalaryEntitlement.availableEntitlements) *
+                Number(leaveSalaryEntitlement.requiredDaysPerEntitlement || 0),
+            totalLabel: 'Reserved days',
+        });
+    }
     const displayName = emp?.name ? toTitleName(emp.name) : employeeId;
     const initials = emp?.name
         ? nameInitials(emp.name)
@@ -3177,7 +3592,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 </div>
                                                 <button
                                                     type="button"
-                                                    onClick={() => setShowBreakdown(true)}
+                                                    onClick={openHistoricalWorkingDaysDetail}
                                                     className="shrink-0 text-[11px] font-medium text-[#2563EB] hover:underline"
                                                 >
                                                     View breakdown
@@ -3186,79 +3601,54 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                         </section>
 
                                         <section className={CARD}>
-                                            <div className="mb-4 flex items-start justify-between gap-3">
-                                                <div className="flex items-start gap-3">
-                                                    <CardIcon tone="red">
-                                                        <Calendar size={16} />
-                                                    </CardIcon>
-                                                    <div>
+                                            <div className="mb-4 flex flex-col gap-3">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="flex items-center gap-3">
+                                                        <CardIcon tone="red">
+                                                            <Calendar size={16} />
+                                                        </CardIcon>
                                                         <h3 className="text-[15px] font-semibold text-[#0F172A]">
                                                             Existing Leave History
                                                         </h3>
-                                                        <p className="mt-0.5 text-[12px] text-[#64748B]">
-                                                            Add leave records here. Use Add the holidays to check days
-                                                            to list. After the salary processing month starts, this
-                                                            employee&apos;s leave and holidays from the 1st of that
-                                                            month are listed as System records. They do not appear
-                                                            before that month.
-                                                        </p>
+                                                    </div>
+                                                    <div className="flex flex-nowrap items-center justify-end gap-2">
+                                                        <CompleteBadge complete={leaveComplete} />
+                                                        <GhostButton
+                                                            disabled={locked || !joiningDate || !historicalTo}
+                                                            onClick={() => setHolidaysModal(true)}
+                                                        >
+                                                            <CalendarDays size={14} /> Add the holidays
+                                                        </GhostButton>
+                                                        <GhostButton
+                                                            disabled={locked || leaveComplete}
+                                                            onClick={() => {
+                                                                setLeaveDraftIndex(null);
+                                                                setLeaveModal(true);
+                                                            }}
+                                                        >
+                                                            <Plus size={14} /> Add leave record
+                                                        </GhostButton>
                                                     </div>
                                                 </div>
-                                                <div className="flex flex-wrap items-center justify-end gap-2">
-                                                    <LeaveTypeFilter
-                                                        value={leaveTypeFilter}
-                                                        onChange={setLeaveTypeFilter}
-                                                        rows={existingLeaveHistoryRows}
-                                                    />
-                                                    <CompleteBadge complete={leaveComplete} />
-                                                    <GhostButton
-                                                        disabled={locked || !joiningDate || !historicalTo}
-                                                        onClick={() => setHolidaysModal(true)}
-                                                    >
-                                                        <CalendarDays size={14} /> Add the holidays
-                                                    </GhostButton>
-                                                    <GhostButton
-                                                        disabled={locked || leaveComplete}
-                                                        onClick={() => {
-                                                            setLeaveDraftIndex(null);
-                                                            setLeaveModal(true);
-                                                        }}
-                                                    >
-                                                        <Plus size={14} /> Add leave record
-                                                    </GhostButton>
-                                                </div>
+                                                <LeaveTypeFilter
+                                                    value={leaveTypeFilter}
+                                                    onChange={setLeaveTypeFilter}
+                                                    rows={existingLeaveHistoryRows}
+                                                />
                                             </div>
-                                            <LeaveTable
-                                                rows={filteredLeaveHistoryRows}
+                                            <LeaveHistorySummaryTable
+                                                groups={leaveHistoryGroups}
                                                 emptyMessage={
                                                     leaveTypeFilter
                                                         ? `No ${leaveMeta(leaveTypeFilter).label.toLowerCase()} records.`
                                                         : 'No leave records yet.'
                                                 }
-                                                locked={locked}
-                                                isRowLocked={(row) =>
-                                                    leaveComplete && leaveTypeKey(row) !== 'holiday'
+                                                onOpen={(group) =>
+                                                    setLeaveGroupModal({
+                                                        type: group.type,
+                                                        source: group.source,
+                                                    })
                                                 }
-                                                onOpenSystem={(row) => {
-                                                    setSystemLeaveTypeFilter(leaveTypeKey(row));
-                                                    setSystemLeaveModal(true);
-                                                }}
-                                                onEdit={(row) => {
-                                                    if (locked) return;
-                                                    if (leaveTypeKey(row) === 'holiday') {
-                                                        setHolidaysModal(true);
-                                                        return;
-                                                    }
-                                                    if (leaveComplete) return;
-                                                    if (!Number.isInteger(row?.storedIndex)) return;
-                                                    setLeaveDraftIndex(row.storedIndex);
-                                                    setLeaveModal(true);
-                                                }}
-                                                onRemove={(row) => {
-                                                    if (locked) return;
-                                                    if (leaveComplete && leaveTypeKey(row) !== 'holiday') return;
-                                                    setLeaveDeleteRow(row);
-                                                }}
                                             />
                                             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                                                 <label className="inline-flex items-center gap-2 text-[13px] text-[#64748B]">
@@ -3306,10 +3696,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             Leave Salary & Ticket Payments
                                                         </h3>
                                                         <p className="mt-0.5 text-[12px] text-[#64748B]">
-                                                            Completed increases only when you add a leave or ticket
-                                                            payment with Reduce the historical working day ({cycleDays})
-                                                            checked. That deducts {cycleDays} eligible days. Previous
-                                                            paid amounts stay below.
+                                                            When counted days reach the salary-policy leave days (
+                                                            {cycleDays}), a leave salary row is added and {cycleDays}{' '}
+                                                            days come off the remaining balance. Holiday and leave
+                                                            deductions update this on refresh. Completed still increases
+                                                            only when a leave or ticket payment is added with Reduce the
+                                                            historical working day checked.
                                                         </p>
                                                     </div>
                                                 </div>
@@ -3347,7 +3739,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 />
                                                 <DetailStat
                                                     label="Balance"
-                                                    value={`${leaveSalaryEntitlement.remainingDays} / ${leaveSalaryEntitlement.totalEntitlementDays || leaveSalaryEntitlement.requiredDaysPerEntitlement}`}
+                                                    value={`${leaveSalaryEntitlement.remainingDays} / ${leaveSalaryEntitlement.requiredDaysPerEntitlement}`}
                                                 />
                                                 <DetailStat
                                                     label="Leave salary"
@@ -3369,8 +3761,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     tone="danger"
                                                 />
                                             </div>
-                                            {(leaveSalaryEntitlement.leaveSalaryCount > 0 ||
-                                                leaveSalaryEntitlement.ticketCount > 0) && (
+                                            {leaveSalaryEntitlement.availableEntitlements > 0 && (
                                                 <div className="mb-4 flex flex-wrap gap-3 text-[12px] text-[#64748B]">
                                                     <span>
                                                         Total leave salary{' '}
@@ -3458,44 +3849,38 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 <EligibilityCalcRow
                                                     label="Historical working days"
                                                     value={historicalCalc.workingDays}
+                                                    onClick={openHistoricalWorkingDaysDetail}
                                                 />
                                                 {data?.liveAttendance?.enabled ? (
                                                     <EligibilityCalcRow
                                                         label="Working days since VERP start"
                                                         value={Number(data.liveAttendance.workingDays) || 0}
+                                                        onClick={openLiveWorkingDaysDetail}
                                                     />
                                                 ) : null}
                                                 <EligibilityCalcRow
                                                     label="Historical leave deduction"
                                                     value={formatDeductionDays(historicalCalc.totalLeaveDeduction)}
                                                     danger={Number(historicalCalc.totalLeaveDeduction) > 0}
+                                                    onClick={openHistoricalLeaveDetail}
                                                 />
                                                 {data?.liveAttendance?.enabled ? (
                                                     <EligibilityCalcRow
                                                         label="Attendance leave (policy)"
                                                         value={formatDeductionDays(attendanceLeaveDeduction)}
                                                         danger={Number(attendanceLeaveDeduction) > 0}
-                                                        onClick={portalHref ? openEmployeePortal : undefined}
+                                                        onClick={openAttendanceLeaveDetail}
                                                     />
                                                 ) : null}
-                                                {Number(calc.consumedAnnualLeaveCycles) > 0 ? (
+                                                {Number(leaveSalaryEntitlement.availableEntitlements) > 0 ? (
                                                     <EligibilityCalcRow
-                                                        label={`Annual leave entitlement (${calc.consumedAnnualLeaveCycles} × ${calc.cycleDays})`}
+                                                        label={`Leave salary reserved (${leaveSalaryEntitlement.availableEntitlements} × ${leaveSalaryEntitlement.requiredDaysPerEntitlement})`}
                                                         value={formatDeductionDays(
-                                                            Number(calc.consumedAnnualLeaveCycles) *
-                                                                Number(calc.cycleDays || 0),
+                                                            Number(leaveSalaryEntitlement.availableEntitlements) *
+                                                                Number(leaveSalaryEntitlement.requiredDaysPerEntitlement || 0),
                                                         )}
                                                         danger
-                                                    />
-                                                ) : null}
-                                                {Number(calc.paidVerifiedCycles) > 0 ? (
-                                                    <EligibilityCalcRow
-                                                        label={`Paid benefit cycles (${calc.paidVerifiedCycles} × ${calc.cycleDays})`}
-                                                        value={formatDeductionDays(
-                                                            Number(calc.paidVerifiedCycles) *
-                                                                Number(calc.cycleDays || 0),
-                                                        )}
-                                                        danger
+                                                        onClick={openReservedLeaveDetail}
                                                     />
                                                 ) : null}
                                             </div>
@@ -3521,11 +3906,11 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     </span>
                                                 </div>
                                                 <p className="mt-3 text-[11px] font-medium leading-[15px] text-[#49DDBB]">
-                                                    {leaveSalaryEntitlement.completedEntitlements > 0
+                                                    {leaveSalaryEntitlement.availableEntitlements > 0
                                                         ? `${completedOverTotal(
                                                               leaveSalaryEntitlement.completedEntitlements,
                                                               leaveSalaryEntitlement.availableEntitlements,
-                                                          )} completed · ${leaveSalaryEntitlement.remainingDays} / ${leaveSalaryEntitlement.requiredDaysPerEntitlement} toward next.`
+                                                          )} leave salary ${leaveSalaryEntitlement.availableEntitlements === 1 ? 'row' : 'rows'} · ${leaveSalaryEntitlement.remainingDays} / ${leaveSalaryEntitlement.requiredDaysPerEntitlement} toward next.`
                                                         : `${leaveSalaryEntitlement.remainingDays} / ${leaveSalaryEntitlement.requiredDaysPerEntitlement} days toward the next entitlement.`}
                                                 </p>
                                                 <div className="mt-[14px] h-[6px] w-full overflow-hidden rounded-full bg-white/[0.17]">
@@ -3566,8 +3951,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 />
                                                 <p className="text-[9px] font-normal leading-[18px] text-[#6F7C8F]">
                                                     {data?.liveAttendance?.enabled
-                                                        ? `Eligible working days use the existing salary-policy attendance rules. Completed increases only when a leave or ticket payment is added with Reduce the historical working day (${calc.cycleDays}) checked.`
-                                                        : `Earned eligible balance uses historical working days minus leave deductions. ${calc.cycleDays} days are deducted only when a leave or ticket payment is added with Reduce the historical working day checked.`}
+                                                        ? `Eligible working days use the existing salary-policy attendance rules. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and ${calc.cycleDays} days come off the remaining balance. Holiday and leave deductions refresh this automatically.`
+                                                        : `Earned eligible balance uses historical working days minus leave deductions. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and ${calc.cycleDays} days come off the remaining balance. Holiday and leave deductions refresh this automatically.`}
                                                 </p>
                                             </div>
                                         </section>
@@ -3646,6 +4031,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             <LeaveSalaryDetailsModal
                 open={leaveSalaryDetailsOpen}
                 entitlement={leaveSalaryEntitlement}
+                paymentCycles={paymentCycles}
                 onSeeDetails={setEntitlementDetail}
                 onClose={() => setLeaveSalaryDetailsOpen(false)}
             />
@@ -3689,10 +4075,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 periodStart={joiningDate}
                 periodEnd={historicalTo}
                 leaveMultipliers={leaveMultipliers}
-                annualLeaves={annualLeaveOptions}
-                paymentCycles={paymentCycles}
-                cycleDays={cycleDays}
-                defaultLeaveSalary={nextUnpaidLeaveSalary || data?.employeeLeaveSalary}
                 onClose={() => {
                     setLeaveModal(false);
                     setLeaveDraftIndex(null);
@@ -3724,17 +4106,26 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 annualLeaves={annualLeaveOptions}
                 paymentCycles={paymentCycles}
                 editingIndex={Number.isInteger(cycleDraftIndex) ? cycleDraftIndex : -1}
+                entitlements={leaveSalaryEntitlement}
                 defaultLeaveSalary={nextUnpaidLeaveSalary || data?.employeeLeaveSalary}
                 onClose={() => {
                     setCycleModal(false);
                     setCycleDraft(null);
                     setCycleDraftIndex(null);
                 }}
-                onSave={async (row) => {
+                onSave={async (payload) => {
+                    const rows = Array.isArray(payload) ? payload : [payload];
                     const index = cycleDraftIndex;
-                    const next = Number.isInteger(index)
-                        ? paymentCycles.map((existing, i) => (i === index ? { ...existing, ...row } : existing))
-                        : [...paymentCycles, row];
+                    let next;
+                    if (Number.isInteger(index)) {
+                        const [first, ...rest] = rows;
+                        next = paymentCycles.map((existing, i) =>
+                            i === index ? { ...existing, ...(first || {}) } : existing,
+                        );
+                        if (rest.length) next = [...next, ...rest];
+                    } else {
+                        next = [...paymentCycles, ...rows];
+                    }
                     setPaymentCycles(next);
                     setCycleDraft(null);
                     setCycleDraftIndex(null);
@@ -3750,6 +4141,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 open={Boolean(leaveDeleteRow)}
                 title="Delete leave record?"
                 onClose={() => setLeaveDeleteRow(null)}
+                zClass="z-[100]"
             >
                 <p className="mt-3 text-sm text-slate-600">
                     {leaveSourceKey(leaveDeleteRow) === 'system'
@@ -3905,68 +4297,48 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 }}
             />
             <ModalShell
-                open={systemLeaveModal}
-                title="System leave"
-                onClose={() => setSystemLeaveModal(false)}
-                width="max-w-lg"
+                open={Boolean(leaveGroupModal)}
+                title={
+                    leaveGroupModal
+                        ? `${leaveMeta(leaveGroupModal.type).label} · ${
+                              leaveGroupModal.source === 'system' ? 'System' : 'Manual'
+                          }`
+                        : 'Leave records'
+                }
+                onClose={() => setLeaveGroupModal(null)}
+                width="max-w-5xl"
+                zClass="z-[80]"
             >
-                <p className="mt-1 text-sm text-slate-500">
-                    Leave created automatically after salary enrollment. Filter by type to review each date.
+                <p className="mt-1 text-[12px] text-[#64748B]">
+                    {leaveGroupRows.length}{' '}
+                    {leaveGroupRows.length === 1 ? 'record' : 'records'} for this leave type and source.
                 </p>
-                <div className="mt-3">
-                    <LeaveTypeFilter
-                        value={systemLeaveTypeFilter}
-                        onChange={setSystemLeaveTypeFilter}
-                        rows={systemLeaveDays}
+                <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
+                    <LeaveTable
+                        rows={leaveGroupRows}
+                        emptyMessage="No leave records in this group."
+                        locked={locked}
+                        isRowLocked={(row) => leaveComplete && leaveTypeKey(row) !== 'holiday'}
+                        onEdit={(row) => {
+                            if (locked) return;
+                            if (leaveTypeKey(row) === 'holiday') {
+                                setHolidaysModal(true);
+                                return;
+                            }
+                            if (leaveComplete) return;
+                            if (!Number.isInteger(row?.storedIndex)) return;
+                            setLeaveDraftIndex(row.storedIndex);
+                            setLeaveModal(true);
+                        }}
+                        onRemove={(row) => {
+                            if (locked) return;
+                            if (leaveComplete && leaveTypeKey(row) !== 'holiday') return;
+                            setLeaveDeleteRow(row);
+                        }}
                     />
                 </div>
-                <div className="mt-3 max-h-[360px] overflow-auto rounded-xl border border-[#EEF2F6]">
-                    {filteredSystemLeaveDays.length ? (
-                        <table className="w-full text-left">
-                            <thead className="sticky top-0 bg-white">
-                                <tr className="border-b border-[#EEF2F6] text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
-                                    <th className="px-3 py-2.5 font-semibold">Date</th>
-                                    <th className="px-3 py-2.5 font-semibold">Type</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredSystemLeaveDays.map((row, index) => {
-                                    const meta = leaveMeta(row.leaveType);
-                                    const sameDay = row.fromDate && row.fromDate === row.toDate;
-                                    return (
-                                        <tr
-                                            key={`${row.fromDate}-${row.leaveType}-${index}`}
-                                            className="border-b border-[#F1F5F9] last:border-0"
-                                        >
-                                            <td className="px-3 py-2.5 text-[13px] text-[#334155]">
-                                                {sameDay
-                                                    ? prettyDate(row.fromDate)
-                                                    : `${prettyDate(row.fromDate)} — ${prettyDate(row.toDate)}`}
-                                            </td>
-                                            <td className="px-3 py-2.5">
-                                                <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-[#0F172A]">
-                                                    <span
-                                                        className="h-2 w-2 rounded-full"
-                                                        style={{ backgroundColor: meta.color }}
-                                                    />
-                                                    {meta.label}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    ) : (
-                        <p className="py-8 text-center text-[13px] text-[#94A3B8]">
-                            {systemLeaveTypeFilter
-                                ? `No ${leaveMeta(systemLeaveTypeFilter).label.toLowerCase()} records.`
-                                : 'No system leave records.'}
-                        </p>
-                    )}
-                </div>
                 <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
-                    {portalHref ? (
+                    {leaveGroupModal?.source === 'system' && portalHref ? (
                         <button
                             type="button"
                             onClick={openEmployeePortal}
@@ -3977,7 +4349,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     ) : null}
                     <button
                         type="button"
-                        onClick={() => setSystemLeaveModal(false)}
+                        onClick={() => setLeaveGroupModal(null)}
                         className="h-10 rounded-xl border px-4 text-sm font-semibold"
                     >
                         Close
@@ -4077,14 +4449,16 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     </button>
                 </div>
             </ModalShell>
-            <ModalShell open={showBreakdown} title="Working days breakdown" onClose={() => setShowBreakdown(false)}>
-                <div className="mt-3 space-y-2 text-sm">
-                    <Row label="Calendar days" value={calc.calendarDays} />
-                    <Row label="Weekly offs excluded" value={data?.weeklyOffs || 0} />
-                    <Row label="Holidays excluded" value={data?.holidays || 0} />
-                    <Row label="Historical working days" value={calc.workingDays} strong />
-                </div>
-            </ModalShell>
+            <EligibilityDetailModal
+                open={Boolean(eligibilityDetail)}
+                title={eligibilityDetail?.title}
+                subtitle={eligibilityDetail?.subtitle}
+                rows={eligibilityDetail?.rows}
+                total={eligibilityDetail?.total}
+                totalLabel={eligibilityDetail?.totalLabel}
+                footer={eligibilityDetail?.footer}
+                onClose={() => setEligibilityDetail(null)}
+            />
             <ConfirmAlertDialog
                 open={resetConfirmOpen}
                 onOpenChange={setResetConfirmOpen}
@@ -4196,6 +4570,72 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     );
 }
 
+function EligibilityDetailModal({
+    open,
+    title,
+    subtitle,
+    rows = [],
+    total,
+    totalLabel = 'Total',
+    footer,
+    onClose,
+}) {
+    if (!open) return null;
+    const list = Array.isArray(rows) ? rows : [];
+    const sum = list.reduce((acc, row) => acc + (Number(row.count) || 0), 0);
+    return (
+        <ModalShell open={open} title={title || 'Details'} onClose={onClose} width="max-w-2xl">
+            {subtitle ? <p className="mt-1 text-[12px] text-[#64748B]">{subtitle}</p> : null}
+            <div className="mt-4 max-h-[60vh] overflow-auto rounded-xl border border-[#EEF2F6]">
+                {list.length ? (
+                    <table className="w-full text-left">
+                        <thead className="sticky top-0 bg-white">
+                            <tr className="border-b border-[#EEF2F6] text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
+                                <th className="px-3 py-2.5 font-semibold">Date</th>
+                                <th className="px-3 py-2.5 font-semibold">Type</th>
+                                <th className="px-3 py-2.5 text-right font-semibold">Count</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {list.map((row) => (
+                                <tr key={row.key} className="border-b border-[#F1F5F9] last:border-0">
+                                    <td className="px-3 py-2.5 text-[13px] text-[#334155]">{row.date || '—'}</td>
+                                    <td className="px-3 py-2.5 text-[13px] font-medium text-[#0F172A]">
+                                        {row.type || '—'}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right text-[13px] font-semibold tabular-nums text-[#0F172A]">
+                                        {row.count}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                ) : (
+                    <p className="py-8 text-center text-[13px] text-[#94A3B8]">No records for this count.</p>
+                )}
+            </div>
+            <div className="mt-3 flex items-center justify-between text-[13px] text-[#64748B]">
+                <span>
+                    {totalLabel}{' '}
+                    <strong className="tabular-nums text-[#0F172A]">
+                        {total == null ? sum : total}
+                    </strong>
+                </span>
+                <div className="flex items-center gap-2">
+                    {footer}
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="h-10 rounded-xl border px-4 text-sm font-semibold"
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        </ModalShell>
+    );
+}
+
 function EligibilityCalcRow({ label, value, danger, strong, onClick }) {
     const className = `flex min-h-[42px] w-full items-center justify-between border-b border-[#E8ECF1] pl-4 pr-[22px] text-left ${
         onClick ? 'cursor-pointer hover:bg-slate-50' : ''
@@ -4209,12 +4649,17 @@ function EligibilityCalcRow({ label, value, danger, strong, onClick }) {
                 {label}
             </span>
             <span
-                className={`text-right text-[11px] leading-4 tabular-nums ${danger
-                        ? 'font-medium text-[#DC5A64]'
-                        : strong
+                className={`text-right text-[11px] leading-4 tabular-nums ${
+                    onClick
+                        ? danger
+                            ? 'font-medium text-[#DC5A64] underline decoration-[#DC5A64]/30 underline-offset-2'
+                            : 'font-semibold text-[#2563EB] underline decoration-[#2563EB]/30 underline-offset-2'
+                        : danger
+                          ? 'font-medium text-[#DC5A64]'
+                          : strong
                             ? 'font-bold text-[#1D2A3E]'
                             : 'font-semibold text-[#1D2A3E]'
-                    }`}
+                }`}
             >
                 {value}
             </span>
@@ -4244,6 +4689,82 @@ function Row({ label, value, danger, strong }) {
             >
                 {value}
             </span>
+        </div>
+    );
+}
+
+function LeaveHistorySummaryTable({
+    groups,
+    onOpen,
+    emptyMessage = 'No leave records yet.',
+}) {
+    if (!groups.length) {
+        return <p className="py-8 text-center text-[13px] text-[#94A3B8]">{emptyMessage}</p>;
+    }
+    return (
+        <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left">
+                <thead>
+                    <tr className="border-b border-[#EEF2F6] text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
+                        <th className="px-2 py-2.5 font-semibold">Leave type</th>
+                        <th className="px-2 py-2.5 font-semibold">Source</th>
+                        <th className="px-2 py-2.5 font-semibold">Records</th>
+                        <th className="px-2 py-2.5 font-semibold">Actual days</th>
+                        <th className="px-2 py-2.5 font-semibold">Rule</th>
+                        <th className="px-2 py-2.5 font-semibold">Deduction</th>
+                        <th className="px-2 py-2.5 font-semibold" />
+                    </tr>
+                </thead>
+                <tbody>
+                    {groups.map((group) => (
+                        <tr
+                            key={`${group.type}-${group.source}`}
+                            className="cursor-pointer border-b border-[#F1F5F9] hover:bg-slate-50"
+                            title={`View all ${group.label.toLowerCase()} ${group.sourceLabel.toLowerCase()} records`}
+                            onClick={() => onOpen?.(group)}
+                        >
+                            <td className="px-2 py-3">
+                                <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-[#0F172A]">
+                                    <span
+                                        className="h-2 w-2 rounded-full"
+                                        style={{ backgroundColor: group.color }}
+                                    />
+                                    {group.label}
+                                </span>
+                            </td>
+                            <td className="px-2 py-3">
+                                <span
+                                    className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                        group.source === 'system'
+                                            ? 'bg-[#EEF2FF] text-[#4338CA]'
+                                            : 'bg-[#F1F5F9] text-[#475569]'
+                                    }`}
+                                >
+                                    {group.sourceLabel}
+                                </span>
+                            </td>
+                            <td className="px-2 py-3 text-[13px] tabular-nums text-[#334155]">
+                                {group.count}
+                            </td>
+                            <td className="px-2 py-3 text-[13px] tabular-nums text-[#334155]">
+                                {group.actualDays} days
+                            </td>
+                            <td className="px-2 py-3 text-[13px] text-[#64748B]">
+                                {group.rule === 'Mixed' ? 'Mixed' : `x ${group.rule}`}
+                            </td>
+                            <td className="px-2 py-3 text-[13px] font-bold tabular-nums text-[#0F172A]">
+                                {group.deductionDays} days
+                            </td>
+                            <td className="px-2 py-3 text-right">
+                                <span className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-[#2563EB]">
+                                    View
+                                    <ChevronRight size={14} />
+                                </span>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
         </div>
     );
 }
