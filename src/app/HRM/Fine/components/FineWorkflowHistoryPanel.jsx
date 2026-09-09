@@ -11,7 +11,7 @@ import {
 } from '../../shared/workflowHistory/buildWorkflowHistoryEvents';
 
 const FINE_WORKFLOW_STEPS = [
-    { id: 1, label: 'Created', role: 'System' },
+    { id: 1, label: 'Created', role: 'Creator' },
     { id: 2, label: 'Requester', role: 'Requester' },
     { id: 3, label: 'HR', role: 'HR' },
     { id: 4, label: 'Management', role: 'Management' },
@@ -77,20 +77,31 @@ function toTitleCase(str) {
         .join(' ');
 }
 
+function isUsableDisplayName(value) {
+    const named = String(value || '').trim();
+    if (!named) return false;
+    if (/^(unknown|system|n\/a)$/i.test(named)) return false;
+    if (/^[a-fA-F0-9]{24}$/.test(named)) return false;
+    return true;
+}
+
 /** User has `name`; EmployeeBasic has firstName/lastName. */
 function resolvePersonName(person) {
-    if (!person || typeof person !== 'object') return '';
+    if (!person) return '';
+    if (typeof person === 'string') return isUsableDisplayName(person) ? person.trim() : '';
+    if (typeof person !== 'object') return '';
     const named = String(person.name || '').trim();
-    if (named) return named;
-    return `${person.firstName || ''} ${person.lastName || ''}`.trim();
+    if (isUsableDisplayName(named)) return named;
+    const full = `${person.firstName || ''} ${person.lastName || ''}`.trim();
+    return isUsableDisplayName(full) ? full : '';
+}
+
+function resolveCreatorName(fine) {
+    return resolvePersonName(fine?.createdBy) || 'Creator';
 }
 
 function getFineStepActor(step, fine, workflow) {
-    if (step.id === 1) return 'System';
-    if (step.id === 2) {
-        const fromCreator = resolvePersonName(fine.createdBy);
-        return fromCreator || 'Requester';
-    }
+    if (step.id === 1 || step.id === 2) return resolveCreatorName(fine);
     if (step.id === 3) {
         const hrStep = workflow.find((w) => w.role === 'HR');
         const fromWf = resolvePersonName(hrStep?.assignedTo);

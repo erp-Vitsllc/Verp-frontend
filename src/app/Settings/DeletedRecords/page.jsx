@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import { runNotificationFocusScroll } from '@/utils/notificationFocusNavigation';
 import { ArchiveRestore, ExternalLink, Loader2, Paperclip, RotateCcw, Trash2, X } from 'lucide-react';
+import EnrollmentResetDetails from './EnrollmentResetDetails';
 
 function formatDate(value) {
     if (!value) return '—';
@@ -166,7 +167,16 @@ function DeletedRecordsPageContent() {
         setActionLoading(true);
         try {
             await axiosInstance.post(`/AdminDeletionArchive/${id}/restore`);
-            toast({ title: 'Restored', description: 'Record was restored successfully.' });
+            const fromList = modules
+                .flatMap((mod) => mod.categories || [])
+                .flatMap((cat) => cat.items || [])
+                .find((item) => String(item?._id) === String(id));
+            toast({
+                title: 'Restored',
+                description: isEnrollmentResetItem(fromList || selectedItem)
+                    ? 'Enrolment details were restored to the employee salary setup page.'
+                    : 'Record was restored successfully.',
+            });
             setSelectedItem(null);
             await loadTree();
         } catch (e) {
@@ -309,7 +319,7 @@ function DeletedRecordsPageContent() {
                                           ? ' Flowchart HR can restore enrolment details. Other restore and permanent delete require Admin or Flowchart Management.'
                                           : ' View-only — restore and permanent delete require Admin or Flowchart Management.'}
                                     {' '}
-                                    Items are kept for <strong>{retentionDays} days</strong>, then removed automatically.
+                                    Items are kept for <strong>{retentionDays} days</strong> (enrolment resets: 90 days), then removed automatically.
                                 </p>
                             </div>
                         </div>
@@ -439,7 +449,7 @@ function DeletedRecordsPageContent() {
                                                             onClick={() => openItemDetail(item._id)}
                                                             className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg hover:bg-slate-100"
                                                         >
-                                                            View
+                                                            {isEnrollmentResetItem(item) ? 'Details' : 'View'}
                                                         </button>
                                                         <button
                                                             type="button"
@@ -534,10 +544,14 @@ function DeletedRecordsPageContent() {
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
                     <div
                         id={deepLinkId ? 'activation-deletedRecordDetail' : undefined}
-                        className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[85vh] overflow-auto"
+                        className={`bg-white rounded-xl shadow-xl w-full max-h-[85vh] overflow-auto ${
+                            isEnrollmentResetItem(selectedItem) ? 'max-w-3xl' : 'max-w-lg'
+                        }`}
                     >
                         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-                            <h2 className="font-semibold text-slate-900">Deleted record</h2>
+                            <h2 className="font-semibold text-slate-900">
+                                {isEnrollmentResetItem(selectedItem) ? 'Enrolment details' : 'Deleted record'}
+                            </h2>
                             <button
                                 type="button"
                                 onClick={() => setSelectedItem(null)}
@@ -594,6 +608,14 @@ function DeletedRecordsPageContent() {
                                     <span className="text-slate-500">By:</span>{' '}
                                     {selectedItem.deletedBy?.name || selectedItem.deletedBy?.employeeId || '—'}
                                 </p>
+                                {isEnrollmentResetItem(selectedItem) && selectedItem.snapshot?.purged !== true ? (
+                                    <div className="pt-3 border-t border-slate-100">
+                                        <EnrollmentResetDetails
+                                            key={String(selectedItem._id)}
+                                            snapshot={selectedItem.snapshot || {}}
+                                        />
+                                    </div>
+                                ) : null}
                                 {(selectedItem.attachmentCount ?? 0) > 0 ? (
                                     <button
                                         type="button"

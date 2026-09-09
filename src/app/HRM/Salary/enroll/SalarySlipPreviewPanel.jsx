@@ -630,7 +630,7 @@ export default function SalarySlipPreviewPanel({ employeeId }) {
             <div className="border-b border-gray-200 px-4 py-3">
                 <h3 className="text-sm font-semibold text-[#0F172A]">Salary months</h3>
                 <p className="mt-0.5 text-xs text-slate-500">
-                    Slips start on the 1st of the month after enrollment. Open a month to view and edit that salary slip.
+                    Slips start on the 1st of the month after enrollment. Only previous months are listed — not the current or future month.
                 </p>
             </div>
 

@@ -87,6 +87,8 @@ function SalaryPageContent() {
     const [deleting, setDeleting] = useState(false);
     const [addingMonth, setAddingMonth] = useState(false);
     const [hiddenMonthCount, setHiddenMonthCount] = useState(0);
+    const [waitingForOpenMonth, setWaitingForOpenMonth] = useState(false);
+    const [nextOpenMonth, setNextOpenMonth] = useState('');
     const [viewerIsSalaryHr, setViewerIsSalaryHr] = useState(false);
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
@@ -126,6 +128,8 @@ function SalaryPageContent() {
             setYears(Array.isArray(response.data?.years) ? response.data.years : []);
             setEnrollmentOverview(response.data?.enrollmentOverview || null);
             setHiddenMonthCount(Number(response.data?.hiddenMonthCount) || 0);
+            setWaitingForOpenMonth(Boolean(response.data?.waitingForProcessingDate));
+            setNextOpenMonth(String(response.data?.nextOpenMonth || '').trim());
             setViewerIsSalaryHr(Boolean(response.data?.viewerIsSalaryHr));
             loadedRef.current = true;
         } catch (err) {
@@ -135,6 +139,8 @@ function SalaryPageContent() {
                 setYears([]);
                 setEnrollmentOverview(null);
                 setHiddenMonthCount(0);
+                setWaitingForOpenMonth(false);
+                setNextOpenMonth('');
                 setViewerIsSalaryHr(false);
             }
             setError(err?.response?.data?.message || err.message || 'Failed to load salary.');
@@ -426,6 +432,8 @@ function SalaryPageContent() {
                                                     </button>
                                                 ) : null}
                                             </>
+                                        ) : waitingForOpenMonth && nextOpenMonth ? (
+                                            `${nextOpenMonth} salary opens on the 1st of the following month.`
                                         ) : (
                                             'Set Salary processing date and Salary process start month in Salary Policy.'
                                         )}

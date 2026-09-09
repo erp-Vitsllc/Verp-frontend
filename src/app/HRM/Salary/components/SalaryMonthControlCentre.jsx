@@ -147,9 +147,11 @@ function cycleFromPolicy(policy, parsed) {
         leaveSalaryEligibility: policy?.leaveSalaryWorkingDays
             ? `${policy.leaveSalaryWorkingDays} working days`
             : '365 working days',
-        ticketEligibility: policy?.workingDaysRequiredForAirTicket
-            ? `${policy.workingDaysRequiredForAirTicket} working days`
-            : '730 working days',
+        ticketEligibility: policy?.leaveSalaryWorkingDays
+            ? `${policy.leaveSalaryWorkingDays} working days`
+            : policy?.workingDaysRequiredToEligible
+              ? `${policy.workingDaysRequiredToEligible} working days`
+              : '—',
     };
 }
 
@@ -1871,6 +1873,17 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const canStartMonthApproval = Boolean(monthDmf?.canStart);
     const canActOnMonthApproval = Boolean(monthDmf?.canAct);
     const canUseApproverActions = canStartMonthApproval || canActOnMonthApproval;
+    const monthPayrollReady = useMemo(() => {
+        const enrolled = (derived.employees || []).filter((emp) => emp.enrolled !== false);
+        const enrolledIds = new Set(enrolled.map((emp) => employeeIdKey(emp.employeeId)).filter(Boolean));
+        const pending = (Array.isArray(derived.pendingRequests) ? derived.pendingRequests : []).filter((item) =>
+            enrolledIds.has(employeeIdKey(item.employeeId)),
+        );
+        return enrolled.length > 0 && pending.length === 0;
+    }, [derived.employees, derived.pendingRequests]);
+    const processSalaryBlockedReason = monthPayrollReady
+        ? ''
+        : 'Process salary is available only when readiness is 100%.';
     const approverOnlyTitle = pendingForLabel
         ? `Pending for ${pendingForLabel}. Only that approver can use this.`
         : 'Only the current payroll approver can use this.';
@@ -1937,7 +1950,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         dmf={monthDmf}
                         ready
                         hideStart
-                        openStartConfirm={approvalPrompt}
+                        openStartConfirm={Boolean(approvalPrompt && monthPayrollReady)}
                         onOpenStartConfirmChange={setApprovalPrompt}
                         startButtonClass="spcc-btn spcc-btn--primary"
                         approveButtonClass="spcc-btn spcc-btn--approve"
@@ -1948,8 +1961,14 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         <button
                             type="button"
                             className="spcc-btn spcc-btn--primary"
-                            title={`Process salary ${monthLabel}`}
-                            onClick={() => setApprovalPrompt(true)}
+                            disabled={!monthPayrollReady || loading}
+                            title={
+                                processSalaryBlockedReason || `Process salary ${monthLabel}`
+                            }
+                            onClick={() => {
+                                if (!monthPayrollReady || loading) return;
+                                setApprovalPrompt(true);
+                            }}
                         >
                             Process salary {monthLabel}
                         </button>

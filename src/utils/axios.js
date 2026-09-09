@@ -178,8 +178,10 @@ axiosInstance.interceptors.response.use(
                     (errorMessage.toLowerCase().includes('token expired') ||
                         errorMessage.toLowerCase().includes('expired'));
 
+                const skipSessionExpiry = Boolean(error.config?.skipSessionExpiry);
                 if (
                     !isLoginRequest &&
+                    !skipSessionExpiry &&
                     typeof window !== 'undefined' &&
                     !sessionExpiryHandled
                 ) {

@@ -40,6 +40,7 @@ const EMPTY_FORM = {
     workingDaysRequiredToEligible: '',
     leaveSalaryWorkingDays: '',
     workingDaysRequiredForAirTicket: '',
+    airTicketAmount: '',
 };
 
 function Checks({ options, form, onToggle }) {
@@ -79,6 +80,7 @@ export default function PayrollSettingsPanel({ open, onClose }) {
                         workingDaysRequiredToEligible: res.data?.workingDaysRequiredToEligible ?? '',
                         leaveSalaryWorkingDays: res.data?.leaveSalaryWorkingDays ?? '',
                         workingDaysRequiredForAirTicket: res.data?.workingDaysRequiredForAirTicket ?? '',
+                        airTicketAmount: res.data?.airTicketAmount ?? '',
                     });
                 }
             } catch {
@@ -200,8 +202,8 @@ export default function PayrollSettingsPanel({ open, onClose }) {
                                 <input type="number" min="0" step="1" value={form.leaveSalaryWorkingDays} onChange={(e) => setForm((p) => ({ ...p, leaveSalaryWorkingDays: e.target.value }))} className={fieldClass} placeholder="Working days" />
                             </label>
                             <label className="flex flex-col gap-1.5">
-                                <span className="text-[13px] font-semibold text-[#334155]">Number of working days required for air ticket</span>
-                                <input type="number" min="0" step="1" value={form.workingDaysRequiredForAirTicket} onChange={(e) => setForm((p) => ({ ...p, workingDaysRequiredForAirTicket: e.target.value }))} className={fieldClass} placeholder="e.g. 240" />
+                                <span className="text-[13px] font-semibold text-[#334155]">Ticket AED</span>
+                                <input type="number" min="0" step="0.01" value={form.airTicketAmount} onChange={(e) => setForm((p) => ({ ...p, airTicketAmount: e.target.value }))} className={fieldClass} placeholder="e.g. 1500" />
                             </label>
                         </div>
                         <div className="px-5 py-4 border-t border-[#EEF0F4] flex items-center justify-end gap-2">

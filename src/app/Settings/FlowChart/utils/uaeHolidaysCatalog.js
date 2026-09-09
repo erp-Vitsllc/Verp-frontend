@@ -18,6 +18,22 @@ export function getUaeHolidaysForYear(year) {
 
     /** Fixed + forecast lists by year. Extend as official dates are announced. */
     const byYear = {
+        2024: [
+            { date: d(2024, 1, 1), name: "New Year's Day" },
+            { date: d(2024, 4, 8), name: 'Eid Al Fitr Holiday' },
+            { date: d(2024, 4, 9), name: 'Eid Al Fitr' },
+            { date: d(2024, 4, 10), name: 'Eid Al Fitr Holiday' },
+            { date: d(2024, 4, 11), name: 'Eid Al Fitr Holiday' },
+            { date: d(2024, 6, 15), name: 'Arafat Day' },
+            { date: d(2024, 6, 16), name: 'Eid Al Adha' },
+            { date: d(2024, 6, 17), name: 'Eid Al Adha Holiday' },
+            { date: d(2024, 6, 18), name: 'Eid Al Adha Holiday' },
+            { date: d(2024, 7, 7), name: 'Islamic New Year' },
+            { date: d(2024, 9, 15), name: "Prophet Muhammad's Birthday" },
+            { date: d(2024, 12, 1), name: 'Commemoration Day' },
+            { date: d(2024, 12, 2), name: 'UAE National Day' },
+            { date: d(2024, 12, 3), name: 'UAE National Day Holiday' },
+        ],
         2025: [
             { date: d(2025, 1, 1), name: "New Year's Day" },
             { date: d(2025, 3, 30), name: 'Eid Al Fitr' },
@@ -78,6 +94,24 @@ export function getUaeHolidaysForYear(year) {
         month: Number(h.date.slice(5, 7)),
         year: y,
     }));
+}
+
+/** UAE catalog holidays whose date falls in [fromDate, toDate] inclusive. */
+export function getUaeHolidaysBetween(fromDate, toDate) {
+    const from = String(fromDate || '').trim();
+    const to = String(toDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) {
+        return [];
+    }
+    const fromYear = Number(from.slice(0, 4));
+    const toYear = Number(to.slice(0, 4));
+    const out = [];
+    for (let year = fromYear; year <= toYear; year += 1) {
+        getUaeHolidaysForYear(year).forEach((row) => {
+            if (row.date >= from && row.date <= to) out.push(row);
+        });
+    }
+    return out;
 }
 
 /**

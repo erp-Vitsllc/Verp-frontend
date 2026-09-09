@@ -621,19 +621,20 @@ export default function SalaryPolicyFields({ form, setForm }) {
                             />
                         </label>
                         <label className="flex items-center gap-2">
-                            <span className="text-sm text-slate-600 w-24">Air ticket</span>
+                            <span className="text-sm text-slate-600 w-24">Ticket AED</span>
                             <input
                                 type="number"
                                 min="0"
-                                value={form.workingDaysRequiredForAirTicket}
+                                step="0.01"
+                                value={form.airTicketAmount}
                                 onChange={(e) =>
                                     setForm((p) => ({
                                         ...p,
-                                        workingDaysRequiredForAirTicket: e.target.value,
+                                        airTicketAmount: e.target.value,
                                     }))
                                 }
                                 className={compactInputClass}
-                                placeholder="0"
+                                placeholder="1500"
                             />
                         </label>
                     </div>
