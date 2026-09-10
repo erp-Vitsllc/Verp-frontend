@@ -57,12 +57,12 @@ import {
     buildMonthWiseAmountQty,
     buildPendingBillOverview,
     buildTypeOverviewCards,
+    ALL_MONTHS,
     currentPeriod,
     utilityBillYears,
 } from './utils/utilityOverviewStats';
-import { buildUtilityTypeSummaryRows } from './utils/utilityBillSummary';
+import { buildUtilityTypeMonthSummaryRows } from './utils/utilityBillSummary';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
-import { buildUtilityBillDetailsPath } from '@/utils/assetNotificationRouting';
 
 const CELL_MAX_LEN = 42;
 const LONG_TEXT_KEYS = new Set(['planDetails', 'location', 'paymentDetails']);
@@ -358,7 +358,7 @@ function UtilityBillsPageContent() {
     const [entries, setEntries] = useState([]);
     const [activeTypeTab, setActiveTypeTab] = useState('');
     /** Sub-tabs under type tabs: Summary | Active | Deactivated */
-    const [listStatusTab, setListStatusTab] = useState('active');
+    const [listStatusTab, setListStatusTab] = useState('summary');
     /** Search within the active utility type tab rows. */
     const [tabSearchQuery, setTabSearchQuery] = useState('');
     const [sortKey, setSortKey] = useState('provider');
@@ -375,40 +375,10 @@ function UtilityBillsPageContent() {
         if (statusChangeId && review) {
             setStatusChangeReviewId(statusChangeId);
         }
-        if (!batchId) return undefined;
-        let cancelled = false;
-        (async () => {
-            try {
-                const res = await axiosInstance.get(`/UtilityBill/batch/${batchId}`, {
-                    skipToast: true,
-                });
-                if (cancelled) return;
-                const bills = Array.isArray(res.data?.bills) ? res.data.bills : [];
-                const focus =
-                    bills.find((bill) =>
-                        ['Pending Accounts', 'Pending HR'].includes(String(bill.status)),
-                    ) || bills[0];
-                const detailsPath = buildUtilityBillDetailsPath(focus?.entryId, {
-                    billId: focus?._id,
-                });
-                if (detailsPath) {
-                    router.replace(detailsPath);
-                    return;
-                }
-            } catch {
-                if (!cancelled) {
-                    toast({
-                        variant: 'destructive',
-                        title: 'Bill not found',
-                        description: 'Could not open this approval on the details page.',
-                    });
-                }
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [searchParams, router, toast]);
+        if (!batchId) return;
+        // Group / bulk approval from notification → open review modal (HR / Accounts / creator buttons).
+        setReviewBatchId(batchId);
+    }, [searchParams]);
 
     const loadOverviewBills = useCallback(async () => {
         try {
@@ -527,14 +497,15 @@ function UtilityBillsPageContent() {
 
     const summaryRows = useMemo(
         () =>
-            buildUtilityTypeSummaryRows({
+            buildUtilityTypeMonthSummaryRows({
                 entries,
                 bills: allTypeBills,
                 utilityType: activeTypeTab,
-                year: overviewYear,
-                month: overviewMonth,
+                // Summary lists all months — ignore Utility Overview header month/year filters.
+                year: null,
+                month: ALL_MONTHS,
             }),
-        [entries, allTypeBills, activeTypeTab, overviewYear, overviewMonth],
+        [entries, allTypeBills, activeTypeTab],
     );
 
     const tableColumns = useMemo(() => {
@@ -1145,7 +1116,7 @@ function UtilityBillsPageContent() {
                                 activeType={activeTypeTab}
                                 onSelectType={(type) => {
                                     setActiveTypeTab(type);
-                                    setListStatusTab('active');
+                                    setListStatusTab('summary');
                                     setTabSearchQuery('');
                                 }}
                                 month={overviewMonth}
@@ -1188,7 +1159,7 @@ function UtilityBillsPageContent() {
                                                     type="button"
                                                     onClick={() => {
                                                         setActiveTypeTab(tab.type);
-                                                        setListStatusTab('active');
+                                                        setListStatusTab('summary');
                                                         setTabSearchQuery('');
                                                     }}
                                                     className={`pb-2 sm:pb-3 pt-2 text-xs sm:text-sm font-semibold transition-all relative whitespace-nowrap ${

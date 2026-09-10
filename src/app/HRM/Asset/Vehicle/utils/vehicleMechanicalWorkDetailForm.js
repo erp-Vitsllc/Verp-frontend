@@ -371,14 +371,6 @@ const MECHANICAL_WORK_FIELD_LABELS = {
     currentKm: 'Current KM',
 };
 
-function hasRectificationPhotos(formData) {
-    const existing = Array.isArray(formData.existingBodyWorkImages) ? formData.existingBodyWorkImages.length : 0;
-    const fresh = Array.isArray(formData.bodyWorkImages) ? formData.bodyWorkImages.length : 0;
-    const tire =
-        (formData.tireConditionBase64 && formData.tireConditionName) || formData.existingTireConditionUrl;
-    return existing + fresh > 0 || !!tire;
-}
-
 function withTireConditionFromPhotos(formData) {
     if (
         (formData.tireConditionBase64 && formData.tireConditionName) ||
@@ -426,10 +418,9 @@ export function validateMechanicalWorkDetailForm(formData, asset = null) {
     };
 
     const e = validateVehicleServiceForm(payload);
-    if (hasRectificationPhotos(normalized)) {
-        delete e.tireCondition;
-        delete e.bodyWorkImages;
-    }
+    // Rectification area photos are optional for Mechanical Work submit.
+    delete e.tireCondition;
+    delete e.bodyWorkImages;
     delete e.previousChangeKm;
     delete e.currentKm;
     delete e.quotation1Amount;
@@ -462,10 +453,6 @@ export function validateMechanicalWorkDetailForm(formData, asset = null) {
     const hasQ1 =
         !!(formData.attachmentBase64 && formData.attachmentName) || !!formData.existingAttachmentUrl;
     if (payable && !hasQ1) e.attachment = 'At least one quote is required';
-
-    if (!hasRectificationPhotos(formData)) {
-        e.bodyWorkImages = 'Rectification area photos are required';
-    }
 
     // Description is optional on Mechanical Work details (initiate / schedule / HR / complete).
     delete e.serviceIssue;

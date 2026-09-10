@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Pencil } from 'lucide-react';
+import { Loader2, Pencil, RefreshCw } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -53,6 +53,7 @@ export default function EnrollSalaryPage() {
     const [policySource, setPolicySource] = useState('main');
     const [policyLoading, setPolicyLoading] = useState(false);
     const [policySaving, setPolicySaving] = useState(false);
+    const [policyUpdatingFromMain, setPolicyUpdatingFromMain] = useState(false);
     const [policyError, setPolicyError] = useState('');
     const [policyModal, setPolicyModal] = useState(false);
     const [sortKey, setSortKey] = useState('name');
@@ -157,6 +158,44 @@ export default function EnrollSalaryPage() {
         }
     }
 
+    async function updateGroupPolicyFromMain() {
+        if (!staffTab) return;
+        if (!mainPolicyConfigured) {
+            setPolicyModal(true);
+            return;
+        }
+        if (policySource === 'group') {
+            const locationLabel = activeLocation?.label || 'this work location';
+            const confirmed = window.confirm(
+                `Replace the ${locationLabel} policy with the main salary policy?`,
+            );
+            if (!confirmed) return;
+        }
+        setPolicyUpdatingFromMain(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/payroll-settings/group/${encodeURIComponent(staffTab)}/from-main`,
+                {},
+                { skipToast: true },
+            );
+            setPolicyForm(policyFormFromApi(res.data));
+            setPolicySource('group');
+            setPolicyError('');
+            toast({ title: `${activeLocation?.label || 'Work location'} policy updated from main` });
+        } catch (err) {
+            if (err?.response?.data?.code === 'MAIN_POLICY_REQUIRED') {
+                setPolicyModal(true);
+            }
+            toast({
+                title: 'Could not update from main policy',
+                description: err?.response?.data?.message || 'Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setPolicyUpdatingFromMain(false);
+        }
+    }
+
     return (
         <PermissionGuard
             moduleId="hrm_salary"
@@ -230,11 +269,31 @@ export default function EnrollSalaryPage() {
 
                         {innerTab === 'policies' ? (
                             <div className="space-y-4">
-                                <p className="text-xs text-slate-500 sm:text-sm">
-                                    {policySource === 'group'
-                                        ? `This is the ${activeLocation?.label || 'work location'} policy. Saving does not change Main.`
-                                        : `Showing Main policy. Save to store a copy for ${activeLocation?.label || 'this work location'} only. Main is not changed.`}
-                                </p>
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <p className="text-xs text-slate-500 sm:text-sm">
+                                        {policySource === 'group'
+                                            ? `This is the ${activeLocation?.label || 'work location'} policy. Saving does not change Main.`
+                                            : `Showing Main policy. Save to store a copy for ${activeLocation?.label || 'this work location'} only. Main is not changed.`}
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={updateGroupPolicyFromMain}
+                                        disabled={
+                                            policyLoading ||
+                                            policySaving ||
+                                            policyUpdatingFromMain ||
+                                            !staffTab
+                                        }
+                                        className="h-10 px-4 rounded-lg border border-blue-200 bg-white text-blue-700 text-sm font-semibold shadow-sm hover:bg-blue-50 disabled:opacity-60 inline-flex items-center justify-center gap-2 shrink-0"
+                                    >
+                                        {policyUpdatingFromMain ? (
+                                            <Loader2 size={16} className="animate-spin" />
+                                        ) : (
+                                            <RefreshCw size={16} />
+                                        )}
+                                        Update from main policy
+                                    </button>
+                                </div>
                                 {policyError ? (
                                     <ErpErrorBanner
                                         className="mb-2"
@@ -253,7 +312,7 @@ export default function EnrollSalaryPage() {
                                             <button
                                                 type="button"
                                                 onClick={saveGroupPolicy}
-                                                disabled={policySaving || !staffTab}
+                                                disabled={policySaving || policyUpdatingFromMain || !staffTab}
                                                 className="h-10 px-5 rounded-lg bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold shadow-sm disabled:opacity-60 inline-flex items-center gap-2"
                                             >
                                                 {policySaving ? (

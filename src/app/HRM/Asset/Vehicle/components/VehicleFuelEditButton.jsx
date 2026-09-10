@@ -17,13 +17,13 @@ export default function VehicleFuelEditButton({
                 onClick?.(event);
             }}
             title={disabled ? 'Only flowchart HR can edit fuel' : title}
-            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[10px] font-black uppercase tracking-widest ${
+            className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold uppercase tracking-wide ${
                 disabled
                     ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
-                    : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                    : 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
             }`}
         >
-            <PencilLine size={12} />
+            <PencilLine size={11} strokeWidth={2.25} />
             Edit
         </button>
     );

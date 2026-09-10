@@ -378,6 +378,22 @@ export default function FineApprovedAttachmentsTab({
                     <LoanPaymentReceiptsExpandPanel
                         receipts={invoiceReceipts}
                         emptyMessage="No payment invoices yet"
+                        moduleId="hrm_fine"
+                        onViewDocument={(doc) => {
+                            if (!doc) return;
+                            if (doc.url) {
+                                window.open(doc.url, '_blank', 'noopener,noreferrer');
+                                return;
+                            }
+                            if (doc.data && String(doc.data).startsWith('data:')) {
+                                window.open(doc.data, '_blank', 'noopener,noreferrer');
+                                return;
+                            }
+                            toast({
+                                title: 'Attachment',
+                                description: doc.name || 'Attachment is available on this payment.',
+                            });
+                        }}
                     />
                 </div>
             ) : null}

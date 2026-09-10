@@ -4,7 +4,6 @@ import { getMonthlyRentalAmount, isEntryActive, normalizePaymentDay, entryRequir
 import {
     billDisplayStatus,
     entryAvailableFromMonth,
-    isUnpaidUtilityBill,
     normalizeBillMonthKey,
 } from './utilityBillStats';
 
@@ -180,16 +179,6 @@ function calendarPreviousMonthKey(refDate = new Date()) {
     return calendarMonthKeyOffset(refDate, 1);
 }
 
-function findEntryById(entries = [], entryId = '') {
-    const id = String(entryId || '').trim();
-    if (!id) return null;
-    return (
-        (Array.isArray(entries) ? entries : []).find(
-            (entry) => String(entry?.id || entry?._id || '').trim() === id,
-        ) || null
-    );
-}
-
 export function monthLabelFromYm(ym) {
     const parsed = parseBillMonth(ym);
     if (!parsed) return '';
@@ -295,15 +284,18 @@ export function buildPaidBillRows({ bills = [], refDate = new Date() } = {}) {
 }
 
 /**
- * Pending rows through the last payable bill month (previous calendar month):
- * months with no bill created, plus created bills that are not paid / not rejected.
+ * Bill Pending rows: months where no ERP bill has been created yet
+ * (from each account’s available month through the last payable month).
+ * Created bills (Draft / Pending / Approved / Paid) are excluded — Zoho is not required.
+ * Rejected does not cover the month (account can create again).
  */
 export function buildUnpaidBillRows({ bills = [], entries = [], refDate = new Date() } = {}) {
     const list = Array.isArray(bills) ? bills : [];
-    const lastPayableYm = calendarPreviousMonthKey(refDate);
 
     const billsByEntryMonth = new Set();
     for (const bill of list) {
+        const status = String(bill?.status || '').trim();
+        if (!status || status === 'Rejected') continue;
         const entryId = String(bill?.entryId || '').trim();
         const ym = normalizeBillMonthKey(bill?.billMonth);
         if (!entryId || !ym) continue;
@@ -341,16 +333,7 @@ export function buildUnpaidBillRows({ bills = [], entries = [], refDate = new Da
         }
     }
 
-    const unpaidCreatedRows = [];
-    for (const bill of list) {
-        if (!isUnpaidUtilityBill(bill)) continue;
-        const ym = normalizeBillMonthKey(bill?.billMonth);
-        if (!ym || ym > lastPayableYm) continue;
-        const entry = findEntryById(entries, bill?.entryId);
-        unpaidCreatedRows.push(mapBillToOverviewRow(bill, entry));
-    }
-
-    return [...missingBillRows, ...unpaidCreatedRows].sort(sortOverviewBillRows);
+    return missingBillRows.sort(sortOverviewBillRows);
 }
 
 /** Active (not expired) contracts with an end date, soonest end first. */
@@ -461,8 +444,8 @@ function sumOverviewRows(rows = []) {
 
 /**
  * Pending bills split into:
- * - current: last payable month only (previous calendar month), with a month name
- * - previous: every older pending month (two months ago back to the entry create month), no month name
+ * - current: last payable month only (previous calendar month) — missing (not created) bills
+ * - previous: account created month → month before current pending — missing bills only
  */
 export function buildPendingBillOverview({ bills = [], entries = [], refDate = new Date() } = {}) {
     const unpaid = buildUnpaidBillRows({ bills, entries, refDate });

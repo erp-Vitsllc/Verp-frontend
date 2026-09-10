@@ -166,6 +166,16 @@ export function toSingleLateRuleRow(value) {
     return [toLateRuleRows(value)[0]];
 }
 
+function lateRuleHasValue(row) {
+    return String(row?.minutes ?? '') !== '' || String(row?.events ?? '') !== '' || Boolean(row?.deduct);
+}
+
+export function toSharedLateRuleRow(lateInRules, lateOutRules) {
+    const lateIn = toLateRuleRows(lateInRules)[0];
+    const lateOut = toLateRuleRows(lateOutRules)[0];
+    return [lateRuleHasValue(lateIn) ? lateIn : lateOut];
+}
+
 export function toExtraLateRuleRows(value) {
     if (!Array.isArray(value) || value.length === 0) return [];
     return value.map((row) => ({
@@ -213,8 +223,8 @@ export function policyFormFromApi(data) {
         authorizedLeaveDeductionDays: data?.authorizedLeaveDeductionDays ?? '',
         unauthorizedLeaveDeductionDays: data?.unauthorizedLeaveDeductionDays ?? '',
         allowedSickLeaveDaysPerYear: data?.allowedSickLeaveDaysPerYear ?? '',
-        lateInRules: toSingleLateRuleRow(data?.lateInRules),
-        lateOutRules: toSingleLateRuleRow(data?.lateOutRules),
+        lateInRules: toSharedLateRuleRow(data?.lateInRules, data?.lateOutRules),
+        lateOutRules: toSharedLateRuleRow(data?.lateInRules, data?.lateOutRules),
         extraLateRules: toExtraLateRuleRows(data?.extraLateRules),
         salaryProcessReminders: toReminderRows(data?.salaryProcessReminders),
         attachment: toPolicyAttachment(data?.attachment),

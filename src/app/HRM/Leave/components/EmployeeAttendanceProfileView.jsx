@@ -7,14 +7,12 @@ import {
     AlertTriangle,
     ArrowLeftRight,
     ArrowRight,
-    ArrowUpRight,
     BarChart3,
     CalendarDays,
     Check,
     ChevronRight,
     Clock,
     FileText,
-    Home,
     Landmark,
     Minus,
     Paperclip,
@@ -39,76 +37,118 @@ const DATA_ROWS = [
     {
         key: 'on_leave',
         label: 'Annual leave',
-        kind: 'annual',
         Icon: Plane,
+        iconWrap: 'bg-[#DCEBFF] text-[#2563EB]',
+        statusKeys: ['on_leave'],
+    },
+    {
+        key: 'authorized_leave',
+        label: 'Authorized leave',
+        Icon: Check,
+        iconWrap: 'bg-[#D8F5DE] text-[#1F7A3A]',
+        statusKeys: ['authorized_leave'],
+    },
+    {
+        key: 'unauthorized_leave',
+        label: 'Unauthorized leave',
+        Icon: AlertTriangle,
+        iconWrap: 'bg-[#F8D5D5] text-[#B42318]',
+        statusKeys: ['unauthorized_leave'],
+    },
+    {
+        key: 'sick_leave',
+        label: 'Sick leave',
+        Icon: Stethoscope,
+        iconWrap: 'bg-[#E8D9F8] text-[#6B3FA0]',
+        statusKeys: ['sick_leave'],
+    },
+    {
+        key: 'compoff_leave',
+        label: 'Comp off leave',
+        Icon: CalendarDays,
+        iconWrap: 'bg-[#EDE9FE] text-[#6D28D9]',
+        statusKeys: ['compoff_leave'],
+    },
+    {
+        key: 'late_early',
+        label: 'Late arrival / Early go',
+        Icon: Clock,
+        iconWrap: 'bg-[#FDE7D0] text-[#C05621]',
+        statusKeys: ['late_arrived', 'early_go'],
+    },
+    {
+        key: 'mispunch',
+        label: 'Miss punch',
+        Icon: Clock,
+        iconWrap: 'bg-[#DCEBFF] text-[#2563EB]',
+        statusKeys: ['mispunch'],
+    },
+    {
+        key: 'attendance',
+        label: 'Attendance',
+        Icon: BarChart3,
+        iconWrap: 'bg-[#D8F5DE] text-[#1F7A3A]',
+        statusKeys: [
+            'on_office',
+            'work_from_home',
+            'unauthorized_leave',
+            'authorized_leave',
+            'sick_leave',
+            'on_leave',
+            'compoff_leave',
+        ],
+    },
+];
+
+const DATA_ROW_LABEL = {
+    ...Object.fromEntries(DATA_ROWS.map((row) => [row.key, row.label])),
+    late_arrived: 'Late arrival',
+    early_go: 'Early go',
+    on_office: 'Present days',
+    work_from_home: 'Work from home',
+};
+const LEAVE_REQUEST_BOXES = [
+    {
+        key: 'on_leave',
+        label: 'Annual leave',
+        leaveType: 'annual',
+        Icon: Plane,
+        wrap: 'bg-[#EEF4FF]',
         iconWrap: 'bg-[#DCEBFF] text-[#2563EB]',
     },
     {
         key: 'authorized_leave',
         label: 'Authorized leave',
-        kind: 'applied',
+        leaveType: 'authorized',
         Icon: Check,
+        wrap: 'bg-[#ECF8F0]',
         iconWrap: 'bg-[#D8F5DE] text-[#1F7A3A]',
     },
     {
         key: 'unauthorized_leave',
         label: 'Unauthorized leave',
-        kind: 'approved',
+        leaveType: 'unauthorized',
         Icon: AlertTriangle,
+        wrap: 'bg-[#FDF2F2]',
         iconWrap: 'bg-[#F8D5D5] text-[#B42318]',
     },
     {
         key: 'sick_leave',
         label: 'Sick leave',
-        kind: 'applied',
+        leaveType: 'sick',
         Icon: Stethoscope,
+        wrap: 'bg-[#F6F0FB]',
         iconWrap: 'bg-[#E8D9F8] text-[#6B3FA0]',
     },
     {
         key: 'compoff_leave',
         label: 'Comp off leave',
-        kind: 'applied',
+        leaveType: 'compoff',
         Icon: CalendarDays,
+        wrap: 'bg-[#F4F1FE]',
         iconWrap: 'bg-[#EDE9FE] text-[#6D28D9]',
     },
-    {
-        key: 'late_arrived',
-        label: 'Late arrival',
-        kind: 'used',
-        Icon: Clock,
-        iconWrap: 'bg-[#FDE7D0] text-[#C05621]',
-    },
-    {
-        key: 'early_go',
-        label: 'Early go',
-        kind: 'applied',
-        Icon: ArrowUpRight,
-        iconWrap: 'bg-[#FDE7D0] text-[#C05621]',
-    },
-    {
-        key: 'mispunch',
-        label: 'Miss punch',
-        kind: 'used',
-        Icon: Clock,
-        iconWrap: 'bg-[#DCEBFF] text-[#2563EB]',
-    },
-    {
-        key: 'on_office',
-        label: 'Present days',
-        kind: 'total',
-        Icon: BarChart3,
-        iconWrap: 'bg-[#D8F5DE] text-[#1F7A3A]',
-    },
-    {
-        key: 'work_from_home',
-        label: 'Work from home',
-        kind: 'applied',
-        Icon: Home,
-        iconWrap: 'bg-[#D4EEF8] text-[#1A6B8A]',
-    },
 ];
-
-const DATA_ROW_LABEL = Object.fromEntries(DATA_ROWS.map((row) => [row.key, row.label]));
 const DEDUCTION_EVENT_KEYS = ['authorized_leave', 'unauthorized_leave', 'late_arrived', 'early_go'];
 const DEFAULT_TAKEN_COLUMNS = [
     { key: 'date', label: 'Date' },
@@ -125,10 +165,88 @@ function n(value) {
     return Number(value) || 0;
 }
 
-/** Pending = salary-policy allowance minus used days, when the policy sets a yearly cap. */
-function policyPendingDays(balance, applied) {
-    if (balance?.allowed == null || balance?.remaining == null) return n(applied);
-    return n(balance.remaining);
+function requestBucket(stats, key) {
+    return stats?.[key] || {};
+}
+
+function employeeDataMetrics(row, ctx) {
+    const enroll = ctx.enrollAttendance || {};
+    const balances = ctx.leaveBalances || {};
+    const stats = requestBucket(ctx.requestStats, row.key);
+    const taken = n(balances[row.key]?.taken);
+
+    if (row.key === 'on_leave') {
+        const allowed = n(balances.on_leave?.allowed ?? ctx.leavePolicy?.annualAllowedDays);
+        const used = n(balances.on_leave?.taken);
+        return [
+            { label: 'Approved', value: allowed },
+            { label: 'Used', value: used },
+            { label: 'Remaining', value: n(balances.on_leave?.remaining ?? Math.max(0, allowed - used)) },
+        ];
+    }
+    if (row.key === 'authorized_leave') {
+        return [
+            { label: 'Total', value: taken },
+            { label: 'Approved', value: taken },
+            { label: 'Rejected', value: n(stats.rejected) },
+        ];
+    }
+    if (row.key === 'unauthorized_leave') {
+        return [
+            { label: 'Request', value: n(stats.request) },
+            { label: 'Approved', value: taken },
+            { label: 'Rejected', value: n(stats.rejected) },
+        ];
+    }
+    if (row.key === 'sick_leave') {
+        const available = n(balances.sick_leave?.allowed ?? ctx.leavePolicy?.sickAllowedDays);
+        const used = n(balances.sick_leave?.taken);
+        return [
+            { label: 'Available', value: available },
+            { label: 'Used', value: used },
+            { label: 'Remaining', value: n(balances.sick_leave?.remaining ?? Math.max(0, available - used)) },
+        ];
+    }
+    if (row.key === 'compoff_leave') {
+        const used = n(balances.compoff_leave?.taken);
+        const remaining = n(balances.compoff_leave?.remaining);
+        return [
+            { label: 'Balance', value: used + remaining },
+            { label: 'Used', value: used },
+            { label: 'Remaining', value: remaining },
+        ];
+    }
+    if (row.key === 'late_early') {
+        const lateEarly = combineLateEarly(ctx.requestStats, enroll);
+        return [
+            { label: 'Total', value: lateEarly.total },
+            { label: 'Approved', value: lateEarly.approved },
+            { label: 'Rejected', value: lateEarly.rejected },
+        ];
+    }
+    if (row.key === 'mispunch') {
+        return [
+            { label: 'Total', value: n(enroll.mispunch) || n(stats.total) },
+            { label: 'Approved', value: n(stats.approved) },
+            { label: 'Present', value: n(stats.present) },
+        ];
+    }
+    return [
+        { label: 'Office', value: n(enroll.office ?? ctx.presentDays) },
+        { label: 'WFH', value: n(enroll.wfh) },
+        { label: 'Absent', value: n(enroll.absent ?? ctx.absentDays) },
+    ];
+}
+
+function combineLateEarly(requestStats, enroll) {
+    const combined = requestBucket(requestStats, 'late_early');
+    const late = requestBucket(requestStats, 'late_arrived');
+    const early = requestBucket(requestStats, 'early_go');
+    return {
+        total: n(enroll?.late) + n(enroll?.early) || n(combined.total) || n(late.total) + n(early.total),
+        approved: n(combined.approved) || n(late.approved) + n(early.approved),
+        rejected: n(combined.rejected) || n(late.rejected) + n(early.rejected),
+    };
 }
 
 function currentDubaiYear() {
@@ -224,6 +342,27 @@ function combineAnnualLeavePeriods(attendanceRanges, historicalRows) {
 function formatAed(value) {
     const amount = Number(value) || 0;
     return `AED ${Math.abs(amount).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+
+function isApprovedFinancialRow(row) {
+    const s = String(row?.status || '').toLowerCase();
+    if (!s) return false;
+    if (s.includes('pending') || s.includes('draft') || s.includes('reject') || s.includes('cancel')) {
+        return false;
+    }
+    return (
+        s === 'approved' ||
+        s.startsWith('approved') ||
+        s === 'paid' ||
+        s.includes('(paid)') ||
+        s === 'active' ||
+        s === 'completed' ||
+        s === 'recovered'
+    );
+}
+
+function approvedFinancialRows(list) {
+    return (Array.isArray(list) ? list : []).filter(isApprovedFinancialRow);
 }
 
 function formatSignedAed(value) {
@@ -402,7 +541,12 @@ function AnnualLeaveEligibilityCard({ annualLeave }) {
     const eligibleDays = n(annualLeave?.eligibleDays);
     const leaveSalaryDays = n(annualLeave?.leaveSalaryDays);
     const remainingDays = n(annualLeave?.remainingDays);
+    const requiredDays = n(annualLeave?.requiredPresentDays);
     const airTicket = annualLeave?.airTicketEligible ? 'Eligible' : 'Pending';
+    const lastLeave = formatLeaveDate(annualLeave?.lastAnnualLeaveEnd || annualLeave?.lastAnnualLeaveDate);
+    const cycleHint = annualLeave?.lastAnnualLeaveEnd || annualLeave?.lastAnnualLeaveDate
+        ? `After annual leave on ${lastLeave} · next entitlement ${requiredDays || remainingDays + eligibleDays} working days`
+        : `From joining · ${requiredDays || remainingDays + eligibleDays} working days per cycle`;
 
     const metrics = [
         { label: 'Eligible days', value: eligibleDays },
@@ -412,47 +556,34 @@ function AnnualLeaveEligibilityCard({ annualLeave }) {
     ];
 
     return (
-        <div>
-            <div className="rounded-xl bg-[#E8F4FB] px-3.5 py-2">
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="h-8 w-8 rounded-lg bg-[#C5E4F4] text-[#1B4F72] inline-flex items-center justify-center shrink-0">
-                            <Sparkle size={14} fill="currentColor" />
-                        </span>
-                        <div className="min-w-0">
-                            <p className="text-[13px] font-bold text-[#1B2A4A] leading-tight">
-                                Current annual leave eligibility
-                            </p>
-                            <p className="text-[10px] text-slate-400 leading-tight mt-0.5">
-                                After the most recent leave-salary settlement
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                        {metrics.map((item) => (
-                            <div key={item.label} className="shrink-0">
-                                <p className="text-[10px] text-slate-400 leading-none">{item.label}</p>
-                                <p
-                                    className={`mt-0.5 text-[13px] font-bold tabular-nums leading-tight ${
-                                        item.accent ? 'text-[#1A9B8C]' : 'text-[#1B2A4A]'
-                                    }`}
-                                >
-                                    {item.value}
-                                </p>
-                            </div>
-                        ))}
+        <div className="rounded-xl bg-[#E8F4FB] px-3.5 py-2">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="h-8 w-8 rounded-lg bg-[#C5E4F4] text-[#1B4F72] inline-flex items-center justify-center shrink-0">
+                        <Sparkle size={14} fill="currentColor" />
+                    </span>
+                    <div className="min-w-0">
+                        <p className="text-[13px] font-bold text-[#1B2A4A] leading-tight">
+                            Current annual leave eligibility
+                        </p>
+                        <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{cycleHint}</p>
                     </div>
                 </div>
-            </div>
-            <div className="mt-1.5 flex justify-end">
-                <Link
-                    href="/HRM/Leave/calendar"
-                    className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#1A9B8C] hover:text-[#178c7e] whitespace-nowrap"
-                >
-                    View leave calendar
-                    <ArrowRight size={13} />
-                </Link>
+
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                    {metrics.map((item) => (
+                        <div key={item.label} className="shrink-0">
+                            <p className="text-[10px] text-slate-400 leading-none">{item.label}</p>
+                            <p
+                                className={`mt-0.5 text-[13px] font-bold tabular-nums leading-tight ${
+                                    item.accent ? 'text-[#1A9B8C]' : 'text-[#1B2A4A]'
+                                }`}
+                            >
+                                {item.value}
+                            </p>
+                        </div>
+                    ))}
+                </div>
             </div>
         </div>
     );
@@ -480,6 +611,110 @@ function Metric({ label, value, accent = false }) {
             >
                 {value}
             </span>
+        </div>
+    );
+}
+
+function possessiveName(name) {
+    const value = String(name || '').trim();
+    if (!value) return "Employee's";
+    return /s$/i.test(value) ? `${value}'` : `${value}'s`;
+}
+
+function EmployeeLeaveRequestCard({ employeeName, employeeId, requestStats }) {
+    const stats = requestStats || {};
+    const hrefFor = (leaveType) => {
+        const params = new URLSearchParams();
+        if (employeeId) params.set('employeeId', employeeId);
+        if (employeeName) params.set('employeeName', employeeName);
+        if (leaveType) params.set('leaveType', leaveType);
+        const query = params.toString();
+        return query ? `/HRM/Leave/annual-leave?${query}` : '/HRM/Leave/annual-leave';
+    };
+    const grandTotal = LEAVE_REQUEST_BOXES.reduce((sum, box) => {
+        const bucket = stats[box.key] || {};
+        return sum + (n(bucket.total) || n(bucket.request) + n(bucket.approved) + n(bucket.rejected));
+    }, 0);
+
+    return (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-3">
+                <div>
+                    <h2 className="text-[15px] font-bold text-[#1B2A4A]">
+                        {possessiveName(employeeName)} leave request
+                    </h2>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                        Requested, approved and rejected counts by leave type
+                    </p>
+                </div>
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[12px] font-bold tabular-nums text-[#1B2A4A] shrink-0">
+                    {grandTotal}
+                </span>
+            </div>
+            <div className="px-3 pb-4 grid grid-cols-2 gap-3">
+                {LEAVE_REQUEST_BOXES.map((box) => {
+                    const Icon = box.Icon;
+                    const bucket = stats[box.key] || {};
+                    const requested = n(bucket.request);
+                    const approved = n(bucket.approved);
+                    const rejected = n(bucket.rejected);
+                    const total = n(bucket.total) || requested + approved + rejected;
+                    return (
+                        <Link
+                            key={box.key}
+                            href={hrefFor(box.leaveType)}
+                            className={`rounded-2xl ${box.wrap} p-3.5 hover:brightness-[0.98] transition-all`}
+                        >
+                            <div className="flex items-center justify-between gap-2 mb-3">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <span
+                                        className={`h-8 w-8 rounded-full inline-flex items-center justify-center shrink-0 ${box.iconWrap}`}
+                                    >
+                                        <Icon size={14} />
+                                    </span>
+                                    <p className="text-[13px] font-bold text-[#1B2A4A] leading-tight truncate">
+                                        {box.label}
+                                    </p>
+                                </div>
+                                <span className="text-[20px] font-bold tabular-nums text-[#1B2A4A] leading-none shrink-0">
+                                    {total}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1.5">
+                                {[
+                                    {
+                                        label: 'Requested',
+                                        value: requested,
+                                        wrap: 'bg-white/80 text-[#C05621]',
+                                    },
+                                    {
+                                        label: 'Approved',
+                                        value: approved,
+                                        wrap: 'bg-white/80 text-[#15803D]',
+                                    },
+                                    {
+                                        label: 'Rejected',
+                                        value: rejected,
+                                        wrap: 'bg-white/80 text-[#B42318]',
+                                    },
+                                ].map((item) => (
+                                    <div
+                                        key={item.label}
+                                        className={`rounded-xl ${item.wrap} px-1.5 py-2 text-center`}
+                                    >
+                                        <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 leading-none">
+                                            {item.label}
+                                        </p>
+                                        <p className="mt-1.5 text-[16px] font-bold tabular-nums leading-none">
+                                            {item.value}
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+                        </Link>
+                    );
+                })}
+            </div>
         </div>
     );
 }
@@ -804,19 +1039,27 @@ function TakenItemsModal({ open, title, hint, rows, columns, onClose, onSelect }
 
 function downloadSummaryCsv(profile) {
     const counts = profile?.summary?.counts || {};
-    const applied = profile?.summary?.appliedCounts || {};
-    const balances = profile?.leaveBalances || {};
+    const ctx = {
+        counts,
+        leaveBalances: profile?.leaveBalances || {},
+        requestStats: profile?.summary?.requestStats || {},
+        leavePolicy: profile?.leavePolicy || {},
+        enrollAttendance: profile?.summary?.enrollAttendance || {},
+        presentDays: n(profile?.summary?.presentDays),
+        absentDays: n(profile?.summary?.enrollAttendance?.absent ?? profile?.summary?.absentDays),
+    };
     const rows = [
-        ['Leave type', 'Pending', 'Used', 'Remaining', 'Salary deduction'],
+        ['Leave type', 'Metric 1', 'Value 1', 'Metric 2', 'Value 2', 'Metric 3', 'Value 3'],
         ...DATA_ROWS.map((row) => {
-            const balance = balances[row.key] || {};
-            const taken = row.key === 'on_office' ? n(profile?.summary?.presentDays) : n(balance.taken ?? counts[row.key]);
+            const metrics = employeeDataMetrics(row, ctx);
             return [
                 row.label,
-                String(policyPendingDays(balance, applied[row.key])),
-                String(taken),
-                balance.remaining == null ? '' : String(n(balance.remaining)),
-                balance.deductionDays == null ? '' : String(balance.deductionDays),
+                metrics[0]?.label || '',
+                String(metrics[0]?.value ?? ''),
+                metrics[1]?.label || '',
+                String(metrics[1]?.value ?? ''),
+                metrics[2]?.label || '',
+                String(metrics[2]?.value ?? ''),
             ];
         }),
     ];
@@ -885,8 +1128,13 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         const map = {};
         for (const row of DATA_ROWS) map[row.key] = [];
         for (const event of profile?.events || []) {
-            if (!map[event.statusKey]) map[event.statusKey] = [];
-            map[event.statusKey].push(event);
+            const statusKey = event.statusKey;
+            if (!map[statusKey]) map[statusKey] = [];
+            map[statusKey].push(event);
+            for (const row of DATA_ROWS) {
+                if (row.key === statusKey) continue;
+                if ((row.statusKeys || []).includes(statusKey)) map[row.key].push(event);
+            }
         }
         return map;
     }, [profile?.events]);
@@ -969,24 +1217,47 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     }, [profile?.employee?.dateOfJoining, year]);
 
     const employee = profile?.employee;
+    const annualLeaveCalendarHref = useMemo(() => {
+        if (calendarScope === 'all') return '/HRM/Leave/annual-leave';
+        const params = new URLSearchParams();
+        const code = String(employee?.employeeId || '').trim();
+        const name = String(employee?.name || '').trim();
+        if (code) params.set('employeeId', code);
+        if (name) params.set('employeeName', name);
+        const query = params.toString();
+        return query ? `/HRM/Leave/annual-leave?${query}` : '/HRM/Leave/annual-leave';
+    }, [calendarScope, employee?.employeeId, employee?.name]);
     const counts = profile?.summary?.counts || {};
     const appliedCounts = profile?.summary?.appliedCounts || {};
     const leaveBalances = profile?.leaveBalances || {};
     const leavePolicy = profile?.leavePolicy || {};
+    const requestStats = profile?.summary?.requestStats || {};
     const financial = profile?.financial || {};
     const salary = financial.salary || {};
     const annualLeave = profile?.annualLeave || {};
-    const presentDays = n(profile?.summary?.presentDays ?? counts.on_office);
-    const loans = financial.loans || [];
-    const advances = financial.advances || [];
-    const fines = financial.fines || [];
-    const rewards = financial.rewards || [];
+    const yearPresentDays = n(profile?.summary?.yearPresentDays ?? counts.on_office);
+    const rowMetricsCtx = {
+        counts,
+        leaveBalances,
+        requestStats,
+        leavePolicy,
+        enrollAttendance: profile?.summary?.enrollAttendance || {},
+        presentDays: n(profile?.summary?.presentDays),
+        absentDays: n(profile?.summary?.enrollAttendance?.absent ?? profile?.summary?.absentDays),
+    };
+    const loans = approvedFinancialRows(financial.loans);
+    const advances = approvedFinancialRows(financial.advances);
+    const fines = approvedFinancialRows(financial.fines);
+    const rewards = approvedFinancialRows(financial.rewards);
+    const utilityItems = approvedFinancialRows(financial.utilityItems);
     const utility = financial.utility || {};
     const increment = financial.increment;
     const loanOutstanding = loans.reduce((sum, row) => sum + n(row.outstanding), 0);
     const advanceOutstanding = advances.reduce((sum, row) => sum + n(row.outstanding), 0);
     const fineOutstanding = fines.reduce((sum, row) => sum + n(row.outstanding), 0);
-    const utilityOutstanding = n(utility.outstanding);
+    const utilityOutstanding = utilityItems.length
+        ? utilityItems.reduce((sum, row) => sum + n(row.amount), 0)
+        : n(utility.outstanding);
     const totalOutstanding = loanOutstanding + advanceOutstanding + fineOutstanding + utilityOutstanding;
     const monthlySalary = n(salary.monthlySalary) || n(salary.totalSalary);
     const salaryOther = n(salary.other) || Math.max(0, monthlySalary - n(salary.basic));
@@ -1038,7 +1309,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         loans,
         rewards,
         fines,
-        utilityItems: financial.utilityItems || [],
+        utilityItems,
         deductionEvents: DEDUCTION_EVENT_KEYS.flatMap((key) => eventsByKey[key] || []).sort((a, b) =>
             String(b.date || '').localeCompare(String(a.date || '')),
         ),
@@ -1065,7 +1336,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
             <ProfileHero
                 employee={employee}
                 year={profile.year}
-                presentDays={presentDays}
+                presentDays={yearPresentDays}
                 nextBirthday={profile.nextBirthday}
             />
 
@@ -1138,15 +1409,20 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
             </div>
 
             <div className={activeTab === 'attendance' ? '' : 'hidden'}>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4 items-stretch">
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden h-full flex flex-col">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4 items-start">
+                <div className="flex flex-col gap-3 sm:gap-4 min-w-0">
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
                     <div className="px-4 pt-3 pb-2 flex items-start justify-between gap-3">
                         <div>
                             <h2 className="text-[15px] font-bold text-[#1B2A4A]">Employee data</h2>
                             <p className="text-[11px] text-slate-400 mt-0.5">
-                                Year {profile.year} attendance & leave summary
+                                Leave and present days from salary enroll
+                                {annualLeave.lastAnnualLeaveDate ? ' · after latest annual leave for eligibility' : ''}
+                                {n(leavePolicy.annualAllowedDays)
+                                    ? ` · Annual ${leavePolicy.annualAllowedDays} days/${leavePolicy.annualPeriod || 'year'}`
+                                    : ''}
                                 {leavePolicy.sickEnabled
-                                    ? ` · Sick leave ${leavePolicy.sickAllowedDays ?? 0} days/year${
+                                    ? ` · Sick leave ${leavePolicy.sickAllowedDays ?? 0} days/${leavePolicy.sickPeriod || 'year'}${
                                           n(leaveBalances.sick_leave?.remaining) === 0
                                               ? ' · extra sick counts as authorized leave'
                                               : ''
@@ -1173,17 +1449,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                         ) : (
                             visibleRows.map((row) => {
                                 const Icon = row.Icon;
-                                const balance = leaveBalances[row.key] || {};
-                                const taken =
-                                    row.key === 'on_office'
-                                        ? presentDays
-                                        : n(balance.taken ?? counts[row.key]);
-                                const applied = n(appliedCounts[row.key]);
-                                const pendingDays = policyPendingDays(balance, applied);
-                                const showDeduction =
-                                    balance.multiplier != null &&
-                                    Number(balance.multiplier) !== 1 &&
-                                    (row.key === 'authorized_leave' || row.key === 'unauthorized_leave');
+                                const metrics = employeeDataMetrics(row, rowMetricsCtx);
                                 const opensDetail = true;
                                 const RowTag = 'button';
 
@@ -1213,22 +1479,13 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-2.5 sm:gap-3.5 shrink-0">
-                                            {row.kind === 'total' ? (
-                                                <Metric label="Total" value={taken} />
-                                            ) : row.kind === 'used' ? (
-                                                <Metric label="Used" value={taken} />
-                                            ) : (
-                                                <>
-                                                    <Metric label="Pending" value={pendingDays} />
-                                                    <Metric label="Used" value={taken} />
-                                                    {showDeduction ? (
-                                                        <Metric
-                                                            label="Deduction"
-                                                            value={balance.deductionDays}
-                                                        />
-                                                    ) : null}
-                                                </>
-                                            )}
+                                            {metrics.map((metric) => (
+                                                <Metric
+                                                    key={metric.label}
+                                                    label={metric.label}
+                                                    value={metric.value}
+                                                />
+                                            ))}
                                             {opensDetail ? (
                                                 <ArrowRight size={13} className="text-slate-400 shrink-0" />
                                             ) : null}
@@ -1242,14 +1499,6 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                         <AnnualLeaveEligibilityCard annualLeave={annualLeave} />
                     </div>
                 </div>
-
-                <EmployeeOverviewAttendanceCard
-                    employeeMongoId={employeeMongoId}
-                    year={profile.year}
-                />
-            </div>
-
-            <div className="mt-3 sm:mt-4 grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4 items-start">
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
                     <div className="px-4 pt-4 pb-3.5 flex items-start justify-between gap-3">
                         <div>
@@ -1331,8 +1580,8 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                             title="Fines"
                             subtitle={
                                 n(pendingFine?.outstanding) > 0
-                                    ? `${pendingFine.code}${pendingFine.type ? ` - ${pendingFine.type}` : ''} - Payment pending`
-                                    : 'No pending recovery'
+                                    ? `${pendingFine.code}${pendingFine.type ? ` - ${pendingFine.type}` : ''} · Balance due`
+                                    : 'No approved fines'
                             }
                             value={formatAed(fineOutstanding)}
                             onClick={() => setFinancialModalKey('fines')}
@@ -1399,8 +1648,19 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                         </div>
                     </div>
                 </div>
+                </div>
 
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col min-h-[680px]">
+                <div className="flex flex-col gap-3 sm:gap-4 min-w-0">
+                <EmployeeOverviewAttendanceCard
+                    employeeMongoId={employeeMongoId}
+                    year={profile.year}
+                />
+                <EmployeeLeaveRequestCard
+                    employeeName={employee?.name}
+                    employeeId={employee?.employeeId}
+                    requestStats={requestStats}
+                />
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
                     <div className="px-4 pt-4 pb-3.5 flex items-start justify-between gap-3">
                         <div>
                             <h2 className="text-[15px] font-bold text-[#1B2A4A]">Requests & work follow-up</h2>
@@ -1511,7 +1771,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                 Check your schedule or team availability
                             </p>
                             <Link
-                                href="/HRM/Leave/calendar"
+                                href={annualLeaveCalendarHref}
                                 className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#16A34A] hover:text-[#15803D]"
                             >
                                 Open calendar
@@ -1543,6 +1803,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                             </button>
                         </div>
                     </div>
+                </div>
                 </div>
             </div>
             </div>

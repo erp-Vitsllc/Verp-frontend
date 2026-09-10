@@ -276,6 +276,7 @@ export default function VehicleAccessFuelPanel({
     };
 
     const openEdit = (row) => {
+        if (row?.status === 'closed') return;
         setEditingEntry(null);
         if (row?.noFuel) {
             setEditingBill({
@@ -291,7 +292,7 @@ export default function VehicleAccessFuelPanel({
     };
 
     const openEditEntry = (row, entry) => {
-        if (!allowEditFuel || row?.noFuel || !entry) return;
+        if (!allowEditFuel || row?.noFuel || row?.status === 'closed' || !entry) return;
         setEditingBill(row);
         setEditingEntry(entry);
         setFormOpen(true);
@@ -668,9 +669,9 @@ export default function VehicleAccessFuelPanel({
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full text-sm border-collapse min-w-[1080px]">
-                                <thead className="bg-slate-50 border-b border-slate-200">
-                                    <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
+                            <table className="w-full border-collapse text-[13px] min-w-[1080px]">
+                                <thead className="bg-slate-50/90 border-b border-slate-200">
+                                    <tr className="text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                                         {FUEL_COLUMNS.map((column) => (
                                             <VehicleServiceRequestSortHeader
                                                 key={column.key}
@@ -679,9 +680,10 @@ export default function VehicleAccessFuelPanel({
                                                 sortKey={sortKey}
                                                 sortDirection={sortDirection}
                                                 onSort={handleSort}
+                                                className="px-3 py-2"
                                             />
                                         ))}
-                                        <th className="px-4 py-3 whitespace-nowrap text-right w-44">Actions</th>
+                                        <th className="px-3 py-2 whitespace-nowrap text-right w-40">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -701,50 +703,52 @@ export default function VehicleAccessFuelPanel({
                                                 key={row._id}
                                                 className={
                                                     limitTone === 'red'
-                                                        ? 'bg-red-50 hover:bg-red-100/70 cursor-pointer'
+                                                        ? 'bg-red-50/80 hover:bg-red-100/60 cursor-pointer'
                                                         : limitTone === 'amber'
-                                                          ? 'bg-amber-50 hover:bg-amber-100/70 cursor-pointer'
-                                                          : 'hover:bg-slate-50/70 cursor-pointer border-b border-slate-100'
+                                                          ? 'bg-amber-50/80 hover:bg-amber-100/60 cursor-pointer'
+                                                          : 'hover:bg-slate-50/80 cursor-pointer border-b border-slate-100'
                                                 }
                                                 title="Open vehicle fuel tab"
                                             >
-                                                <td className="px-4 py-3 text-slate-600 font-semibold tabular-nums">
+                                                <td className="px-3 py-1.5 text-slate-500 font-medium tabular-nums">
                                                     {row.slNo}
                                                 </td>
-                                                <td className="px-4 py-3 text-slate-800 font-medium">
+                                                <td className="px-3 py-1.5 text-slate-800 font-semibold">
                                                     {row.vehicleName || '—'}
                                                 </td>
-                                                <td className="px-4 py-3 text-slate-800 whitespace-nowrap">
+                                                <td className="px-3 py-1.5 text-slate-700 whitespace-nowrap">
                                                     {row.plateNo || row.vehicleNumber || '—'}
                                                 </td>
-                                                <td className="px-4 py-3 text-slate-600">{row.vehicleOwner || '—'}</td>
-                                                <td className="px-4 py-3 text-slate-800 whitespace-nowrap">
-                                                    {row.monthLabel || '—'}
-                                                    {row.status === 'closed' ? (
-                                                        <span className="ml-2 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-500">
-                                                            Closed
-                                                        </span>
-                                                    ) : null}
-                                                    {row.noFuel ? (
-                                                        <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-800">
-                                                            Not added
-                                                        </span>
-                                                    ) : null}
+                                                <td className="px-3 py-1.5 text-slate-600">{row.vehicleOwner || '—'}</td>
+                                                <td className="px-3 py-1.5 text-slate-700 whitespace-nowrap">
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        {row.monthLabel || '—'}
+                                                        {row.status === 'closed' ? (
+                                                            <span className="inline-flex rounded-full bg-slate-100 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                                                                Closed
+                                                            </span>
+                                                        ) : null}
+                                                        {row.noFuel ? (
+                                                            <span className="inline-flex rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-800">
+                                                                Not added
+                                                            </span>
+                                                        ) : null}
+                                                    </span>
                                                 </td>
-                                                <td className="px-4 py-3 tabular-nums whitespace-nowrap">
+                                                <td className="px-3 py-1.5 tabular-nums whitespace-nowrap text-slate-600">
                                                     {formatAmount(row.monthlyLimit)}
                                                 </td>
-                                                <td className="px-4 py-3 font-black tabular-nums whitespace-nowrap">
+                                                <td className="px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap text-teal-800">
                                                     {row.noFuel ? '—' : formatAmount(row.amountUsed)}
                                                 </td>
-                                                <td className="px-4 py-3 tabular-nums whitespace-nowrap">
+                                                <td className="px-3 py-1.5 tabular-nums whitespace-nowrap text-slate-600">
                                                     {formatKm(row.kmRun)}
                                                 </td>
-                                                <td className="px-4 py-3 whitespace-nowrap">
+                                                <td className="px-3 py-1.5 whitespace-nowrap text-slate-600">
                                                     {row.idleTimeLabel || '—'}
                                                 </td>
-                                                <td className="px-4 py-3 text-right">
-                                                    <div className="inline-flex items-center justify-end gap-1">
+                                                <td className="px-3 py-1.5 text-right">
+                                                    <div className="inline-flex items-center justify-end gap-0.5">
                                                         {!row.noFuel && row.entries?.some((e) => e.hasAttachment) ? (
                                                             <button
                                                                 type="button"
@@ -752,13 +756,13 @@ export default function VehicleAccessFuelPanel({
                                                                     event.stopPropagation();
                                                                     openAttachment(row);
                                                                 }}
-                                                                className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                                                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:text-sky-600 hover:bg-sky-50"
                                                                 title="View attachment"
                                                             >
-                                                                <Eye size={16} />
+                                                                <Eye size={14} />
                                                             </button>
                                                         ) : null}
-                                                        {allowManage ? (
+                                                        {allowManage && row.status !== 'closed' ? (
                                                             row.noFuel ? (
                                                                 <button
                                                                     type="button"
@@ -766,7 +770,7 @@ export default function VehicleAccessFuelPanel({
                                                                         event.stopPropagation();
                                                                         openEdit(row);
                                                                     }}
-                                                                    className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50"
+                                                                    className="inline-flex h-7 items-center rounded-md px-2 text-[10px] font-semibold uppercase tracking-wide text-sky-700 hover:bg-sky-50"
                                                                 >
                                                                     Add
                                                                 </button>
@@ -778,14 +782,14 @@ export default function VehicleAccessFuelPanel({
                                                                 />
                                                             )
                                                         ) : null}
-                                                        {allowManage && !row.noFuel ? (
+                                                        {allowManage && !row.noFuel && row.status !== 'closed' ? (
                                                             <button
                                                                 type="button"
                                                                 onClick={(event) => {
                                                                     event.stopPropagation();
                                                                     openEdit(row);
                                                                 }}
-                                                                className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50"
+                                                                className="inline-flex h-7 items-center rounded-md px-2 text-[10px] font-semibold uppercase tracking-wide text-sky-700 hover:bg-sky-50"
                                                             >
                                                                 Update
                                                             </button>
@@ -797,7 +801,7 @@ export default function VehicleAccessFuelPanel({
                                                                     event.stopPropagation();
                                                                     setDeletingBill(row);
                                                                 }}
-                                                                className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-red-700 hover:bg-red-50"
+                                                                className="inline-flex h-7 items-center rounded-md px-2 text-[10px] font-semibold uppercase tracking-wide text-rose-600 hover:bg-rose-50"
                                                             >
                                                                 Delete
                                                             </button>
@@ -826,23 +830,25 @@ export default function VehicleAccessFuelPanel({
                                                           key={`${row._id}-prev-${entry._id || entryIdx}`}
                                                           className={
                                                               isFirstFuel
-                                                                  ? 'bg-slate-100/90 border-b border-slate-200'
-                                                                  : 'bg-slate-50/80 border-b border-slate-100'
+                                                                  ? 'bg-slate-100/70 border-b border-slate-200/80'
+                                                                  : 'bg-slate-50/60 border-b border-slate-100'
                                                           }
                                                       >
-                                                          <td className="px-4 py-2.5 text-slate-400">—</td>
-                                                          <td className="px-4 py-2.5 text-slate-500">{row.vehicleName || '—'}</td>
-                                                          <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">
+                                                          <td className="px-3 py-1 text-slate-300">—</td>
+                                                          <td className="px-3 py-1 text-slate-500">{row.vehicleName || '—'}</td>
+                                                          <td className="px-3 py-1 text-slate-500 whitespace-nowrap">
                                                               {row.plateNo || row.vehicleNumber || '—'}
                                                           </td>
-                                                          <td className="px-4 py-2.5 text-slate-400">{row.vehicleOwner || '—'}</td>
-                                                          <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">
-                                                              <div className="flex items-center gap-2">
-                                                                  <span>{formatFuelEntryWhen(entry.createdAt) || row.monthLabel}</span>
-                                                                  <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-500">
-                                                                      {isFirstFuel ? 'First fuel' : 'Previous'}
+                                                          <td className="px-3 py-1 text-slate-400">{row.vehicleOwner || '—'}</td>
+                                                          <td className="px-3 py-1 text-slate-600 whitespace-nowrap">
+                                                              <div className="flex items-center gap-1.5">
+                                                                  <span className="text-[12px]">
+                                                                      {formatFuelEntryWhen(entry.createdAt) || row.monthLabel}
                                                                   </span>
-                                                                  {allowManage ? (
+                                                                  <span className="inline-flex rounded-full bg-white/90 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-slate-500 ring-1 ring-slate-200/80">
+                                                                      {isFirstFuel ? 'First' : 'Prev'}
+                                                                  </span>
+                                                                  {allowManage && row.status !== 'closed' ? (
                                                                       <VehicleFuelEditButton
                                                                           disabled={!allowEditFuel}
                                                                           onClick={() => openEditEntry(row, entry)}
@@ -850,13 +856,13 @@ export default function VehicleAccessFuelPanel({
                                                                   ) : null}
                                                               </div>
                                                           </td>
-                                                          <td className="px-4 py-2.5 text-slate-400">—</td>
-                                                          <td className="px-4 py-2.5 font-black tabular-nums whitespace-nowrap text-slate-700">
+                                                          <td className="px-3 py-1 text-slate-300">—</td>
+                                                          <td className="px-3 py-1 font-semibold tabular-nums whitespace-nowrap text-slate-700">
                                                               {formatAmount(entry.amount)}
                                                           </td>
-                                                          <td className="px-4 py-2.5 text-slate-400">—</td>
-                                                          <td className="px-4 py-2.5 text-slate-400">—</td>
-                                                          <td className="px-4 py-2.5 text-right">
+                                                          <td className="px-3 py-1 text-slate-300">—</td>
+                                                          <td className="px-3 py-1 text-slate-300">—</td>
+                                                          <td className="px-3 py-1 text-right">
                                                               {entry.hasAttachment ? (
                                                                   <button
                                                                       type="button"
@@ -864,10 +870,10 @@ export default function VehicleAccessFuelPanel({
                                                                           event.stopPropagation();
                                                                           openAttachment(row, entry._id);
                                                                       }}
-                                                                      className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                                                                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:text-sky-600 hover:bg-sky-50"
                                                                       title="View attachment"
                                                                   >
-                                                                      <Eye size={16} />
+                                                                      <Eye size={14} />
                                                                   </button>
                                                               ) : null}
                                                           </td>

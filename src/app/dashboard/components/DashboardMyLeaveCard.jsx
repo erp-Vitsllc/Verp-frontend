@@ -42,13 +42,13 @@ const EMPTY_SUMMARY = {
 };
 
 const DETAIL_BOXES = [
-    { key: 'authorized_leave', label: 'Authorized leave', wrap: 'bg-blue-50/70 text-blue-700' },
-    { key: 'unauthorized_leave', label: 'Unauthorized leave', wrap: 'bg-rose-50/70 text-rose-700' },
-    { key: 'sick_leave', label: 'Sick leave', wrap: 'bg-emerald-50/70 text-emerald-700' },
-    { key: 'compoff_leave', label: 'Comp off leave', wrap: 'bg-violet-50/70 text-violet-700' },
-    { key: 'work_from_home', label: 'Work from home', wrap: 'bg-green-50/70 text-green-700' },
-    { key: 'late_group', label: 'Late / Mispunch / Early', wrap: 'bg-amber-50/70 text-amber-800' },
-    { key: 'annual_leave', label: 'Annual leave', wrap: 'bg-indigo-50/70 text-indigo-700' },
+    { key: 'authorized_leave', label: 'Authorized leave', wrap: 'bg-blue-50/70 text-blue-700', inner: 'bg-white/75' },
+    { key: 'unauthorized_leave', label: 'Unauthorized leave', wrap: 'bg-rose-50/70 text-rose-700', inner: 'bg-white/75' },
+    { key: 'sick_leave', label: 'Sick leave', wrap: 'bg-emerald-50/70 text-emerald-700', inner: 'bg-white/75' },
+    { key: 'compoff_leave', label: 'Comp off leave', wrap: 'bg-violet-50/70 text-violet-700', inner: 'bg-white/75' },
+    { key: 'work_from_home', label: 'Work from home', wrap: 'bg-green-50/70 text-green-700', inner: 'bg-white/75' },
+    { key: 'late_group', label: 'Late / Mispunch / Early', wrap: 'bg-amber-50/70 text-amber-800', inner: 'bg-white/75' },
+    { key: 'annual_leave', label: 'Annual leave', wrap: 'bg-indigo-50/70 text-indigo-700', inner: 'bg-white/75' },
 ];
 
 const BOX_STATUS_KEYS = {
@@ -262,6 +262,16 @@ function MiniStat({ value, label, hint, valueClass }) {
     );
 }
 
+function SplitMetric({ label, value, hint, wrap }) {
+    return (
+        <div className={cn('rounded-lg px-2 py-1.5 min-w-0', wrap)}>
+            <p className="text-[9px] font-semibold uppercase tracking-[0.08em] opacity-70 leading-none">{label}</p>
+            <p className="mt-1 text-lg font-bold tabular-nums leading-none">{value}</p>
+            {hint ? <p className="mt-0.5 text-[9px] leading-tight opacity-70">{hint}</p> : null}
+        </div>
+    );
+}
+
 function LeaveDetailModal({ open, title, period, rows, onClose }) {
     if (!open) return null;
     const showPay = rows.some((row) => row.leavePayType);
@@ -348,6 +358,7 @@ export default function DashboardMyLeaveCard() {
     const [counts, setCounts] = useState(EMPTY_COUNTS);
     const [summary, setSummary] = useState(EMPTY_SUMMARY);
     const [leaveBalances, setLeaveBalances] = useState({});
+    const [leavePolicy, setLeavePolicy] = useState(null);
     const [entries, setEntries] = useState([]);
     const [detailKey, setDetailKey] = useState('');
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
@@ -370,12 +381,26 @@ export default function DashboardMyLeaveCard() {
                     setCounts(EMPTY_COUNTS);
                     setSummary(EMPTY_SUMMARY);
                     setLeaveBalances({});
+                    setLeavePolicy(null);
                     setEntries([]);
+                    return;
+                }
+                if (lock.locked && lock.enrolledWaiting) {
+                    setSalaryLock(EMPTY_SALARY_LOCK);
+                    setCounts(EMPTY_COUNTS);
+                    setLeaveBalances({});
+                    setLeavePolicy(res.data.leavePolicy || null);
+                    setEntries([]);
+                    setSummary({
+                        ...EMPTY_SUMMARY,
+                        workingDays: n(res.data.workingDays),
+                    });
                     return;
                 }
                 setSalaryLock(EMPTY_SALARY_LOCK);
                 setCounts({ ...EMPTY_COUNTS, ...(res.data.counts || {}) });
                 setLeaveBalances(res.data.leaveBalances || {});
+                setLeavePolicy(res.data.leavePolicy || null);
                 setEntries(Array.isArray(res.data.entries) ? res.data.entries : []);
                 setSummary({
                     presentDays: n(res.data.presentDays),
@@ -388,12 +413,26 @@ export default function DashboardMyLeaveCard() {
                     weeklyOffCount: n(res.data.weeklyOffCount),
                     lastAnnualLeaveDate: String(res.data.lastAnnualLeaveDate || ''),
                 });
-            } catch {
+            } catch (err) {
                 if (!cancelled) {
-                    setSalaryLock(EMPTY_SALARY_LOCK);
+                    const payload = err?.response?.data;
+                    const lock =
+                        payload?.salaryEnrolled === false || payload?.attendanceLocked
+                            ? salaryLockFromAttendancePayload(payload)
+                            : EMPTY_SALARY_LOCK;
+                    if (lock.locked && lock.enrolledWaiting) {
+                        setSalaryLock(EMPTY_SALARY_LOCK);
+                        setSummary({
+                            ...EMPTY_SUMMARY,
+                            workingDays: n(payload?.workingDays),
+                        });
+                    } else {
+                        setSalaryLock(lock.locked ? lock : EMPTY_SALARY_LOCK);
+                        setSummary(EMPTY_SUMMARY);
+                    }
                     setCounts(EMPTY_COUNTS);
-                    setSummary(EMPTY_SUMMARY);
                     setLeaveBalances({});
+                    setLeavePolicy(payload?.leavePolicy || null);
                     setEntries([]);
                 }
             }
@@ -410,11 +449,24 @@ export default function DashboardMyLeaveCard() {
 
     const lateGroup = n(counts.late_arrived) + n(counts.mispunch) + n(counts.early_go);
 
-    const detailValue = (key) => {
-        if (key === 'late_group') return lateGroup;
-        if (key === 'annual_leave') return formatLeaveDate(summary.lastAnnualLeaveDate);
-        if (leaveBalances[key]?.taken != null) return n(leaveBalances[key].taken);
-        return n(counts[key]);
+    const boxStats = (key) => {
+        const current =
+            key === 'late_group'
+                ? lateGroup
+                : key === 'annual_leave'
+                  ? n(counts.on_leave)
+                  : n(counts[key]);
+        const allowed =
+            key === 'annual_leave'
+                ? leavePolicy?.annualAllowedDays ?? leaveBalances.on_leave?.allowed
+                : key === 'sick_leave'
+                  ? leavePolicy?.sickAllowedDays ?? leaveBalances.sick_leave?.allowed
+                  : leaveBalances[key]?.allowed;
+        const total = allowed == null || allowed === '' ? null : n(allowed);
+        return {
+            total: total == null ? '—' : total,
+            current,
+        };
     };
 
     const detailHint = (key) => {
@@ -424,22 +476,16 @@ export default function DashboardMyLeaveCard() {
             if (!paid && !unpaid) return '';
             return `Paid ${paid} · Unpaid ${unpaid}`;
         }
-        if (key === 'sick_leave') {
-            const remaining = leaveBalances.sick_leave?.remaining;
-            return remaining == null ? '' : `${remaining} remaining this year`;
-        }
         if (key === 'unauthorized_leave') {
             const deduction = leaveBalances.unauthorized_leave?.deductionDays;
             const multiplier = leaveBalances.unauthorized_leave?.multiplier;
-            if (multiplier != null && Number(multiplier) !== 1) {
+            if (multiplier != null && Number(multiplier) !== 1 && n(counts.unauthorized_leave) > 0) {
                 return `Policy deduction ${deduction} days`;
             }
             return '';
         }
-        if (key === 'annual_leave') {
-            const remaining = leaveBalances.on_leave?.remaining;
-            const last = summary.lastAnnualLeaveDate ? 'Last taken' : 'Not taken';
-            return remaining == null ? last : `${remaining} remaining this year`;
+        if (key === 'annual_leave' && summary.lastAnnualLeaveDate) {
+            return `Last taken ${formatLeaveDate(summary.lastAnnualLeaveDate)}`;
         }
         return '';
     };
@@ -502,31 +548,42 @@ export default function DashboardMyLeaveCard() {
                     valueClass="text-rose-700"
                     hint={`Auth ${summary.absentAuth} · Sick ${summary.absentSick} · Unauth ${summary.absentUnauthorized}`}
                 />
-                <MiniStat value={summary.workingDays} label="Total Working Days" />
+                <MiniStat
+                    value={summary.workingDays}
+                    label="Total Working Days"
+                    hint="Same as salary enroll"
+                />
                 <MiniStat value={summary.holidayCount} label="Holidays" />
             </div>
 
-            <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 min-[1200px]:grid-cols-6 gap-2">
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
                 {DETAIL_BOXES.map((box) => {
+                    const stats = boxStats(box.key);
                     const hint = detailHint(box.key);
-                    const isDate = box.key === 'annual_leave';
                     return (
                         <button
                             key={box.key}
                             type="button"
                             onClick={() => setDetailKey(box.key)}
-                            className={`rounded-xl px-2.5 py-2.5 min-w-0 min-h-[72px] flex flex-col justify-center text-left transition-transform hover:-translate-y-px hover:brightness-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 ${box.wrap}`}
+                            className={`rounded-xl px-2 py-2 min-w-0 text-left transition-transform hover:-translate-y-px hover:brightness-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 ${box.wrap}`}
                         >
-                            <p
-                                className={`font-bold tabular-nums leading-none ${
-                                    isDate ? 'text-[13px]' : 'text-lg'
-                                }`}
-                            >
-                                {detailValue(box.key)}
-                            </p>
-                            <p className="text-[11px] font-medium mt-1 leading-tight">{box.label}</p>
+                            <p className="text-[11px] font-medium leading-tight px-0.5">{box.label}</p>
+                            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                                <SplitMetric
+                                    label="Total"
+                                    value={stats.total}
+                                    hint="allowed"
+                                    wrap={box.inner}
+                                />
+                                <SplitMetric
+                                    label="Current"
+                                    value={stats.current}
+                                    hint="used"
+                                    wrap={box.inner}
+                                />
+                            </div>
                             {hint ? (
-                                <p className="text-[10px] mt-0.5 leading-tight opacity-80">{hint}</p>
+                                <p className="text-[10px] mt-1 px-0.5 leading-tight opacity-80">{hint}</p>
                             ) : null}
                         </button>
                     );

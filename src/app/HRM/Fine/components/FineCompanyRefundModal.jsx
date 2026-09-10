@@ -148,6 +148,8 @@ function attachmentForApi(attachment, { includeData = true } = {}) {
         name: attachment.name || '',
         mimeType: attachment.mimeType || '',
     };
+    if (attachment.publicId) payload.publicId = attachment.publicId;
+    if (attachment.url) payload.url = attachment.url;
     if (
         includeData &&
         typeof attachment.data === 'string' &&
@@ -156,6 +158,7 @@ function attachmentForApi(attachment, { includeData = true } = {}) {
     ) {
         payload.data = attachment.data;
     }
+    if (!payload.data && !payload.publicId && !payload.url && !payload.name) return null;
     return payload;
 }
 

@@ -200,12 +200,11 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
                 ),
             );
             const lock = salaryLockFromAttendancePayload(response.data);
-            setSalaryLock(lock.enrolledWaiting ? EMPTY_SALARY_LOCK : lock);
+            setSalaryLock(lock);
         } catch (err) {
             setRecordsByDate({});
             if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
-                const lock = salaryLockFromAttendancePayload(err.response.data);
-                setSalaryLock(lock.enrolledWaiting ? EMPTY_SALARY_LOCK : lock);
+                setSalaryLock(salaryLockFromAttendancePayload(err.response.data));
                 setError('');
             } else {
                 setSalaryLock(EMPTY_SALARY_LOCK);

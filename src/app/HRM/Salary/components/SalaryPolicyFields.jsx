@@ -129,7 +129,7 @@ function LateRuleFields({ row, onChange }) {
                     className={compactInputClass}
                     placeholder="0"
                 />
-                <span className="text-xs text-slate-500">minute</span>
+                <span className="text-xs text-slate-500">minutes above</span>
             </label>
             <label className="flex items-center gap-1.5">
                 <input
@@ -140,7 +140,7 @@ function LateRuleFields({ row, onChange }) {
                     className={compactInputClass}
                     placeholder="0"
                 />
-                <span className="text-xs text-slate-500">event</span>
+                <span className="text-xs text-slate-500">event deduct</span>
             </label>
             <label className="flex items-center gap-1.5">
                 <select
@@ -155,6 +155,7 @@ function LateRuleFields({ row, onChange }) {
                         </option>
                     ))}
                 </select>
+                <span className="text-xs text-slate-500">salary</span>
             </label>
         </>
     );
@@ -174,7 +175,7 @@ function LateRuleRow({
 }) {
     return (
         <div className="flex flex-col lg:flex-row lg:items-center gap-2 py-2.5 px-8 sm:px-10 border-b border-gray-100">
-            <div className="flex items-center gap-3 min-w-0 lg:min-w-[260px]">
+            <div className="flex items-center gap-3 min-w-0 lg:min-w-[280px]">
                 <span className="w-5 shrink-0 text-sm font-semibold text-slate-600 tabular-nums">{number}.</span>
                 {titleEditable ? (
                     <input
@@ -184,7 +185,7 @@ function LateRuleRow({
                         className={inputClass}
                     />
                 ) : (
-                    <span className="text-sm text-slate-700">{label}</span>
+                    <span className="text-sm text-slate-700 whitespace-nowrap">{label}</span>
                 )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -426,24 +427,18 @@ export default function SalaryPolicyFields({ form, setForm }) {
                 </NumberedFieldRow>
                 <LateRuleRow
                     number={12}
-                    label="Late in"
-                    row={form.lateInRules[0] || emptyLateRule()}
+                    label="Late in - Late out"
+                    row={form.lateInRules[0] || form.lateOutRules[0] || emptyLateRule()}
                     onFieldChange={(field, value) =>
-                        setForm((p) => ({
-                            ...p,
-                            lateInRules: [{ ...(p.lateInRules[0] || emptyLateRule()), [field]: value }],
-                        }))
-                    }
-                />
-                <LateRuleRow
-                    number={13}
-                    label="Late out"
-                    row={form.lateOutRules[0] || emptyLateRule()}
-                    onFieldChange={(field, value) =>
-                        setForm((p) => ({
-                            ...p,
-                            lateOutRules: [{ ...(p.lateOutRules[0] || emptyLateRule()), [field]: value }],
-                        }))
+                        setForm((p) => {
+                            const next = [
+                                {
+                                    ...(p.lateInRules[0] || p.lateOutRules[0] || emptyLateRule()),
+                                    [field]: value,
+                                },
+                            ];
+                            return { ...p, lateInRules: next, lateOutRules: next };
+                        })
                     }
                     showAdd={(form.extraLateRules || []).length === 0}
                     onAdd={() =>
@@ -453,13 +448,16 @@ export default function SalaryPolicyFields({ form, setForm }) {
                         }))
                     }
                 />
+                <p className="px-8 sm:px-10 pb-2 -mt-1 text-xs text-slate-500">
+                    Late in and late out share this event count. Deduction starts after that many combined events, not separately for each.
+                </p>
                 {(form.extraLateRules || []).map((row, index) => {
                     const extras = form.extraLateRules || [];
                     const isLast = index === extras.length - 1;
                     return (
                         <LateRuleRow
                             key={`extra-late-${index}`}
-                            number={14 + index}
+                            number={13 + index}
                             titleEditable
                             row={row}
                             onTitleChange={(title) =>
@@ -598,46 +596,38 @@ export default function SalaryPolicyFields({ form, setForm }) {
                         </div>
                     );
                 })}
-                <div className="flex flex-col gap-2 py-2.5 border-b border-gray-100 px-3 sm:px-4">
-                    <div className="flex items-center gap-3">
-                        <span className="w-5 shrink-0 text-sm font-semibold text-slate-600 tabular-nums">2.</span>
-                        <span className="text-sm text-slate-700">Number of working days eligible for</span>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 pl-8">
-                        <label className="flex items-center gap-2">
-                            <span className="text-sm text-slate-600 w-24">Leave</span>
-                            <input
-                                type="number"
-                                min="0"
-                                value={form.leaveSalaryWorkingDays}
-                                onChange={(e) =>
-                                    setForm((p) => ({
-                                        ...p,
-                                        leaveSalaryWorkingDays: e.target.value,
-                                    }))
-                                }
-                                className={compactInputClass}
-                                placeholder="300"
-                            />
-                        </label>
-                        <label className="flex items-center gap-2">
-                            <span className="text-sm text-slate-600 w-24">Ticket AED</span>
-                            <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={form.airTicketAmount}
-                                onChange={(e) =>
-                                    setForm((p) => ({
-                                        ...p,
-                                        airTicketAmount: e.target.value,
-                                    }))
-                                }
-                                className={compactInputClass}
-                                placeholder="1500"
-                            />
-                        </label>
-                    </div>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-2 py-2.5 border-b border-gray-100 px-3 sm:px-4">
+                    <span className="w-5 shrink-0 text-sm font-semibold text-slate-600 tabular-nums">2.</span>
+                    <span className="text-sm text-slate-700">Number of working days eligible for leave salary</span>
+                    <input
+                        type="number"
+                        min="0"
+                        value={form.leaveSalaryWorkingDays}
+                        onChange={(e) =>
+                            setForm((p) => ({
+                                ...p,
+                                leaveSalaryWorkingDays: e.target.value,
+                            }))
+                        }
+                        className={compactInputClass}
+                        placeholder="300"
+                    />
+                    <span className="text-sm text-slate-700">and entitled ticket amount</span>
+                    <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form.airTicketAmount}
+                        onChange={(e) =>
+                            setForm((p) => ({
+                                ...p,
+                                airTicketAmount: e.target.value,
+                            }))
+                        }
+                        className={compactInputClass}
+                        placeholder="1500"
+                    />
+                    <span className="text-xs text-slate-500">AED</span>
                 </div>
             </div>
 

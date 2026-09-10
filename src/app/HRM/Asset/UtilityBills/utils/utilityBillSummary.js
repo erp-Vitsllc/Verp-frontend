@@ -4,7 +4,7 @@ import {
     isEntryActive,
 } from './utilityBillsStorage';
 import { entryAvailableFromMonth, formatBillMoney, normalizeBillMonthKey } from './utilityBillStats';
-import { ALL_MONTHS, MONTH_OPTIONS, currentPeriod } from './utilityOverviewStats';
+import { ALL_MONTHS, MONTH_OPTIONS } from './utilityOverviewStats';
 
 export const SUMMARY_STATUS = {
     NOT_UPDATED: 'not updated',
@@ -124,10 +124,12 @@ function pickPreferredBill(current, next) {
 
 function monthsForEntryInPeriod(entry, { year, month, capYm }) {
     const fromYm = entryAvailableFromMonth(entry) || capYm;
-    const periodYear = String(year || currentPeriod().year);
+    const rawYear = year == null ? '' : String(year).trim();
+    const periodYear =
+        !rawYear || rawYear.toLowerCase() === 'all' ? null : rawYear;
     const periodMonth = String(month || ALL_MONTHS);
     return monthKeysFromTo(fromYm, capYm).filter((ym) => {
-        if (ym.slice(0, 4) !== periodYear) return false;
+        if (periodYear && ym.slice(0, 4) !== periodYear) return false;
         if (periodMonth && periodMonth !== ALL_MONTHS && ym.slice(5, 7) !== periodMonth) {
             return false;
         }
@@ -181,7 +183,8 @@ function buildSummaryRow(entry, ym, bill) {
 }
 
 /**
- * One row per account × month for the selected utility type and overview period.
+ * One row per account × month for the selected utility type.
+ * Pass year/month to limit the period; omit year (or use "all") and month=ALL_MONTHS for full history.
  * Missing months on active accounts are included as “not updated”.
  */
 export function buildUtilityTypeSummaryRows({
@@ -235,6 +238,74 @@ export function buildUtilityTypeSummaryRows({
     });
 
     return rows;
+}
+
+function monthAggregateStatus(billRows = []) {
+    const list = Array.isArray(billRows) ? billRows : [];
+    if (!list.length) return SUMMARY_STATUS.NOT_UPDATED;
+    if (list.every((row) => row.status === SUMMARY_STATUS.PAID)) return SUMMARY_STATUS.PAID;
+    if (list.some((row) => row.status === SUMMARY_STATUS.NOT_PAID)) return SUMMARY_STATUS.NOT_PAID;
+    return SUMMARY_STATUS.NOT_UPDATED;
+}
+
+/**
+ * Month-level summary: one parent row per month, with nested billed account rows.
+ */
+export function buildUtilityTypeMonthSummaryRows(args = {}) {
+    const detailRows = buildUtilityTypeSummaryRows(args);
+    const byMonth = new Map();
+
+    detailRows.forEach((row) => {
+        const ym = String(row.monthKey || '');
+        if (!ym) return;
+        if (!byMonth.has(ym)) {
+            byMonth.set(ym, {
+                key: `month::${ym}`,
+                monthKey: ym,
+                monthLabel: row.monthLabel || formatSummaryMonth(ym),
+                bills: [],
+            });
+        }
+        byMonth.get(ym).bills.push(row);
+    });
+
+    const months = [...byMonth.values()].map((group) => {
+        const allRows = group.bills;
+        const contractAmount = allRows.reduce((sum, row) => sum + (Number(row.contractAmount) || 0), 0);
+        const billAmount = allRows.reduce((sum, row) => sum + (Number(row.billAmount) || 0), 0);
+        const difference = contractAmount - billAmount;
+        const status = monthAggregateStatus(allRows);
+        const billRows = allRows;
+
+        return {
+            key: group.key,
+            monthKey: group.monthKey,
+            monthLabel: group.monthLabel,
+            billCount: allRows.length,
+            assignedCount: allRows.filter((row) => String(row.assigneeName || '').trim()).length,
+            contractAmount,
+            billAmount,
+            difference,
+            status,
+            bills: billRows,
+            searchText: [
+                group.monthLabel,
+                group.monthKey,
+                status,
+                ...billRows.flatMap((row) => [
+                    row.accountNo,
+                    row.assigneeName,
+                    row.status,
+                ]),
+            ]
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase(),
+        };
+    });
+
+    months.sort((a, b) => String(b.monthKey).localeCompare(String(a.monthKey)));
+    return months;
 }
 
 export function filterSummaryRows(rows = [], searchQuery = '') {

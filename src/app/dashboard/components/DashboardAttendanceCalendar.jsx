@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
+    addMonths,
+    addYears,
     eachDayOfInterval,
     endOfMonth,
     format,
@@ -11,7 +13,7 @@ import {
     parseISO,
     startOfMonth,
 } from 'date-fns';
-import { Clock, Users } from 'lucide-react';
+import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Clock, Users } from 'lucide-react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { createPortal } from 'react-dom';
 import axiosInstance from '@/utils/axios';
@@ -27,6 +29,7 @@ import AttendanceLeaveDecideModal from './AttendanceLeaveDecideModal';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
 import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
+    firstOfProcessingMonth,
     salaryLockFromAttendancePayload,
 } from './DashboardSalaryEnrollLock';
 import { dashboardHover, dashboardItem, DASH_EASE } from './dashboardMotion';
@@ -80,6 +83,28 @@ function getDubaiDateKey(date = new Date()) {
         month: '2-digit',
         day: '2-digit',
     }).format(date);
+}
+
+function monthAnchorFromKey(dateKey) {
+    const raw = String(dateKey || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw) || /^\d{4}-\d{2}$/.test(raw)) {
+        return startOfMonth(parseISO(`${raw.slice(0, 7)}-01`));
+    }
+    return startOfMonth(new Date());
+}
+
+function CalendarNavButton({ label, onClick, disabled = false, children }) {
+    return (
+        <button
+            type="button"
+            aria-label={label}
+            onClick={onClick}
+            disabled={disabled}
+            className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 disabled:pointer-events-none"
+        >
+            {children}
+        </button>
+    );
 }
 
 function formatClock(value) {
@@ -260,7 +285,22 @@ function isApprovedFutureLateEarly(record) {
     return approved && (kind === 'future_late' || kind === 'future_early');
 }
 
-function dayTone({ record, isFuture, isHoliday, isWeeklyOff, holidayName, isToday }) {
+function dayTone({
+    record,
+    isFuture,
+    isHoliday,
+    isWeeklyOff,
+    holidayName,
+    isToday,
+    processingStartDate,
+    dateKey,
+}) {
+    if (processingStartDate && dateKey && dateKey < processingStartDate) {
+        return {
+            cell: TONE.future,
+            label: 'Before attendance start',
+        };
+    }
     if (isHoliday || isWeeklyOff || (record && OFF_DAY_KEYS.has(record.statusKey))) {
         const why =
             holidayName ||
@@ -385,17 +425,13 @@ export default function DashboardAttendanceCalendar({
     const deepAttendanceDate = String(searchParams?.get('attendanceDate') || '').trim();
     const deepFocus = searchParams?.get('focusAttendance') === '1';
 
-    const monthAnchor = useMemo(() => {
-        const anchorKey =
-            deepFocus && /^\d{4}-\d{2}-\d{2}$/.test(deepAttendanceDate)
-                ? deepAttendanceDate
-                : todayKey;
-        try {
-            return startOfMonth(parseISO(anchorKey));
-        } catch {
-            return startOfMonth(new Date());
+    const [monthAnchor, setMonthAnchor] = useState(() => monthAnchorFromKey(todayKey));
+
+    useEffect(() => {
+        if (deepFocus && /^\d{4}-\d{2}-\d{2}$/.test(deepAttendanceDate)) {
+            setMonthAnchor(monthAnchorFromKey(deepAttendanceDate));
         }
-    }, [todayKey, deepFocus, deepAttendanceDate]);
+    }, [deepFocus, deepAttendanceDate]);
 
     const monthKey = format(monthAnchor, 'yyyy-MM');
     const [recordsByDate, setRecordsByDate] = useState({});
@@ -411,6 +447,7 @@ export default function DashboardAttendanceCalendar({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
+    const [processingStartDate, setProcessingStartDate] = useState('');
     const [teamOpen, setTeamOpen] = useState(false);
     const [holidayRows, setHolidayRows] = useState([]);
 
@@ -485,17 +522,24 @@ export default function DashboardAttendanceCalendar({
             if (!viewEmployeeId && res.data?.employee?.id) {
                 setSelfEmployeeId(String(res.data.employee.id));
             }
-            const lock = salaryLockFromAttendancePayload(res.data);
-            setSalaryLock(lock.enrolledWaiting ? EMPTY_SALARY_LOCK : lock);
+            setSalaryLock(salaryLockFromAttendancePayload(res.data));
+            setProcessingStartDate(
+                firstOfProcessingMonth(res.data?.processingStartDate || res.data?.processingStartMonth || ''),
+            );
         } catch (err) {
             setRecordsByDate({});
             setTodayRecord(null);
             if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
-                const lock = salaryLockFromAttendancePayload(err.response.data);
-                setSalaryLock(lock.enrolledWaiting ? EMPTY_SALARY_LOCK : lock);
+                setSalaryLock(salaryLockFromAttendancePayload(err.response.data));
+                setProcessingStartDate(
+                    firstOfProcessingMonth(
+                        err.response.data?.processingStartDate || err.response.data?.processingStartMonth || '',
+                    ),
+                );
                 setError('');
             } else {
                 setSalaryLock(EMPTY_SALARY_LOCK);
+                setProcessingStartDate('');
                 setError(err?.response?.data?.message || 'Could not load attendance.');
             }
         } finally {
@@ -571,6 +615,12 @@ export default function DashboardAttendanceCalendar({
         () => firstEligibleAdvanceRequestDate(todayKey, holidayDates, offWeekdays),
         [todayKey, holidayDates, offWeekdays],
     );
+    const minMonthKey =
+        !salaryLock.locked && processingStartDate ? processingStartDate.slice(0, 7) : '';
+    const canGoPrevMonth =
+        !minMonthKey || format(addMonths(monthAnchor, -1), 'yyyy-MM') >= minMonthKey;
+    const canGoPrevYear =
+        !minMonthKey || format(addYears(monthAnchor, -1), 'yyyy-MM') >= minMonthKey;
 
     const openRequestForDay = (dateKey, record, toneLabel) => {
         if (!isSelf) return;
@@ -756,9 +806,37 @@ export default function DashboardAttendanceCalendar({
                                 </span>
                             ) : null}
                         </p>
-                        <h3 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight leading-tight mt-0.5">
-                            {format(monthAnchor, 'MMMM yyyy')}
-                        </h3>
+                        <div className="flex items-center gap-0.5 sm:gap-1 mt-0.5 flex-wrap">
+                            <CalendarNavButton
+                                label="Previous year"
+                                disabled={!canGoPrevYear}
+                                onClick={() => setMonthAnchor((current) => addYears(current, -1))}
+                            >
+                                <ChevronsLeft className="w-3.5 h-3.5" />
+                            </CalendarNavButton>
+                            <CalendarNavButton
+                                label="Previous month"
+                                disabled={!canGoPrevMonth}
+                                onClick={() => setMonthAnchor((current) => addMonths(current, -1))}
+                            >
+                                <ChevronLeft className="w-3.5 h-3.5" />
+                            </CalendarNavButton>
+                            <h3 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-tight px-0.5 whitespace-nowrap">
+                                {format(monthAnchor, 'MMMM yyyy')}
+                            </h3>
+                            <CalendarNavButton
+                                label="Next month"
+                                onClick={() => setMonthAnchor((current) => addMonths(current, 1))}
+                            >
+                                <ChevronRight className="w-3.5 h-3.5" />
+                            </CalendarNavButton>
+                            <CalendarNavButton
+                                label="Next year"
+                                onClick={() => setMonthAnchor((current) => addYears(current, 1))}
+                            >
+                                <ChevronsRight className="w-3.5 h-3.5" />
+                            </CalendarNavButton>
+                        </div>
                         <p className="text-xs text-slate-400 tabular-nums mt-0.5">{todayKey}</p>
                     </div>
 
@@ -798,7 +876,7 @@ export default function DashboardAttendanceCalendar({
                                 {toTitleName(employeeName)}
                             </p>
                         ) : null}
-                        {(timeInLabel || timeOutLabel) && isSelf ? (
+                        {(timeInLabel || timeOutLabel) && isSelf && !salaryLock.locked ? (
                             <p className="inline-flex items-center gap-1 text-[11px] text-slate-500 tabular-nums">
                                 <Clock className="w-3 h-3" />
                                 {timeInLabel || '—'}
@@ -808,8 +886,9 @@ export default function DashboardAttendanceCalendar({
                     </div>
                 </div>
 
+                <div className="relative mt-3 flex-1 flex flex-col min-h-0">
                 {error ? (
-                    <div className="mt-3 flex-1 flex flex-col items-center justify-center gap-2">
+                    <div className="flex-1 flex flex-col items-center justify-center gap-2">
                         <p className="text-[11px] text-red-500">{error}</p>
                         <button
                             type="button"
@@ -820,13 +899,13 @@ export default function DashboardAttendanceCalendar({
                         </button>
                     </div>
                 ) : loading ? (
-                    <div className="mt-3 flex-1 flex items-center justify-center">
+                    <div className="flex-1 flex items-center justify-center">
                         <p className="text-sm text-slate-400">Loading…</p>
                     </div>
                 ) : salaryLock.locked ? (
-                    <div className="mt-3 flex-1" />
+                    <div className="flex-1" />
                 ) : (
-                    <div className="mt-3 flex-1 flex flex-col min-h-0">
+                    <div className="flex-1 flex flex-col min-h-0">
                         <div className="grid grid-cols-7 gap-y-1 gap-x-0.5 shrink-0">
                             {WEEKDAYS.map((d) => (
                                 <div
@@ -865,11 +944,16 @@ export default function DashboardAttendanceCalendar({
                                     isWeeklyOff,
                                     holidayName,
                                     isToday: dateKey === todayKey,
+                                    processingStartDate,
+                                    dateKey,
                                 });
                                 const isToday = dateKey === todayKey;
+                                const attendanceOpen =
+                                    !processingStartDate || dateKey >= processingStartDate;
                                 const pendingLeave = record?.leaveRequestStatus === 'pending';
                                 const canRequest =
                                     isSelf &&
+                                    attendanceOpen &&
                                     !isFuture &&
                                     record &&
                                     !record.historical &&
@@ -878,6 +962,7 @@ export default function DashboardAttendanceCalendar({
                                     isRedTone(tone.cell);
                                 const canYellowRequest =
                                     isSelf &&
+                                    attendanceOpen &&
                                     !isFuture &&
                                     record &&
                                     !record.historical &&
@@ -887,6 +972,7 @@ export default function DashboardAttendanceCalendar({
                                     isApprovedFutureLateEarly(record);
                                 const canFutureRequest =
                                     isSelf &&
+                                    attendanceOpen &&
                                     isFuture &&
                                     !isHoliday &&
                                     !isWeeklyOff &&
@@ -894,7 +980,7 @@ export default function DashboardAttendanceCalendar({
                                     dateKey >= earliestFutureDate &&
                                     record?.leaveRequestStatus !== 'pending' &&
                                     !alreadyApprovedFuture;
-                                const canDecide = viewingOther && pendingLeave;
+                                const canDecide = viewingOther && pendingLeave && attendanceOpen;
 
                                 const hoverHint = pendingLeave
                                     ? 'Request pending'
@@ -995,6 +1081,7 @@ export default function DashboardAttendanceCalendar({
                     </div>
                 )}
                 <DashboardSalaryEnrollLock {...salaryLock} />
+                </div>
             </motion.div>
 
             <CalendarDayTooltip hovered={hoveredDay} reduceMotion={reduceMotion} />

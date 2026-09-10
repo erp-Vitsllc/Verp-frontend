@@ -29,6 +29,18 @@ function formatAmount(value) {
     return `AED ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/** "Adarsh Adarsh" → "Adarsh A." — leave single-word / Unassigned / Company as-is. */
+function formatOwnerShortName(name) {
+    const raw = String(name || '').trim();
+    if (!raw) return '—';
+    if (/^(unassigned|company)$/i.test(raw)) return raw;
+    const parts = raw.split(/\s+/).filter(Boolean);
+    if (parts.length < 2) return raw;
+    const first = parts[0];
+    const lastInitial = parts[parts.length - 1].charAt(0).toUpperCase();
+    return `${first} ${lastInitial}.`;
+}
+
 function formatKm(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return '—';
@@ -151,13 +163,14 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
     };
 
     const openEdit = (bill) => {
+        if (bill?.status === 'closed') return;
         setEditingBill(bill);
         setEditingEntry(null);
         setModalOpen(true);
     };
 
     const openEditEntry = (bill, entry) => {
-        if (!allowEditFuel || !bill || !entry) return;
+        if (!allowEditFuel || bill?.status === 'closed' || !bill || !entry) return;
         setEditingBill(bill);
         setEditingEntry(entry);
         setModalOpen(true);
@@ -361,7 +374,12 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                             >
                                                 <td className={`px-3 py-3.5 text-sm font-semibold align-top ${tone.sl}`}>{idx + 1}</td>
                                                 <td className={`px-3 py-3.5 text-sm font-bold align-top break-words ${tone.strong}`}>{row.vehicleNumber}</td>
-                                                <td className={`px-3 py-3.5 text-sm align-top break-words ${tone.muted}`}>{row.vehicleOwner}</td>
+                                                <td
+                                                    className={`px-3 py-3.5 text-sm align-top break-words ${tone.muted}`}
+                                                    title={row.vehicleOwner || undefined}
+                                                >
+                                                    {formatOwnerShortName(row.vehicleOwner)}
+                                                </td>
                                                 <td className={`px-3 py-3.5 text-sm font-semibold align-top whitespace-nowrap ${tone.body}`}>
                                                     {row.monthLabel}
                                                 </td>
@@ -400,14 +418,14 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                                                 <Eye size={16} />
                                                             </button>
                                                         )}
-                                                        {allowHrActions && currentEntry ? (
+                                                        {allowHrActions && row.status !== 'closed' && currentEntry ? (
                                                             <VehicleFuelEditButton
                                                                 title="Edit current fuel"
                                                                 disabled={!allowEditFuel}
                                                                 onClick={() => openEditEntry(row, currentEntry)}
                                                             />
                                                         ) : null}
-                                                        {allowHrActions && (
+                                                        {allowHrActions && row.status !== 'closed' && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => openEdit(row)}
@@ -496,7 +514,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                                                                         >
                                                                                             {item.label}
                                                                                         </span>
-                                                                                        {allowHrActions ? (
+                                                                                        {allowHrActions && row.status !== 'closed' ? (
                                                                                             <VehicleFuelEditButton
                                                                                                 disabled={!allowEditFuel}
                                                                                                 onClick={() => openEditEntry(row, entry)}

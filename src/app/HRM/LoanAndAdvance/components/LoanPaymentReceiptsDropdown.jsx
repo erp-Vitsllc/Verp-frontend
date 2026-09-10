@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import {
     ChevronDown,
     ChevronRight,
@@ -8,6 +8,7 @@ import {
     History,
     ExternalLink,
     RefreshCw,
+    Paperclip,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -28,6 +29,13 @@ function needsZohoRetry(pay) {
     const status = String(pay.status || '').trim();
     const hasErr = Boolean(String(pay.zohoSyncError || '').trim());
     return status === 'Failed' || hasErr;
+}
+
+function paymentAttachmentOf(pay) {
+    const att = pay?.attachment;
+    if (!att || typeof att !== 'object') return null;
+    if (att.data || att.url || att.publicId || att.name || att.filename) return att;
+    return null;
 }
 
 /** Document column control — expands the full loan/advance row (not a popup). */
@@ -60,7 +68,7 @@ export function LoanDocumentExpandButton({
 }
 
 /**
- * Full-width expanded panel under a loan/advance row — invoice list, new-tab open, Retry Zoho.
+ * Full-width expanded panel under a loan/advance/fine row — invoice list + payment attachment.
  */
 export default function LoanPaymentReceiptsExpandPanel({
     loan,
@@ -85,6 +93,17 @@ export default function LoanPaymentReceiptsExpandPanel({
         : getLoanRepaymentPaymentsForDocuments(loan, payments);
     const hasRequestDoc = Boolean(requestAttachment);
     const extraDocs = Array.isArray(extraDocuments) ? extraDocuments.filter(Boolean) : [];
+
+    const openPaymentAttachment = (pay) => {
+        const att = paymentAttachmentOf(pay);
+        if (!att || !onViewDocument) return;
+        onViewDocument({
+            ...att,
+            name: att.name || att.filename || 'Payment attachment',
+            moduleId,
+            allowDownload,
+        });
+    };
 
     const handleRetryZoho = async (pay) => {
         const id = pay?._id;
@@ -124,7 +143,7 @@ export default function LoanPaymentReceiptsExpandPanel({
                     </h4>
                 </div>
                 <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 italic">
-                    Click row to open in new tab
+                    Invoice + attachment (when uploaded on pay)
                 </span>
             </div>
 
@@ -190,85 +209,116 @@ export default function LoanPaymentReceiptsExpandPanel({
                         {receipts.map((pay, index) => {
                             const retry = needsZohoRetry(pay);
                             const isRetrying = retryingId === String(pay._id);
+                            const attachment = paymentAttachmentOf(pay);
                             return (
-                                <tr
-                                    key={pay._id || pay.paymentId || index}
-                                    className={`border-b border-slate-50 transition-colors ${getPaymentStatusSurfaceClass(pay.status)} ${
-                                        retry ? '' : 'cursor-pointer hover:bg-emerald-50/40'
-                                    }`}
-                                    onClick={() => {
-                                        if (retry) return;
-                                        openPaymentReceiptInNewTab(pay);
-                                    }}
-                                    title={
-                                        retry
-                                            ? pay.zohoSyncError || 'Zoho not posted — use Retry Zoho'
-                                            : 'Open invoice in new tab'
-                                    }
-                                >
-                                    <td className="px-4 py-3 text-slate-400 font-bold text-xs">
-                                        {index + 1}
-                                    </td>
-                                    <td className="px-4 py-3 font-bold text-slate-700">
-                                        {pay.paymentId || pay._id || '—'}
-                                    </td>
-                                    <td className="px-4 py-3 text-slate-500">
-                                        {new Date(
-                                            pay.paymentDate || pay.createdAt || Date.now(),
-                                        ).toLocaleDateString()}
-                                    </td>
-                                    <td
-                                        className={`px-4 py-3 font-black ${getPaymentAmountTextClass(pay.status)}`}
+                                <Fragment key={pay._id || pay.paymentId || index}>
+                                    <tr
+                                        className={`border-b border-slate-50 transition-colors ${getPaymentStatusSurfaceClass(pay.status)} ${
+                                            retry ? '' : 'cursor-pointer hover:bg-emerald-50/40'
+                                        }`}
+                                        onClick={() => {
+                                            if (retry) return;
+                                            openPaymentReceiptInNewTab(pay);
+                                        }}
+                                        title={
+                                            retry
+                                                ? pay.zohoSyncError || 'Zoho not posted — use Retry Zoho'
+                                                : 'Open invoice in new tab'
+                                        }
                                     >
-                                        AED {(parseFloat(pay.amount) || 0).toFixed(2)}
-                                    </td>
-                                    <td className="px-4 py-3">
-                                        <span
-                                            className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${getPaymentStatusBadgeClass(pay.status)}`}
+                                        <td className="px-4 py-3 text-slate-400 font-bold text-xs">
+                                            {index + 1}
+                                        </td>
+                                        <td className="px-4 py-3 font-bold text-slate-700">
+                                            {pay.paymentId || pay._id || '—'}
+                                        </td>
+                                        <td className="px-4 py-3 text-slate-500">
+                                            {new Date(
+                                                pay.paymentDate || pay.createdAt || Date.now(),
+                                            ).toLocaleDateString()}
+                                        </td>
+                                        <td
+                                            className={`px-4 py-3 font-black ${getPaymentAmountTextClass(pay.status)}`}
                                         >
-                                            {getPaymentStatusLabel(pay.status)}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-[10px] font-semibold">
-                                        {String(pay.zohoExpenseId || '').trim() ? (
-                                            <span className="text-emerald-700">Synced</span>
-                                        ) : retry ? (
-                                            <span className="text-rose-600" title={pay.zohoSyncError || ''}>
-                                                Failed
+                                            AED {(parseFloat(pay.amount) || 0).toFixed(2)}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <span
+                                                className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${getPaymentStatusBadgeClass(pay.status)}`}
+                                            >
+                                                {getPaymentStatusLabel(pay.status)}
                                             </span>
-                                        ) : (
-                                            <span className="text-slate-400">—</span>
-                                        )}
-                                    </td>
-                                    <td
-                                        className="px-4 py-3 text-right"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        {retry ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => handleRetryZoho(pay)}
-                                                disabled={isRetrying}
-                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 text-white text-[9px] font-black uppercase tracking-wide hover:bg-amber-600 disabled:opacity-60"
-                                            >
-                                                <RefreshCw
-                                                    size={12}
-                                                    className={isRetrying ? 'animate-spin' : ''}
-                                                />
-                                                {isRetrying ? '…' : 'Retry Zoho'}
-                                            </button>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                onClick={() => openPaymentReceiptInNewTab(pay)}
-                                                className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900 font-bold text-[10px] uppercase tracking-widest ml-auto"
-                                            >
-                                                Open
-                                                <ExternalLink size={12} />
-                                            </button>
-                                        )}
-                                    </td>
-                                </tr>
+                                        </td>
+                                        <td className="px-4 py-3 text-[10px] font-semibold">
+                                            {String(pay.zohoExpenseId || '').trim() ? (
+                                                <span className="text-emerald-700">Synced</span>
+                                            ) : retry ? (
+                                                <span
+                                                    className="text-rose-600"
+                                                    title={pay.zohoSyncError || ''}
+                                                >
+                                                    Failed
+                                                </span>
+                                            ) : (
+                                                <span className="text-slate-400">—</span>
+                                            )}
+                                        </td>
+                                        <td
+                                            className="px-4 py-3 text-right"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            {retry ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRetryZoho(pay)}
+                                                    disabled={isRetrying}
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 text-white text-[9px] font-black uppercase tracking-wide hover:bg-amber-600 disabled:opacity-60"
+                                                >
+                                                    <RefreshCw
+                                                        size={12}
+                                                        className={isRetrying ? 'animate-spin' : ''}
+                                                    />
+                                                    {isRetrying ? '…' : 'Retry Zoho'}
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openPaymentReceiptInNewTab(pay)}
+                                                    className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900 font-bold text-[10px] uppercase tracking-widest ml-auto"
+                                                >
+                                                    Invoice
+                                                    <ExternalLink size={12} />
+                                                </button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                    {attachment && onViewDocument ? (
+                                        <tr className="border-b border-slate-50 bg-slate-50/70">
+                                            <td className="px-4 py-2" />
+                                            <td colSpan={5} className="px-4 py-2">
+                                                <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                                                    <Paperclip size={13} className="text-slate-400" />
+                                                    <span className="font-semibold">Attachment</span>
+                                                    <span className="truncate text-slate-500">
+                                                        {attachment.name ||
+                                                            attachment.filename ||
+                                                            'Payment file'}
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-2 text-right">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openPaymentAttachment(pay)}
+                                                    className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900 font-bold text-[10px] uppercase tracking-widest"
+                                                >
+                                                    View
+                                                    <FileText size={12} />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ) : null}
+                                </Fragment>
                             );
                         })}
                     </tbody>

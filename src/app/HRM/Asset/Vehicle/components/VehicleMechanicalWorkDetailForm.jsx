@@ -866,7 +866,7 @@ export default function VehicleMechanicalWorkDetailForm({
 
                     <div className="mt-4 border-t border-gray-100 pt-4">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                            Rectification Area Photos
+                            Rectification Area Photos (optional)
                         </span>
                         <div className="mt-2 flex flex-wrap gap-2 items-center">
                             {(formData.existingBodyWorkImages || []).map((img, idx) => {

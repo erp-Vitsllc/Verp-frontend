@@ -355,6 +355,7 @@ export default function SalaryTab({
     const accSalaryHistory = employeeProfileCardCrudAccess('hrm_employees_view_salary');
     const canDeleteSalaryHistory = canDeleteEmployeeCard(employee, accSalaryHistory.delete);
     const accSalaryReward = crudAccessUnion(['hrm_reward', 'hrm_reward_create']);
+    const accSalaryFines = crudAccessUnion(['hrm_fine', 'hrm_fine_create']);
     const accSalaryLoans = crudAccessUnion([
         'hrm_loan',
         'hrm_loan_loan',
@@ -4068,6 +4069,9 @@ export default function SalaryTab({
                                                                     title="Payment invoices"
                                                                     emptyMessage="No payment invoices yet"
                                                                     onPaymentsChanged={refreshEmployeePayments}
+                                                                    moduleId="hrm_fine"
+                                                                    allowDownload={accSalaryFines?.download}
+                                                                    onViewDocument={onViewDocument}
                                                                 />
                                                             </td>
                                                         </tr>
@@ -4302,6 +4306,9 @@ export default function SalaryTab({
                                                                             });
                                                                         }}
                                                                         onPaymentsChanged={refreshLoanPayments}
+                                                                        moduleId="hrm_loan"
+                                                                        allowDownload={accSalaryLoans.download}
+                                                                        onViewDocument={onViewDocument}
                                                                     />
                                                                 </td>
                                                             </tr>
@@ -4432,6 +4439,9 @@ export default function SalaryTab({
                                                                             });
                                                                         }}
                                                                         onPaymentsChanged={refreshLoanPayments}
+                                                                        moduleId="hrm_loan"
+                                                                        allowDownload={accSalaryAdvance.download}
+                                                                        onViewDocument={onViewDocument}
                                                                     />
                                                                 </td>
                                                             </tr>

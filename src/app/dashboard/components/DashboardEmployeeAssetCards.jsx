@@ -241,9 +241,13 @@ export default function DashboardEmployeeAssetCards({ embedded = false }) {
             try {
                 const res = await axiosInstance.get('/Employee/dashboard/my-asset-cards', { skipToast: true });
                 if (cancelled || !res?.data) return;
+                const hidePendingAsset = (item) => {
+                    const s = String(item?.status || '').toLowerCase();
+                    return !s.includes('pending') && !s.includes('submitted') && !s.includes('draft') && !s.includes('reject');
+                };
                 setData({
-                    tools: Array.isArray(res.data.tools) ? res.data.tools : [],
-                    vehicles: Array.isArray(res.data.vehicles) ? res.data.vehicles : [],
+                    tools: (Array.isArray(res.data.tools) ? res.data.tools : []).filter(hidePendingAsset),
+                    vehicles: (Array.isArray(res.data.vehicles) ? res.data.vehicles : []).filter(hidePendingAsset),
                     utilities: Array.isArray(res.data.utilities) ? res.data.utilities : [],
                 });
             } catch {

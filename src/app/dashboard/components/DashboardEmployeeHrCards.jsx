@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUpRight, Gift, HandCoins, ShieldAlert, Wallet } from 'lucide-react';
@@ -16,6 +16,20 @@ const EMPTY = {
     rewards: [],
     fines: [],
 };
+
+/** Hide anything still pending with people; keep approved / paid / recovered only. */
+function isSettledHrItem(item) {
+    const s = String(item?.status || '').toLowerCase();
+    if (!s) return false;
+    if (s.includes('pending') || s.includes('draft') || s.includes('reject') || s.includes('cancel')) {
+        return false;
+    }
+    return true;
+}
+
+function settledList(list) {
+    return (Array.isArray(list) ? list : []).filter(isSettledHrItem);
+}
 
 const SPRING = { type: 'spring', stiffness: 380, damping: 36, mass: 0.75 };
 
@@ -65,6 +79,32 @@ const CARD_META = [
 function formatAed(value) {
     const n = Number(value) || 0;
     return `AED ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function itemOutstanding(item) {
+    const outstanding = Number(item?.outstanding);
+    if (Number.isFinite(outstanding)) return Math.max(0, outstanding);
+    const amount = Number(item?.amount) || 0;
+    const repaid = Number(item?.repaid);
+    if (Number.isFinite(repaid)) return Math.max(0, amount - repaid);
+    return 0;
+}
+
+function isRecoveredItem(item) {
+    const s = String(item?.status || '').toLowerCase();
+    const payment = String(item?.payment || '').toLowerCase();
+    if (s.includes('recover') || s.includes('completed') || s === 'paid') return true;
+    if (payment === 'paid') return true;
+    return itemOutstanding(item) <= 0.01;
+}
+
+/** Approved loans, advances, and fines the employee still owes (not rewards, not fully paid). */
+function sumEmployeeToPay(data) {
+    const rows = [...(data?.loans || []), ...(data?.advances || []), ...(data?.fines || [])];
+    return rows.reduce((sum, item) => {
+        if (isRecoveredItem(item)) return sum;
+        return sum + itemOutstanding(item);
+    }, 0);
 }
 
 function formatDate(value) {
@@ -372,10 +412,10 @@ export default function DashboardEmployeeHrCards() {
                 const res = await axiosInstance.get('/Employee/dashboard/my-hr-cards', { skipToast: true });
                 if (cancelled || !res?.data) return;
                 setData({
-                    loans: Array.isArray(res.data.loans) ? res.data.loans : [],
-                    advances: Array.isArray(res.data.advances) ? res.data.advances : [],
-                    rewards: Array.isArray(res.data.rewards) ? res.data.rewards : [],
-                    fines: Array.isArray(res.data.fines) ? res.data.fines : [],
+                    loans: settledList(res.data.loans),
+                    advances: settledList(res.data.advances),
+                    rewards: settledList(res.data.rewards),
+                    fines: settledList(res.data.fines),
                 });
             } catch {
                 if (!cancelled) setData(EMPTY);
@@ -388,6 +428,7 @@ export default function DashboardEmployeeHrCards() {
 
     const expandedCard = CARD_META.find((card) => card.key === expandedKey) || null;
     const expandedItems = expandedCard ? data[expandedCard.key] || [] : [];
+    const payableTotal = useMemo(() => sumEmployeeToPay(data), [data]);
 
     return (
         <DashboardCard variants={dashboardItem} className="px-4 py-3.5">
@@ -396,6 +437,19 @@ export default function DashboardEmployeeHrCards() {
                 iconWrap="bg-violet-50 text-violet-600"
                 title="My Account"
                 subtitle="Loans, rewards, fines, advances and assigned assets"
+                action={
+                    <div className="text-right shrink-0 min-w-[7.5rem]">
+                        <p className="text-[10px] font-medium text-[#8792A6] leading-none">To pay</p>
+                        <p
+                            className={cn(
+                                'mt-1 text-lg sm:text-xl font-bold tabular-nums leading-none',
+                                payableTotal > 0.01 ? 'text-rose-600' : 'text-slate-400',
+                            )}
+                        >
+                            {formatAed(payableTotal)}
+                        </p>
+                    </div>
+                }
             />
 
             <div className="mt-3 grid grid-cols-2 min-[1200px]:grid-cols-4 gap-3">

@@ -502,16 +502,17 @@ export function buildAssetNotificationPath(rawItem) {
             !type.includes('reminder') &&
             !type.includes('contract');
         if (isBillPaymentApproval) {
+            // Group submit notification → open bulk review modal (not one account details).
+            const batchId = String(meta?.batchId || item.id || '').trim();
+            if (batchId) {
+                return `/HRM/Asset/UtilityBills?batchId=${encodeURIComponent(batchId)}`;
+            }
             const fromMeta = buildUtilityBillDetailsPath(meta?.entryId, { billId: meta?.billId });
             if (fromMeta) return fromMeta;
             const fromDetails = preferUtilityBillDetailsPath(meta?.detailsPath);
             if (fromDetails) return fromDetails;
             const fromReview = preferUtilityBillDetailsPath(meta?.reviewPath);
             if (fromReview) return fromReview;
-            const batchId = String(meta?.batchId || item.id || '').trim();
-            if (batchId) {
-                return `/HRM/Asset/UtilityBills?batchId=${encodeURIComponent(batchId)}`;
-            }
         }
         if (meta?.reviewPath) return normalizeNotificationDestinationPath(meta.reviewPath);
         if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
