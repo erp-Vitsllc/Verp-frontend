@@ -36,12 +36,19 @@ export function employeeDataMetrics(row, ctx) {
     const taken = n(balances[row.key]?.taken);
 
     if (row.key === 'on_leave') {
-        const allowed = n(balances.on_leave?.allowed ?? ctx.leavePolicy?.annualAllowedDays);
+        const cycle = ctx.annualLeave || {};
+        const eligible =
+            cycle.leaveEligible === true ||
+            cycle.eligible === true ||
+            n(cycle.completedCycles) > 0;
         const used = n(balances.on_leave?.taken);
+        const allowed = eligible
+            ? n(balances.on_leave?.allowed) || n(ctx.leavePolicy?.annualAllowedDays)
+            : 0;
         return [
             { label: 'Approved', value: allowed },
             { label: 'Used', value: used },
-            { label: 'Remaining', value: n(balances.on_leave?.remaining ?? Math.max(0, allowed - used)) },
+            { label: 'Remaining', value: eligible ? n(balances.on_leave?.remaining ?? Math.max(0, allowed - used)) : 0 },
         ];
     }
     if (row.key === 'authorized_leave') {

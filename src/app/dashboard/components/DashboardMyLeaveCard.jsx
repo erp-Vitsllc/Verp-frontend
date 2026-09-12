@@ -364,6 +364,7 @@ export default function DashboardMyLeaveCard() {
     const [leavePolicy, setLeavePolicy] = useState(null);
     const [enrollAttendance, setEnrollAttendance] = useState({});
     const [requestStats, setRequestStats] = useState({});
+    const [annualLeave, setAnnualLeave] = useState({});
     const [entries, setEntries] = useState([]);
     const [detailKey, setDetailKey] = useState('');
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
@@ -389,6 +390,7 @@ export default function DashboardMyLeaveCard() {
                     setLeavePolicy(null);
                     setEnrollAttendance({});
                     setRequestStats({});
+                    setAnnualLeave({});
                     setEntries([]);
                     return;
                 }
@@ -399,6 +401,7 @@ export default function DashboardMyLeaveCard() {
                     setLeavePolicy(res.data.leavePolicy || null);
                     setEnrollAttendance(res.data.enrollAttendance || {});
                     setRequestStats(res.data.requestStats || {});
+                    setAnnualLeave(res.data.annualLeave || {});
                     setEntries([]);
                     setSummary({
                         ...EMPTY_SUMMARY,
@@ -412,6 +415,7 @@ export default function DashboardMyLeaveCard() {
                 setLeavePolicy(res.data.leavePolicy || null);
                 setEnrollAttendance(res.data.enrollAttendance || {});
                 setRequestStats(res.data.requestStats || {});
+                setAnnualLeave(res.data.annualLeave || {});
                 setEntries(Array.isArray(res.data.entries) ? res.data.entries : []);
                 setSummary({
                     presentDays: n(res.data.presentDays),
@@ -446,6 +450,7 @@ export default function DashboardMyLeaveCard() {
                     setLeavePolicy(payload?.leavePolicy || null);
                     setEnrollAttendance(payload?.enrollAttendance || {});
                     setRequestStats(payload?.requestStats || {});
+                    setAnnualLeave(payload?.annualLeave || {});
                     setEntries([]);
                 }
             }
@@ -466,10 +471,11 @@ export default function DashboardMyLeaveCard() {
             leavePolicy,
             requestStats,
             enrollAttendance,
+            annualLeave,
             presentDays: n(enrollAttendance.office ?? summary.presentDays),
             absentDays: n(enrollAttendance.absent ?? summary.absentDays),
         }),
-        [leaveBalances, leavePolicy, requestStats, enrollAttendance, summary.presentDays, summary.absentDays],
+        [leaveBalances, leavePolicy, requestStats, enrollAttendance, annualLeave, summary.presentDays, summary.absentDays],
     );
 
     const detailHint = (key) => {
