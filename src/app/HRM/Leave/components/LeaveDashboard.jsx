@@ -10,11 +10,11 @@ import {
     BarChart,
     CartesianGrid,
     Legend,
-    ResponsiveContainer,
     Tooltip,
     XAxis,
     YAxis,
 } from 'recharts';
+import RechartsBox from '@/components/charts/RechartsBox';
 import axiosInstance from '@/utils/axios';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { navigateFromList } from '@/utils/listReturnNavigation';
@@ -236,7 +236,14 @@ function LeaveApprovalTable({
                             : ''
                 }`}
             >
-                <td className="px-2 py-3 font-medium text-[#111827]">{row.name}</td>
+                <td className="px-2 py-3 font-medium text-[#111827]">
+                    <span className="block">{row.name}</span>
+                    {row.annualLeaveNotEligible && statusKey === 'pending' ? (
+                        <span className="mt-1 block text-[11px] font-semibold text-red-600">
+                            Not eligible for leave
+                        </span>
+                    ) : null}
+                </td>
                 <td className="px-2 py-3">{row.leaveType}</td>
                 <td className="px-2 py-3">{row.startDate}</td>
                 <td className="px-2 py-3">{row.endDate}</td>
@@ -1117,7 +1124,7 @@ export default function LeaveDashboard({
                                 Loading team leave track...
                             </div>
                         ) : (
-                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
+                            <RechartsBox height={220} minHeight={220} minWidth={0} className="h-full">
                                 <BarChart
                                     data={chartData}
                                     margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
@@ -1180,7 +1187,7 @@ export default function LeaveDashboard({
                                               />
                                           )}
                                 </BarChart>
-                            </ResponsiveContainer>
+                            </RechartsBox>
                         )}
                     </div>
                 </section>

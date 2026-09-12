@@ -562,11 +562,12 @@ export default function UtilityBillReviewModal({
         String(focusedBill?.zohoBillStatus || '').toLowerCase() === 'draft';
 
     // When a group bill is opened from one account, act on that bill only.
-    const canEdit = singleBillMode && focusedStatus
-        ? (focusedStatus === 'Pending Accounts' && Boolean(batch?.actorIsAccounts)) ||
-          (focusedStatus === 'Pending HR' && Boolean(batch?.actorIsHr))
-        : Boolean(batch?.canEdit);
-    const canApproveReject = singleBillMode && focusedStatus ? canEdit : Boolean(batch?.canApproveReject ?? batch?.canEdit);
+    const canApproveReject = Boolean(
+        singleBillMode && focusedBill
+            ? focusedBill.canApproveReject
+            : batch?.canApproveReject,
+    );
+    const canEdit = canApproveReject;
     const canCreatorResend = Boolean(batch?.canCreatorResend) && !canApproveReject && (
         !singleBillMode ||
         ['Pending Accounts', 'Pending HR', 'Rejected'].includes(focusedStatus)

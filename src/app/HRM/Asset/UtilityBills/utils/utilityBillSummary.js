@@ -3,7 +3,7 @@ import {
     getMonthlyRentalAmount,
     isEntryActive,
 } from './utilityBillsStorage';
-import { entryAvailableFromMonth, formatBillMoney, normalizeBillMonthKey } from './utilityBillStats';
+import { entryAvailableFromMonth, formatBillMoney, normalizeBillMonthKey, openUtilityBillMonthKey } from './utilityBillStats';
 import { ALL_MONTHS, MONTH_OPTIONS } from './utilityOverviewStats';
 
 export const SUMMARY_STATUS = {
@@ -17,7 +17,7 @@ function sameType(a, b) {
 }
 
 function calendarYm(refDate = new Date()) {
-    return `${refDate.getFullYear()}-${String(refDate.getMonth() + 1).padStart(2, '0')}`;
+    return openUtilityBillMonthKey(refDate);
 }
 
 function nextYm(ym) {

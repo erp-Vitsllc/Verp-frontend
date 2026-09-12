@@ -645,16 +645,27 @@ function isSalarySlipPayment(cycle) {
     );
 }
 
+function isPaidLeaveSalaryCycle(cycle) {
+    if (!recordIncludesLeave(cycle)) return false;
+    const status = String(cycle?.paymentStatus || cycle?.status || '').toLowerCase();
+    if (status === 'cancelled' || status === 'rejected' || status === 'draft') return false;
+    return status === 'paid' || isSalarySlipPayment(cycle);
+}
+
 function paymentKindRows(cycles, kind, annualLeaves = []) {
     const list = Array.isArray(cycles) ? cycles : [];
     return list
         .map((cycle, cycleIndex) => ({ cycle, cycleIndex }))
         .filter(({ cycle }) => (kind === 'ticket' ? recordIncludesTicket(cycle) : recordIncludesLeave(cycle)))
         .map(({ cycle, cycleIndex }, index) => ({
-            slNo: index + 1,
+            slNo:
+                kind === 'ticket'
+                    ? `TK-${String(index + 1).padStart(2, '0')}`
+                    : `SL-${String(index + 1).padStart(2, '0')}`,
             cycleIndex,
             cycle,
             fromSalarySlip: isSalarySlipPayment(cycle),
+            paidLeaveLocked: isPaidLeaveSalaryCycle(cycle),
             paymentDate:
                 cycle.paymentDate ||
                 (kind === 'ticket'
@@ -693,20 +704,32 @@ function PaymentKindCard({ title, rows, emptyMessage, locked, onEdit, onRemove, 
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.map((row) => (
+                            {rows.map((row) => {
+                                const paidLocked = Boolean(row.paidLeaveLocked);
+                                const canOpen = !locked && (!paidLocked || row.fromSalarySlip);
+                                const canDelete = !locked && !paidLocked;
+                                return (
                                 <tr
                                     key={`${title}-${row.cycleIndex}-${row.slNo}`}
                                     className={`border-b border-[#F1F5F9] last:border-0 ${
                                         row.fromSalarySlip
                                             ? 'bg-amber-100'
-                                            : locked
-                                              ? ''
-                                              : 'cursor-pointer hover:bg-slate-50'
+                                            : ''
                                     } ${
-                                        row.fromSalarySlip && !locked ? 'cursor-pointer hover:bg-amber-50' : ''
+                                        canOpen
+                                            ? row.fromSalarySlip
+                                                ? 'cursor-pointer hover:bg-amber-50'
+                                                : 'cursor-pointer hover:bg-slate-50'
+                                            : ''
                                     }`}
+                                    title={
+                                        paidLocked && !row.fromSalarySlip
+                                            ? 'Paid leave salary cannot be edited or deleted'
+                                            : undefined
+                                    }
                                     onClick={() => {
-                                        if (!locked) onEdit?.(row.cycleIndex, row.cycle);
+                                        if (!canOpen) return;
+                                        onEdit?.(row.cycleIndex, row.cycle);
                                     }}
                                 >
                                     <td className="px-3 py-2.5 text-[13px] tabular-nums text-[#334155]">{row.slNo}</td>
@@ -725,21 +748,23 @@ function PaymentKindCard({ title, rows, emptyMessage, locked, onEdit, onRemove, 
                                         {aed(row.amount, row.currency)}
                                     </td>
                                     <td className="px-2 py-2.5 text-right">
-                                        <button
-                                            type="button"
-                                            disabled={locked}
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                onRemove?.(row.cycleIndex);
-                                            }}
-                                            className="rounded-md p-1 text-[#94A3B8] hover:text-red-600 disabled:opacity-30"
-                                            aria-label={`Delete ${title} payment`}
-                                        >
-                                            <X size={14} />
-                                        </button>
+                                        {canDelete ? (
+                                            <button
+                                                type="button"
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    onRemove?.(row.cycleIndex);
+                                                }}
+                                                className="rounded-md p-1 text-[#94A3B8] hover:text-red-600"
+                                                aria-label={`Delete ${title} payment`}
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        ) : null}
                                     </td>
                                 </tr>
-                            ))}
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
@@ -905,7 +930,7 @@ function EntitlementTable({ entitlement, paymentCycles = [], onSeeDetails, onPay
     }
     return (
         <div className="overflow-x-auto rounded-[10px] border border-[#E6EAF0]">
-            <table className="w-full min-w-[1100px] text-left">
+            <table className="w-full min-w-[980px] text-left">
                 <thead>
                     <tr className="border-b border-[#EEF2F6] text-[10px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
                         <th className="px-3 py-2 font-semibold">#</th>
@@ -917,7 +942,6 @@ function EntitlementTable({ entitlement, paymentCycles = [], onSeeDetails, onPay
                         <th className="px-3 py-2 font-semibold">Ticket</th>
                         <th className="px-3 py-2 font-semibold">Total</th>
                         <th className="px-3 py-2 font-semibold">Balance</th>
-                        <th className="px-3 py-2 font-semibold">Status</th>
                         <th className="px-3 py-2 font-semibold">Payment status</th>
                         <th className="px-3 py-2 font-semibold" />
                     </tr>
@@ -963,9 +987,6 @@ function EntitlementTable({ entitlement, paymentCycles = [], onSeeDetails, onPay
                                 {aedMoney(balanceAmt)}
                             </td>
                             <td className="px-3 py-2.5">
-                                <EntitlementStatusBadge status={row.status} />
-                            </td>
-                            <td className="px-3 py-2.5">
                                 <button
                                     type="button"
                                     onClick={(event) => {
@@ -980,8 +1001,8 @@ function EntitlementTable({ entitlement, paymentCycles = [], onSeeDetails, onPay
                                         paymentAction?.type === 'salarySlip'
                                             ? 'Open salary slip'
                                             : paymentAction?.type === 'paymentCycle'
-                                              ? 'Open payment cycle'
-                                              : 'Add payment cycle'
+                                              ? 'View payment cycle'
+                                              : 'Add a payment from Add payment cycle'
                                     }
                                 >
                                     <EntitlementStatusBadge status={paymentStatus} clickable />
@@ -1020,9 +1041,6 @@ function EntitlementTable({ entitlement, paymentCycles = [], onSeeDetails, onPay
                             <td className="px-3 py-2.5 text-[13px] text-[#94A3B8]">—</td>
                             <td className="px-3 py-2.5 text-[13px] text-[#94A3B8]">—</td>
                             <td className="px-3 py-2.5">
-                                <EntitlementStatusBadge status={next.status} />
-                            </td>
-                            <td className="px-3 py-2.5">
                                 <EntitlementStatusBadge status="Not paid" />
                             </td>
                             <td className="px-3 py-2.5" />
@@ -1045,8 +1063,8 @@ function LeaveSalaryDetailsModal({
     return (
         <ModalShell open={open} title="Leave salary details" onClose={onClose} width="max-w-[96vw] xl:max-w-7xl">
             <p className="mt-1 text-[12px] text-[#64748B]">
-                Click a row to open that entitlement&apos;s calculation details. Click Paid / Not paid to open the
-                payment cycle or salary slip.
+                Click a row to open that entitlement&apos;s calculation details. Click Paid / Not paid to view the
+                payment cycle or salary slip. Use Add payment cycle to save a new payment.
             </p>
             <div className="mt-4 max-h-[78vh] overflow-y-auto pr-1">
                 <EntitlementTable
@@ -2133,6 +2151,7 @@ function AddCycleModal({
     cycleDays,
     nextNumber,
     locked,
+    viewOnly = false,
     initial,
     defaultLeaveSalary,
     editing,
@@ -2176,7 +2195,7 @@ function AddCycleModal({
     );
     const [currency, setCurrency] = useState(initial?.currency || 'AED');
     const [paymentReference, setPaymentReference] = useState(initial?.paymentReference || '');
-    const [paymentStatus, setPaymentStatus] = useState(initial?.paymentStatus || 'paid');
+    const paymentStatus = initial?.paymentStatus || 'paid';
     const [remarks, setRemarks] = useState(initial?.remarks || '');
     const [file, setFile] = useState(null);
     const existingAttachmentName = initial?.attachment?.name || '';
@@ -2189,8 +2208,9 @@ function AddCycleModal({
     const reduceChecked = reduceLocked ? true : reduceHistoricalWorkingDays;
     const leaveAmt = includeLeave ? Number(leaveSalaryAmount) || 0 : 0;
     const ticketAmt = includeTicket ? Number(ticketAmount) || 0 : 0;
+    const fieldsDisabled = Boolean(locked || viewOnly);
     const canSave =
-        !locked &&
+        !fieldsDisabled &&
         Boolean(paymentDate) &&
         (includeLeave || includeTicket) &&
         (leaveAmt > 0 || ticketAmt > 0);
@@ -2288,8 +2308,17 @@ function AddCycleModal({
     }
 
     return (
-        <ModalShell open={open} title={editing ? 'Edit payment cycle' : 'Add payment cycle'} onClose={onClose} width="max-w-2xl">
-            <div className="mt-4 grid max-h-[70vh] grid-cols-2 gap-3 overflow-y-auto pr-1">
+        <ModalShell
+            open={open}
+            title={viewOnly ? 'Payment cycle' : editing ? 'Edit payment cycle' : 'Add payment cycle'}
+            onClose={onClose}
+            width="max-w-2xl"
+        >
+            <fieldset
+                disabled={fieldsDisabled}
+                className={`mt-4 min-w-0 border-0 p-0 ${fieldsDisabled ? 'pointer-events-none' : ''}`}
+            >
+            <div className="grid max-h-[70vh] grid-cols-2 gap-3 overflow-y-auto pr-1">
                 <label className="col-span-2 block">
                     <FieldLabel>Annual leave</FieldLabel>
                     <select
@@ -2386,19 +2415,6 @@ function AddCycleModal({
                     />
                 </label>
                 <label className="block">
-                    <FieldLabel>Payment status</FieldLabel>
-                    <select
-                        value={paymentStatus}
-                        onChange={(e) => setPaymentStatus(e.target.value)}
-                        className="h-11 w-full rounded-xl border px-3 text-sm"
-                    >
-                        <option value="draft">Draft</option>
-                        <option value="paid">Paid</option>
-                        <option value="cancelled">Cancelled</option>
-                        <option value="rejected">Rejected</option>
-                    </select>
-                </label>
-                <label className="block">
                     <FieldLabel>Payment reference</FieldLabel>
                     <input
                         value={paymentReference}
@@ -2425,7 +2441,14 @@ function AddCycleModal({
                     ) : null}
                 </label>
             </div>
+            </fieldset>
             <div className="mt-5 flex justify-end gap-2">
+                {viewOnly ? (
+                    <button type="button" onClick={onClose} className="h-10 rounded-xl border px-4 text-sm font-semibold">
+                        Close
+                    </button>
+                ) : (
+                    <>
                 <button type="button" onClick={onClose} className="h-10 rounded-xl border px-4 text-sm font-semibold">
                     Cancel
                 </button>
@@ -2444,6 +2467,8 @@ function AddCycleModal({
                 >
                     {editing ? 'Save' : 'Add cycle'}
                 </button>
+                    </>
+                )}
             </div>
         </ModalShell>
     );
@@ -2527,6 +2552,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [cycleModal, setCycleModal] = useState(false);
     const [cycleDraft, setCycleDraft] = useState(null);
     const [cycleDraftIndex, setCycleDraftIndex] = useState(null);
+    const [cycleModalViewOnly, setCycleModalViewOnly] = useState(false);
     const [cycleDeleteIndex, setCycleDeleteIndex] = useState(null);
     const [leaveDeleteRow, setLeaveDeleteRow] = useState(null);
     const [entitlementDetail, setEntitlementDetail] = useState(null);
@@ -2840,23 +2866,38 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         const cycle = paymentCycles[index];
         return !cycle || !(Number(cycle.leaveSalaryAmount || cycle.leaveSalary) > 0);
     })?.leaveSalary;
+    const leaveSalaryPaid = cycleLeaveSalaryPaid(paymentCycles);
+    const ticketPaid = cycleTicketPaid(paymentCycles);
     const leaveSalaryBalance = payableBalance(
         leaveSalaryEntitlement.totalLeaveSalary,
-        cycleLeaveSalaryPaid(paymentCycles),
+        leaveSalaryPaid,
     );
     const ticketBalance = payableBalance(
         leaveSalaryEntitlement.totalTicketAmount,
-        cycleTicketPaid(paymentCycles),
+        ticketPaid,
     );
+    const totalSalaryPayable =
+        (Number(leaveSalaryEntitlement.totalLeaveSalary) || 0) +
+        (Number(leaveSalaryEntitlement.totalTicketAmount) || 0);
+    const paidSalary = leaveSalaryPaid + ticketPaid;
+    const salaryPayableBalance = payableBalance(totalSalaryPayable, paidSalary);
     const workflowStatus = data?.workflowStatus || 'draft';
     const permissions = data?.permissions || {};
     const isSalaryHr = Boolean(permissions.isSalaryHr);
+    const isAdminOfficer = Boolean(permissions.isAdminOfficer);
     const pendingHr = workflowStatus === 'pending_hr' || Boolean(data?.approvalSent);
     const enrolled = Boolean(data?.enrolled) || workflowStatus === 'locked';
+    const processingReached = Boolean(data?.liveAttendance?.processingMonthReached);
     const canSeeMolCodes = Boolean(permissions.canViewPayrollCodes ?? canSeePayrollCodes);
-    const canToggleSalarySlip = Boolean(!pendingHr && (enrolled ? isSalaryHr : hrEdit));
+    const canToggleSalarySlip = Boolean(
+        !pendingHr && (enrolled || processingReached ? isAdminOfficer : hrEdit),
+    );
     const canResetEnrollment = Boolean(permissions.canResetEnrollment);
-    const locked = pendingHr || (enrolled ? !isSalaryHr : !hrEdit || !permissions.canEdit);
+    const locked =
+        pendingHr ||
+        (enrolled || processingReached
+            ? !isAdminOfficer
+            : !hrEdit || !permissions.canEdit);
     const currentSnapshot = useMemo(
         () =>
             buildFormSnapshot({
@@ -2885,7 +2926,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         ],
     );
     const hasUnsavedChanges = Boolean(savedSnapshot) && currentSnapshot !== savedSnapshot;
-    const canUpdateCreated = enrolled && isSalaryHr && !pendingHr;
+    const canUpdateCreated = (enrolled || processingReached) && isAdminOfficer && !pendingHr;
     const updateDisabled = saving || !canUpdateCreated || !hasUnsavedChanges;
     const readiness = data?.readiness;
     const emp = data?.employee;
@@ -3000,7 +3041,9 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const migrationComplete = Boolean(joiningDate && verpStartDate && historicalTo);
     const enrollStatus = pendingHr
         ? 'Approval sent'
-        : enrolled
+        : enrolled && processingReached
+            ? 'Processed'
+            : enrolled
             ? 'Enrolled'
             : workflowStatus === 'verified'
                 ? 'Verified'
@@ -3262,9 +3305,16 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                                         Employee Salary Profile
                                     </p>
-                                    <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">
-                                        Historical Salary Setup
-                                    </h1>
+                                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                                        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">
+                                            Historical Salary Setup
+                                        </h1>
+                                        <span
+                                            className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${enrollTone}`}
+                                        >
+                                            {enrollStatus}
+                                        </span>
+                                    </div>
                                     <p className="mt-1 max-w-2xl text-sm text-slate-500">
                                         Complete and verify the employee&apos;s historical data before processing salary in
                                         VERP.
@@ -3306,8 +3356,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                         onClick={() => runAction('', 'put', 'Profile updated')}
                                         disabled={updateDisabled}
                                         title={
-                                            !isSalaryHr
-                                                ? 'Only flowchart HR can update a created salary profile'
+                                            !isAdminOfficer
+                                                ? 'Only the flowchart Admin Officer can update an enrolled salary profile'
                                                 : hasUnsavedChanges
                                                     ? 'Save changes to this salary profile'
                                                     : 'Update is available after you change something on this page'
@@ -3579,7 +3629,10 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 <div className="block">
                                                     <FieldLabel required>Contract joining date</FieldLabel>
                                                     <div className="relative">
-                                                        {permissions.canChangeJoiningDate || (enrolled && isSalaryHr && !pendingHr) ? (
+                                                        {permissions.canChangeJoiningDate ||
+                                                        ((enrolled || processingReached) &&
+                                                            isAdminOfficer &&
+                                                            !pendingHr) ? (
                                                             <DatePicker
                                                                 value={joiningDatePrompt || joiningDate}
                                                                 onChange={(value) => {
@@ -3880,6 +3933,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         onClick={() => {
                                                             setCycleDraftIndex(null);
                                                             setCycleDraft(null);
+                                                            setCycleModalViewOnly(false);
                                                             setCycleModal(true);
                                                         }}
                                                     >
@@ -3887,59 +3941,21 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     </GhostButton>
                                                 </div>
                                             </div>
-                                            <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                                            <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
                                                 <DetailStat
-                                                    label="Leave salary balance"
-                                                    value={aedMoney(leaveSalaryBalance)}
-                                                    tone="danger"
+                                                    label="Total salary payable (leave + ticket)"
+                                                    value={aedMoney(totalSalaryPayable)}
                                                 />
                                                 <DetailStat
-                                                    label="Completed"
-                                                    value={completedOverTotal(
-                                                        leaveSalaryEntitlement.completedEntitlements,
-                                                        leaveSalaryEntitlement.availableEntitlements,
-                                                    )}
+                                                    label="Paid salary"
+                                                    value={aedMoney(paidSalary)}
                                                 />
                                                 <DetailStat
                                                     label="Balance"
-                                                    value={`${leaveSalaryEntitlement.remainingDays} / ${leaveSalaryEntitlement.requiredDaysPerEntitlement}`}
-                                                />
-                                                <DetailStat
-                                                    label="Leave salary"
-                                                    value={`${completedOverTotal(
-                                                        leaveSalaryEntitlement.leaveSalaryCount,
-                                                        leaveSalaryEntitlement.availableEntitlements,
-                                                    )} entitlements`}
-                                                />
-                                                <DetailStat
-                                                    label="Ticket"
-                                                    value={`${completedOverTotal(
-                                                        leaveSalaryEntitlement.ticketCount,
-                                                        leaveSalaryEntitlement.availableEntitlements,
-                                                    )} entitlements`}
-                                                />
-                                                <DetailStat
-                                                    label="Ticket balance"
-                                                    value={aedMoney(ticketBalance)}
-                                                    tone="danger"
+                                                    value={aedMoney(salaryPayableBalance)}
+                                                    tone={salaryPayableBalance > 0 ? 'danger' : 'default'}
                                                 />
                                             </div>
-                                            {leaveSalaryEntitlement.availableEntitlements > 0 && (
-                                                <div className="mb-4 flex flex-wrap gap-3 text-[12px] text-[#64748B]">
-                                                    <span>
-                                                        Total leave salary{' '}
-                                                        <strong className="text-[#0F172A]">
-                                                            {aedMoney(leaveSalaryEntitlement.totalLeaveSalary)}
-                                                        </strong>
-                                                    </span>
-                                                    <span>
-                                                        Total ticket{' '}
-                                                        <strong className="text-[#0F172A]">
-                                                            {aedMoney(leaveSalaryEntitlement.totalTicketAmount)}
-                                                        </strong>
-                                                    </span>
-                                                </div>
-                                            )}
                                             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
                                                 <PaymentKindCard
                                                     title="Leave"
@@ -3956,11 +3972,16 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                                 return;
                                                             }
                                                         }
+                                                        if (isPaidLeaveSalaryCycle(cycle)) return;
                                                         setCycleDraftIndex(cycleIndex);
                                                         setCycleDraft(cycle);
+                                                        setCycleModalViewOnly(false);
                                                         setCycleModal(true);
                                                     }}
-                                                    onRemove={(cycleIndex) => setCycleDeleteIndex(cycleIndex)}
+                                                    onRemove={(cycleIndex) => {
+                                                        if (isPaidLeaveSalaryCycle(paymentCycles[cycleIndex])) return;
+                                                        setCycleDeleteIndex(cycleIndex);
+                                                    }}
                                                 />
                                                 <PaymentKindCard
                                                     title="Ticket"
@@ -3977,11 +3998,16 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                                 return;
                                                             }
                                                         }
+                                                        if (isPaidLeaveSalaryCycle(cycle)) return;
                                                         setCycleDraftIndex(cycleIndex);
                                                         setCycleDraft(cycle);
+                                                        setCycleModalViewOnly(false);
                                                         setCycleModal(true);
                                                     }}
-                                                    onRemove={(cycleIndex) => setCycleDeleteIndex(cycleIndex)}
+                                                    onRemove={(cycleIndex) => {
+                                                        if (isPaidLeaveSalaryCycle(paymentCycles[cycleIndex])) return;
+                                                        setCycleDeleteIndex(cycleIndex);
+                                                    }}
                                                 />
                                             </div>
                                             <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-600">
@@ -4221,13 +4247,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                         setLeaveSalaryDetailsOpen(false);
                         setCycleDraftIndex(action.cycleIndex);
                         setCycleDraft(action.cycle);
-                        setCycleModal(true);
-                        return;
-                    }
-                    if (action.type === 'addPaymentCycle') {
-                        setLeaveSalaryDetailsOpen(false);
-                        setCycleDraftIndex(null);
-                        setCycleDraft(null);
+                        setCycleModalViewOnly(true);
                         setCycleModal(true);
                     }
                 }}
@@ -4297,6 +4317,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 key={cycleModal ? `cycle-open-${cycleDraftIndex ?? 'new'}-${cycleDraft?.annualLeaveKey || ''}` : 'cycle-closed'}
                 open={cycleModal}
                 locked={locked}
+                viewOnly={cycleModalViewOnly}
                 editing={Number.isInteger(cycleDraftIndex)}
                 cycleDays={cycleDays}
                 nextNumber={paymentCycles.length + 1}
@@ -4310,6 +4331,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     setCycleModal(false);
                     setCycleDraft(null);
                     setCycleDraftIndex(null);
+                    setCycleModalViewOnly(false);
                 }}
                 onSave={async (payload) => {
                     const rows = Array.isArray(payload) ? payload : [payload];
@@ -4430,6 +4452,13 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                             const index = cycleDeleteIndex;
                             setCycleDeleteIndex(null);
                             if (!Number.isInteger(index)) return;
+                            if (isPaidLeaveSalaryCycle(paymentCycles[index])) {
+                                toast({
+                                    title: 'Paid leave salary cannot be edited or deleted',
+                                    variant: 'destructive',
+                                });
+                                return;
+                            }
                             const next = paymentCycles.filter((_, i) => i !== index);
                             setPaymentCycles(next);
                             const ok = await persistRecords(leaveRecords, next, 'Payment cycle deleted');

@@ -31,7 +31,12 @@ import { buildLoanFormSummaries, EMPTY_LOAN_FORM_SUMMARIES } from '../utils/buil
 import { isApprovedLoanRecord } from '../utils/loanScheduleUtils';
 import {
     canAccountsPayLoan,
+    canAccountsCollectLoanRepayment,
 } from '../utils/loanPaymentPrefill';
+import { getLoanRepaymentBalance } from '../utils/loanStatusConstants';
+import FinePayChoiceModal from '@/app/HRM/Fine/components/FinePayChoiceModal';
+import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
+import LoanEmployeePayModal from '../components/LoanEmployeePayModal';
 import { notifyLoanPendingInboxChanged } from '../utils/loanPendingInboxCount';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
@@ -76,6 +81,9 @@ export default function LoanRequestDetails() {
     const [summaryViewMode, setSummaryViewMode] = useState('count');
     const [isProcessing, setIsProcessing] = useState(false);
     const [isResubmittingModal, setIsResubmittingModal] = useState(false);
+    const [loanPayChoiceOpen, setLoanPayChoiceOpen] = useState(false);
+    const [loanEmployeePayOpen, setLoanEmployeePayOpen] = useState(false);
+    const [loanCompanyRefundOpen, setLoanCompanyRefundOpen] = useState(false);
 
     useEffect(() => {
         if (loan && loan.employeeId) {
@@ -1277,7 +1285,10 @@ export default function LoanRequestDetails() {
                                 onPartyPayableSaved={() => fetchLoanDetails()}
                                 onRetryZohoSuccess={() => fetchLoanDetails()}
                                 onPaymentSuccess={() => fetchLoanDetails()}
-                                allowPay={canAccountsPayLoan(loan, currentUser)}
+                                allowPay={
+                                    isAdmin() || canAccountsCollectLoanRepayment(loan, currentUser)
+                                }
+                                onPay={() => setLoanPayChoiceOpen(true)}
                             />
                         </div>
 
@@ -1309,6 +1320,50 @@ export default function LoanRequestDetails() {
                     </div>
                 </div>
             </div>
+
+            <FinePayChoiceModal
+                isOpen={loanPayChoiceOpen}
+                title={String(loan?.type || '').trim() === 'Advance' ? 'Pay Advance' : 'Pay Loan'}
+                fineId={loan?.loanId || ''}
+                showVendorCredit={false}
+                showEmployeePay
+                employeePayLabel="Employee Pay"
+                employeePayHint="Salary or cash. Marks Paid Employee. Emails the invoice to the employee. No Zoho entry."
+                onClose={() => setLoanPayChoiceOpen(false)}
+                onExpenseRefund={() => {
+                    setLoanPayChoiceOpen(false);
+                    setLoanCompanyRefundOpen(true);
+                }}
+                onEmployeePay={() => {
+                    setLoanPayChoiceOpen(false);
+                    setLoanEmployeePayOpen(true);
+                }}
+            />
+
+            <LoanEmployeePayModal
+                isOpen={loanEmployeePayOpen}
+                loan={loan}
+                employeeId={employeeOwnerId || employee?.employeeId || ''}
+                employee={employee}
+                onClose={() => setLoanEmployeePayOpen(false)}
+                onSuccess={async () => {
+                    setLoanEmployeePayOpen(false);
+                    await fetchLoanDetails();
+                }}
+            />
+
+            <FineCompanyRefundModal
+                isOpen={loanCompanyRefundOpen}
+                employee={employee}
+                employeeId={employeeOwnerId || employee?.employeeId || ''}
+                loans={loan ? [loan] : []}
+                getLoanBalance={getLoanRepaymentBalance}
+                onClose={() => setLoanCompanyRefundOpen(false)}
+                onSuccess={async () => {
+                    setLoanCompanyRefundOpen(false);
+                    await fetchLoanDetails();
+                }}
+            />
 
             <AddLoanModal
                 isOpen={isEditModalOpen || isResubmittingModal}

@@ -305,7 +305,11 @@ export default function EnrollSalaryModal({ open, onClose, onEnrolled, targetEmp
                 ) : isPolicyStep ? (
                     <>
                         <div className="px-4 sm:px-5 py-4 overflow-y-auto flex-1 min-h-0">
-                            <SalaryPolicyFields form={policyForm} setForm={setPolicyForm} />
+                            <SalaryPolicyFields
+                                form={policyForm}
+                                setForm={setPolicyForm}
+                                showGroupLeaveCapFields={false}
+                            />
                         </div>
                         <div className="flex justify-end gap-2 px-4 sm:px-5 py-3 border-t border-gray-100 shrink-0 bg-white rounded-b-xl">
                             <button

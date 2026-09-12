@@ -17,7 +17,7 @@ export default function VehicleFuelEditButton({
                 onClick?.(event);
             }}
             title={disabled ? 'Only flowchart HR can edit fuel' : title}
-            className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold uppercase tracking-wide ${
+            className={`inline-flex h-7 min-w-[3.85rem] items-center justify-center gap-1 rounded-md border px-2 text-[10px] font-semibold uppercase tracking-wide ${
                 disabled
                     ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
                     : 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'

@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+    addDays,
     addMonths,
+    addWeeks,
+    addYears,
     eachDayOfInterval,
     endOfMonth,
     endOfWeek,
@@ -13,7 +16,14 @@ import {
     startOfWeek,
     subMonths,
 } from 'date-fns';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, List } from 'lucide-react';
+import {
+    DayLeavesModal,
+    LeaveCalendarDayView,
+    LeaveCalendarWeekView,
+    LeaveCalendarYearView,
+} from './LeaveCalendarPeriodViews';
+import AnnualLeaveCalendarList from './AnnualLeaveCalendarList';
 import axiosInstance from '@/utils/axios';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { filterLeaveEntriesBySalary, isAllLeaveYear, isSalaryProcessingMonthOpen, processingStartForEmployee, useLeaveSalaryVisibility } from '../utils/leaveSalaryVisibility';
@@ -29,13 +39,26 @@ import {
     firstNameFromDisplay,
     formatDateKey,
     isValidDateKey,
+    FOCUSED_LEAVE_META,
     LEAVE_LEGEND,
+    LEAVE_STATUS_META,
     leaveMetaForStatus,
     leaveTypeFromStatusKey,
     nextDateKey,
+    SELECTED_DRAFT_META,
 } from '../utils/leaveCalendarUtils';
 
 const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+const CALENDAR_KIND_FILTERS = [
+    { key: 'all', label: 'All' },
+    { key: 'annual', label: 'Annual leave' },
+];
+const CALENDAR_VIEW_MODES = [
+    { key: 'day', label: 'Day' },
+    { key: 'week', label: 'Week' },
+    { key: 'month', label: 'Month' },
+    { key: 'year', label: 'Year' },
+];
 const MAX_VISIBLE_LANES = 3;
 const LANE_HEIGHT = 26;
 const CELL_PADDING_Y = 8;
@@ -77,6 +100,24 @@ function buildCalendarDays(monthDate) {
     const gridStart = startOfWeek(monthStart, { weekStartsOn: 0 });
     const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
     return eachDayOfInterval({ start: gridStart, end: gridEnd });
+}
+
+function dubaiTodayDate() {
+    const key = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Dubai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date());
+    const [year, month, day] = key.split('-').map(Number);
+    return new Date(year, month - 1, day);
+}
+
+function shiftAnchorDate(value, viewMode, direction) {
+    if (viewMode === 'day') return addDays(value, direction);
+    if (viewMode === 'week') return addWeeks(value, direction);
+    if (viewMode === 'year') return addYears(value, direction);
+    return addMonths(value, direction);
 }
 
 function DayLabel({ day, isSelected, inMonth }) {
@@ -519,7 +560,7 @@ export default function LeaveCalendarView({
     yearMax,
     onYearChange,
     groupEmployeeIds = null,
-    statusFilter = 'all',
+    statusFilter: _statusFilter = 'all',
     onConfirm,
     onDraftRangeChange,
     onPendingRangeChange,
@@ -541,6 +582,10 @@ export default function LeaveCalendarView({
     const [error, setError] = useState('');
     const [selectedDateKey, setSelectedDateKey] = useState(from || '');
     const [expandedDateKey, setExpandedDateKey] = useState('');
+    const [kindFilter, setKindFilter] = useState('all');
+    const [viewMode, setViewMode] = useState('month');
+    const [listMode, setListMode] = useState(false);
+    const [dayModalKey, setDayModalKey] = useState('');
     const [draftFrom, setDraftFrom] = useState(from || '');
     const [draftTo, setDraftTo] = useState(to || '');
     const [dragEdge, setDragEdge] = useState(null);
@@ -564,10 +609,35 @@ export default function LeaveCalendarView({
 
     const calendarDays = useMemo(() => buildCalendarDays(monthDate), [monthDate]);
     const weeks = useMemo(() => chunkWeeks(calendarDays), [calendarDays]);
-    const monthFrom = calendarDays[0] ? formatDateKey(calendarDays[0]) : from;
-    const monthTo = calendarDays.length
-        ? formatDateKey(calendarDays[calendarDays.length - 1])
-        : to;
+    const weekDaysForView = useMemo(
+        () => eachDayOfInterval({
+            start: startOfWeek(monthDate, { weekStartsOn: 0 }),
+            end: endOfWeek(monthDate, { weekStartsOn: 0 }),
+        }),
+        [monthDate],
+    );
+    const fetchRange = useMemo(() => {
+        if (viewMode === 'day') {
+            const key = formatDateKey(monthDate);
+            return { from: key, to: key };
+        }
+        if (viewMode === 'week') {
+            return {
+                from: formatDateKey(weekDaysForView[0]),
+                to: formatDateKey(weekDaysForView[weekDaysForView.length - 1]),
+            };
+        }
+        if (viewMode === 'year') {
+            const yearValue = monthDate.getFullYear();
+            return { from: `${yearValue}-01-01`, to: `${yearValue}-12-31` };
+        }
+        return {
+            from: calendarDays[0] ? formatDateKey(calendarDays[0]) : '',
+            to: calendarDays.length ? formatDateKey(calendarDays[calendarDays.length - 1]) : '',
+        };
+    }, [calendarDays, monthDate, viewMode, weekDaysForView]);
+    const monthFrom = fetchRange.from;
+    const monthTo = fetchRange.to;
 
     draftRangeRef.current = { from: draftFrom, to: draftTo };
 
@@ -582,7 +652,11 @@ export default function LeaveCalendarView({
         setError('');
         try {
             const response = await axiosInstance.get('/Leave/calendar', {
-                params: { from: monthFrom, to: monthTo, leaveType: 'all' },
+                params: {
+                    from: monthFrom,
+                    to: monthTo,
+                    leaveType: kindFilter === 'annual' ? 'annual' : 'all',
+                },
                 skipToast: true,
             });
             setEntries(Array.isArray(response.data?.entries) ? response.data.entries : []);
@@ -592,11 +666,12 @@ export default function LeaveCalendarView({
         } finally {
             setLoading(false);
         }
-    }, [monthFrom, monthTo]);
+    }, [kindFilter, monthFrom, monthTo]);
 
     useEffect(() => {
+        if (listMode) return;
         fetchCalendar();
-    }, [fetchCalendar, refreshKey]);
+    }, [fetchCalendar, listMode, refreshKey]);
 
     useEffect(() => {
         if (dragEdge) return;
@@ -621,6 +696,47 @@ export default function LeaveCalendarView({
             return new Date(selectedYear, current.getMonth(), 1);
         });
     }, [isAllYear, selectedYear]);
+
+    const handleViewModeChange = useCallback(
+        (nextMode) => {
+            setViewMode(nextMode);
+            setExpandedDateKey('');
+            setDayModalKey('');
+            if (nextMode !== 'day') return;
+            const today = dubaiTodayDate();
+            const todayYear = today.getFullYear();
+            if (todayYear < calendarMinYear || todayYear > calendarMaxYear) return;
+            setMonthDate(today);
+            if (!isAllYear && todayYear !== selectedYear) onYearChange?.(todayYear);
+        },
+        [calendarMaxYear, calendarMinYear, isAllYear, onYearChange, selectedYear],
+    );
+
+    const handleShiftPeriod = useCallback(
+        (direction) => {
+            setExpandedDateKey('');
+            setDayModalKey('');
+            setMonthDate((value) => {
+                const next = shiftAnchorDate(value, viewMode, direction);
+                const nextYear = next.getFullYear();
+                if (nextYear < calendarMinYear || nextYear > calendarMaxYear) return value;
+                if (!isAllYear && nextYear !== selectedYear) onYearChange?.(nextYear);
+                return next;
+            });
+        },
+        [calendarMaxYear, calendarMinYear, isAllYear, onYearChange, selectedYear, viewMode],
+    );
+
+    const periodTitle = useMemo(() => {
+        if (viewMode === 'day') return format(monthDate, 'EEEE, d MMMM yyyy');
+        if (viewMode === 'week') {
+            const start = weekDaysForView[0];
+            const end = weekDaysForView[weekDaysForView.length - 1];
+            return `${format(start, 'd MMM')} – ${format(end, 'd MMM yyyy')}`;
+        }
+        if (viewMode === 'year') return format(monthDate, 'yyyy');
+        return format(monthDate, 'MMMM yyyy');
+    }, [monthDate, viewMode, weekDaysForView]);
 
     const dateFromClientPoint = useCallback(
         (clientX, clientY) => {
@@ -907,11 +1023,11 @@ export default function LeaveCalendarView({
                 groupEmployeeIds.has(String(entry.employeeMongoId || '')),
             );
         }
-        if (statusFilter && statusFilter !== 'all') {
-            visible = visible.filter((entry) => String(entry.statusKey || '') === statusFilter);
+        if (kindFilter === 'annual') {
+            visible = visible.filter((entry) => String(entry.statusKey || '') === 'on_leave');
         }
         return visible;
-    }, [entries, groupEmployeeIds, salaryVisibility, statusFilter]);
+    }, [entries, groupEmployeeIds, kindFilter, salaryVisibility]);
 
     const draftSpan = useMemo(
         () =>
@@ -1067,58 +1183,114 @@ export default function LeaveCalendarView({
                 fillViewport ? 'flex min-h-0 flex-1 flex-col' : ''
             }`}
         >
-                <div className="flex shrink-0 flex-col gap-4 border-b border-[#E5E7EB] px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-                    <h2 className="text-[15px] font-semibold text-[#111827]">Leave Calendar</h2>
+                <div className="flex shrink-0 flex-col gap-4 border-b border-[#E5E7EB] px-5 py-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex flex-wrap items-center gap-3">
+                        <h2 className="text-[15px] font-semibold text-[#111827]">
+                            {listMode ? 'Annual Leave Calendar List' : 'Leave Calendar'}
+                        </h2>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setListMode((value) => !value);
+                                setExpandedDateKey('');
+                                setDayModalKey('');
+                            }}
+                            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12px] font-semibold ${
+                                listMode
+                                    ? 'border-[#2563EB] bg-[#EFF6FF] text-[#1D4ED8]'
+                                    : 'border-[#E5E7EB] bg-white text-[#374151] hover:bg-[#F9FAFB]'
+                            }`}
+                        >
+                            {listMode ? <CalendarDays size={14} /> : <List size={14} />}
+                            {listMode ? 'Leave Calendar' : 'Annual Leave Calendar List'}
+                        </button>
+                        {listMode ? null : (
+                        <div className="flex items-center gap-1 rounded-full border border-[#E5E7EB] bg-[#F9FAFB] p-0.5">
+                            {CALENDAR_KIND_FILTERS.map((opt) => {
+                                const active = kindFilter === opt.key;
+                                return (
+                                    <button
+                                        key={opt.key}
+                                        type="button"
+                                        onClick={() => {
+                                            setExpandedDateKey('');
+                                            setKindFilter(opt.key);
+                                        }}
+                                        className={`h-7 rounded-full px-3 text-[11px] font-semibold transition-colors ${
+                                            active
+                                                ? 'bg-white text-[#111827] shadow-sm'
+                                                : 'text-[#6B7280] hover:text-[#111827]'
+                                        }`}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        )}
+                    </div>
+                    {listMode ? null : (
+                    <div className="grid grid-cols-4 gap-1.5 sm:w-[22rem]">
+                        {CALENDAR_VIEW_MODES.map((opt) => {
+                            const active = viewMode === opt.key;
+                            return (
+                                <button
+                                    key={opt.key}
+                                    onClick={() => handleViewModeChange(opt.key)}
+                                    type="button"
+                                    className={`rounded-lg border px-2 py-2 text-[12px] font-semibold ${
+                                        active
+                                            ? 'border-[#2563EB] bg-[#EFF6FF] text-[#1D4ED8]'
+                                            : 'border-[#E5E7EB] bg-white text-[#4B5563] hover:bg-[#F9FAFB]'
+                                    }`}
+                                >
+                                    {opt.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    )}
+                    </div>
 
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
+                    {listMode ? null : (
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-center justify-center gap-3 text-sm font-medium text-[#374151]">
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setExpandedDateKey('');
-                                    setMonthDate((value) => {
-                                        const next = subMonths(value, 1);
-                                        const nextYear = next.getFullYear();
-                                        if (nextYear < calendarMinYear || nextYear > calendarMaxYear) {
-                                            return value;
-                                        }
-                                        if (!isAllYear && nextYear !== selectedYear) {
-                                            onYearChange?.(nextYear);
-                                        }
-                                        return next;
-                                    });
-                                }}
+                                onClick={() => handleShiftPeriod(-1)}
                                 className="rounded p-0.5 text-[#6B7280] hover:bg-[#F3F4F6]"
-                                aria-label="Previous month"
+                                aria-label={`Previous ${viewMode}`}
                             >
                                 <ChevronLeft size={18} />
                             </button>
-                            <span>{format(monthDate, 'MMMM yyyy')}</span>
+                            <span className="min-w-[10rem] text-center">{periodTitle}</span>
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setExpandedDateKey('');
-                                    setMonthDate((value) => {
-                                        const next = addMonths(value, 1);
-                                        const nextYear = next.getFullYear();
-                                        if (nextYear < calendarMinYear || nextYear > calendarMaxYear) {
-                                            return value;
-                                        }
-                                        if (!isAllYear && nextYear !== selectedYear) {
-                                            onYearChange?.(nextYear);
-                                        }
-                                        return next;
-                                    });
-                                }}
+                                onClick={() => handleShiftPeriod(1)}
                                 className="rounded p-0.5 text-[#6B7280] hover:bg-[#F3F4F6]"
-                                aria-label="Next month"
+                                aria-label={`Next ${viewMode}`}
                             >
                                 <ChevronRight size={18} />
                             </button>
                         </div>
 
+                        {viewMode === 'year' ? (
+                            <div className="flex items-center gap-1.5 text-[11px] text-[#6B7280]">
+                                <span className="inline-flex h-3 w-3 rounded-full bg-[#EF4444]" />
+                                Leave day — click to view
+                            </div>
+                        ) : (
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                            {LEAVE_LEGEND.map((item) => (
+                            {(kindFilter === 'annual'
+                                ? LEAVE_LEGEND.filter(
+                                      (item) =>
+                                          item === LEAVE_STATUS_META.on_leave ||
+                                          item === SELECTED_DRAFT_META ||
+                                          item === FOCUSED_LEAVE_META,
+                                  )
+                                : LEAVE_LEGEND
+                            ).map((item) => (
                                 <span
                                     key={item.label}
                                     className="inline-flex items-center gap-1.5 text-[11px] text-[#6B7280]"
@@ -1131,16 +1303,30 @@ export default function LeaveCalendarView({
                                 </span>
                             ))}
                         </div>
+                        )}
                     </div>
+                    )}
                 </div>
 
-                {error ? (
+                {listMode ? null : error ? (
                     <div className="px-5 pt-4">
                         <ErpErrorBanner message={error} onRetry={fetchCalendar} />
                     </div>
                 ) : null}
 
-                <div className={fillViewport ? 'flex min-h-0 flex-1 flex-col overflow-x-auto' : 'overflow-x-auto'}>
+                {listMode ? (
+                    <div className={fillViewport ? 'flex min-h-0 flex-1 flex-col' : ''}>
+                    <AnnualLeaveCalendarList
+                        year={selectedYear}
+                        yearMin={calendarMinYear}
+                        yearMax={calendarMaxYear}
+                        onYearChange={onYearChange}
+                        refreshKey={refreshKey}
+                    />
+                    </div>
+                ) : (
+                <div className={fillViewport ? 'flex min-h-0 flex-1 flex-col overflow-auto' : 'overflow-auto'}>
+                    {viewMode === 'month' ? (
                     <div className={fillViewport ? 'flex min-h-0 min-w-[820px] flex-1 flex-col' : 'min-w-[820px]'}>
                         <div className="grid shrink-0 grid-cols-7 border-b border-[#E5E7EB] bg-[#FAFAFA]">
                             {WEEKDAYS.map((day) => (
@@ -1192,8 +1378,26 @@ export default function LeaveCalendarView({
                             </div>
                         )}
                     </div>
+                    ) : loading ? (
+                        <div className="flex flex-1 items-center justify-center px-4 py-12 text-center text-sm text-[#6B7280]">
+                            Loading leave calendar...
+                        </div>
+                    ) : viewMode === 'day' ? (
+                        <LeaveCalendarDayView date={monthDate} spans={approvedSpans} />
+                    ) : viewMode === 'week' ? (
+                        <LeaveCalendarWeekView weekDays={weekDaysForView} spans={approvedSpans} />
+                    ) : (
+                        <LeaveCalendarYearView
+                            year={monthDate.getFullYear()}
+                            spans={approvedSpans}
+                            todayKey={formatDateKey(dubaiTodayDate())}
+                            onDayClick={setDayModalKey}
+                        />
+                    )}
                 </div>
+                )}
 
+                {listMode ? null : (
                 <div className="shrink-0 border-t border-[#E5E7EB] px-5 py-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs text-[#6B7280]">
@@ -1229,6 +1433,14 @@ export default function LeaveCalendarView({
                         </button>
                     </div>
                 </div>
+                )}
+            {dayModalKey ? (
+                <DayLeavesModal
+                    dateKey={dayModalKey}
+                    spans={approvedSpans}
+                    onClose={() => setDayModalKey('')}
+                />
+            ) : null}
             </div>
     );
 }

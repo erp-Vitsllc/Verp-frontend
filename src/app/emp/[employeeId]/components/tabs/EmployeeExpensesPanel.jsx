@@ -15,7 +15,7 @@ function formatMoney(n) {
 
 function statusBadge(status) {
     const label = String(status || 'Not Paid').trim() || 'Not Paid';
-    const paid = label.toLowerCase() === 'paid';
+    const paid = label.toLowerCase() === 'paid' || label.toLowerCase() === 'paid employee';
     const zohoBilled = label.toLowerCase() === 'zoho billed';
     return (
         <span

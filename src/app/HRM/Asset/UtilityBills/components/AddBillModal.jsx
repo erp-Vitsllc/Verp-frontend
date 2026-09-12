@@ -17,6 +17,9 @@ import {
     filterEntriesAvailableForBillMonth,
     normalizeBillMonthKey,
     entryAvailableFromMonth,
+    openUtilityBillMonthKey,
+    shiftUtilityMonthKey,
+    isUtilityBillMonthOpen,
 } from '../utils/utilityBillStats';
 import { openUtilityAttachment } from '../utils/openUtilityAttachment';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
@@ -185,9 +188,7 @@ function currentMonthTitle(date = new Date()) {
 }
 
 function currentBillMonthValue(date = new Date()) {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    return `${y}-${m}`;
+    return openUtilityBillMonthKey(date);
 }
 
 function nextBillMonthValue(billMonth) {
@@ -195,8 +196,7 @@ function nextBillMonthValue(billMonth) {
         return currentBillMonthValue();
     }
     const [y, m] = String(billMonth).split('-').map(Number);
-    const d = new Date(y, m, 1); // next month (day 1 of month index m)
-    return currentBillMonthValue(d);
+    return shiftUtilityMonthKey(`${y}-${String(m).padStart(2, '0')}`, 1);
 }
 
 function titleFromBillMonth(billMonth) {
@@ -256,13 +256,13 @@ function monthHasUnbilled(entries, billedMap, ym) {
 }
 
 /**
- * Earliest month that still has billable accounts (created on/before month + unbilled),
- * starting from the current calendar month.
+ * Earliest still-unbilled month, walking backward from the last closed bill month.
+ * The current calendar month is not selectable until the 1st of next month.
  */
 function findFirstOpenMonth(entries, bills, preferredMonth) {
     const currentYm = currentBillMonthValue();
     if (!Array.isArray(entries) || !entries.length) {
-        return preferredMonth && /^\d{4}-\d{2}$/.test(String(preferredMonth))
+        return preferredMonth && /^\d{4}-\d{2}$/.test(String(preferredMonth)) && String(preferredMonth) <= currentYm
             ? String(preferredMonth)
             : currentYm;
     }
@@ -271,7 +271,9 @@ function findFirstOpenMonth(entries, bills, preferredMonth) {
     let ym = currentYm;
     for (let i = 0; i < 48; i++) {
         if (monthHasUnbilled(entries, billedMap, ym)) return ym;
-        ym = nextBillMonthValue(ym);
+        const prev = shiftUtilityMonthKey(ym, -1);
+        if (!prev || prev >= ym) break;
+        ym = prev;
     }
     return currentYm;
 }
@@ -281,17 +283,18 @@ function findFirstOpenMonth(entries, bills, preferredMonth) {
  * that is still unbilled. Months with no eligible rows (or fully billed) are disabled.
  */
 function isMonthSelectable(ym, entries, bills) {
+    if (!isUtilityBillMonthOpen(ym)) return false;
     return monthHasUnbilled(entries, billedIdsByMonthMap(bills), ym);
 }
 
 /**
- * Default: current calendar month when it still has billable accounts.
- * Otherwise draft/preferred if open, else first incomplete month from today.
+ * Default: last closed bill month when it still has billable accounts.
+ * Otherwise draft/preferred if that month is already open, else first incomplete closed month.
  */
 function resolveWorkingMonth(entries, existingBills, preferredMonth) {
     const currentYm = currentBillMonthValue();
     const preferred =
-        preferredMonth && /^\d{4}-\d{2}$/.test(String(preferredMonth))
+        preferredMonth && /^\d{4}-\d{2}$/.test(String(preferredMonth)) && String(preferredMonth) <= currentYm
             ? String(preferredMonth)
             : '';
 
@@ -1228,12 +1231,14 @@ export default function AddBillModal({
             const full = available.length > 0 && unbilledCount === 0;
             const past = isMonthBeforeCurrent(ym, currentYm);
             const isCurrent = ym === currentYm;
-            const disabled = noRows || full;
+            const notOpenYet = !isUtilityBillMonthOpen(ym);
+            const disabled = noRows || full || notOpenYet;
             map.set(ym, {
                 full,
                 past,
                 isCurrent,
                 noRows,
+                notOpenYet,
                 partial: !full && !noRows && occupied.size > 0 && unbilledCount > 0,
                 empty: !full && !noRows && occupied.size === 0,
                 unbilledCount,
@@ -1246,6 +1251,10 @@ export default function AddBillModal({
 
     const applyBillMonth = useCallback((ym, { preserveDraft = false, draftRows = [], closePicker = true } = {}) => {
         if (!/^\d{4}-\d{2}$/.test(String(ym || ''))) return;
+        if (!isUtilityBillMonthOpen(ym)) {
+            setError("This month's bill opens on the 1st of next month.");
+            return;
+        }
         const entries = listEntriesRef.current;
         const bills = mergedBillsRef.current;
         const available = filterEntriesAvailableForBillMonth(entries, ym);
@@ -2022,6 +2031,8 @@ export default function AddBillModal({
                                                 title={
                                                     occ.noRows
                                                         ? 'No accounts created on or before this month'
+                                                        : occ.notOpenYet
+                                                          ? "This month's bill opens on the 1st of next month"
                                                         : occ.full
                                                           ? 'All eligible accounts billed for this month — cannot select'
                                                           : occ.partial

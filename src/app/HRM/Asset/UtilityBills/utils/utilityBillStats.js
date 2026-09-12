@@ -2,6 +2,56 @@
 
 import { entryRequiresMonthlyBill } from './utilityBillsStorage';
 
+/** Company calendar month for utility bills — rolls only on the 1st (Asia/Dubai). */
+export const UTILITY_CALENDAR_TZ = 'Asia/Dubai';
+
+export function utilityCalendarMonthKey(refDate = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: UTILITY_CALENDAR_TZ,
+        year: 'numeric',
+        month: '2-digit',
+    }).formatToParts(refDate);
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    if (!year || !month) return '';
+    return `${year}-${month}`;
+}
+
+export function shiftUtilityMonthKey(ym, deltaMonths = 0) {
+    if (!/^\d{4}-\d{2}$/.test(String(ym || ''))) return '';
+    const year = Number(String(ym).slice(0, 4));
+    const month = Number(String(ym).slice(5, 7));
+    const shifted = new Date(Date.UTC(year, month - 1 + (Number(deltaMonths) || 0), 1));
+    return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Newest bill month that may be opened.
+ * A calendar month's bill only appears on the 1st of the next month (Asia/Dubai).
+ * 11 Sep → Aug; 1 Oct → Sep.
+ */
+export function openUtilityBillMonthKey(refDate = new Date()) {
+    return shiftUtilityMonthKey(utilityCalendarMonthKey(refDate), -1);
+}
+
+export function isUtilityBillMonthOpen(ym, refDate = new Date()) {
+    const key = String(ym || '').trim();
+    const open = openUtilityBillMonthKey(refDate);
+    return Boolean(/^\d{4}-\d{2}$/.test(key) && open && key <= open);
+}
+
+/** Newest first: last closed calendar month, then previous months. */
+export function recentUtilityMonthKeys(count = 6, refDate = new Date()) {
+    const newest = openUtilityBillMonthKey(refDate);
+    if (!newest) return [];
+    const keys = [];
+    for (let i = 0; i < count; i += 1) {
+        const ym = shiftUtilityMonthKey(newest, -i);
+        if (ym) keys.push(ym);
+    }
+    return keys;
+}
+
 export function formatBillMoney(n) {
     const num = Number(n);
     if (!Number.isFinite(num)) return '0.00';

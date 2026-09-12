@@ -289,7 +289,7 @@ function AnnualLeavePageContent() {
     }, []);
 
     const applyLeaveSelection = useCallback(
-        async ({ nextEmployeeId, startDate, endDate, employee, leaveMode, attendanceId, approve, reject }) => {
+        async ({ nextEmployeeId, startDate, endDate, employee, leaveMode, attendanceId, approve, reject, hrOverride, sendToHr }) => {
             const response = await axiosInstance.post(
                 '/Leave/apply',
                 {
@@ -303,6 +303,8 @@ function AnnualLeavePageContent() {
                     ...(attendanceId ? { attendanceId } : {}),
                     ...(approve ? { approve: true } : {}),
                     ...(reject ? { reject: true } : {}),
+                    ...(hrOverride ? { hrOverride: true } : {}),
+                    ...(sendToHr ? { sendToHr: true } : {}),
                 },
                 { skipToast: true },
             );
@@ -357,10 +359,11 @@ function AnnualLeavePageContent() {
     );
 
     const handleModalApply = useCallback(
-        async ({ employeeId: nextEmployeeId, startDate, endDate, employee, leaveMode }) => {
+        async ({ employeeId: nextEmployeeId, startDate, endDate, employee, leaveMode, hrOverride, sendToHr }) => {
             if (confirming) return;
             const isExisting =
                 (leaveModalMode === 'approve' || leaveModalMode === 'edit') && approveRequest?.id;
+            const escalateToHr = Boolean(sendToHr);
             setConfirming(true);
             try {
                 const response = await applyLeaveSelection({
@@ -370,15 +373,23 @@ function AnnualLeavePageContent() {
                     employee,
                     leaveMode,
                     attendanceId: isExisting ? approveRequest.id : '',
-                    approve: isExisting,
+                    approve: isExisting && !escalateToHr,
+                    hrOverride: !isExisting && Boolean(hrOverride),
+                    sendToHr: escalateToHr,
                 });
                 toast({
-                    title: isExisting ? 'Leave saved' : 'Leave request submitted',
+                    title: escalateToHr
+                        ? 'Sent to HR'
+                        : isExisting
+                          ? 'Leave saved'
+                          : 'Leave request submitted',
                     description:
                         response.data?.message ||
-                        (isExisting
-                            ? 'Leave is approved and shown on the calendar.'
-                            : 'Request is pending. Accept or reject it from Leave Approval.'),
+                        (escalateToHr
+                            ? 'HR has been notified. Approve or reject it from Leave Approval.'
+                            : isExisting
+                              ? 'Leave is approved and shown on the calendar.'
+                              : 'Request is pending. Accept or reject it from Leave Approval.'),
                 });
                 setModalOpen(false);
                 setApproveRequest(null);
@@ -802,7 +813,7 @@ function AnnualLeavePageContent() {
                 }
                 onApply={handleModalApply}
                 onReject={handleModalReject}
-                showReject={isExistingLeaveModal}
+                showReject={leaveModalMode === 'approve'}
                 applyLabel={leaveModalMode === 'edit' ? 'Save' : leaveModalMode === 'approve' ? 'Approve' : 'Apply'}
                 modalTitle={
                     leaveModalMode === 'edit'
@@ -820,6 +831,7 @@ function AnnualLeavePageContent() {
                         : ''
                 }
                 submitting={confirming}
+                enableAnnualEligibilityGate
             />
             <PendingLeaveRequestsModal
                 isOpen={pendingInboxModalOpen}

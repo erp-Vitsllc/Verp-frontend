@@ -6,6 +6,8 @@ import {
     AlertTriangle,
     Car,
     Banknote,
+    CheckCircle2,
+    Wallet,
     Eye,
     Fuel,
     PlusCircle,
@@ -16,6 +18,7 @@ import {
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import ListTableRowLink from '@/components/ListTableRowLink';
+import EmployeeNameLink from '@/components/EmployeeNameLink';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import VehicleFuelModal from '@/app/HRM/Asset/Vehicle/components/VehicleFuelModal';
 import VehicleAccessFuelMonthlyLimitModal from '@/app/HRM/Asset/Vehicle/components/VehicleAccessFuelMonthlyLimitModal';
@@ -37,6 +40,16 @@ import {
     latestFuelEntry,
     previousFuelEntries,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleFuelPreviousEntries';
+import {
+    isVehicleAccessFineTypeIncluded,
+    isVehicleAccessFineVisible,
+    matchesVehicleAccessFineType,
+    resolveVehicleAccessFineHref,
+    resolveVehicleAccessOffender,
+    VEHICLE_ACCESS_FINE_TYPES,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleAccessNav';
+import { sumEmployeeOutstandingOnFines } from '@/app/HRM/Fine/utils/employeeFineFinancials';
+import { resolveFineNetTotal } from '@/utils/finePayableAmount';
 import { isAdmin } from '@/utils/permissions';
 
 const VEHICLE_LIST_RETURN = '/HRM/Asset/Vehicle';
@@ -58,7 +71,74 @@ const FILTERS = [
     { key: 'not-added', label: 'Not added vehicle', Icon: Car, tone: 'pending' },
     { key: 'total', label: 'Total month fuel price', Icon: Banknote, tone: 'complete' },
     { key: 'exceeded', label: 'Vehicle exceed limit of fuel', Icon: AlertTriangle, tone: 'pending' },
+    { key: 'paid', label: 'Paid fine', Icon: CheckCircle2, tone: 'complete' },
+    { key: 'unpaid', label: 'Unpaid fines', Icon: Wallet, tone: 'pending' },
 ];
+
+const FINE_PAY_FILTERS = new Set(['paid', 'unpaid']);
+
+const FINE_COLUMNS = [
+    { key: 'fineId', label: 'Fine ID', type: 'text' },
+    { key: 'fineType', label: 'Category', type: 'text' },
+    { key: 'vehicle', label: 'Vehicle', type: 'text' },
+    { key: 'plateNo', label: 'Plate no', type: 'text' },
+    { key: 'offender', label: 'Employee', type: 'text' },
+    { key: 'amount', label: 'Amount', type: 'number' },
+    { key: 'employeePay', label: 'Employee pay', type: 'text' },
+];
+
+function isAccessFineRow(fine) {
+    return isVehicleAccessFineVisible(fine) && isVehicleAccessFineTypeIncluded(fine);
+}
+
+function fineMonthKey(fine) {
+    const raw = fine?.monthStart || fine?.awardedDate || fine?.billDate || fine?.createdAt;
+    if (!raw) return '';
+    if (typeof raw === 'string' && /^\d{4}-\d{2}/.test(raw.trim())) return raw.trim().slice(0, 7);
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return '';
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function isEmployeeFineUnpaid(fine) {
+    return sumEmployeeOutstandingOnFines([fine]) > 0.01;
+}
+
+function fineVehicleLabel(fine) {
+    return fine?.assetName || fine?.assetId || fine?.vehicleId || '—';
+}
+
+function finePlateNo(fine) {
+    const combined = String(fine?.vehiclePlateNo || '').trim();
+    if (combined) return combined;
+    const plate = [fine?.plateEmirate, fine?.plateNumber].filter(Boolean).join(' ').trim();
+    return plate || '—';
+}
+
+function fineRowAmount(fine) {
+    return Number(resolveFineNetTotal(fine) || 0);
+}
+
+function fineSortValue(fine, key) {
+    switch (key) {
+        case 'fineId':
+            return codeSortValue(fine?.fineId);
+        case 'fineType':
+            return textSortValue(fine?.fineType || fine?.category);
+        case 'vehicle':
+            return textSortValue(fineVehicleLabel(fine));
+        case 'plateNo':
+            return codeSortValue(finePlateNo(fine) === '—' ? '' : finePlateNo(fine));
+        case 'offender':
+            return textSortValue(resolveVehicleAccessOffender(fine)?.employeeName);
+        case 'amount':
+            return numberSortValue(fineRowAmount(fine));
+        case 'employeePay':
+            return textSortValue(isEmployeeFineUnpaid(fine) ? 'Unpaid' : 'Paid');
+        default:
+            return textSortValue(fine?.[key]);
+    }
+}
 
 const FUEL_COLUMNS = [
     { key: 'slNo', label: 'Sl', type: 'number' },
@@ -117,10 +197,16 @@ export default function VehicleAccessFuelPanel({
         notAddedCount: 0,
         totalAmount: 0,
         exceedCount: 0,
+        paidFineCount: 0,
+        unpaidFineCount: 0,
+        paidFineAmount: 0,
+        unpaidFineAmount: 0,
     });
+    const [fines, setFines] = useState([]);
     const [monthKey, setMonthKey] = useState(currentMonthKey);
     const [monthLabel, setMonthLabel] = useState('');
     const [selectedFilter, setSelectedFilter] = useState('added');
+    const [fineCategory, setFineCategory] = useState('all');
     const [formOpen, setFormOpen] = useState(false);
     const [limitModalOpen, setLimitModalOpen] = useState(false);
     const [closeMonthlyOpen, setCloseMonthlyOpen] = useState(false);
@@ -145,19 +231,42 @@ export default function VehicleAccessFuelPanel({
     const loadList = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await axiosInstance.get('/VehicleFuel/access-list', {
-                params: { monthKey },
-                skipToast: true,
-            });
+            const [res, fineRes] = await Promise.all([
+                axiosInstance.get('/VehicleFuel/access-list', {
+                    params: { monthKey },
+                    skipToast: true,
+                }),
+                axiosInstance
+                    .get('/Fine', {
+                        params: { vehicleLinked: '1', limit: 1000 },
+                        skipToast: true,
+                    })
+                    .catch(() => null),
+            ]);
             setVehicles(Array.isArray(res.data?.vehicles) ? res.data.vehicles : []);
             setPendingLimit(Array.isArray(res.data?.pendingLimit) ? res.data.pendingLimit : []);
             setAdded(Array.isArray(res.data?.added) ? res.data.added : []);
             setNotAdded(Array.isArray(res.data?.notAdded) ? res.data.notAdded : []);
+            const fineList = Array.isArray(fineRes?.data?.fines)
+                ? fineRes.data.fines
+                : Array.isArray(fineRes?.data)
+                  ? fineRes.data
+                  : [];
+            const monthFines = fineList.filter(
+                (fine) => isAccessFineRow(fine) && fineMonthKey(fine) === monthKey,
+            );
+            const paidFines = monthFines.filter((fine) => !isEmployeeFineUnpaid(fine));
+            const unpaidFines = monthFines.filter((fine) => isEmployeeFineUnpaid(fine));
+            setFines(monthFines);
             setSummary({
                 addedCount: Number(res.data?.summary?.addedCount || 0),
                 notAddedCount: Number(res.data?.summary?.notAddedCount || 0),
                 totalAmount: Number(res.data?.summary?.totalAmount || 0),
                 exceedCount: Number(res.data?.summary?.exceedCount || 0),
+                paidFineCount: paidFines.length,
+                unpaidFineCount: unpaidFines.length,
+                paidFineAmount: paidFines.reduce((sum, fine) => sum + fineRowAmount(fine), 0),
+                unpaidFineAmount: sumEmployeeOutstandingOnFines(unpaidFines),
             });
             setMonthLabel(res.data?.monthLabel || '');
             setCanManage(Boolean(res.data?.canManage));
@@ -177,6 +286,17 @@ export default function VehicleAccessFuelPanel({
             setPendingLimit([]);
             setAdded([]);
             setNotAdded([]);
+            setFines([]);
+            setSummary({
+                addedCount: 0,
+                notAddedCount: 0,
+                totalAmount: 0,
+                exceedCount: 0,
+                paidFineCount: 0,
+                unpaidFineCount: 0,
+                paidFineAmount: 0,
+                unpaidFineAmount: 0,
+            });
             setCanCreateMonthlyLimit(false);
             setMonthlyLimitDisabledReason('');
             setCanCloseMonthlyFuel(false);
@@ -200,11 +320,34 @@ export default function VehicleAccessFuelPanel({
         [added],
     );
 
+    const isFineFilter = FINE_PAY_FILTERS.has(selectedFilter);
+
+    const payFines = useMemo(() => {
+        if (selectedFilter === 'paid') return fines.filter((fine) => !isEmployeeFineUnpaid(fine));
+        if (selectedFilter === 'unpaid') return fines.filter((fine) => isEmployeeFineUnpaid(fine));
+        return [];
+    }, [selectedFilter, fines]);
+
+    const visibleFineRows = useMemo(
+        () => payFines.filter((fine) => matchesVehicleAccessFineType(fine, fineCategory)),
+        [payFines, fineCategory],
+    );
+
+    const fineCategoryCounts = useMemo(() => {
+        const next = { all: payFines.length };
+        for (const row of VEHICLE_ACCESS_FINE_TYPES) {
+            if (row.key === 'all') continue;
+            next[row.key] = payFines.filter((fine) => matchesVehicleAccessFineType(fine, row.key)).length;
+        }
+        return next;
+    }, [payFines]);
+
     const visibleRows = useMemo(() => {
+        if (isFineFilter) return [];
         if (selectedFilter === 'not-added') return notAdded;
         if (selectedFilter === 'exceeded') return added.filter((row) => row.limitExceeded);
         return added;
-    }, [selectedFilter, added, notAdded]);
+    }, [isFineFilter, selectedFilter, added, notAdded]);
 
     const pendingLimitVehicles = useMemo(
         () =>
@@ -224,7 +367,8 @@ export default function VehicleAccessFuelPanel({
 
     const handleSort = useCallback(
         (key) => {
-            const column = FUEL_COLUMNS.find((c) => c.key === key);
+            const column =
+                FUEL_COLUMNS.find((c) => c.key === key) || FINE_COLUMNS.find((c) => c.key === key);
             if (!column) return;
             if (sortKey === key) {
                 setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -242,6 +386,11 @@ export default function VehicleAccessFuelPanel({
         return sortServiceTableRows(withSl, fuelSortValue, sortKey, sortDirection, column.type);
     }, [visibleRows, sortKey, sortDirection]);
 
+    const sortedFineRows = useMemo(() => {
+        const column = FINE_COLUMNS.find((c) => c.key === sortKey) || FINE_COLUMNS[0];
+        return sortServiceTableRows(visibleFineRows, fineSortValue, sortKey, sortDirection, column.type);
+    }, [visibleFineRows, sortKey, sortDirection]);
+
     const cardHint = (key) => {
         if (loading) return 'Loading…';
         if (key === 'added') {
@@ -253,6 +402,16 @@ export default function VehicleAccessFuelPanel({
                 : 'All added';
         }
         if (key === 'total') return formatAmount(summary.totalAmount);
+        if (key === 'paid') {
+            return summary.paidFineCount > 0
+                ? `${summary.paidFineCount} fine${summary.paidFineCount === 1 ? '' : 's'}`
+                : 'None paid';
+        }
+        if (key === 'unpaid') {
+            return summary.unpaidFineCount > 0
+                ? formatAmount(summary.unpaidFineAmount)
+                : 'All paid';
+        }
         return summary.exceedCount > 0
             ? `${summary.exceedCount} vehicle${summary.exceedCount === 1 ? '' : 's'}`
             : 'None exceeded';
@@ -262,7 +421,23 @@ export default function VehicleAccessFuelPanel({
         if (key === 'added') return summary.addedCount;
         if (key === 'not-added') return summary.notAddedCount;
         if (key === 'total') return summary.totalAmount;
+        if (key === 'paid') return summary.paidFineCount;
+        if (key === 'unpaid') return summary.unpaidFineCount;
         return summary.exceedCount;
+    };
+
+    const selectFilter = (key) => {
+        const nextIsFine = FINE_PAY_FILTERS.has(key);
+        setSelectedFilter(key);
+        if (nextIsFine && !FINE_COLUMNS.some((column) => column.key === sortKey)) {
+            setSortKey('fineId');
+            setSortDirection('desc');
+            return;
+        }
+        if (!nextIsFine && !FUEL_COLUMNS.some((column) => column.key === sortKey)) {
+            setSortKey('vehicleName');
+            setSortDirection('asc');
+        }
     };
 
     const openAdd = () => {
@@ -380,7 +555,11 @@ export default function VehicleAccessFuelPanel({
               ? 'Vehicles exceeding fuel limit'
               : selectedFilter === 'total'
                 ? 'Current month fuel records'
-                : 'Fuel added vehicles';
+                : selectedFilter === 'paid'
+                  ? 'Paid fines'
+                  : selectedFilter === 'unpaid'
+                    ? 'Unpaid fines'
+                    : 'Fuel added vehicles';
 
     const printVehicleList = (sourceRows, subtitle, fileSuffix) => {
         if (!sourceRows.length) return;
@@ -413,8 +592,39 @@ export default function VehicleAccessFuelPanel({
         }
     };
 
+    const printListedFines = () => {
+        if (!sortedFineRows.length) return;
+        try {
+            downloadAccessFuelListedVehiclesPdf({
+                title: 'Access Fuel',
+                subtitle: `${listTitle}${monthLabel ? ` — ${monthLabel}` : ''}`,
+                headers: FINE_COLUMNS.map((column) => column.label),
+                rows: sortedFineRows.map((fine, index) => [
+                    fine.fineId || String(index + 1),
+                    fine.fineType || fine.category || '—',
+                    fineVehicleLabel(fine),
+                    finePlateNo(fine),
+                    resolveVehicleAccessOffender(fine)?.employeeName || '—',
+                    formatAmount(fineRowAmount(fine)),
+                    isEmployeeFineUnpaid(fine) ? 'Unpaid' : 'Paid',
+                ]),
+                columnWeights: [14, 14, 16, 12, 16, 14, 12],
+                columnAlign: ['left', 'left', 'left', 'left', 'left', 'right', 'left'],
+                fileName: `access-fuel-${selectedFilter}-${monthKey}.pdf`,
+            });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not create PDF',
+                description: error?.message || 'Try again in a moment.',
+            });
+        }
+    };
+
     const printListedVehicles = () =>
-        printVehicleList(sortedRows, `${listTitle}${monthLabel ? ` — ${monthLabel}` : ''}`, selectedFilter);
+        isFineFilter
+            ? printListedFines()
+            : printVehicleList(sortedRows, `${listTitle}${monthLabel ? ` — ${monthLabel}` : ''}`, selectedFilter);
 
     const headerPrintRows = monthlyFuelBills.length
         ? monthlyFuelBills
@@ -534,7 +744,7 @@ export default function VehicleAccessFuelPanel({
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
                     Fuel summary
                 </h3>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
                     {FILTERS.map((box) => {
                         const Icon = box.Icon;
                         const isActive = selectedFilter === box.key;
@@ -543,7 +753,7 @@ export default function VehicleAccessFuelPanel({
                             <button
                                 key={box.key}
                                 type="button"
-                                onClick={() => setSelectedFilter(box.key)}
+                                onClick={() => selectFilter(box.key)}
                                 className={`${TYPE_CARD} ${isActive ? TYPE_CARD_ACTIVE : TYPE_CARD_IDLE}`}
                             >
                                 <span
@@ -567,9 +777,11 @@ export default function VehicleAccessFuelPanel({
                                         {!loading && box.key !== 'total' && Number(count || 0) > 0 ? (
                                             <span
                                                 className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[9px] font-black tabular-nums ${
-                                                    box.key === 'exceeded'
+                                                    box.key === 'exceeded' || box.key === 'unpaid'
                                                         ? 'bg-red-100 text-red-600'
-                                                        : 'bg-teal-100 text-teal-700'
+                                                        : box.key === 'paid'
+                                                          ? 'bg-emerald-100 text-emerald-700'
+                                                          : 'bg-teal-100 text-teal-700'
                                                 }`}
                                             >
                                                 {count}
@@ -584,6 +796,32 @@ export default function VehicleAccessFuelPanel({
                         );
                     })}
                 </div>
+                {isFineFilter ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            Category
+                        </span>
+                        {VEHICLE_ACCESS_FINE_TYPES.map((row) => {
+                            const count = Number(fineCategoryCounts[row.key] || 0);
+                            const isActive = fineCategory === row.key;
+                            return (
+                                <button
+                                    key={row.key}
+                                    type="button"
+                                    onClick={() => setFineCategory(row.key)}
+                                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                                        isActive
+                                            ? 'border-teal-500 bg-teal-50 text-teal-800'
+                                            : 'border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:text-teal-700'
+                                    }`}
+                                >
+                                    {row.label}
+                                    <span className="tabular-nums text-slate-400">{count}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                ) : null}
             </div>
 
             {formOpen ? (
@@ -629,25 +867,39 @@ export default function VehicleAccessFuelPanel({
                     <h3 className="text-xs font-black uppercase tracking-widest text-slate-600">
                         {listTitle}
                         {!loading ? (
-                            <span className="ml-2 text-teal-700 tabular-nums">({visibleRows.length})</span>
+                            <span className="ml-2 text-teal-700 tabular-nums">
+                                ({isFineFilter ? visibleFineRows.length : visibleRows.length})
+                            </span>
                         ) : null}
                     </h3>
                     <div className="flex items-center gap-2 shrink-0">
                         {!loading && selectedFilter !== 'not-added' ? (
-                            <span className="text-[11px] font-black uppercase tracking-widest text-teal-700 tabular-nums whitespace-nowrap">
+                            <span
+                                className={`text-[11px] font-black uppercase tracking-widest tabular-nums whitespace-nowrap ${
+                                    selectedFilter === 'unpaid' ? 'text-rose-700' : 'text-teal-700'
+                                }`}
+                            >
                                 {formatAmount(
-                                    visibleRows.reduce((sum, row) => sum + (Number(row.amountUsed) || 0), 0),
+                                    isFineFilter
+                                        ? selectedFilter === 'unpaid'
+                                            ? sumEmployeeOutstandingOnFines(visibleFineRows)
+                                            : visibleFineRows.reduce((sum, fine) => sum + fineRowAmount(fine), 0)
+                                        : visibleRows.reduce((sum, row) => sum + (Number(row.amountUsed) || 0), 0),
                                 )}
                             </span>
                         ) : null}
                         <button
                             type="button"
                             onClick={printListedVehicles}
-                            disabled={loading || !sortedRows.length}
+                            disabled={loading || (isFineFilter ? !sortedFineRows.length : !sortedRows.length)}
                             title={
-                                sortedRows.length
-                                    ? 'Download the vehicles listed now as PDF'
-                                    : 'No vehicles listed to print'
+                                isFineFilter
+                                    ? sortedFineRows.length
+                                        ? 'Download the fines listed now as PDF'
+                                        : 'No fines listed to print'
+                                    : sortedRows.length
+                                      ? 'Download the vehicles listed now as PDF'
+                                      : 'No vehicles listed to print'
                             }
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 disabled:opacity-45 disabled:cursor-not-allowed"
                         >
@@ -658,14 +910,108 @@ export default function VehicleAccessFuelPanel({
                 </div>
                 <div className="overflow-hidden">
                     {loading ? (
-                        <div className="py-16 text-center text-sm text-slate-500">Loading fuel lists…</div>
-                    ) : !sortedRows.length ? (
+                        <div className="py-16 text-center text-sm text-slate-500">
+                            {isFineFilter ? 'Loading fines…' : 'Loading fuel lists…'}
+                        </div>
+                    ) : isFineFilter && !sortedFineRows.length ? (
+                        <div className="py-16 text-center text-sm text-slate-500">
+                            {selectedFilter === 'paid'
+                                ? 'No paid employee fines for this month and category.'
+                                : 'No unpaid employee fines for this month and category.'}
+                        </div>
+                    ) : !isFineFilter && !sortedRows.length ? (
                         <div className="py-16 text-center text-sm text-slate-500">
                             {selectedFilter === 'not-added'
                                 ? 'Every vehicle has fuel recorded this month.'
                                 : selectedFilter === 'exceeded'
                                   ? 'No vehicles exceeded the fuel limit this month.'
                                   : 'No fuel records for this month.'}
+                        </div>
+                    ) : isFineFilter ? (
+                        <div className="overflow-x-auto">
+                            <table className="w-full border-collapse text-[13px] min-w-[980px]">
+                                <thead className="bg-slate-50/90 border-b border-slate-200">
+                                    <tr className="text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                        {FINE_COLUMNS.map((column) => (
+                                            <VehicleServiceRequestSortHeader
+                                                key={column.key}
+                                                label={column.label}
+                                                columnKey={column.key}
+                                                sortKey={sortKey}
+                                                sortDirection={sortDirection}
+                                                onSort={handleSort}
+                                                className="px-3 py-2"
+                                            />
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {sortedFineRows.map((fine) => {
+                                        const href = resolveVehicleAccessFineHref(fine);
+                                        const offender = resolveVehicleAccessOffender(fine);
+                                        const unpaid = isEmployeeFineUnpaid(fine);
+                                        const rowElement = (
+                                            <tr
+                                                key={fine._id}
+                                                className="hover:bg-slate-50/80 cursor-pointer border-b border-slate-100"
+                                                title="Open fine details"
+                                            >
+                                                <td className="px-3 py-1.5 font-semibold text-sky-700">
+                                                    {fine.fineId || '—'}
+                                                </td>
+                                                <td className="px-3 py-1.5 text-slate-700">
+                                                    {fine.fineType || fine.category || '—'}
+                                                </td>
+                                                <td className="px-3 py-1.5 text-slate-800 font-semibold">
+                                                    {fineVehicleLabel(fine)}
+                                                </td>
+                                                <td className="px-3 py-1.5 text-slate-700 whitespace-nowrap">
+                                                    {finePlateNo(fine)}
+                                                </td>
+                                                <td className="px-3 py-1.5 text-slate-600">
+                                                    {offender.employeeId ? (
+                                                        <EmployeeNameLink
+                                                            employeeId={offender.employeeId}
+                                                            name={offender.employeeName}
+                                                            className="font-semibold text-blue-600 hover:text-blue-800 hover:underline underline-offset-2"
+                                                            variant="inherit"
+                                                        />
+                                                    ) : (
+                                                        offender.employeeName
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap text-teal-800">
+                                                    {formatAmount(fineRowAmount(fine))}
+                                                </td>
+                                                <td className="px-3 py-1.5">
+                                                    <span
+                                                        className={`inline-flex rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${
+                                                            unpaid
+                                                                ? 'bg-red-100 text-red-700'
+                                                                : 'bg-emerald-100 text-emerald-700'
+                                                        }`}
+                                                    >
+                                                        {unpaid ? 'Unpaid' : 'Paid'}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        );
+                                        if (href && router) {
+                                            return (
+                                                <ListTableRowLink
+                                                    key={fine._id}
+                                                    href={href}
+                                                    router={router}
+                                                    listReturnHref={listReturnHref}
+                                                >
+                                                    {rowElement}
+                                                </ListTableRowLink>
+                                            );
+                                        }
+                                        return rowElement;
+                                    })}
+                                </tbody>
+                            </table>
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
@@ -683,7 +1029,7 @@ export default function VehicleAccessFuelPanel({
                                                 className="px-3 py-2"
                                             />
                                         ))}
-                                        <th className="px-3 py-2 whitespace-nowrap text-right w-40">Actions</th>
+                                        <th className="px-3 py-2 whitespace-nowrap text-right w-52">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -747,8 +1093,61 @@ export default function VehicleAccessFuelPanel({
                                                 <td className="px-3 py-1.5 whitespace-nowrap text-slate-600">
                                                     {row.idleTimeLabel || '—'}
                                                 </td>
-                                                <td className="px-3 py-1.5 text-right">
-                                                    <div className="inline-flex items-center justify-end gap-0.5">
+                                                <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                                                    <div className="inline-flex items-center justify-end gap-1">
+                                                        <VehicleFuelPreviousToggle
+                                                            open={previousOpen}
+                                                            count={previous.length}
+                                                            onToggle={() =>
+                                                                setOpenPreviousId((current) =>
+                                                                    String(current) === String(row._id)
+                                                                        ? ''
+                                                                        : String(row._id),
+                                                                )
+                                                            }
+                                                        />
+                                                        {allowManage && !row.noFuel && row.status !== 'closed' ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation();
+                                                                    openEdit(row);
+                                                                }}
+                                                                className="inline-flex h-7 min-w-[3.85rem] items-center justify-center rounded-md px-2 text-[10px] font-semibold uppercase tracking-wide text-sky-700 hover:bg-sky-50"
+                                                            >
+                                                                Update
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                disabled
+                                                                className="inline-flex h-7 min-w-[3.85rem] cursor-not-allowed items-center justify-center rounded-md px-2 text-[10px] font-semibold uppercase tracking-wide text-slate-300"
+                                                            >
+                                                                Update
+                                                            </button>
+                                                        )}
+                                                        {allowManage && row.status !== 'closed' ? (
+                                                            row.noFuel ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(event) => {
+                                                                        event.stopPropagation();
+                                                                        openEdit(row);
+                                                                    }}
+                                                                    className="inline-flex h-7 min-w-[3.85rem] items-center justify-center rounded-md px-2 text-[10px] font-semibold uppercase tracking-wide text-sky-700 hover:bg-sky-50"
+                                                                >
+                                                                    Add
+                                                                </button>
+                                                            ) : (
+                                                                <VehicleFuelEditButton
+                                                                    title="Edit current fuel"
+                                                                    disabled={!allowEditFuel}
+                                                                    onClick={() => openEditEntry(row, currentEntry)}
+                                                                />
+                                                            )
+                                                        ) : (
+                                                            <VehicleFuelEditButton title="Edit current fuel" disabled />
+                                                        )}
                                                         {!row.noFuel && row.entries?.some((e) => e.hasAttachment) ? (
                                                             <button
                                                                 type="button"
@@ -761,39 +1160,9 @@ export default function VehicleAccessFuelPanel({
                                                             >
                                                                 <Eye size={14} />
                                                             </button>
-                                                        ) : null}
-                                                        {allowManage && row.status !== 'closed' ? (
-                                                            row.noFuel ? (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(event) => {
-                                                                        event.stopPropagation();
-                                                                        openEdit(row);
-                                                                    }}
-                                                                    className="inline-flex h-7 items-center rounded-md px-2 text-[10px] font-semibold uppercase tracking-wide text-sky-700 hover:bg-sky-50"
-                                                                >
-                                                                    Add
-                                                                </button>
-                                                            ) : (
-                                                                <VehicleFuelEditButton
-                                                                    title="Edit current fuel"
-                                                                    disabled={!allowEditFuel}
-                                                                    onClick={() => openEditEntry(row, currentEntry)}
-                                                                />
-                                                            )
-                                                        ) : null}
-                                                        {allowManage && !row.noFuel && row.status !== 'closed' ? (
-                                                            <button
-                                                                type="button"
-                                                                onClick={(event) => {
-                                                                    event.stopPropagation();
-                                                                    openEdit(row);
-                                                                }}
-                                                                className="inline-flex h-7 items-center rounded-md px-2 text-[10px] font-semibold uppercase tracking-wide text-sky-700 hover:bg-sky-50"
-                                                            >
-                                                                Update
-                                                            </button>
-                                                        ) : null}
+                                                        ) : (
+                                                            <span className="inline-flex h-7 w-7" aria-hidden />
+                                                        )}
                                                         {allowDelete && !row.noFuel ? (
                                                             <button
                                                                 type="button"
@@ -806,17 +1175,6 @@ export default function VehicleAccessFuelPanel({
                                                                 Delete
                                                             </button>
                                                         ) : null}
-                                                        <VehicleFuelPreviousToggle
-                                                            open={previousOpen}
-                                                            count={previous.length}
-                                                            onToggle={() =>
-                                                                setOpenPreviousId((current) =>
-                                                                    String(current) === String(row._id)
-                                                                        ? ''
-                                                                        : String(row._id),
-                                                                )
-                                                            }
-                                                        />
                                                     </div>
                                                 </td>
                                             </tr>

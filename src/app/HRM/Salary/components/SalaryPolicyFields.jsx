@@ -238,7 +238,7 @@ function readFileAsDataUrl(file) {
     });
 }
 
-export default function SalaryPolicyFields({ form, setForm }) {
+export default function SalaryPolicyFields({ form, setForm, showGroupLeaveCapFields = true }) {
     const fileRef = useRef(null);
     const [attachError, setAttachError] = useState('');
     const attachment = form.attachment || EMPTY_POLICY_ATTACHMENT;
@@ -629,6 +629,49 @@ export default function SalaryPolicyFields({ form, setForm }) {
                     />
                     <span className="text-xs text-slate-500">AED</span>
                 </div>
+                {showGroupLeaveCapFields ? (
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-2 py-2.5 px-3 sm:px-4">
+                    <span className="w-5 shrink-0 text-sm font-semibold text-slate-600 tabular-nums">3.</span>
+                    <span className="text-sm text-slate-700">Minimum allowed leave per group</span>
+                    <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={form.minAllowedLeavePerGroupPercent}
+                        onChange={(e) =>
+                            setForm((p) => ({
+                                ...p,
+                                minAllowedLeavePerGroupPercent: e.target.value,
+                            }))
+                        }
+                        className={compactInputClass}
+                        placeholder="0"
+                    />
+                    <span className="text-sm text-slate-700">%</span>
+                    <span className="text-sm text-slate-700 sm:ml-2">Maximum allowed leave per group</span>
+                    <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={form.maxAllowedLeavePerGroupPercent}
+                        onChange={(e) =>
+                            setForm((p) => ({
+                                ...p,
+                                maxAllowedLeavePerGroupPercent: e.target.value,
+                            }))
+                        }
+                        className={compactInputClass}
+                        placeholder="0"
+                    />
+                    <span className="text-sm text-slate-700">%</span>
+                    <span className="basis-full pl-8 text-[11px] leading-snug text-slate-500">
+                        Applied per work location (Office, Site, …). Allowed people = group headcount × %.
+                        Values below 1 still allow 1 person; 1.5 and 1.6 count as 1; 2 or above uses the whole number.
+                    </span>
+                </div>
+                ) : null}
             </div>
 
             <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">

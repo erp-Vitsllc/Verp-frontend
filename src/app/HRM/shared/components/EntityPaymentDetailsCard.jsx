@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Banknote, FileText, Loader2, Plus, RefreshCw, X } from 'lucide-react';
+import { Banknote, FileText, Loader2, Plus, RefreshCw, Wallet, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import AddPaymentModal from '@/app/Accounts/Payments/components/AddPaymentModal';
@@ -11,7 +11,6 @@ import { FineFormCard, formatMoney } from '../../Fine/components/FineFormCardSha
 import { buildEntityPaymentSchedule } from '../utils/buildEntityPaymentSchedule';
 import EntityPaymentScheduleBoxes from './EntityPaymentScheduleBoxes';
 import { buildRewardPaymentPrefill } from '@/app/HRM/Reward/utils/rewardPaymentPrefill';
-import { buildLoanPaymentPrefill } from '@/app/HRM/LoanAndAdvance/utils/loanPaymentPrefill';
 import { openPaymentReceiptInNewTab } from '@/app/HRM/LoanAndAdvance/utils/loanPaymentReceipts';
 import {
     getPaymentAmountTextClass,
@@ -284,7 +283,7 @@ export default function EntityPaymentDetailsCard({
     /** When false, Pay is hidden (e.g. non-Accounts users). */
     allowPay = true,
     onPaymentSuccess,
-    /** Fine: open the same Expense Refund modal as employee-profile Pay. */
+    /** Fine / Loan / Advance: parent opens the Pay choice modal (Expense Refund, etc.). */
     onPay,
     /** Optional FineFormCard className (Reward uses this for Zoho red/green; Loan/Advance omit). */
     cardClassName = '',
@@ -438,24 +437,10 @@ export default function EntityPaymentDetailsCard({
         }
 
         if (entityType === 'Loan' || entityType === 'Advance') {
-            const companyId = String(
-                entityRecord?.employee?.company?._id ||
-                entityRecord?.employee?.company ||
-                entityRecord?.companyId ||
-                entityRecord?.company?._id ||
-                entityRecord?.company ||
-                '',
-            ).trim();
-            const prefill = buildLoanPaymentPrefill(entityRecord, {
-                returnTo: pathname,
-                companyId,
-            });
-            try {
-                sessionStorage.setItem('loanPaymentPrefill', JSON.stringify(prefill));
-            } catch (err) {
-                console.error(err);
+            if (typeof onPay === 'function') {
+                onPay();
+                return;
             }
-            router.push('/Accounts/Payments?addLoanPay=1');
             return;
         }
 
@@ -480,9 +465,18 @@ export default function EntityPaymentDetailsCard({
         <button
             type="button"
             onClick={handleOpenPayModal}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
+            className={
+                isLoanLike
+                    ? 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700'
+                    : 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors'
+            }
+            title={
+                isLoanLike
+                    ? 'Collect repayment — Expense Refund or Employee Pay'
+                    : undefined
+            }
         >
-            <Plus size={14} />
+            {isLoanLike ? <Wallet size={14} /> : <Plus size={14} />}
             Pay
         </button>
     ) : null;

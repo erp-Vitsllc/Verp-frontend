@@ -6,6 +6,8 @@ import {
     AlertTriangle,
     Car,
     ChevronDown,
+    CheckCircle2,
+    Wallet,
     LayoutGrid,
     RotateCcw,
     X,
@@ -183,6 +185,24 @@ const FINE_TYPE_ICONS = {
     'vehicle-damage': AlertTriangle,
 };
 
+const FINE_PAY_FILTERS = [
+    { key: 'paid', label: 'Paid fine', hint: 'Employee pay done', Icon: CheckCircle2 },
+    { key: 'unpaid', label: 'Unpaid fines', hint: 'Employee still to pay', Icon: Wallet },
+];
+
+function isEmployeeFineUnpaid(fine) {
+    return sumEmployeeOutstandingOnFines([fine]) > 0.01;
+}
+
+function matchesEmployeePayFilter(fine, payKey) {
+    const key = String(payKey || '').trim().toLowerCase();
+    if (!key) return true;
+    const unpaid = isEmployeeFineUnpaid(fine);
+    if (key === 'unpaid') return unpaid;
+    if (key === 'paid') return !unpaid;
+    return true;
+}
+
 const CELL_LINK_CLASS = 'relative z-[3] font-bold text-blue-600 hover:text-blue-800 hover:underline underline-offset-2';
 
 const FINE_COLUMNS = [
@@ -244,7 +264,13 @@ function CellNavLink({ href, router, listReturnHref, title, children }) {
     );
 }
 
-function FineTable({ rows, onOpenFine, router, listReturnHref = VEHICLE_LIST_RETURN }) {
+function FineTable({
+    rows,
+    onOpenFine,
+    router,
+    listReturnHref = VEHICLE_LIST_RETURN,
+    emptyMessage = 'No approved, Zoho-entered, or completed vehicle fines or vehicle damage.',
+}) {
     const [sortKey, setSortKey] = useState('awardedDate');
     const [sortDirection, setSortDirection] = useState('desc');
 
@@ -271,9 +297,7 @@ function FineTable({ rows, onOpenFine, router, listReturnHref = VEHICLE_LIST_RET
 
     if (!rows.length) {
         return (
-            <div className="py-10 text-center text-sm text-slate-500">
-                No approved, Zoho-entered, or completed vehicle fines or vehicle damage.
-            </div>
+            <div className="py-10 text-center text-sm text-slate-500">{emptyMessage}</div>
         );
     }
 
@@ -450,6 +474,7 @@ export default function VehicleAccessFinePanel({
     const [fines, setFines] = useState([]);
     const [loading, setLoading] = useState(true);
     const [vehicleNumberFilter, setVehicleNumberFilter] = useState('');
+    const [selectedPayFilter, setSelectedPayFilter] = useState('');
 
     const hasDashboardFocus = Boolean(
         String(focusFineIds || '').trim() || String(focusVehicleId || '').trim(),
@@ -525,18 +550,37 @@ export default function VehicleAccessFinePanel({
         VEHICLE_ACCESS_FINE_TYPES.find((row) => row.key === String(selectedType || 'all').trim().toLowerCase())
             ?.key || 'all';
 
-    const typeCounts = useMemo(() => {
-        const next = { all: vehicleFilteredFines.length };
-        for (const row of VEHICLE_ACCESS_FINE_TYPES) {
-            if (row.key === 'all') continue;
-            next[row.key] = vehicleFilteredFines.filter((fine) => matchesVehicleAccessFineType(fine, row.key)).length;
-        }
-        return next;
-    }, [vehicleFilteredFines]);
-
-    const visibleFines = useMemo(
+    const typeScopedFines = useMemo(
         () => vehicleFilteredFines.filter((fine) => matchesVehicleAccessFineType(fine, activeFineType)),
         [vehicleFilteredFines, activeFineType],
+    );
+
+    const payScopedFines = useMemo(
+        () => vehicleFilteredFines.filter((fine) => matchesEmployeePayFilter(fine, selectedPayFilter)),
+        [vehicleFilteredFines, selectedPayFilter],
+    );
+
+    const typeCounts = useMemo(() => {
+        const source = selectedPayFilter ? payScopedFines : vehicleFilteredFines;
+        const next = { all: source.length };
+        for (const row of VEHICLE_ACCESS_FINE_TYPES) {
+            if (row.key === 'all') continue;
+            next[row.key] = source.filter((fine) => matchesVehicleAccessFineType(fine, row.key)).length;
+        }
+        return next;
+    }, [vehicleFilteredFines, payScopedFines, selectedPayFilter]);
+
+    const payCounts = useMemo(() => {
+        const source = typeScopedFines;
+        return {
+            paid: source.filter((fine) => matchesEmployeePayFilter(fine, 'paid')).length,
+            unpaid: source.filter((fine) => matchesEmployeePayFilter(fine, 'unpaid')).length,
+        };
+    }, [typeScopedFines]);
+
+    const visibleFines = useMemo(
+        () => typeScopedFines.filter((fine) => matchesEmployeePayFilter(fine, selectedPayFilter)),
+        [typeScopedFines, selectedPayFilter],
     );
 
     const handleTypeSelect = (typeKey) => {
@@ -546,6 +590,10 @@ export default function VehicleAccessFinePanel({
             return;
         }
         onSelectType(typeKey);
+    };
+
+    const handlePaySelect = (payKey) => {
+        setSelectedPayFilter((current) => (current === payKey ? '' : payKey));
     };
 
     const selectedVehicleLabel = useMemo(
@@ -629,7 +677,7 @@ export default function VehicleAccessFinePanel({
                     <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
                         Fine types
                     </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2">
                         {VEHICLE_ACCESS_FINE_TYPES.map((row) => {
                             const Icon = FINE_TYPE_ICONS[row.key] || LayoutGrid;
                             const count = Number(typeCounts[row.key] || 0);
@@ -663,6 +711,60 @@ export default function VehicleAccessFinePanel({
                                             </span>
                                             {!loading && count > 0 ? (
                                                 <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[9px] font-black text-teal-700 tabular-nums">
+                                                    {count}
+                                                </span>
+                                            ) : null}
+                                        </span>
+                                        <span className="block text-[10px] text-slate-500 mt-0.5 tabular-nums leading-tight">
+                                            {loading
+                                                ? 'Loading…'
+                                                : count > 0
+                                                  ? `${count} record${count === 1 ? '' : 's'}`
+                                                  : row.hint}
+                                        </span>
+                                    </span>
+                                </button>
+                            );
+                        })}
+                        {FINE_PAY_FILTERS.map((row) => {
+                            const Icon = row.Icon;
+                            const count = Number(payCounts[row.key] || 0);
+                            const isActive = selectedPayFilter === row.key;
+                            return (
+                                <button
+                                    key={row.key}
+                                    type="button"
+                                    onClick={() => handlePaySelect(row.key)}
+                                    className={`${TYPE_CARD} ${isActive ? TYPE_CARD_ACTIVE : TYPE_CARD_IDLE}`}
+                                >
+                                    <span
+                                        className={`${TYPE_ICON_WRAP} ${
+                                            isActive
+                                                ? 'bg-teal-600 border-teal-600 text-white'
+                                                : 'bg-white border-slate-200 text-teal-700'
+                                        }`}
+                                    >
+                                        <Icon size={16} />
+                                    </span>
+                                    <span className="min-w-0">
+                                        <span className="flex items-center gap-1">
+                                            <span
+                                                className={`block text-[10px] font-black uppercase tracking-wide leading-tight ${
+                                                    isActive
+                                                        ? 'text-teal-900'
+                                                        : 'text-slate-800 group-hover:text-teal-800'
+                                                }`}
+                                            >
+                                                {row.label}
+                                            </span>
+                                            {!loading && count > 0 ? (
+                                                <span
+                                                    className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[9px] font-black tabular-nums ${
+                                                        row.key === 'unpaid'
+                                                            ? 'bg-red-100 text-red-600'
+                                                            : 'bg-emerald-100 text-emerald-700'
+                                                    }`}
+                                                >
                                                     {count}
                                                 </span>
                                             ) : null}
@@ -719,7 +821,11 @@ export default function VehicleAccessFinePanel({
             <div className="border-t border-slate-100">
                 <div className="px-4 sm:px-6 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between gap-2">
                     <h3 className="text-xs font-black uppercase tracking-widest text-slate-600">
-                        Fine records
+                        {selectedPayFilter === 'paid'
+                            ? 'Paid fines'
+                            : selectedPayFilter === 'unpaid'
+                              ? 'Unpaid fines'
+                              : 'Fine records'}
                         {!loading ? (
                             <span className="ml-2 text-teal-700 tabular-nums">({visibleRowCount})</span>
                         ) : null}
@@ -742,6 +848,13 @@ export default function VehicleAccessFinePanel({
                             onOpenFine={openFine}
                             router={router}
                             listReturnHref={listReturnHref}
+                            emptyMessage={
+                                selectedPayFilter === 'paid'
+                                    ? 'No paid employee fines for this category.'
+                                    : selectedPayFilter === 'unpaid'
+                                      ? 'No unpaid employee fines for this category.'
+                                      : 'No approved, Zoho-entered, or completed vehicle fines or vehicle damage.'
+                            }
                         />
                     )}
                 </div>

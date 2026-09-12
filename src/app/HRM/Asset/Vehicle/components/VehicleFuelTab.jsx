@@ -407,15 +407,32 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                                     {row.idleTimeLabel || '—'}
                                                 </td>
                                                 <td className="px-3 py-3.5 align-top">
-                                                    <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-                                                        {row.entries?.some((e) => e.hasAttachment) && (
+                                                    <div className="flex flex-nowrap items-center justify-end gap-1">
+                                                        <VehicleFuelPreviousToggle
+                                                            open={previousOpen}
+                                                            count={previous.length}
+                                                            onToggle={() =>
+                                                                setOpenPreviousId((current) =>
+                                                                    String(current) === String(row._id) ? '' : String(row._id),
+                                                                )
+                                                            }
+                                                        />
+                                                        {allowHrActions && row.status !== 'closed' ? (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => openAttachment(row)}
-                                                                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50"
-                                                                title="View attachment"
+                                                                onClick={() => openEdit(row)}
+                                                                className="inline-flex h-7 min-w-[3.85rem] items-center justify-center rounded-lg px-2 text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50"
+                                                                title="Add another fuel entry"
                                                             >
-                                                                <Eye size={16} />
+                                                                Update
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                disabled
+                                                                className="inline-flex h-7 min-w-[3.85rem] cursor-not-allowed items-center justify-center rounded-lg px-2 text-[10px] font-black uppercase tracking-widest text-slate-300"
+                                                            >
+                                                                Update
                                                             </button>
                                                         )}
                                                         {allowHrActions && row.status !== 'closed' && currentEntry ? (
@@ -424,16 +441,20 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                                                 disabled={!allowEditFuel}
                                                                 onClick={() => openEditEntry(row, currentEntry)}
                                                             />
-                                                        ) : null}
-                                                        {allowHrActions && row.status !== 'closed' && (
+                                                        ) : (
+                                                            <VehicleFuelEditButton title="Edit current fuel" disabled />
+                                                        )}
+                                                        {row.entries?.some((e) => e.hasAttachment) ? (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => openEdit(row)}
-                                                                className="px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50"
-                                                                title="Add another fuel entry"
+                                                                onClick={() => openAttachment(row)}
+                                                                className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                                                                title="View attachment"
                                                             >
-                                                                Update
+                                                                <Eye size={16} />
                                                             </button>
+                                                        ) : (
+                                                            <span className="inline-flex h-7 w-7" aria-hidden />
                                                         )}
                                                         {allowHrActions && row.status !== 'closed' && (
                                                             <button
@@ -455,15 +476,6 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                                                 Delete
                                                             </button>
                                                         )}
-                                                        <VehicleFuelPreviousToggle
-                                                            open={previousOpen}
-                                                            count={previous.length}
-                                                            onToggle={() =>
-                                                                setOpenPreviousId((current) =>
-                                                                    String(current) === String(row._id) ? '' : String(row._id),
-                                                                )
-                                                            }
-                                                        />
                                                     </div>
                                                 </td>
                                             </tr>

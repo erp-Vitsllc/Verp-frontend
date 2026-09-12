@@ -81,6 +81,11 @@ export function formatLoanProfileStatus(loanOrStatus) {
 export function formatLoanProfilePaymentLabel(loan) {
     if (!loan) return '—';
     if (!isLoanPostManagementStatus(loan)) return '—';
-    if (getLoanRepaymentBalance(loan) <= 0.01) return 'Paid';
+    if (getLoanRepaymentBalance(loan) <= 0.01) {
+        if (String(loan.accountsRepaymentPath || '').trim() === 'employee') {
+            return 'Paid Employee';
+        }
+        return 'Paid';
+    }
     return 'Not Paid';
 }

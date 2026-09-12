@@ -15,7 +15,6 @@ import {
     Trash2,
     Check,
     X,
-    LockKeyhole,
     History,
     Pencil,
 } from 'lucide-react';
@@ -52,7 +51,7 @@ import AddBillModal from '../../components/AddBillModal';
 import UtilityBillReviewModal from '../../components/UtilityBillReviewModal';
 import ActivateDeactivateUtilityModal from '../../components/ActivateDeactivateUtilityModal';
 import UtilityBillStatsCards from '../../components/UtilityBillStatsCards';
-import { billDisplayStatus, formatBillMoney, entryAvailableFromMonth, utilityBillIsInZoho } from '../../utils/utilityBillStats';
+import { billDisplayStatus, formatBillMoney, entryAvailableFromMonth, utilityBillIsInZoho, recentUtilityMonthKeys } from '../../utils/utilityBillStats';
 import {
     getBillAllocationParties,
     getBillTotalAmount,
@@ -177,15 +176,9 @@ function monthLabelFromKey(ym, { shortOnly = false } = {}) {
     return shortOnly ? name : `${name} ${y}`;
 }
 
-/** Current calendar month + previous N−1 months (newest first). */
+/** Last closed bill month + previous N−1 months (newest first). Current calendar month opens on next month's 1st. */
 function getRecentMonthKeys(count = 6) {
-    const keys = [];
-    const now = new Date();
-    for (let i = 0; i < count; i += 1) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-    }
-    return keys;
+    return recentUtilityMonthKeys(count);
 }
 
 /** Drop months before the account was created / contract started (YYYY-MM). */
@@ -432,7 +425,7 @@ function UtilityBillDetailsPageContent() {
         [accountFromMonth],
     );
 
-    /** Last 12 months ending this month — only from account create / contract start month. */
+    /** Last 12 bill months ending the last closed month — only from account create / contract start. */
     const twelveMonthBillSeries = useMemo(() => {
         const keys = filterMonthKeysFromAccountStart(getRecentMonthKeys(12), accountFromMonth);
         const byMonth = new Map();
@@ -1572,7 +1565,7 @@ function UtilityBillDetailsPageContent() {
         setBillsBrowseMonth(ym);
     };
 
-    /** Current month + 5 previous — click a month to expand its bills (height grows, no scrollbar). */
+    /** Last closed bill month + 5 previous — click a month to expand its bills (height grows, no scrollbar). */
     const renderRecentMonthsBrowse = () => {
         if (loadingBills) {
             return <p className="text-xs sm:text-sm text-gray-500 py-6 text-center">Loading bills…</p>;
@@ -1961,43 +1954,27 @@ function UtilityBillDetailsPageContent() {
                                                         <CreditCard size={13} />
                                                         Pay
                                                     </button>
-                                                ) : (
+                                                ) : approvalCanAct ? (
                                                     <button
                                                         type="button"
-                                                        disabled={!approvalCanAct || approvalActing}
+                                                        disabled={approvalActing}
                                                         onClick={() => handleHeaderApproval('reject')}
-                                                        title={
-                                                            approvalCanAct
-                                                                ? 'Reject this request'
-                                                                : 'Only the assigned approver can reject this request'
-                                                        }
-                                                        className="inline-flex items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
+                                                        title="Reject this request"
+                                                        className="inline-flex items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
-                                                        {approvalCanAct ? (
-                                                            <X size={13} />
-                                                        ) : (
-                                                            <LockKeyhole size={12} />
-                                                        )}
+                                                        <X size={13} />
                                                         {approvalActing ? 'Saving…' : 'Reject'}
                                                     </button>
-                                                )}
-                                                {approvalCanCreatorResend || approvalCanPay ? null : (
+                                                ) : null}
+                                                {approvalCanCreatorResend || approvalCanPay || !approvalCanAct ? null : (
                                                     <button
                                                         type="button"
-                                                        disabled={!approvalCanAct || approvalActing}
+                                                        disabled={approvalActing}
                                                         onClick={() => handleHeaderApproval('approve')}
-                                                        title={
-                                                            approvalCanAct
-                                                                ? 'Approve this request'
-                                                                : 'Only the assigned approver can approve this request'
-                                                        }
-                                                        className="col-span-2 inline-flex items-center justify-center gap-1 rounded-lg border border-teal-200 bg-teal-500 px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-white hover:bg-teal-600 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
+                                                        title="Approve this request"
+                                                        className="col-span-2 inline-flex items-center justify-center gap-1 rounded-lg border border-teal-200 bg-teal-500 px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-white hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
-                                                        {approvalCanAct ? (
-                                                            <Check size={13} />
-                                                        ) : (
-                                                            <LockKeyhole size={12} />
-                                                        )}
+                                                        <Check size={13} />
                                                         {approvalActing ? 'Saving…' : 'Approve'}
                                                     </button>
                                                 )}
@@ -2080,7 +2057,7 @@ function UtilityBillDetailsPageContent() {
                                     {renderDetailFields()}
                                 </div>
                             </div>
-                            {/* Latest Bills — this month + 5 previous; expands without inner scrollbar */}
+                            {/* Latest Bills — last closed month + 5 previous; expands without inner scrollbar */}
                             <div className={DETAIL_PAIR_COLUMN}>
                                 <div className="flex flex-col">
                                     {renderBillsHeader('Latest Bills')}

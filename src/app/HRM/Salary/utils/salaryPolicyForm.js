@@ -142,6 +142,8 @@ export const EMPTY_POLICY_FORM = {
         { daysBefore: '', forWhom: [] },
         { daysBefore: 0, forWhom: [] },
     ],
+    minAllowedLeavePerGroupPercent: '',
+    maxAllowedLeavePerGroupPercent: '',
     attachment: { ...EMPTY_POLICY_ATTACHMENT },
 };
 
@@ -227,6 +229,8 @@ export function policyFormFromApi(data) {
         lateOutRules: toSharedLateRuleRow(data?.lateInRules, data?.lateOutRules),
         extraLateRules: toExtraLateRuleRows(data?.extraLateRules),
         salaryProcessReminders: toReminderRows(data?.salaryProcessReminders),
+        minAllowedLeavePerGroupPercent: data?.minAllowedLeavePerGroupPercent ?? '',
+        maxAllowedLeavePerGroupPercent: data?.maxAllowedLeavePerGroupPercent ?? '',
         attachment: toPolicyAttachment(data?.attachment),
     };
 }

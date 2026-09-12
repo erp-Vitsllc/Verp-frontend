@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Eye } from 'lucide-react';
-import EmployeeNameLink from '@/components/EmployeeNameLink';
 import { useToast } from '@/hooks/use-toast';
 import ViewBillModal from './ViewBillModal';
 import { fetchUtilityBillById } from '../utils/utilityBillsApi';
@@ -136,6 +136,7 @@ export default function UtilityBillSummaryTable({
     utilityType = '',
 }) {
     const { toast } = useToast();
+    const router = useRouter();
     const [viewBill, setViewBill] = useState(null);
     const [loadingBillId, setLoadingBillId] = useState('');
     const [expandedMonths, setExpandedMonths] = useState(() => new Set());
@@ -216,6 +217,22 @@ export default function UtilityBillSummaryTable({
         }
     };
 
+    const openAccountDetails = useCallback(
+        (row) => {
+            const href = String(row?.href || '').trim();
+            if (href) {
+                router.push(href);
+                return;
+            }
+            const entryId = String(row?.entryId || '').trim();
+            if (!entryId) return;
+            const billId = String(row?.billId || '').trim();
+            const query = billId ? `?billId=${encodeURIComponent(billId)}` : '';
+            router.push(`/HRM/Asset/UtilityBills/details/${encodeURIComponent(entryId)}${query}`);
+        },
+        [router],
+    );
+
     if (!rows.length) {
         return (
             <div className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
@@ -266,6 +283,7 @@ export default function UtilityBillSummaryTable({
                                     loadingBillId={loadingBillId}
                                     onToggle={() => toggleMonth(monthRow.monthKey)}
                                     onViewBill={openViewBill}
+                                    onOpenAccount={openAccountDetails}
                                 />
                             );
                         })}
@@ -292,6 +310,7 @@ function FragmentMonth({
     loadingBillId,
     onToggle,
     onViewBill,
+    onOpenAccount,
 }) {
     const sortedBillRows = useMemo(() => {
         const col = BILL_COLUMNS.find((c) => c.key === billSortKey) || BILL_COLUMNS[0];
@@ -359,28 +378,30 @@ function FragmentMonth({
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
                                         {sortedBillRows.map((row) => (
-                                            <tr key={row.key} className="bg-white">
+                                            <tr
+                                                key={row.key}
+                                                role="link"
+                                                tabIndex={row.entryId ? 0 : undefined}
+                                                onClick={() => onOpenAccount?.(row)}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === 'Enter' || event.key === ' ') {
+                                                        event.preventDefault();
+                                                        onOpenAccount?.(row);
+                                                    }
+                                                }}
+                                                className="cursor-pointer bg-white transition-colors hover:bg-slate-50"
+                                            >
                                                 <td className="px-2 sm:px-3 py-2 whitespace-nowrap tabular-nums text-gray-700">
                                                     {row.accountNo || '—'}
                                                 </td>
                                                 <td className="px-2 sm:px-3 py-2 whitespace-nowrap">
                                                     {row.assigneeName ? (
-                                                        row.assignedToType === 'Employee' &&
-                                                        row.assignedToId ? (
-                                                            <EmployeeNameLink
-                                                                employeeId={row.assignedToId}
-                                                                name={row.assigneeName}
-                                                                className="max-w-[160px] truncate text-xs font-medium"
-                                                                title={row.assigneeName}
-                                                            />
-                                                        ) : (
-                                                            <span
-                                                                className="max-w-[160px] truncate text-xs text-gray-700"
-                                                                title={row.assigneeName}
-                                                            >
-                                                                {row.assigneeName}
-                                                            </span>
-                                                        )
+                                                        <span
+                                                            className="max-w-[160px] truncate text-xs text-gray-700"
+                                                            title={row.assigneeName}
+                                                        >
+                                                            {row.assigneeName}
+                                                        </span>
                                                     ) : (
                                                         <span className="text-gray-400">—</span>
                                                     )}

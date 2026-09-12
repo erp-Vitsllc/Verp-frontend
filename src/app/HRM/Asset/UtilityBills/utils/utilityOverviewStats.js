@@ -5,6 +5,9 @@ import {
     billDisplayStatus,
     entryAvailableFromMonth,
     normalizeBillMonthKey,
+    openUtilityBillMonthKey,
+    utilityCalendarMonthKey,
+    shiftUtilityMonthKey,
 } from './utilityBillStats';
 
 export const ALL_MONTHS = 'all';
@@ -36,10 +39,10 @@ function parseBillMonth(billMonth) {
 }
 
 export function currentPeriod() {
-    const now = new Date();
+    const ym = utilityCalendarMonthKey();
     return {
-        year: String(now.getFullYear()),
-        month: String(now.getMonth() + 1).padStart(2, '0'),
+        year: ym.slice(0, 4) || String(new Date().getFullYear()),
+        month: ym.slice(5, 7) || String(new Date().getMonth() + 1).padStart(2, '0'),
     };
 }
 
@@ -167,8 +170,7 @@ function resolvePaymentDay(bill, entry) {
 }
 
 function calendarMonthKeyOffset(refDate = new Date(), monthsBack = 0) {
-    const d = new Date(refDate.getFullYear(), refDate.getMonth() - monthsBack, 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return shiftUtilityMonthKey(utilityCalendarMonthKey(refDate), -monthsBack);
 }
 
 function calendarCurrentMonthKey(refDate = new Date()) {
@@ -196,9 +198,9 @@ function isPaidOverviewMonth(billMonth, refDate = new Date()) {
     return ym ? paidOverviewMonthKeys(refDate).has(ym) : false;
 }
 
-/** Every YYYY-MM from entry availability through the last payable bill month (previous calendar month). */
+/** Every YYYY-MM from entry availability through the last closed bill month (opens on next month 1st). */
 function billMonthsThroughCurrentForEntry(entry, refDate = new Date()) {
-    const endYm = calendarPreviousMonthKey(refDate);
+    const endYm = openUtilityBillMonthKey(refDate);
     const fromYm = entryAvailableFromMonth(entry);
     if (!fromYm || fromYm > endYm) return [];
 
@@ -444,12 +446,12 @@ function sumOverviewRows(rows = []) {
 
 /**
  * Pending bills split into:
- * - current: last payable month only (previous calendar month) — missing (not created) bills
- * - previous: account created month → month before current pending — missing bills only
+ * - current: last closed bill month (opens on the 1st of this calendar month)
+ * - previous: account created month → month before that
  */
 export function buildPendingBillOverview({ bills = [], entries = [], refDate = new Date() } = {}) {
     const unpaid = buildUnpaidBillRows({ bills, entries, refDate });
-    const currentYm = calendarPreviousMonthKey(refDate);
+    const currentYm = openUtilityBillMonthKey(refDate);
     const currentLabel = monthLabelFromYm(currentYm);
 
     const withPeriod = unpaid

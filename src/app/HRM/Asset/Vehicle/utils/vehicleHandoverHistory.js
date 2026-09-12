@@ -435,99 +435,70 @@ function adminOfficerLabel(entry) {
     return String(entry?.details?.byName || entry?.details?.performedByName || '').trim();
 }
 
-export function getHandoverByLabel(entry, vehicle = null, options = {}) {
+function isHandoverBecomingUnassigned(entry, vehicle = null) {
     const action = String(entry?.action || '').trim();
-    const { previousEntry } = resolveHandoverLabelOptions(entry, vehicle, options);
+    return action === 'Returned' || action === 'Unassigned' || isVehicleReturnHandoverEntry(entry, vehicle);
+}
+
+function workflowPreviousHolderLabel(entry) {
     const workflow = entry?.details?.vehicleHandoverWorkflow;
-    const fromPool = workflow?.wasAssignedFromPool === true && !previousEntry;
+    const workflowPrev = String(workflow?.previousAssigneeName || '').trim();
+    const workflowPrevId = String(workflow?.previousAssigneeEmployeeId || '').trim();
+    if (!workflowPrev) return '';
+    if (workflowPrevId && !workflowPrev.includes(workflowPrevId)) {
+        return `${workflowPrev} (${workflowPrevId})`;
+    }
+    return workflowPrev;
+}
 
-    if (action === 'Returned') {
-        const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
-        if (frozen) return frozen;
-        const returningEmp = fmtHandoverPerson(resolveEntryAssigneePerson(entry));
-        return returningEmp || '—';
+function vehicleHadHolderBeforeRow(entry, previousEntry) {
+    if (previousEntry) return true;
+    const workflow = entry?.details?.vehicleHandoverWorkflow;
+    if (workflow?.wasAssignedFromPool === true) return false;
+    if (workflow?.previousAssigneeId || workflow?.previousAssigneeName) return true;
+    if (workflow?.wasAssignedFromPool === false) return true;
+    return Boolean(String(workflow?.vehicleAssigneeId || '').trim());
+}
+
+function inspectionCustodianLabel(entry, vehicle = null) {
+    const frozenTo = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
+    if (frozenTo) return frozenTo;
+    const assignee = fmtHandoverPerson(resolveEntryAssigneePerson(entry));
+    if (assignee) return assignee;
+    const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
+    const fromStage = formatHandoverActorLabel(stage, entry?.assignedTo);
+    return fromStage !== '—' ? fromStage : '';
+}
+
+function currentHolderLabel(entry, vehicle, options) {
+    const { previousEntry } = resolveHandoverLabelOptions(entry, vehicle, options);
+    const holder = previousHolderLabel(previousEntry, vehicle);
+    if (holder) return holder;
+
+    const workflowPrev = workflowPreviousHolderLabel(entry);
+    if (workflowPrev) return workflowPrev;
+
+    if (isVehicleInspectionHandoverEntry(entry, vehicle) && vehicleHadHolderBeforeRow(entry, previousEntry)) {
+        const frozenBy = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
+        if (frozenBy) return frozenBy;
+        return inspectionCustodianLabel(entry, vehicle);
     }
 
-    if (action === 'Unassigned') {
-        return readFrozenHandoverLabel(entry, 'handoverByDisplay', '—');
-    }
-
-    if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
-        if (isVehicleReinspectionHandoverEntry(entry)) {
-            const frozenBy = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
-            if (frozenBy) return frozenBy;
-            const frozenTo = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
-            if (frozenTo) return frozenTo;
-            const assignee = fmtHandoverPerson(resolveEntryAssigneePerson(entry));
-            if (assignee) return assignee;
-            const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
-            const fromStage = formatHandoverActorLabel(stage, entry?.assignedTo);
-            if (fromStage !== '—') return fromStage;
-            return '—';
-        }
-        return '—';
-    }
-
-    if (action === 'Assigned' || action === 'Accepted' || action === 'Transfer' || action === 'ControllerHandover') {
-        const holder = previousHolderLabel(previousEntry, vehicle);
-        if (holder) return holder;
-
-        const workflowPrev = String(workflow?.previousAssigneeName || '').trim();
-        const workflowPrevId = String(workflow?.previousAssigneeEmployeeId || '').trim();
-        if (workflowPrev) {
-            return workflowPrevId && !workflowPrev.includes(workflowPrevId)
-                ? `${workflowPrev} (${workflowPrevId})`
-                : workflowPrev;
-        }
-        if (workflow?.previousAssigneeId && !fromPool) {
-            const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
-            if (frozen) return frozen;
-        }
-
-        if (fromPool || workflow?.wasAssignedFromPool === true) {
-            const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
-            if (frozen) return frozen;
-            return adminOfficerLabel(entry) || '—';
-        }
-
-        const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
-        if (frozen) return frozen;
-        return adminOfficerLabel(entry) || '—';
-    }
+    if (!vehicleHadHolderBeforeRow(entry, previousEntry)) return '';
 
     const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
-    if (frozen) return frozen;
+    return frozen || '';
+}
+
+function unassignedAdminOfficerLabel(entry, vehicle = null) {
+    if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
+        const custodian = inspectionCustodianLabel(entry, vehicle);
+        if (custodian) return custodian;
+    }
     return adminOfficerLabel(entry) || '—';
 }
 
-export function getHandoverToLabel(entry, vehicle = null, options = {}) {
-    const action = String(entry?.action || '').trim();
-
-    if (action === 'Returned') {
-        const frozen = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
-        if (frozen) return frozen;
-        const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
-        const fromStage = formatHandoverActorLabel(stage, null);
-        return fromStage !== '—' ? fromStage : '—';
-    }
-
-    if (action === 'Unassigned') {
-        const frozen = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
-        if (frozen) return frozen;
-        return '—';
-    }
-
-    if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
-        const frozenTo = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
-        if (frozenTo) return frozenTo;
-        const assignee = fmtHandoverPerson(resolveEntryAssigneePerson(entry));
-        if (assignee) return assignee;
-        const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
-        const fromStage = formatHandoverActorLabel(stage, entry?.assignedTo);
-        if (fromStage !== '—') return fromStage;
-        return '—';
-    }
-
+function targetAssigneeLabel(entry) {
     const frozenTo = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
     if (frozenTo) return frozenTo;
 
@@ -547,8 +518,41 @@ export function getHandoverToLabel(entry, vehicle = null, options = {}) {
 
     const stage = details.vehicleHandoverWorkflow?.stages?.target;
     const fromStage = formatHandoverActorLabel(stage, entry?.assignedTo);
-    if (fromStage !== '—') return fromStage;
-    return '—';
+    return fromStage !== '—' ? fromStage : '—';
+}
+
+export function getHandoverByLabel(entry, vehicle = null, options = {}) {
+    const { previousEntry } = resolveHandoverLabelOptions(entry, vehicle, options);
+
+    if (isHandoverBecomingUnassigned(entry, vehicle)) {
+        const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
+        if (frozen) return frozen;
+        const returningEmp = fmtHandoverPerson(resolveEntryAssigneePerson(entry));
+        if (returningEmp) return returningEmp;
+        return previousHolderLabel(previousEntry, vehicle) || '—';
+    }
+
+    const holder = currentHolderLabel(entry, vehicle, options);
+    if (holder) return holder;
+    return unassignedAdminOfficerLabel(entry, vehicle);
+}
+
+export function getHandoverToLabel(entry, vehicle = null, options = {}) {
+    if (isHandoverBecomingUnassigned(entry, vehicle)) {
+        const frozen = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
+        if (frozen) return frozen;
+        const admin = adminOfficerLabel(entry);
+        if (admin) return admin;
+        const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
+        const fromStage = formatHandoverActorLabel(stage, null);
+        return fromStage !== '—' ? fromStage : '—';
+    }
+
+    if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
+        return inspectionCustodianLabel(entry, vehicle) || '—';
+    }
+
+    return targetAssigneeLabel(entry);
 }
 
 /** Workflow target actor — admin officer when assignee cannot self-acknowledge. */

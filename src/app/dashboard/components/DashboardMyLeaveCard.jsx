@@ -11,6 +11,7 @@ import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
     salaryLockFromAttendancePayload,
 } from './DashboardSalaryEnrollLock';
+import { employeeDataMetrics } from '@/app/HRM/Leave/utils/employeeDataMetrics';
 
 const EMPTY_COUNTS = {
     on_leave: 0,
@@ -42,23 +43,25 @@ const EMPTY_SUMMARY = {
 };
 
 const DETAIL_BOXES = [
+    { key: 'on_leave', label: 'Annual leave', wrap: 'bg-indigo-50/70 text-indigo-700', inner: 'bg-white/75' },
     { key: 'authorized_leave', label: 'Authorized leave', wrap: 'bg-blue-50/70 text-blue-700', inner: 'bg-white/75' },
     { key: 'unauthorized_leave', label: 'Unauthorized leave', wrap: 'bg-rose-50/70 text-rose-700', inner: 'bg-white/75' },
     { key: 'sick_leave', label: 'Sick leave', wrap: 'bg-emerald-50/70 text-emerald-700', inner: 'bg-white/75' },
     { key: 'compoff_leave', label: 'Comp off leave', wrap: 'bg-violet-50/70 text-violet-700', inner: 'bg-white/75' },
-    { key: 'work_from_home', label: 'Work from home', wrap: 'bg-green-50/70 text-green-700', inner: 'bg-white/75' },
-    { key: 'late_group', label: 'Late / Mispunch / Early', wrap: 'bg-amber-50/70 text-amber-800', inner: 'bg-white/75' },
-    { key: 'annual_leave', label: 'Annual leave', wrap: 'bg-indigo-50/70 text-indigo-700', inner: 'bg-white/75' },
+    { key: 'late_early', label: 'Late arrival / Early go', wrap: 'bg-amber-50/70 text-amber-800', inner: 'bg-white/75' },
+    { key: 'mispunch', label: 'Miss punch', wrap: 'bg-sky-50/70 text-sky-700', inner: 'bg-white/75' },
+    { key: 'attendance', label: 'Attendance', wrap: 'bg-green-50/70 text-green-700', inner: 'bg-white/75' },
 ];
 
 const BOX_STATUS_KEYS = {
+    on_leave: ['on_leave'],
     authorized_leave: ['authorized_leave'],
     unauthorized_leave: ['unauthorized_leave'],
     sick_leave: ['sick_leave'],
     compoff_leave: ['compoff_leave'],
-    work_from_home: ['work_from_home'],
-    late_group: ['late_arrived', 'early_go', 'mispunch'],
-    annual_leave: ['on_leave'],
+    late_early: ['late_arrived', 'early_go'],
+    mispunch: ['mispunch'],
+    attendance: ['on_office', 'work_from_home', 'unauthorized_leave', 'authorized_leave', 'sick_leave', 'on_leave', 'compoff_leave'],
 };
 
 function shiftDateKey(dateKey, days) {
@@ -359,6 +362,8 @@ export default function DashboardMyLeaveCard() {
     const [summary, setSummary] = useState(EMPTY_SUMMARY);
     const [leaveBalances, setLeaveBalances] = useState({});
     const [leavePolicy, setLeavePolicy] = useState(null);
+    const [enrollAttendance, setEnrollAttendance] = useState({});
+    const [requestStats, setRequestStats] = useState({});
     const [entries, setEntries] = useState([]);
     const [detailKey, setDetailKey] = useState('');
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
@@ -382,6 +387,8 @@ export default function DashboardMyLeaveCard() {
                     setSummary(EMPTY_SUMMARY);
                     setLeaveBalances({});
                     setLeavePolicy(null);
+                    setEnrollAttendance({});
+                    setRequestStats({});
                     setEntries([]);
                     return;
                 }
@@ -390,6 +397,8 @@ export default function DashboardMyLeaveCard() {
                     setCounts(EMPTY_COUNTS);
                     setLeaveBalances({});
                     setLeavePolicy(res.data.leavePolicy || null);
+                    setEnrollAttendance(res.data.enrollAttendance || {});
+                    setRequestStats(res.data.requestStats || {});
                     setEntries([]);
                     setSummary({
                         ...EMPTY_SUMMARY,
@@ -401,6 +410,8 @@ export default function DashboardMyLeaveCard() {
                 setCounts({ ...EMPTY_COUNTS, ...(res.data.counts || {}) });
                 setLeaveBalances(res.data.leaveBalances || {});
                 setLeavePolicy(res.data.leavePolicy || null);
+                setEnrollAttendance(res.data.enrollAttendance || {});
+                setRequestStats(res.data.requestStats || {});
                 setEntries(Array.isArray(res.data.entries) ? res.data.entries : []);
                 setSummary({
                     presentDays: n(res.data.presentDays),
@@ -433,6 +444,8 @@ export default function DashboardMyLeaveCard() {
                     setCounts(EMPTY_COUNTS);
                     setLeaveBalances({});
                     setLeavePolicy(payload?.leavePolicy || null);
+                    setEnrollAttendance(payload?.enrollAttendance || {});
+                    setRequestStats(payload?.requestStats || {});
                     setEntries([]);
                 }
             }
@@ -447,27 +460,17 @@ export default function DashboardMyLeaveCard() {
         };
     }, [query.month, query.year]);
 
-    const lateGroup = n(counts.late_arrived) + n(counts.mispunch) + n(counts.early_go);
-
-    const boxStats = (key) => {
-        const current =
-            key === 'late_group'
-                ? lateGroup
-                : key === 'annual_leave'
-                  ? n(counts.on_leave)
-                  : n(counts[key]);
-        const allowed =
-            key === 'annual_leave'
-                ? leavePolicy?.annualAllowedDays ?? leaveBalances.on_leave?.allowed
-                : key === 'sick_leave'
-                  ? leavePolicy?.sickAllowedDays ?? leaveBalances.sick_leave?.allowed
-                  : leaveBalances[key]?.allowed;
-        const total = allowed == null || allowed === '' ? null : n(allowed);
-        return {
-            total: total == null ? '—' : total,
-            current,
-        };
-    };
+    const metricsCtx = useMemo(
+        () => ({
+            leaveBalances,
+            leavePolicy,
+            requestStats,
+            enrollAttendance,
+            presentDays: n(enrollAttendance.office ?? summary.presentDays),
+            absentDays: n(enrollAttendance.absent ?? summary.absentDays),
+        }),
+        [leaveBalances, leavePolicy, requestStats, enrollAttendance, summary.presentDays, summary.absentDays],
+    );
 
     const detailHint = (key) => {
         if (key === 'authorized_leave') {
@@ -479,13 +482,16 @@ export default function DashboardMyLeaveCard() {
         if (key === 'unauthorized_leave') {
             const deduction = leaveBalances.unauthorized_leave?.deductionDays;
             const multiplier = leaveBalances.unauthorized_leave?.multiplier;
-            if (multiplier != null && Number(multiplier) !== 1 && n(counts.unauthorized_leave) > 0) {
+            if (multiplier != null && Number(multiplier) !== 1 && n(leaveBalances.unauthorized_leave?.taken) > 0) {
                 return `Policy deduction ${deduction} days`;
             }
             return '';
         }
-        if (key === 'annual_leave' && summary.lastAnnualLeaveDate) {
+        if (key === 'on_leave' && summary.lastAnnualLeaveDate) {
             return `Last taken ${formatLeaveDate(summary.lastAnnualLeaveDate)}`;
+        }
+        if (key === 'sick_leave' && leavePolicy?.sickPeriod) {
+            return `${leavePolicy.sickAllowedDays ?? leavePolicy.allowedSickLeaveDaysPerYear ?? 0} days/${leavePolicy.sickPeriod} from salary policy`;
         }
         return '';
     };
@@ -558,7 +564,7 @@ export default function DashboardMyLeaveCard() {
 
             <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
                 {DETAIL_BOXES.map((box) => {
-                    const stats = boxStats(box.key);
+                    const metrics = employeeDataMetrics(box, metricsCtx);
                     const hint = detailHint(box.key);
                     return (
                         <button
@@ -568,19 +574,15 @@ export default function DashboardMyLeaveCard() {
                             className={`rounded-xl px-2 py-2 min-w-0 text-left transition-transform hover:-translate-y-px hover:brightness-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 ${box.wrap}`}
                         >
                             <p className="text-[11px] font-medium leading-tight px-0.5">{box.label}</p>
-                            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                                <SplitMetric
-                                    label="Total"
-                                    value={stats.total}
-                                    hint="allowed"
-                                    wrap={box.inner}
-                                />
-                                <SplitMetric
-                                    label="Current"
-                                    value={stats.current}
-                                    hint="used"
-                                    wrap={box.inner}
-                                />
+                            <div className={`mt-1.5 grid gap-1.5 ${metrics.length > 2 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                                {metrics.map((metric) => (
+                                    <SplitMetric
+                                        key={metric.label}
+                                        label={metric.label}
+                                        value={metric.value}
+                                        wrap={box.inner}
+                                    />
+                                ))}
                             </div>
                             {hint ? (
                                 <p className="text-[10px] mt-1 px-0.5 leading-tight opacity-80">{hint}</p>

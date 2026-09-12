@@ -56,6 +56,7 @@ import {
 import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
 import FinePayChoiceModal from '@/app/HRM/Fine/components/FinePayChoiceModal';
 import FineVendorCreditModal from '@/app/HRM/Fine/components/FineVendorCreditModal';
+import LoanEmployeePayModal from '@/app/HRM/LoanAndAdvance/components/LoanEmployeePayModal';
 import { formatRewardPaymentLabel, formatRewardStatusLabel, isRewardVisibleOnEmployeeProfile, isRewardPaymentEligible } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import { canAccountsPayCashReward, buildRewardPaymentPrefill } from '@/app/HRM/Reward/utils/rewardPaymentPrefill';
 import {
@@ -1138,11 +1139,23 @@ export default function SalaryTab({
     const [finePayChoiceOpen, setFinePayChoiceOpen] = useState(false);
     const [finePayChoiceFine, setFinePayChoiceFine] = useState(null);
     const [fineVendorCreditOpen, setFineVendorCreditOpen] = useState(false);
+    const [loanPayChoiceOpen, setLoanPayChoiceOpen] = useState(false);
+    const [loanPayChoiceLoan, setLoanPayChoiceLoan] = useState(null);
+    const [loanEmployeePayOpen, setLoanEmployeePayOpen] = useState(false);
 
     useEffect(() => {
         const ref = profileBackHandlerRef;
         if (!ref) return undefined;
         ref.current = () => {
+            if (loanEmployeePayOpen) {
+                setLoanEmployeePayOpen(false);
+                return true;
+            }
+            if (loanPayChoiceOpen) {
+                setLoanPayChoiceOpen(false);
+                setLoanPayChoiceLoan(null);
+                return true;
+            }
             if (fineVendorCreditOpen) {
                 setFineVendorCreditOpen(false);
                 return true;
@@ -1242,6 +1255,8 @@ export default function SalaryTab({
         finePayChoiceOpen,
         fineVendorCreditOpen,
         fineCompanyRefundOpen,
+        loanPayChoiceOpen,
+        loanEmployeePayOpen,
         showCertificate,
         selectedCertificate,
         showHistoryModal,
@@ -1672,6 +1687,26 @@ export default function SalaryTab({
         setFineCompanyRefundFines([]);
         setLoanCompanyRefundLoans(list);
         setFineCompanyRefundOpen(true);
+    };
+
+    const openLoanPayChoice = (loan, e) => {
+        e?.stopPropagation();
+        if (!loan) return;
+        if (
+            !(
+                canAccountsCollectLoanRepayment(loan, currentUser) ||
+                (isAccountsUser && getLoanRepaymentBalance(loan) > 0.01)
+            )
+        ) {
+            toast({
+                variant: 'destructive',
+                title: 'Accounts only',
+                description: 'Only Accounts can record loan/advance payment from this profile.',
+            });
+            return;
+        }
+        setLoanPayChoiceLoan(loan);
+        setLoanPayChoiceOpen(true);
     };
 
     const handlePaySelectedFines = () => {
@@ -4253,7 +4288,7 @@ export default function SalaryTab({
                                                                 {statusLabel}
                                                             </td>
                                                             <td className="py-3 px-4 text-sm">
-                                                                <span className={paymentLabel === 'Paid' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
+                                                                <span className={paymentLabel === 'Paid' || paymentLabel === 'Paid Employee' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
                                                                     {paymentLabel}
                                                                 </span>
                                                             </td>
@@ -4266,9 +4301,9 @@ export default function SalaryTab({
                                                                 {canPay ? (
                                                                     <button
                                                                         type="button"
-                                                                        onClick={() => startLoanCompanyRefund([loan])}
+                                                                        onClick={() => openLoanPayChoice(loan)}
                                                                         className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
-                                                                        title="Collect loan repayment — Expense Refund (Zoho Banking)"
+                                                                        title="Collect loan repayment — Expense Refund or Employee Pay"
                                                                     >
                                                                         <Wallet size={12} />
                                                                         Pay
@@ -4386,7 +4421,7 @@ export default function SalaryTab({
                                                                 {statusLabel}
                                                             </td>
                                                             <td className="py-3 px-4 text-sm">
-                                                                <span className={paymentLabel === 'Paid' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
+                                                                <span className={paymentLabel === 'Paid' || paymentLabel === 'Paid Employee' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
                                                                     {paymentLabel}
                                                                 </span>
                                                             </td>
@@ -4399,9 +4434,9 @@ export default function SalaryTab({
                                                                 {canPay ? (
                                                                     <button
                                                                         type="button"
-                                                                        onClick={() => startLoanCompanyRefund([advance])}
+                                                                        onClick={() => openLoanPayChoice(advance)}
                                                                         className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
-                                                                        title="Collect advance repayment — Expense Refund (Zoho Banking)"
+                                                                        title="Collect advance repayment — Expense Refund or Employee Pay"
                                                                     >
                                                                         <Wallet size={12} />
                                                                         Pay
@@ -6311,6 +6346,45 @@ export default function SalaryTab({
                 onVendorCredit={() => {
                     setFinePayChoiceOpen(false);
                     setFineVendorCreditOpen(true);
+                }}
+            />
+
+            <FinePayChoiceModal
+                isOpen={loanPayChoiceOpen}
+                title={String(loanPayChoiceLoan?.type || '').trim() === 'Advance' ? 'Pay Advance' : 'Pay Loan'}
+                fineId={loanPayChoiceLoan?.loanId || ''}
+                showVendorCredit={false}
+                showEmployeePay
+                employeePayLabel="Employee Pay"
+                employeePayHint="Salary or cash. Marks Paid Employee. Emails the invoice to the employee. No Zoho entry."
+                onClose={() => {
+                    setLoanPayChoiceOpen(false);
+                    setLoanPayChoiceLoan(null);
+                }}
+                onExpenseRefund={() => {
+                    const selected = loanPayChoiceLoan;
+                    setLoanPayChoiceOpen(false);
+                    if (selected) startLoanCompanyRefund([selected]);
+                }}
+                onEmployeePay={() => {
+                    setLoanPayChoiceOpen(false);
+                    setLoanEmployeePayOpen(true);
+                }}
+            />
+
+            <LoanEmployeePayModal
+                isOpen={loanEmployeePayOpen}
+                loan={loanPayChoiceLoan}
+                employeeId={employeeId}
+                employee={employee}
+                onClose={() => {
+                    setLoanEmployeePayOpen(false);
+                    setLoanPayChoiceLoan(null);
+                }}
+                onSuccess={() => {
+                    setLoanEmployeePayOpen(false);
+                    setLoanPayChoiceLoan(null);
+                    refreshEmployeePayments();
                 }}
             />
 

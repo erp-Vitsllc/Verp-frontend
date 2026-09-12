@@ -32,6 +32,7 @@ import EmployeeOverviewAttendanceCard from './EmployeeOverviewAttendanceCard';
 import HistoricalSalarySetupView from '@/app/HRM/Salary/enroll/HistoricalSalarySetupView';
 import { navigateFromList } from '@/utils/listReturnNavigation';
 import { salaryRegisterHref } from '@/app/HRM/Salary/utils/salaryRegisterHref';
+import { employeeDataMetrics } from '@/app/HRM/Leave/utils/employeeDataMetrics';
 
 const DATA_ROWS = [
     {
@@ -163,90 +164,6 @@ const DEDUCTION_COLUMNS = [
 
 function n(value) {
     return Number(value) || 0;
-}
-
-function requestBucket(stats, key) {
-    return stats?.[key] || {};
-}
-
-function employeeDataMetrics(row, ctx) {
-    const enroll = ctx.enrollAttendance || {};
-    const balances = ctx.leaveBalances || {};
-    const stats = requestBucket(ctx.requestStats, row.key);
-    const taken = n(balances[row.key]?.taken);
-
-    if (row.key === 'on_leave') {
-        const allowed = n(balances.on_leave?.allowed ?? ctx.leavePolicy?.annualAllowedDays);
-        const used = n(balances.on_leave?.taken);
-        return [
-            { label: 'Approved', value: allowed },
-            { label: 'Used', value: used },
-            { label: 'Remaining', value: n(balances.on_leave?.remaining ?? Math.max(0, allowed - used)) },
-        ];
-    }
-    if (row.key === 'authorized_leave') {
-        return [
-            { label: 'Total', value: taken },
-            { label: 'Approved', value: taken },
-            { label: 'Rejected', value: n(stats.rejected) },
-        ];
-    }
-    if (row.key === 'unauthorized_leave') {
-        return [
-            { label: 'Request', value: n(stats.request) },
-            { label: 'Approved', value: taken },
-            { label: 'Rejected', value: n(stats.rejected) },
-        ];
-    }
-    if (row.key === 'sick_leave') {
-        const available = n(balances.sick_leave?.allowed ?? ctx.leavePolicy?.sickAllowedDays);
-        const used = n(balances.sick_leave?.taken);
-        return [
-            { label: 'Available', value: available },
-            { label: 'Used', value: used },
-            { label: 'Remaining', value: n(balances.sick_leave?.remaining ?? Math.max(0, available - used)) },
-        ];
-    }
-    if (row.key === 'compoff_leave') {
-        const used = n(balances.compoff_leave?.taken);
-        const remaining = n(balances.compoff_leave?.remaining);
-        return [
-            { label: 'Balance', value: used + remaining },
-            { label: 'Used', value: used },
-            { label: 'Remaining', value: remaining },
-        ];
-    }
-    if (row.key === 'late_early') {
-        const lateEarly = combineLateEarly(ctx.requestStats, enroll);
-        return [
-            { label: 'Total', value: lateEarly.total },
-            { label: 'Approved', value: lateEarly.approved },
-            { label: 'Rejected', value: lateEarly.rejected },
-        ];
-    }
-    if (row.key === 'mispunch') {
-        return [
-            { label: 'Total', value: n(enroll.mispunch) || n(stats.total) },
-            { label: 'Approved', value: n(stats.approved) },
-            { label: 'Present', value: n(stats.present) },
-        ];
-    }
-    return [
-        { label: 'Office', value: n(enroll.office ?? ctx.presentDays) },
-        { label: 'WFH', value: n(enroll.wfh) },
-        { label: 'Absent', value: n(enroll.absent ?? ctx.absentDays) },
-    ];
-}
-
-function combineLateEarly(requestStats, enroll) {
-    const combined = requestBucket(requestStats, 'late_early');
-    const late = requestBucket(requestStats, 'late_arrived');
-    const early = requestBucket(requestStats, 'early_go');
-    return {
-        total: n(enroll?.late) + n(enroll?.early) || n(combined.total) || n(late.total) + n(early.total),
-        approved: n(combined.approved) || n(late.approved) + n(early.approved),
-        rejected: n(combined.rejected) || n(late.rejected) + n(early.rejected),
-    };
 }
 
 function currentDubaiYear() {
@@ -1421,9 +1338,9 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                 {n(leavePolicy.annualAllowedDays)
                                     ? ` · Annual ${leavePolicy.annualAllowedDays} days/${leavePolicy.annualPeriod || 'year'}`
                                     : ''}
-                                {leavePolicy.sickEnabled
-                                    ? ` · Sick leave ${leavePolicy.sickAllowedDays ?? 0} days/${leavePolicy.sickPeriod || 'year'}${
-                                          n(leaveBalances.sick_leave?.remaining) === 0
+                                {leavePolicy.sickAllowedDays != null || leavePolicy.allowedSickLeaveDaysPerYear != null
+                                    ? ` · Sick leave ${leavePolicy.sickAllowedDays ?? leavePolicy.allowedSickLeaveDaysPerYear ?? 0} days/${leavePolicy.sickPeriod || 'year'}${
+                                          leavePolicy.sickEnabled && n(leaveBalances.sick_leave?.remaining) === 0
                                               ? ' · extra sick counts as authorized leave'
                                               : ''
                                       }`
