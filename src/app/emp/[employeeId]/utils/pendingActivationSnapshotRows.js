@@ -63,6 +63,15 @@ export function toDisplayValue(value) {
     return JSON.stringify(value);
 }
 
+export function formatLoginThroughDisplay(value) {
+    if (value == null || value === '') return '-';
+    if (typeof value !== 'object' || Array.isArray(value)) return toDisplayValue(value);
+    const parts = [];
+    if (value.portalApp !== false) parts.push('Portal App');
+    if (value.web !== false) parts.push('Web');
+    return parts.length ? parts.join(', ') : 'None';
+}
+
 export function getFileNameFromRef(value) {
     if (!value) return '-';
     if (typeof value === 'string') {
@@ -377,6 +386,14 @@ export function buildActivationSnapshotRows(data, options = {}) {
     pushIfPresentForKey('Probation Period (months)', 'probationPeriod');
     pushIfPresentForKey('Portal Access', 'enablePortalAccess');
 
+    if (normalized.loginThrough !== undefined && normalized.loginThrough !== null) {
+        rows.push({
+            label: 'Login Through',
+            value: formatLoginThroughDisplay(normalized.loginThrough),
+        });
+        coveredKeys.add('loginThrough');
+    }
+
     pushIfPresentForKey('Visa Type', 'visaType');
     pushIfPresentForKey('Number', 'number');
     pushIfPresent('Provider', normalized.provider, 'provider');
@@ -451,6 +468,13 @@ export function buildActivationSnapshotRows(data, options = {}) {
                         url: typeof value === 'object' ? value.url || value.data || '' : '',
                         attachmentRef: value,
                         isAttachment: true,
+                    });
+                    return;
+                }
+                if (key === 'loginThrough') {
+                    rows.push({
+                        label: 'Login Through',
+                        value: formatLoginThroughDisplay(value),
                     });
                     return;
                 }

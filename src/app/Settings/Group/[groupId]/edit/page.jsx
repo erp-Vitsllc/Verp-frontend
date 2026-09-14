@@ -51,6 +51,7 @@ const MODULES = [
 ];
 
 const emptyModulePermission = () => ({
+    isApp: false,
     isView: false,
     isCreate: false,
     isEdit: false,
@@ -100,6 +101,7 @@ const normalizeLoadedGroupPermissions = (permissions, modulesRoot) => {
 };
 
 const PERMISSION_TYPES = [
+    { id: 'isApp', label: 'App' },
     { id: 'isView', label: 'View' },
     { id: 'isCreate', label: 'Create' },
     { id: 'isEdit', label: 'Edit' },
@@ -151,6 +153,7 @@ export default function EditGroupPage() {
                 Object.keys(group.permissions).forEach(moduleId => {
                     const oldPerm = group.permissions[moduleId];
                     defaultPermissions[moduleId] = {
+                        isApp: oldPerm?.isApp ?? false,
                         isView: oldPerm?.isView ?? oldPerm?.isActive ?? (oldPerm?.full || oldPerm?.view || false),
                         isCreate: oldPerm?.isCreate ?? (oldPerm?.full || oldPerm?.create || false),
                         isEdit: oldPerm?.isEdit ?? (oldPerm?.full || oldPerm?.edit || false),
@@ -262,6 +265,7 @@ export default function EditGroupPage() {
             flatModules.forEach(m => {
                 permissions[m.id] = {
                     isFull: checked,
+                    isApp: checked,
                     isView: checked,
                     isCreate: checked,
                     isEdit: checked,
@@ -309,6 +313,7 @@ export default function EditGroupPage() {
             // Initialize permission object if it doesn't exist
             if (!permissions[moduleId]) {
                 permissions[moduleId] = {
+                    isApp: false,
                     isView: false,
                     isCreate: false,
                     isEdit: false,
@@ -320,7 +325,7 @@ export default function EditGroupPage() {
             // Function to update individual module permissions based on cascading rules
             const updateModulePerms = (id, type, isChecked) => {
                 if (!permissions[id]) {
-                    permissions[id] = { isView: false, isCreate: false, isEdit: false, isDelete: false, isDownload: false };
+                    permissions[id] = { isApp: false, isView: false, isCreate: false, isEdit: false, isDelete: false, isDownload: false };
                 }
 
                 if (isChecked) {
@@ -419,6 +424,7 @@ export default function EditGroupPage() {
 
         // Get current permissions for this module
         const modulePermissions = formData.permissions[module.id] || {
+            isApp: false,
             isView: false,
             isCreate: false,
             isEdit: false,

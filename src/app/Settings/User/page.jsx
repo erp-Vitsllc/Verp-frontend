@@ -273,13 +273,16 @@ function UserPageContent() {
                                                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-700 uppercase tracking-wider">
                                                         GROUP
                                                     </th>
+                                                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                                        LOGIN THROUGH
+                                                    </th>
                                                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-700 uppercase tracking-wider">ACTIONS</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-gray-200">
                                                 {users.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan={7} className="px-3 sm:px-6 py-6 sm:py-8 text-center text-gray-500">
+                                                        <td colSpan={8} className="px-3 sm:px-6 py-6 sm:py-8 text-center text-gray-500">
                                                             No users found
                                                         </td>
                                                     </tr>
@@ -321,6 +324,30 @@ function UserPageContent() {
                                                                 ) : (
                                                                     user.group || '-Not Assigned-'
                                                                 )}
+                                                            </td>
+                                                            <td className="px-3 sm:px-6 py-2.5 sm:py-4 whitespace-nowrap text-gray-900">
+                                                                <div className="flex items-center gap-3">
+                                                                    <label className="inline-flex items-center gap-1 text-[11px] text-gray-700">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={Boolean(user.loginThrough?.portalApp)}
+                                                                            readOnly
+                                                                            disabled
+                                                                            className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600"
+                                                                        />
+                                                                        App
+                                                                    </label>
+                                                                    <label className="inline-flex items-center gap-1 text-[11px] text-gray-700">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={Boolean(user.loginThrough?.web)}
+                                                                            readOnly
+                                                                            disabled
+                                                                            className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600"
+                                                                        />
+                                                                        Web
+                                                                    </label>
+                                                                </div>
                                                             </td>
                                                             <td className="px-3 sm:px-6 py-2.5 sm:py-4 whitespace-nowrap font-medium">
                                                                 <div className="flex items-center gap-2 sm:gap-3">

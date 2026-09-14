@@ -9,7 +9,12 @@ const lanDevHost = process.env.LAN_DEV_HOST || '192.168.100.200';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactCompiler: true,
+  // Off: Next 16 Turbopack panics on Windows ("Panic in async function" / PoisonError).
+  // Dev server uses webpack (`npm run dev` → next dev --webpack). Do not re-enable Turbopack.
+  reactCompiler: false,
+
+  // Keep webpack scoped to this app when a parent package-lock.json exists.
+  outputFileTracingRoot: __dirname,
 
   // Required when opening dev server as http://<LAN-IP>:3000 (not localhost) — otherwise blank page
   allowedDevOrigins: [lanDevHost, `${lanDevHost}:3000`],
@@ -137,11 +142,7 @@ const nextConfig = {
     return config;
   },
 
-  turbopack: {
-    // Force Turbopack to treat the client folder as the root so it
-    // ignores other lockfiles outside this project.
-    root: __dirname,
-  },
+  // Keep webpack as the only bundler in this repo. Turbopack poisons .next on Windows.
 };
 
 export default nextConfig;

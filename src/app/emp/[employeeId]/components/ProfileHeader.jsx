@@ -75,6 +75,8 @@ function ProfileHeader({
     onTogglePortalAccess,
     togglingPortalAccess,
     canTogglePortal = false, // Default to false
+    onToggleLoginThrough,
+    togglingLoginThrough = false,
     extraContent,
     hideProgressBar = false,
     hideStatusToggle = false,
@@ -949,9 +951,36 @@ function ProfileHeader({
                 {/* Profile Status */}
                 {!hideProgressBar && (
                     <div className={compactHeader ? 'mt-3' : 'mt-6'}>
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-gray-700">Profile Status</span>
-                            <span className="text-sm font-semibold text-gray-800">{profileCompletion}%</span>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
+                                <span className="text-sm font-medium text-gray-700 shrink-0">Profile Status</span>
+                                {onToggleLoginThrough ? (
+                                    <>
+                                        <span className="text-sm font-medium text-gray-700 shrink-0">Login Through</span>
+                                        <label className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                                            <input
+                                                type="checkbox"
+                                                checked={employee?.loginThrough?.portalApp !== false}
+                                                disabled={togglingLoginThrough || !canTogglePortal}
+                                                onChange={(e) => onToggleLoginThrough('portalApp', e.target.checked)}
+                                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                            />
+                                            Portal App
+                                        </label>
+                                        <label className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                                            <input
+                                                type="checkbox"
+                                                checked={employee?.loginThrough?.web !== false}
+                                                disabled={togglingLoginThrough || !canTogglePortal}
+                                                onChange={(e) => onToggleLoginThrough('web', e.target.checked)}
+                                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                            />
+                                            Web
+                                        </label>
+                                    </>
+                                ) : null}
+                            </div>
+                            <span className="text-sm font-semibold text-gray-800 shrink-0">{profileCompletion}%</span>
                         </div>
                         <div
                             ref={progressBarRef}

@@ -4,12 +4,10 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
-import Image from 'next/image';
 import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
-import { isAdmin, hasPermission } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
 import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import { navHrefProps } from '@/utils/linkContextMenu';
@@ -21,7 +19,10 @@ import {
     Mail,
     Shield,
     Activity,
-    Briefcase
+    Briefcase,
+    Smartphone,
+    MapPin,
+    Globe,
 } from 'lucide-react';
 
 export default function UserProfilePage() {
@@ -42,25 +43,32 @@ export default function UserProfilePage() {
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+    const [isUpdatingDevice, setIsUpdatingDevice] = useState(false);
 
     useEffect(() => {
-        if (userId) {
-            fetchUser();
-        }
+        if (!userId) return undefined;
+        const controller = new AbortController();
+        const load = async () => {
+            try {
+                setLoading(true);
+                setError('');
+                const response = await axiosInstance.get(`/User/${userId}`, {
+                    signal: controller.signal,
+                });
+                if (!controller.signal.aborted) {
+                    setUser(response.data.user);
+                }
+            } catch (err) {
+                if (controller.signal.aborted || err?.code === 'ERR_CANCELED') return;
+                console.error('Error fetching user:', err);
+                setError(err.response?.data?.message || 'Failed to fetch user');
+            } finally {
+                if (!controller.signal.aborted) setLoading(false);
+            }
+        };
+        load();
+        return () => controller.abort();
     }, [userId]);
-
-    const fetchUser = async () => {
-        try {
-            setLoading(true);
-            const response = await axiosInstance.get(`/User/${userId}`);
-            setUser(response.data.user);
-        } catch (err) {
-            console.error('Error fetching user:', err);
-            setError(err.response?.data?.message || 'Failed to fetch user');
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleFileSelect = async (event) => {
         const file = event.target.files?.[0];
@@ -164,36 +172,53 @@ export default function UserProfilePage() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex min-h-screen bg-white">
-                <Sidebar />
-                <div className="flex-1 flex flex-col">
-                    <Navbar />
-                    <div className="flex-1 flex items-center justify-center">
-                        <div className="text-gray-500">Loading profile...</div>
-                    </div>
-                </div>
-            </div>
-        );
-    }
+    const handleFixMobileDevice = async () => {
+        if (!window.confirm('Lock this user so they can only log in from the current mobile device?')) {
+            return;
+        }
+        try {
+            setIsUpdatingDevice(true);
+            const response = await axiosInstance.post(`/User/${userId}/mobile-device/fix`);
+            setUser((prev) => ({ ...prev, mobileDevice: response.data.mobileDevice }));
+            toast({
+                title: 'Device Fixed',
+                description: response.data.message || 'This user can only log in from this phone.',
+                variant: 'success',
+            });
+        } catch (err) {
+            toast({
+                title: 'Could not fix device',
+                description: err.response?.data?.message || 'Failed to lock this user to the current phone.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsUpdatingDevice(false);
+        }
+    };
 
-    if (error || !user) {
-        return (
-            <div className="flex min-h-screen bg-white">
-                <Sidebar />
-                <div className="flex-1 flex flex-col">
-                    <Navbar />
-                    <div className="p-3 sm:p-5 lg:p-8">
-                        <div className="bg-red-50 text-red-600 p-3 sm:p-4 rounded-lg text-xs sm:text-sm">
-                            {error || 'User not found'}
-                        </div>
-                        <ListReturnBackButton onNavigate={handleUserListBack} className="mt-3 sm:mt-4" />
-                    </div>
-                </div>
-            </div>
-        );
-    }
+    const handleChangeMobileDevice = async () => {
+        if (!window.confirm('Remove the current device? The next phone that logs in will become the new current device. Until you click Fix, they can log in from any phone.')) {
+            return;
+        }
+        try {
+            setIsUpdatingDevice(true);
+            const response = await axiosInstance.post(`/User/${userId}/mobile-device/change`);
+            setUser((prev) => ({ ...prev, mobileDevice: response.data.mobileDevice }));
+            toast({
+                title: 'Device unlocked',
+                description: response.data.message || 'Current device removed. Next login will set a new phone.',
+                variant: 'success',
+            });
+        } catch (err) {
+            toast({
+                title: 'Could not change device',
+                description: err.response?.data?.message || 'Failed to change device details.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsUpdatingDevice(false);
+        }
+    };
 
     return (
         <PermissionGuard moduleId="settings_user_group" permissionType="view">
@@ -202,6 +227,18 @@ export default function UserProfilePage() {
                 <div className="flex-1 flex flex-col min-w-0">
                     <Navbar />
 
+                    {loading ? (
+                    <div className="flex-1 flex items-center justify-center">
+                        <div className="text-gray-500">Loading profile...</div>
+                    </div>
+                    ) : error || !user ? (
+                    <div className="p-3 sm:p-5 lg:p-8">
+                        <div className="bg-red-50 text-red-600 p-3 sm:p-4 rounded-lg text-xs sm:text-sm">
+                            {error || 'User not found'}
+                        </div>
+                        <ListReturnBackButton onNavigate={handleUserListBack} className="mt-3 sm:mt-4" />
+                    </div>
+                    ) : (
                     <div className="p-3 sm:p-5 lg:p-8 max-w-5xl mx-auto w-full">
                         {/* Header Actions */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6 lg:mb-8">
@@ -245,26 +282,24 @@ export default function UserProfilePage() {
 
                                     <div className="relative group">
                                         <div className="w-56 h-56 rounded-full border-8 border-white overflow-hidden shadow-xl bg-white flex items-center justify-center relative">
-                                            {(() => {
-                                                const rawUrl = user.profilePicture;
-                                                const safeUrl = rawUrl && !rawUrl.startsWith('http') ? `https://${rawUrl}` : rawUrl;
-
-                                                return (safeUrl && !imageError) ? (
-                                                    <Image
-                                                        src={safeUrl}
-                                                        alt={user.name}
-                                                        width={224}
-                                                        height={224}
-                                                        className="object-cover w-full h-full"
-                                                        onError={() => setImageError(true)}
-                                                        unoptimized={true}
-                                                    />
-                                                ) : (
-                                                    <div className="text-gray-300">
-                                                        <UserIcon size={100} strokeWidth={1} />
-                                                    </div>
-                                                );
-                                            })()}
+                                            {user.profilePicture && !imageError ? (
+                                                <img
+                                                    src={
+                                                        String(user.profilePicture).startsWith('http')
+                                                            ? user.profilePicture
+                                                            : `https://${user.profilePicture}`
+                                                    }
+                                                    alt={user.name || 'User'}
+                                                    width={224}
+                                                    height={224}
+                                                    className="object-cover w-full h-full"
+                                                    onError={() => setImageError(true)}
+                                                />
+                                            ) : (
+                                                <div className="text-gray-300">
+                                                    <UserIcon size={100} strokeWidth={1} />
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Camera Overlay */}
@@ -336,16 +371,22 @@ export default function UserProfilePage() {
                                         )}
                                     </div>
 
-
+                                    {!user.isSystemAdmin && (
+                                        <CurrentDevicePanel
+                                            device={user.mobileDevice}
+                                            busy={isUpdatingDevice}
+                                            onFix={handleFixMobileDevice}
+                                            onChange={handleChangeMobileDevice}
+                                        />
+                                    )}
                                 </div>
 
                             </div>
                         </div>
                     </div>
-                </div>
+                    )}
 
-                {/* Password Change Modal */}
-                {isPasswordModalOpen && (
+                {isPasswordModalOpen && user ? (
                     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
                         <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
                             <h3 className="text-xl font-bold text-gray-900 mb-2 flex items-center gap-2">
@@ -398,7 +439,8 @@ export default function UserProfilePage() {
                             </div>
                         </div>
                     </div>
-                )}
+                ) : null}
+                </div>
             </div>
         </PermissionGuard>
     );
@@ -412,6 +454,90 @@ function DetailItem({ icon, label, value }) {
                 {label}
             </span>
             <span className="text-base font-semibold text-gray-800">{value || '-'}</span>
+        </div>
+    );
+}
+
+function formatDeviceSeen(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString();
+}
+
+function CurrentDevicePanel({ device, busy, onFix, onChange }) {
+    const status = device?.status === 'fixed' ? 'fixed' : 'not_fixed';
+    const isFixed = status === 'fixed';
+    const hasDevice = Boolean(device?.hasDevice);
+    const canFix = Boolean(device?.canFix);
+    const lastSeen = formatDeviceSeen(device?.lastSeenAt);
+
+    return (
+        <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/80 p-5 sm:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                <div>
+                    <h4 className="text-base font-bold text-gray-900">Current Device Logged In</h4>
+                    <p className="text-xs text-gray-500 mt-1">
+                        Shown from the VeRP mobile app. Not Fixed can log in from any phone. Fixed locks this user to one phone.
+                    </p>
+                </div>
+                <span
+                    className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                        isFixed
+                            ? 'bg-green-100 text-green-700 border-green-200'
+                            : 'bg-amber-100 text-amber-700 border-amber-200'
+                    }`}
+                >
+                    {isFixed ? 'Fixed' : 'Not Fixed'}
+                </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+                <DetailItem
+                    icon={<Smartphone size={18} className="text-blue-500" />}
+                    label="Device Name"
+                    value={device?.deviceName}
+                />
+                <DetailItem
+                    icon={<MapPin size={18} className="text-blue-500" />}
+                    label="Location"
+                    value={device?.location}
+                />
+                <DetailItem
+                    icon={<Globe size={18} className="text-blue-500" />}
+                    label="IP Address"
+                    value={device?.ipAddress}
+                />
+            </div>
+
+            {!hasDevice ? (
+                <p className="text-sm text-gray-600 mb-5">
+                    No mobile has logged in yet. After this user opens the VeRP app, the phone name, location, and IP will show here.
+                </p>
+            ) : null}
+
+            {lastSeen ? (
+                <p className="text-xs text-gray-400 mb-4">Last seen {lastSeen}</p>
+            ) : null}
+
+            <div className="flex flex-wrap gap-2">
+                <button
+                    type="button"
+                    onClick={onFix}
+                    disabled={busy || isFixed || !canFix}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs sm:text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {busy ? 'Saving...' : 'Fix this as permanent'}
+                </button>
+                <button
+                    type="button"
+                    onClick={onChange}
+                    disabled={busy || (!hasDevice && !isFixed)}
+                    className="px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-xs sm:text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    Change Device Details
+                </button>
+            </div>
         </div>
     );
 }

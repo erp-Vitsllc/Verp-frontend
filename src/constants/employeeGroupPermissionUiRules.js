@@ -86,6 +86,7 @@ function mirrorSalaryHistoryFromSalary(permissions) {
         return;
     }
     permissions['hrm_employees_view_salary_history'] = {
+        isApp: !!sal.isApp,
         isView: !!sal.isView,
         isCreate: !!sal.isCreate,
         isEdit: !!sal.isEdit,

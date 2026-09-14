@@ -122,6 +122,8 @@ export default function EnrollSalaryPage() {
                     return row.enrolled ? formatSalaryType(row) : '';
                 case 'fromMonth':
                     return row.enrolled ? String(row.fromMonth || '') : '';
+                case 'company':
+                    return String(row.companyName || '').trim() || 'Unassigned';
                 case 'name':
                 default:
                     return String(row.name || '');
@@ -327,12 +329,19 @@ export default function EnrollSalaryPage() {
                         ) : (
                             <div className="w-full max-w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
                                 <div className="w-full max-w-full overflow-x-auto">
-                                    <table className="w-full min-w-[640px] table-auto text-xs sm:text-sm">
+                                    <table className="w-full min-w-[760px] table-auto text-xs sm:text-sm">
                                         <thead className="border-b border-gray-200 bg-gray-50">
                                             <tr>
                                                 <SortableTh
                                                     label="Name"
                                                     sortKey="name"
+                                                    activeKey={sortKey}
+                                                    direction={sortDirection}
+                                                    onSort={handleSort}
+                                                />
+                                                <SortableTh
+                                                    label="Company"
+                                                    sortKey="company"
                                                     activeKey={sortKey}
                                                     direction={sortDirection}
                                                     onSort={handleSort}
@@ -366,7 +375,7 @@ export default function EnrollSalaryPage() {
                                         <tbody className="divide-y divide-gray-100">
                                             {loading ? (
                                                 <tr>
-                                                    <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
+                                                    <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
                                                         <Loader2
                                                             size={20}
                                                             className="inline animate-spin text-blue-600"
@@ -375,7 +384,7 @@ export default function EnrollSalaryPage() {
                                                 </tr>
                                             ) : rows.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
+                                                    <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
                                                         No employees in this work location.
                                                     </td>
                                                 </tr>
@@ -404,6 +413,9 @@ export default function EnrollSalaryPage() {
                                                                     {row.employeeId}
                                                                 </div>
                                                             </div>
+                                                        </td>
+                                                        <td className="px-3 sm:px-4 py-2.5 text-slate-700">
+                                                            {String(row.companyName || '').trim() || 'Unassigned'}
                                                         </td>
                                                         <td className="px-3 sm:px-4 py-2.5">
                                                             <span

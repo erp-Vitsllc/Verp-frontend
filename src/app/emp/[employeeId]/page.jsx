@@ -6705,6 +6705,13 @@ function EmployeeProfilePageContent() {
 
         try {
             setSendingApproval(true);
+            await new Promise((resolve) => {
+                if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+                    window.requestAnimationFrame(() => resolve());
+                } else {
+                    setTimeout(resolve, 0);
+                }
+            });
             const selectedIds = approvalSubmitSelectedEntryIds.map(String);
 
             if (approvalSubmitAllEntryIds.length > 0 && selectedIds.length === 0) {
@@ -6770,10 +6777,10 @@ function EmployeeProfilePageContent() {
                     selectionProvided: approvalSubmitAllEntryIds.length > 0,
                     directHrBypass: true,
                 }, { skipActionDedupe: true });
-                await fetchEmployee(true, true, true);
                 setApprovalSubmitViewingChange(null);
                 setShowDocumentViewer(false);
                 setShowApprovalSubmitModal(false);
+                await fetchEmployee(true, true, true);
                 toast({
                     variant: 'default',
                     title: 'Changes applied',
@@ -6791,9 +6798,34 @@ function EmployeeProfilePageContent() {
                     approvalPayload.selectionProvided = true;
                     approvalPayload.includedChangeEntryIds = [...approvalSubmitSelectedEntryIds.map(String)];
                 }
-                await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`, approvalPayload, {
-                    skipActionDedupe: true,
-                });
+                const response = await axiosInstance.post(
+                    `/Employee/${employeeId}/send-approval-email`,
+                    approvalPayload,
+                    { skipActionDedupe: true },
+                );
+                if (response?.data?.appliedLive) {
+                    const livePatch = response.data.employee || {};
+                    setEmployee((prev) =>
+                        prev
+                            ? {
+                                  ...prev,
+                                  ...livePatch,
+                                  pendingReactivationChanges: (prev.pendingReactivationChanges || []).filter(
+                                      (change) => !selectedIds.includes(String(change?._id || change?.id || '')),
+                                  ),
+                              }
+                            : prev,
+                    );
+                    setApprovalSubmitViewingChange(null);
+                    setShowDocumentViewer(false);
+                    setShowApprovalSubmitModal(false);
+                    toast({
+                        variant: 'default',
+                        title: 'Access settings updated',
+                        description: 'Login through was applied immediately. It does not need HR approval.',
+                    });
+                    return;
+                }
                 setEmployee((prev) =>
                     prev
                         ? {
@@ -6802,10 +6834,10 @@ function EmployeeProfilePageContent() {
                           }
                         : prev,
                 );
-                await fetchEmployee(true, true, true);
                 setApprovalSubmitViewingChange(null);
                 setShowDocumentViewer(false);
                 setShowApprovalSubmitModal(false);
+                await fetchEmployee(true, true, true);
                 toast({
                     variant: 'default',
                     title: 'Sent for Activation',
@@ -7019,6 +7051,7 @@ function EmployeeProfilePageContent() {
     };
 
     const [togglingPortalAccess, setTogglingPortalAccess] = useState(false);
+    const [togglingLoginThrough, setTogglingLoginThrough] = useState(false);
 
     const handleTogglePortalAccess = async (newValue) => {
         if (togglingPortalAccess || !employee) return;
@@ -7045,6 +7078,45 @@ function EmployeeProfilePageContent() {
             });
         } finally {
             setTogglingPortalAccess(false);
+        }
+    };
+
+    const handleToggleLoginThrough = async (channel, checked) => {
+        if (togglingLoginThrough || !employee) return;
+        const next = {
+            portalApp: employee?.loginThrough?.portalApp !== false,
+            web: employee?.loginThrough?.web !== false,
+            [channel]: checked,
+        };
+        try {
+            setTogglingLoginThrough(true);
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                loginThrough: next,
+            });
+            setEmployee((prev) => {
+                const pending = Array.isArray(prev?.pendingReactivationChanges)
+                    ? prev.pendingReactivationChanges.filter((entry) => {
+                          const proposed = entry?.proposedData || {};
+                          const keys = Object.keys(proposed).filter((key) => proposed[key] !== undefined);
+                          if (keys.length === 0) return true;
+                          return !keys.every((key) => key === 'loginThrough' || key === 'enablePortalAccess');
+                      })
+                    : prev?.pendingReactivationChanges;
+                return { ...prev, loginThrough: next, pendingReactivationChanges: pending };
+            });
+            toast({
+                variant: 'default',
+                title: 'Login through updated',
+                description: `${channel === 'portalApp' ? 'Portal App' : 'Web'} ${checked ? 'enabled' : 'disabled'}.`,
+            });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Update failed',
+                description: error.response?.data?.message || error.message || 'Failed to update login through.',
+            });
+        } finally {
+            setTogglingLoginThrough(false);
         }
     };
 
@@ -9298,6 +9370,8 @@ function EmployeeProfilePageContent() {
                                         canCreateActivation={canCreateActivation}
                                         onViewRequestedChange={handleViewRequestedChange}
                                         onTogglePortalAccess={handleTogglePortalAccess}
+                                        onToggleLoginThrough={handleToggleLoginThrough}
+                                        togglingLoginThrough={togglingLoginThrough}
                                         canTogglePortal={
                                             !isCompanyProfile &&
                                             (isAdmin ||

@@ -165,6 +165,10 @@ export const hasPermission = (moduleId, permissionType = 'isView') => {
     // Support both old format (isActive) and new format (isView) for backward compatibility
     const hasView = modulePermission.isView === true || modulePermission.isActive === true;
 
+    if (permissionType === 'isApp') {
+        return modulePermission.isApp === true;
+    }
+
     // First check if module has View permission (isView must be true to access)
     // This is the base permission - if View is false, nothing else matters
     if (!hasView) {

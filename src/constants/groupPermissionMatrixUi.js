@@ -9,6 +9,7 @@ import { getFineBranchDisabledPermTypes, applyFinePermissionUiClamp } from '@/co
 const ACTION_PERM_KEYS = ['isCreate', 'isEdit', 'isDelete', 'isDownload'];
 
 const emptyPerm = () => ({
+    isApp: false,
     isView: false,
     isCreate: false,
     isEdit: false,
@@ -85,7 +86,7 @@ export function isGroupPermissionCheckboxDisabled(
         return true;
     }
 
-    if (permId === 'isView') return false;
+    if (permId === 'isView' || permId === 'isApp') return false;
 
     const isViewEnabled = !!modulePermissions.isView;
 

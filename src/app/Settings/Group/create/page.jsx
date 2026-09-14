@@ -44,6 +44,7 @@ const MODULES = [
 ];
 
 const PERMISSION_TYPES = [
+    { id: 'isApp', label: 'App' },
     { id: 'isView', label: 'View' },
     { id: 'isCreate', label: 'Create' },
     { id: 'isEdit', label: 'Edit' },
@@ -152,6 +153,7 @@ export default function CreateGroupPage() {
             flatModules.forEach(m => {
                 permissions[m.id] = {
                     isFull: checked,
+                    isApp: checked,
                     isView: checked,
                     isCreate: checked,
                     isEdit: checked,
@@ -199,6 +201,7 @@ export default function CreateGroupPage() {
             // Initialize permission object if it doesn't exist
             if (!permissions[moduleId]) {
                 permissions[moduleId] = {
+                    isApp: false,
                     isView: false,
                     isCreate: false,
                     isEdit: false,
@@ -210,7 +213,7 @@ export default function CreateGroupPage() {
             // Function to update individual module permissions based on cascading rules
             const updateModulePerms = (id, type, isChecked) => {
                 if (!permissions[id]) {
-                    permissions[id] = { isView: false, isCreate: false, isEdit: false, isDelete: false, isDownload: false };
+                    permissions[id] = { isApp: false, isView: false, isCreate: false, isEdit: false, isDelete: false, isDownload: false };
                 }
 
                 if (isChecked) {
@@ -308,6 +311,7 @@ export default function CreateGroupPage() {
         const indentClass = indentSteps[Math.min(level, indentSteps.length - 1)] || '';
 
         const modulePermissions = formData.permissions[module.id] || {
+            isApp: false,
             isView: false,
             isCreate: false,
             isEdit: false,

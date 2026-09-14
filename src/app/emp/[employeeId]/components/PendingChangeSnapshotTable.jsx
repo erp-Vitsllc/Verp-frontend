@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import {
     buildActivationSnapshotRows,
@@ -7,6 +8,8 @@ import {
     formatSnapshotFallbackJson,
     resolveActivationSnapshot,
 } from '../utils/pendingActivationSnapshotRows';
+
+const EMPTY_RESOLVE_CONTEXT = {};
 
 /**
  * Read-only prior vs proposed blocks (submit pending, HR activation, held pendings).
@@ -22,16 +25,23 @@ export default function PendingChangeSnapshotTable({
     diffOnly = true,
     resolveContext = null,
 }) {
-    const snapshotData = entry ? resolveActivationSnapshot(entry, kind) : {};
-    const context = resolveContext && typeof resolveContext === 'object' ? resolveContext : {};
+    const context =
+        resolveContext && typeof resolveContext === 'object' ? resolveContext : EMPTY_RESOLVE_CONTEXT;
 
-    let rows;
-    if (diffOnly && entry) {
-        const { previousRows, proposedRows } = filterSnapshotRowsToChangesOnly(entry, { resolveContext: context });
-        rows = kind === 'previous' ? previousRows : proposedRows;
-    } else {
-        rows = buildActivationSnapshotRows(snapshotData, { entry, resolveContext: context });
-    }
+    const snapshotData = useMemo(
+        () => (entry ? resolveActivationSnapshot(entry, kind) : {}),
+        [entry, kind],
+    );
+
+    const rows = useMemo(() => {
+        if (diffOnly && entry) {
+            const { previousRows, proposedRows } = filterSnapshotRowsToChangesOnly(entry, {
+                resolveContext: context,
+            });
+            return kind === 'previous' ? previousRows : proposedRows;
+        }
+        return buildActivationSnapshotRows(snapshotData, { entry, resolveContext: context });
+    }, [diffOnly, entry, kind, context, snapshotData]);
 
     const shell =
         variant === 'amber'
