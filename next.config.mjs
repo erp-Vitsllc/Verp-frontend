@@ -142,7 +142,8 @@ const nextConfig = {
     return config;
   },
 
-  // Keep webpack as the only bundler in this repo. Turbopack poisons .next on Windows.
+  // Keep webpack as the only bundler. `npm run build` passes --webpack (Next 16
+  // defaults to Turbopack, which errors when a webpack() config is present).
 };
 
 export default nextConfig;
