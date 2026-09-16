@@ -253,32 +253,52 @@ export default function EmployeeSalaryVehicleUtilityPanel({
         }
         setLoadingBills(true);
         try {
-            const results = await Promise.all(
-                list.map(async (entry) => {
-                    try {
-                        const res = await axiosInstance.get('/UtilityBill', {
-                            params: { entryId: entry.id },
-                            skipToast: true,
-                        });
-                        return [entry.id, Array.isArray(res.data?.bills) ? res.data.bills : []];
-                    } catch {
-                        return [entry.id, []];
-                    }
-                }),
-            );
+            const entryIds = list.map((entry) => String(entry?.id || '').trim()).filter(Boolean);
             const map = {};
-            results.forEach(([id, bills]) => {
-                map[id] = bills;
+            entryIds.forEach((id) => {
+                map[id] = [];
             });
-            // Merge Payable-to bills (employee may not own the utility assignment).
-            payable.forEach((bill) => {
-                const entryId = String(bill?.entryId || '').trim();
+
+            const entryById = new Map(list.map((entry) => [String(entry.id), entry]));
+            const entryByAccount = new Map();
+            list.forEach((entry) => {
+                const acc = String(
+                    entry?.values?.accountNumber ||
+                        entry?.values?.accountNo ||
+                        entry?.accountNo ||
+                        '',
+                ).trim();
+                if (acc && !entryByAccount.has(acc)) entryByAccount.set(acc, entry);
+            });
+
+            const placeBill = (bill) => {
+                if (!bill) return;
+                let entryId = String(bill.entryId || '').trim();
+                if (!entryById.has(entryId)) {
+                    const acc = String(bill.accountNo || '').trim();
+                    const byAcc = acc ? entryByAccount.get(acc) : null;
+                    if (byAcc) entryId = String(byAcc.id);
+                }
                 if (!entryId) return;
                 const existing = Array.isArray(map[entryId]) ? map[entryId] : [];
-                const billId = String(bill._id || '');
-                if (billId && existing.some((b) => String(b._id) === billId)) return;
+                const billId = String(bill._id || bill.id || '');
+                if (billId && existing.some((row) => String(row._id || row.id) === billId)) return;
                 map[entryId] = [...existing, bill];
-            });
+            };
+
+            if (entryIds.length) {
+                try {
+                    const res = await axiosInstance.get('/UtilityBill', {
+                        params: { overview: 1, entryIds: entryIds.join(',') },
+                        skipToast: true,
+                    });
+                    (Array.isArray(res.data?.bills) ? res.data.bills : []).forEach(placeBill);
+                } catch {
+                    /* still merge payable bills below */
+                }
+            }
+
+            payable.forEach(placeBill);
             setBillsByEntry(map);
 
             // Difference pay status (separate from main vendor bill Paid).
@@ -333,15 +353,16 @@ export default function EmployeeSalaryVehicleUtilityPanel({
         setLoadingUtilities(true);
         try {
             const [assignedEntries, payableRes] = await Promise.all([
-                empOid
+                empOid || empBusinessId
                     ? fetchUtilityEntries({
-                          assignedToId: empOid,
+                          assignedToId: empOid || empBusinessId,
                           assignedToType: 'Employee',
                       }).catch(() => [])
                     : Promise.resolve([]),
                 axiosInstance
                     .get('/UtilityBill', {
                         params: {
+                            overview: 1,
                             payByEmployeeId: empBusinessId || empOid,
                         },
                         skipToast: true,

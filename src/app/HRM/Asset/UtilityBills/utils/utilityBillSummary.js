@@ -122,19 +122,58 @@ function pickPreferredBill(current, next) {
     return nextTime >= currentTime ? next : current;
 }
 
-function monthsForEntryInPeriod(entry, { year, month, capYm }) {
-    const fromYm = entryAvailableFromMonth(entry) || capYm;
+function periodYearMonth(year, month) {
     const rawYear = year == null ? '' : String(year).trim();
     const periodYear =
         !rawYear || rawYear.toLowerCase() === 'all' ? null : rawYear;
     const periodMonth = String(month || ALL_MONTHS);
-    return monthKeysFromTo(fromYm, capYm).filter((ym) => {
-        if (periodYear && ym.slice(0, 4) !== periodYear) return false;
-        if (periodMonth && periodMonth !== ALL_MONTHS && ym.slice(5, 7) !== periodMonth) {
-            return false;
+    return { periodYear, periodMonth };
+}
+
+function ymInPeriod(ym, { periodYear, periodMonth }) {
+    if (periodYear && ym.slice(0, 4) !== periodYear) return false;
+    if (periodMonth && periodMonth !== ALL_MONTHS && ym.slice(5, 7) !== periodMonth) {
+        return false;
+    }
+    return true;
+}
+
+function billMonthFromBill(bill) {
+    const fromField = normalizeBillMonthKey(bill?.billMonth);
+    if (fromField) return fromField;
+    if (bill?.createdAt) {
+        const d = new Date(bill.createdAt);
+        if (!Number.isNaN(d.getTime())) {
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         }
-        return true;
-    });
+    }
+    return '';
+}
+
+function entryIdCandidates(entry) {
+    return [entry?.id, entry?._id]
+        .map((v) => String(v || '').trim())
+        .filter(Boolean);
+}
+
+function resolveBillEntryId(bill, typeEntries) {
+    const direct = String(bill?.entryId || bill?.entry?._id || bill?.entry || '').trim();
+    if (direct && typeEntries.some((entry) => entryIdCandidates(entry).includes(direct))) {
+        const match = typeEntries.find((entry) => entryIdCandidates(entry).includes(direct));
+        return String(match?.id || direct);
+    }
+    const account = String(bill?.accountNo || '').trim();
+    if (account) {
+        const byAccount = typeEntries.find((entry) => entryAccountNumber(entry) === account);
+        if (byAccount) return String(byAccount.id);
+    }
+    return direct;
+}
+
+function monthsForEntryInPeriod(entry, { year, month, capYm }) {
+    const fromYm = entryAvailableFromMonth(entry) || capYm;
+    const period = periodYearMonth(year, month);
+    return monthKeysFromTo(fromYm, capYm).filter((ym) => ymInPeriod(ym, period));
 }
 
 function buildSummaryRow(entry, ym, bill) {
@@ -152,7 +191,7 @@ function buildSummaryRow(entry, ym, bill) {
     return {
         key: `${entry.id}::${ym}`,
         entryId: String(entry.id || ''),
-        billId: bill?._id ? String(bill._id) : '',
+        billId: String(bill?._id || bill?.id || ''),
         batchId: bill?.batchId ? String(bill.batchId) : '',
         monthKey: ym,
         monthLabel: formatSummaryMonth(ym),
@@ -204,8 +243,8 @@ export function buildUtilityTypeSummaryRows({
 
     const billsByEntryMonth = new Map();
     typeBills.forEach((bill) => {
-        const entryId = String(bill?.entryId || '').trim();
-        const ym = normalizeBillMonthKey(bill?.billMonth);
+        const entryId = resolveBillEntryId(bill, typeEntries);
+        const ym = billMonthFromBill(bill);
         if (!entryId || !ym) return;
         const key = `${entryId}::${ym}`;
         billsByEntryMonth.set(key, pickPreferredBill(billsByEntryMonth.get(key), bill));
@@ -213,6 +252,7 @@ export function buildUtilityTypeSummaryRows({
 
     const capYm = calendarYm(refDate);
     const period = { year, month, capYm };
+    const periodFilter = periodYearMonth(year, month);
     const rows = [];
 
     typeEntries.forEach((entry) => {
@@ -221,7 +261,20 @@ export function buildUtilityTypeSummaryRows({
         const active = isEntryActive(entry);
         const billable = entryRequiresMonthlyBill(entry);
 
-        monthsForEntryInPeriod(entry, period).forEach((ym) => {
+        const monthSet = new Set(monthsForEntryInPeriod(entry, period));
+        // Bills already saved for a month must still appear even if that month is
+        // before the entry createdAt / available-from (otherwise Updated/Not Paid
+        // rows vanish from Summary).
+        const prefix = `${entryId}::`;
+        billsByEntryMonth.forEach((_bill, mapKey) => {
+            if (!mapKey.startsWith(prefix)) return;
+            const ym = mapKey.slice(prefix.length);
+            if (!/^\d{4}-\d{2}$/.test(ym)) return;
+            if (!ymInPeriod(ym, periodFilter)) return;
+            monthSet.add(ym);
+        });
+
+        monthSet.forEach((ym) => {
             const bill = billsByEntryMonth.get(`${entryId}::${ym}`) || null;
             if (!bill && (!active || !billable)) return;
             rows.push(buildSummaryRow(entry, ym, bill));

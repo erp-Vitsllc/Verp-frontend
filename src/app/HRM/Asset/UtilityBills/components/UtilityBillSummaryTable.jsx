@@ -9,6 +9,7 @@ import { fetchUtilityBillById } from '../utils/utilityBillsApi';
 import {
     filterSummaryRows,
     formatSummaryMoney,
+    SUMMARY_STATUS,
     summaryStatusBadgeClass,
 } from '../utils/utilityBillSummary';
 
@@ -57,10 +58,23 @@ function getSortValue(row, key, type) {
         .toLowerCase();
 }
 
+const SUMMARY_STATUS_SORT_ORDER = {
+    [SUMMARY_STATUS.NOT_PAID]: 0,
+    [SUMMARY_STATUS.PAID]: 1,
+    [SUMMARY_STATUS.NOT_UPDATED]: 2,
+};
+
 function compareSortValues(a, b, key, type, direction) {
     const aVal = getSortValue(a, key, type);
     const bVal = getSortValue(b, key, type);
     const dir = direction === 'desc' ? -1 : 1;
+
+    if (key === 'status') {
+        const aRank = SUMMARY_STATUS_SORT_ORDER[String(aVal || '').toLowerCase()] ?? 99;
+        const bRank = SUMMARY_STATUS_SORT_ORDER[String(bVal || '').toLowerCase()] ?? 99;
+        if (aRank !== bRank) return aRank < bRank ? -dir : dir;
+        return 0;
+    }
 
     if (type === 'number') {
         if (aVal == null && bVal == null) return 0;
@@ -142,7 +156,7 @@ export default function UtilityBillSummaryTable({
     const [expandedMonths, setExpandedMonths] = useState(() => new Set());
     const [monthSortKey, setMonthSortKey] = useState('monthKey');
     const [monthSortDirection, setMonthSortDirection] = useState('desc');
-    const [billSortKey, setBillSortKey] = useState('accountNo');
+    const [billSortKey, setBillSortKey] = useState('status');
     const [billSortDirection, setBillSortDirection] = useState('asc');
 
     const filtered = useMemo(
