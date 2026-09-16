@@ -246,8 +246,8 @@ function PurchasesBillsPageContent() {
                             title="Bills"
                             subtitle={
                                 activeZohoOrg?.brand
-                                    ? `${activeZohoOrg.brand} Zoho — Refresh makes ERP match Zoho (batches of 400)`
-                                    : 'Matches Zoho after Refresh — add/update/delete in Zoho, then Refresh (batches of 400)'
+                                    ? `${activeZohoOrg.brand} Zoho Books — Accounts Bills only (does not change Utility Bills)`
+                                    : 'Zoho Books bills show here only. Refresh does not change Utility Bills.'
                             }
                         >
                             <div className="flex flex-wrap items-center gap-2">

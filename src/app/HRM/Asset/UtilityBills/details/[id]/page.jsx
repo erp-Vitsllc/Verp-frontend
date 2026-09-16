@@ -1098,15 +1098,14 @@ function UtilityBillDetailsPageContent() {
 
     const handleDeleteBill = async (bill) => {
         if (!bill?._id) return;
-        if (utilityBillIsInZoho(bill)) {
+        if (!canAdminDelete) {
             toast({
                 variant: 'destructive',
                 title: 'Cannot delete',
-                description: 'This bill is already in Zoho Books.',
+                description: 'Only a Super User (admin) can delete utility bills.',
             });
             return;
         }
-        if (!(bill.canDeleteBill || canAdminDelete)) return;
         const label = monthLabelFromKey(bill.billMonth) || 'this bill';
         if (
             !window.confirm(
@@ -1327,10 +1326,7 @@ function UtilityBillDetailsPageContent() {
                                     canCreatorResend ||
                                     canAdminDelete,
                             );
-                        const showCardDelete =
-                            !inZoho &&
-                            !isPaid &&
-                            Boolean(bill.canDeleteBill || canCreatorResend || canAdminDelete);
+                        const showCardDelete = Boolean(canAdminDelete || bill.canDeleteBill);
                         const isDeleting = String(deletingBillId) === String(bill._id);
                         const vendorPayLabel = isPaid
                             ? 'Paid'
