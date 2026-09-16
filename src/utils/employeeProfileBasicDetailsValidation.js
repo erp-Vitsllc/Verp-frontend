@@ -116,6 +116,10 @@ export function validateEmployeeProfileBasicDetailsForm(form = {}, { defaultCoun
 
     set('email', validateEmployeeEmail(form.email));
     set('contactNumber', validateInternationalPhone(form.contactNumber, defaultCountry));
+    const waRaw = String(form.whatsappNumber || '').trim();
+    if (waRaw) {
+        set('whatsappNumber', validateInternationalPhone(form.whatsappNumber, defaultCountry));
+    }
     set('dateOfBirth', validateDateOfBirth(form.dateOfBirth));
     set('maritalStatus', validateProfileMaritalStatus(form.maritalStatus));
     set('numberOfDependents', validateProfileNumberOfDependents(form.maritalStatus, form.numberOfDependents));

@@ -218,6 +218,7 @@ function EmployeeContent() {
     const [companyHeaderStats, setCompanyHeaderStats] = useState({ total: 0, withEmployees: 0 });
     const [fetchingCompanies, setFetchingCompanies] = useState(false);
     const [companyModalOpen, setCompanyModalOpen] = useState(false);
+    // const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
 
     // Initialize states from URL parameters
     const [selectedCompany, setSelectedCompany] = useState(searchParams.get('company') || '');
@@ -429,6 +430,37 @@ function EmployeeContent() {
         () => notificationItems.map((item, index) => mapDashboardNotificationToRow(item, index)),
         [notificationItems],
     );
+
+    /* Temporarily hidden: "Send WH to all emp"
+    const handleSendWhatsAppToAllEmployees = async () => {
+        if (sendingWhatsApp) return;
+        if (!window.confirm('Send WhatsApp "helo from test verp" to all employees with a contact number? Left User records are skipped.')) {
+            return;
+        }
+        try {
+            setSendingWhatsApp(true);
+            const response = await axiosInstance.post(
+                '/whatsapp/test-employees',
+                { message: 'helo from test verp' },
+                { timeout: 300000 },
+            );
+            const data = response.data || {};
+            toast({
+                title: data.failedCount ? 'WhatsApp sent with some failures' : 'WhatsApp sent',
+                description: `Sent ${data.sentCount || 0}. Failed ${data.failedCount || 0}. Skipped ${data.skipped || 0}.`,
+                variant: data.sentCount ? 'success' : 'destructive',
+            });
+        } catch (err) {
+            toast({
+                title: 'WhatsApp send failed',
+                description: err.response?.data?.error || err.response?.data?.message || err.message || 'Could not send WhatsApp to employees.',
+                variant: 'destructive',
+            });
+        } finally {
+            setSendingWhatsApp(false);
+        }
+    };
+    */
 
     const handleDeleteNotification = async (item) => {
         try {
@@ -1251,6 +1283,19 @@ function EmployeeContent() {
                                     />
                                 </div>
 
+                                {/* Temporarily hidden: Send WH to all emp
+                                {mounted && isAdmin() && (
+                                    <button
+                                        type="button"
+                                        onClick={handleSendWhatsAppToAllEmployees}
+                                        disabled={sendingWhatsApp}
+                                        className="bg-green-600 hover:bg-green-700 text-white px-3 sm:px-5 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap disabled:opacity-50"
+                                    >
+                                        <MessageCircle size={16} />
+                                        {sendingWhatsApp ? 'Sending WhatsApp...' : 'Send WH to all emp'}
+                                    </button>
+                                )}
+                                */}
                                 {/* Add New Employee Button */}
                                 {mounted && canAccessAddEmployee() && (
                                     <Link

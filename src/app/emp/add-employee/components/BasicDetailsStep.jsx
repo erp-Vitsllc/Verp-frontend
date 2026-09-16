@@ -17,6 +17,7 @@ export default function BasicDetailsStep({
     handleDateChange,
     handleBasicDetailsChange,
     handlePhoneChange,
+    handleWhatsappPhoneChange,
     defaultPhoneCountry,
     companies
 }) {
@@ -156,6 +157,22 @@ export default function BasicDetailsStep({
                     />
                     {fieldErrors?.contactNumber && (
                         <p className="text-xs text-red-500 mt-1">{fieldErrors.contactNumber}</p>
+                    )}
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        WhatsApp Number
+                    </label>
+                    <PhoneInputField
+                        defaultCountry={defaultPhoneCountry}
+                        value={basicDetails.whatsappNumber}
+                        onChange={(value, country) => handleWhatsappPhoneChange(value, country)}
+                        placeholder="WhatsApp Number"
+                        disabled={false}
+                        error={fieldErrors?.whatsappNumber}
+                    />
+                    {fieldErrors?.whatsappNumber && (
+                        <p className="text-xs text-red-500 mt-1">{fieldErrors.whatsappNumber}</p>
                     )}
                 </div>
             </div>

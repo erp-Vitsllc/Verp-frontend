@@ -30,6 +30,7 @@ import { isEmployeeLeftUser } from '@/utils/employeeWorkStatus';
 import OnDutyFromLeaveControl, { ownerHasOnLeaveAssets } from '@/app/HRM/Asset/components/OnDutyFromLeaveControl';
 import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
 import { buildActivationHoldPayload } from '@/utils/buildActivationHoldPayload';
+// import axiosInstance from '@/utils/axios';
 
 function pendingQueueIncludesLeftUser(pendingChanges = []) {
     return (Array.isArray(pendingChanges) ? pendingChanges : []).some(
@@ -120,6 +121,61 @@ function ProfileHeader({
     }, [employeeImageKey, setImageErrorProp]);
 
     const { toast } = useToast();
+    /* Temporarily hidden: profile "Send message through WP"
+    const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
+
+    const handleSendWhatsApp = async () => {
+        const NO_WP_FIELD = 'This user have no WP';
+        const NO_WP_ACCOUNT = 'This WhatsApp number does not have a WhatsApp account';
+        const hasWp = Boolean(String(employee?.whatsappNumber || '').trim());
+        if (!hasWp) {
+            toast({
+                title: 'This user have no WP',
+                description: 'Add a WhatsApp number in Basic Details first.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        if (sendingWhatsApp) return;
+        try {
+            setSendingWhatsApp(true);
+            const id = employee?.employeeId || employee?._id;
+            const response = await axiosInstance.post(`/whatsapp/employee/${encodeURIComponent(id)}`);
+            if (!response.data?.success) {
+                const errMsg = response.data?.error || 'WhatsApp not sent';
+                toast({
+                    title: errMsg === NO_WP_FIELD
+                        ? 'This user have no WP'
+                        : errMsg === NO_WP_ACCOUNT
+                            ? 'No WhatsApp account'
+                            : 'WhatsApp not sent',
+                    description: errMsg,
+                    variant: 'destructive',
+                });
+                return;
+            }
+            toast({
+                title: 'WhatsApp sent',
+                description: `Template vega_digital_it_solution sent to ${employee.whatsappNumber}. Open that phone and look for Vegadigital UAE.`,
+                variant: 'success',
+            });
+        } catch (err) {
+            const msg = err.response?.data?.error || err.message || 'This user have no WP';
+            toast({
+                title:
+                    msg === 'This user have no WP'
+                        ? 'This user have no WP'
+                        : msg === 'This WhatsApp number does not have a WhatsApp account'
+                            ? 'No WhatsApp account'
+                            : 'WhatsApp not sent',
+                description: msg,
+                variant: 'destructive',
+            });
+        } finally {
+            setSendingWhatsApp(false);
+        }
+    };
+    */
     const hasLeftUserPending = useMemo(
         () => pendingQueueIncludesLeftUser(employee?.pendingReactivationChanges),
         [employee?.pendingReactivationChanges],
@@ -900,27 +956,36 @@ function ProfileHeader({
 
 
                         {/* Contact Info */}
-                        {(employee.contactNumber || employee.companyEmail || employee.workEmail) && (
-                            <div className={`space-y-1 ${compactHeader ? 'mb-2' : 'mb-4'}`}>
-                                {employee.contactNumber && !hideContactNumber && (
-                                    <div className="flex items-center gap-2 text-gray-600 text-sm">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
-                                        </svg>
-                                        <span>{employee.contactNumber}</span>
-                                    </div>
-                                )}
-                                {(employee.companyEmail || employee.workEmail) && !hideEmail && (
-                                    <div className="flex items-center gap-2 text-gray-600 text-sm">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
-                                            <polyline points="22,6 12,13 2,6"></polyline>
-                                        </svg>
-                                        <span>{employee.companyEmail || employee.workEmail}</span>
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                        <div className={`space-y-1 ${compactHeader ? 'mb-2' : 'mb-4'}`}>
+                            {employee.contactNumber && !hideContactNumber && (
+                                <div className="flex items-center gap-2 text-gray-600 text-sm">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                                    </svg>
+                                    <span>{employee.contactNumber}</span>
+                                </div>
+                            )}
+                            {(employee.companyEmail || employee.workEmail) && !hideEmail && (
+                                <div className="flex items-center gap-2 text-gray-600 text-sm">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                                        <polyline points="22,6 12,13 2,6"></polyline>
+                                    </svg>
+                                    <span>{employee.companyEmail || employee.workEmail}</span>
+                                </div>
+                            )}
+                            {/* Temporarily hidden: Send message through WP
+                            <button
+                                type="button"
+                                onClick={handleSendWhatsApp}
+                                disabled={sendingWhatsApp}
+                                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold bg-green-600 hover:bg-green-700 text-white shadow-sm disabled:opacity-50"
+                            >
+                                <MessageCircle size={15} />
+                                {sendingWhatsApp ? 'Sending...' : 'Send message through WP'}
+                            </button>
+                            */}
+                        </div>
 
                         {onTogglePortalAccess && (
                             <div className={`flex flex-wrap items-center gap-2 sm:gap-3 ${compactHeader ? 'mt-2 pt-2' : 'mt-4 pt-4'} border-t border-gray-100`}>

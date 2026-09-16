@@ -67,6 +67,7 @@ export default function BasicDetailsModal({
                                 { label: 'Last Name', field: 'lastName', type: 'text', required: true },
                                 { label: 'Email', field: 'email', type: 'email', required: true },
                                 { label: 'Contact Number', field: 'contactNumber', type: 'phone', required: true },
+                                { label: 'WhatsApp Number', field: 'whatsappNumber', type: 'phone', required: false, placeholder: 'Enter WhatsApp number' },
 
                                 { label: 'Date of Birth', field: 'dateOfBirth', type: 'date', required: true, placeholder: 'dd/mm/yyyy' },
                                 {
@@ -105,7 +106,7 @@ export default function BasicDetailsModal({
                                                 defaultCountry={DEFAULT_PHONE_COUNTRY}
                                                 value={editForm[input.field]}
                                                 onChange={(value, country) => onEditChange(input.field, value, country)}
-                                                placeholder="Enter contact number"
+                                                placeholder={input.placeholder || "Enter contact number"}
                                                 disabled={updating}
                                                 error={editFormErrors[input.field]}
                                             />

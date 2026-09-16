@@ -45,6 +45,7 @@ function BasicDetailsCard({
             { label: 'Full Name', value: `${employee.firstName || ''} ${employee.lastName || ''}`.trim() },
             { label: 'Email', value: employee.email || employee.workEmail },
             { label: 'Contact Number', value: employee.contactNumber },
+            { label: 'WhatsApp Number', value: employee.whatsappNumber },
 
             { label: 'Date of Birth', value: dateOfBirthValue },
             {

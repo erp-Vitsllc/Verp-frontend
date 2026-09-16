@@ -55,6 +55,7 @@ import {
 } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
 import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
 import FinePayChoiceModal from '@/app/HRM/Fine/components/FinePayChoiceModal';
+import FineEmployeePayModal from '@/app/HRM/Fine/components/FineEmployeePayModal';
 import FineVendorCreditModal from '@/app/HRM/Fine/components/FineVendorCreditModal';
 import LoanEmployeePayModal from '@/app/HRM/LoanAndAdvance/components/LoanEmployeePayModal';
 import { formatRewardPaymentLabel, formatRewardStatusLabel, isRewardVisibleOnEmployeeProfile, isRewardPaymentEligible } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
@@ -1139,6 +1140,7 @@ export default function SalaryTab({
     const [finePayChoiceOpen, setFinePayChoiceOpen] = useState(false);
     const [finePayChoiceFine, setFinePayChoiceFine] = useState(null);
     const [fineVendorCreditOpen, setFineVendorCreditOpen] = useState(false);
+    const [fineEmployeePayOpen, setFineEmployeePayOpen] = useState(false);
     const [loanPayChoiceOpen, setLoanPayChoiceOpen] = useState(false);
     const [loanPayChoiceLoan, setLoanPayChoiceLoan] = useState(null);
     const [loanEmployeePayOpen, setLoanEmployeePayOpen] = useState(false);
@@ -1154,6 +1156,10 @@ export default function SalaryTab({
             if (loanPayChoiceOpen) {
                 setLoanPayChoiceOpen(false);
                 setLoanPayChoiceLoan(null);
+                return true;
+            }
+            if (fineEmployeePayOpen) {
+                setFineEmployeePayOpen(false);
                 return true;
             }
             if (fineVendorCreditOpen) {
@@ -1254,6 +1260,7 @@ export default function SalaryTab({
         profileBackHandlerRef,
         finePayChoiceOpen,
         fineVendorCreditOpen,
+        fineEmployeePayOpen,
         fineCompanyRefundOpen,
         loanPayChoiceOpen,
         loanEmployeePayOpen,
@@ -1746,7 +1753,7 @@ export default function SalaryTab({
             toast({
                 variant: 'destructive',
                 title: 'Accounts only',
-                description: 'Only Accounts can record Expense Refund or Vendor Credit from this profile.',
+                description: 'Only Accounts can record Expense Refund, Vendor Credit, or Employee Pay from this profile.',
             });
             return;
         }
@@ -4071,7 +4078,7 @@ export default function SalaryTab({
                                                                     type="button"
                                                                     onClick={(e) => openFinePayRefund(fine, e)}
                                                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider shadow-sm active:scale-95 transition-all"
-                                                                    title="Pay — Expense Refund or Vendor Credit"
+                                                                    title="Pay — Expense Refund, Vendor Credit, or Employee Pay"
                                                                 >
                                                                     <Wallet size={14} />
                                                                     Pay
@@ -6332,7 +6339,9 @@ export default function SalaryTab({
             <FinePayChoiceModal
                 isOpen={finePayChoiceOpen}
                 fineId={finePayChoiceFine?.fineId || ''}
-                showEmployeePay={false}
+                showEmployeePay
+                employeePayLabel="Employee Pay"
+                employeePayHint="Salary or cash. Marks Paid Employee. Emails the invoice to the employee. No Zoho entry."
                 onClose={() => {
                     setFinePayChoiceOpen(false);
                     setFinePayChoiceFine(null);
@@ -6346,6 +6355,26 @@ export default function SalaryTab({
                 onVendorCredit={() => {
                     setFinePayChoiceOpen(false);
                     setFineVendorCreditOpen(true);
+                }}
+                onEmployeePay={() => {
+                    setFinePayChoiceOpen(false);
+                    setFineEmployeePayOpen(true);
+                }}
+            />
+
+            <FineEmployeePayModal
+                isOpen={fineEmployeePayOpen}
+                fine={finePayChoiceFine}
+                employeeId={employeeId}
+                onClose={() => {
+                    setFineEmployeePayOpen(false);
+                    setFinePayChoiceFine(null);
+                }}
+                onSuccess={() => {
+                    setFineEmployeePayOpen(false);
+                    setFinePayChoiceFine(null);
+                    setSelectedFinesForPayment([]);
+                    refreshEmployeePayments();
                 }}
             />
 

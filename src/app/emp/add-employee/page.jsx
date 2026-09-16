@@ -153,6 +153,7 @@ export default function AddEmployee({ id }) {
         contractJoiningDate: '',
         email: '',
         contactNumber: '',
+        whatsappNumber: '',
         enablePortalAccess: false,
         company: '',
     });
@@ -213,6 +214,7 @@ export default function AddEmployee({ id }) {
                         contractJoiningDate: emp.contractJoiningDate ? new Date(emp.contractJoiningDate).toISOString().split('T')[0] : '',
                         email: emp.email || '',
                         contactNumber: emp.contactNumber || '',
+                        whatsappNumber: emp.whatsappNumber || '',
                         enablePortalAccess: emp.enablePortalAccess || false,
                         company: emp.company?._id || emp.company || '',
                     });
@@ -440,6 +442,20 @@ export default function AddEmployee({ id }) {
 
         const validation = validateInternationalPhone(cleanedValue, countryCode);
         setBasicFieldError('contactNumber', validation.isValid ? '' : validation.error);
+    };
+
+    const handleWhatsappPhoneChange = (value, country) => {
+        const cleanedValue = value.replace(/\s/g, '');
+        handleBasicDetailsChange('whatsappNumber', cleanedValue);
+        if (!cleanedValue) {
+            setBasicFieldError('whatsappNumber', '');
+            return;
+        }
+        let countryCode = selectedCountryCode;
+        if (country?.countryCode) countryCode = country.countryCode;
+        else if (country?.dialCode) countryCode = country.dialCode;
+        const validation = validateInternationalPhone(cleanedValue, countryCode);
+        setBasicFieldError('whatsappNumber', validation.isValid ? '' : validation.error);
     };
 
     const handleDateChange = (target, field, date) => {
@@ -1097,6 +1113,11 @@ export default function AddEmployee({ id }) {
                         ? basicDetails.contactNumber
                         : `+${basicDetails.contactNumber}`)
                     : '';
+                const formattedWhatsappNumber = basicDetails.whatsappNumber
+                    ? (basicDetails.whatsappNumber.startsWith('+')
+                        ? basicDetails.whatsappNumber
+                        : `+${basicDetails.whatsappNumber}`)
+                    : '';
 
                 // Build additionalAllowances array - always include vehicle and fuel (even if 0)
                 const finalAdditionalAllowances = [...(salaryDetails.additionalAllowances || [])];
@@ -1166,6 +1187,7 @@ export default function AddEmployee({ id }) {
                     email: String(basicDetails.email || '').trim().toLowerCase(),
                     status: initialStatus,
                     contactNumber: formattedContactNumber,
+                    whatsappNumber: formattedWhatsappNumber,
                     ...finalSalaryDetails,
                     additionalAllowances: finalAdditionalAllowances, // Use the built array with vehicle and fuel
                     ...personalDetailsWithoutAge, // Don't send age, backend calculates it
@@ -1293,6 +1315,7 @@ export default function AddEmployee({ id }) {
                                     handleDateChange={handleDateChange}
                                     handleBasicDetailsChange={handleBasicDetailsChange}
                                     handlePhoneChange={handlePhoneChange}
+                                    handleWhatsappPhoneChange={handleWhatsappPhoneChange}
                                     defaultPhoneCountry={DEFAULT_PHONE_COUNTRY}
                                     companies={activeCompanies}
                                 />

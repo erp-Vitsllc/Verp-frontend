@@ -347,6 +347,7 @@ export function buildActivationSnapshotRows(data, options = {}) {
     pushIfPresentForKey('Personal Email', 'email');
     pushIfPresentForKey('Company Email', 'companyEmail');
     pushIfPresentForKey('Contact Number', 'contactNumber');
+    pushIfPresentForKey('WhatsApp Number', 'whatsappNumber');
     pushIfPresentForKey('Gender', 'gender');
     pushIfPresentForKey('Marital Status', 'maritalStatus');
     pushIfPresentForKey('Nationality', 'nationality');

@@ -355,6 +355,7 @@ function EmployeeProfilePageContent() {
         firstName: '',
         lastName: '',
         contactNumber: '',
+        whatsappNumber: '',
         email: '',
         dateOfBirth: '',
         maritalStatus: '',
@@ -1048,6 +1049,7 @@ function EmployeeProfilePageContent() {
                 lastName: employee.lastName || '',
                 email: employee.email || employee.workEmail || '',
                 contactNumber: formatPhoneForInput(employee.contactNumber || ''),
+                whatsappNumber: formatPhoneForInput(employee.whatsappNumber || ''),
                 dateOfBirth: formattedDateOfBirth,
                 maritalStatus: employee.maritalStatus || '',
                 fathersName: employee.fathersName || '',
@@ -1074,6 +1076,10 @@ function EmployeeProfilePageContent() {
                 if (p.contactNumber != null && String(p.contactNumber).trim() !== '') {
                     const digits = String(p.contactNumber).replace(/\D/g, '');
                     if (digits) nextForm.contactNumber = formatPhoneForInput(digits);
+                }
+                if (p.whatsappNumber != null && String(p.whatsappNumber).trim() !== '') {
+                    const waDigits = String(p.whatsappNumber).replace(/\D/g, '');
+                    if (waDigits) nextForm.whatsappNumber = formatPhoneForInput(waDigits);
                 }
                 if (p.dateOfBirth) {
                     const d = new Date(p.dateOfBirth);
@@ -3353,8 +3359,8 @@ function EmployeeProfilePageContent() {
 
     const handleEditChange = (field, value, country = null) => {
         // For phone numbers, remove spaces and validate
-        if (field === 'contactNumber') {
-            // Keep digits only for contact number entry
+        if (field === 'contactNumber' || field === 'whatsappNumber') {
+            // Keep digits only for phone entry
             const cleanedValue = value.replace(/\D/g, '');
             setEditForm(prev => ({ ...prev, [field]: cleanedValue }));
 
@@ -3379,18 +3385,17 @@ function EmployeeProfilePageContent() {
                 }
             }
 
-            // Validate contact number (required, valid international format)
-            const validation = validatePhoneNumber(cleanedValue, countryCode, true);
+            const required = field === 'contactNumber';
+            const validation = validatePhoneNumber(cleanedValue, countryCode, required);
             if (!validation.isValid) {
                 setEditFormErrors(prev => ({
                     ...prev,
-                    contactNumber: validation.error
+                    [field]: validation.error
                 }));
             } else {
-                // Clear error if valid
                 setEditFormErrors(prev => {
                     const updated = { ...prev };
-                    delete updated.contactNumber;
+                    delete updated[field];
                     return updated;
                 });
             }
@@ -7150,6 +7155,8 @@ function EmployeeProfilePageContent() {
 
             const contactDigits = (editForm.contactNumber || '').replace(/\D/g, '');
             const formattedContactNumber = formatPhoneForSave(contactDigits);
+            const whatsappDigits = (editForm.whatsappNumber || '').replace(/\D/g, '');
+            const formattedWhatsappNumber = whatsappDigits ? formatPhoneForSave(whatsappDigits) : '';
             const isMarried = String(editForm.maritalStatus || '').toLowerCase() === 'married';
 
             const updatePayload = {
@@ -7157,6 +7164,7 @@ function EmployeeProfilePageContent() {
                 lastName: editForm.lastName.trim(),
                 email: String(editForm.email || '').trim().toLowerCase(),
                 contactNumber: formattedContactNumber,
+                whatsappNumber: formattedWhatsappNumber,
                 dateOfBirth: editForm.dateOfBirth || null,
                 maritalStatus: editForm.maritalStatus,
                 fathersName: editForm.fathersName.trim(),
