@@ -647,11 +647,74 @@ export function buildModuleNotificationBundle(feeds = {}) {
     return { byModule, counts, all, pendingItems };
 }
 
+function filterBundleByNotificationPermission(bundle, byDashboardType) {
+    if (!bundle || !byDashboardType || typeof byDashboardType !== 'object') return bundle;
+    const allow = (item) => {
+        const type = String(item?.type || '').trim();
+        const channels = byDashboardType[type];
+        if (!channels) return true;
+        return channels.notification !== false;
+    };
+    const byModule = {};
+    for (const [key, rows] of Object.entries(bundle.byModule || {})) {
+        byModule[key] = (Array.isArray(rows) ? rows : []).filter(allow);
+    }
+    const all = (Array.isArray(bundle.all) ? bundle.all : []).filter(allow);
+    const counts = { ...(bundle.counts || {}) };
+    counts.company = byModule.Company?.length || 0;
+    counts.employee = byModule.Employees?.length || 0;
+    counts.attendance = byModule.Attendance?.length || 0;
+    counts.leave = byModule.Leave?.length || 0;
+    counts.salary = byModule.Salary?.length || 0;
+    counts.fine = byModule.Fine?.length || 0;
+    counts.loan = byModule['Loan and Advance']?.length || 0;
+    counts.reward = byModule.Reward?.length || 0;
+    counts.payment = byModule.Payments?.length || 0;
+    counts.toolsAsset = byModule['Tools Asset']?.length || 0;
+    counts.vehicleAsset = byModule['Vehicle Asset']?.length || 0;
+    counts.utilityBill = byModule['Utility Bills']?.length || 0;
+    counts.asset = (counts.toolsAsset || 0) + (counts.vehicleAsset || 0) + (counts.utilityBill || 0);
+    counts.hrm =
+        (counts.company || 0) +
+        (counts.employee || 0) +
+        (counts.attendance || 0) +
+        (counts.leave || 0) +
+        (counts.salary || 0) +
+        (counts.fine || 0) +
+        (counts.reward || 0) +
+        (counts.loan || 0) +
+        (counts.toolsAsset || 0) +
+        (counts.vehicleAsset || 0) +
+        (counts.utilityBill || 0);
+    return { ...bundle, byModule, counts, all };
+}
+
+let permissionMapCache = { at: 0, byDashboardType: null };
+
+async function loadNotificationChannelMap(axiosInstance) {
+    const now = Date.now();
+    if (permissionMapCache.byDashboardType && now - permissionMapCache.at < 20000) {
+        return permissionMapCache.byDashboardType;
+    }
+    try {
+        const res = await axiosInstance.get('/NotificationEmailPermission/map', { skipToast: true });
+        const byDashboardType = res.data?.byDashboardType || {};
+        permissionMapCache = { at: now, byDashboardType };
+        return byDashboardType;
+    } catch {
+        return permissionMapCache.byDashboardType || {};
+    }
+}
+
 /** Convenience: load feeds + build bundle (sidebar + dashboard). */
 export async function loadModuleNotificationBundle(axiosInstance, options = {}) {
     const gen = feedsGen;
-    const feeds = await loadModuleNotificationFeeds(axiosInstance, options);
-    const bundle = buildModuleNotificationBundle(feeds);
+    const [feeds, byDashboardType] = await Promise.all([
+        loadModuleNotificationFeeds(axiosInstance, options),
+        loadNotificationChannelMap(axiosInstance),
+    ]);
+    const raw = buildModuleNotificationBundle(feeds);
+    const bundle = filterBundleByNotificationPermission(raw, byDashboardType);
     if (gen === feedsGen) {
         publishModuleNotificationBundle(feeds, bundle);
     }
