@@ -1,26 +1,29 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { Bell, Info, Loader2, Mail, MessageCircle } from 'lucide-react';
+import { ChevronDown, ChevronRight, Info } from 'lucide-react';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
-function ChannelCheck({ checked, disabled, onChange, label }) {
-    return (
-        <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 cursor-pointer">
-            <input
-                type="checkbox"
-                checked={checked}
-                disabled={disabled}
-                onChange={(event) => onChange(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-            />
-            {label}
-        </label>
-    );
-}
+const CHANNELS = [
+    { id: 'notification', label: 'Notification' },
+    { id: 'email', label: 'Email' },
+    { id: 'whatsapp', label: 'WhatsApp' },
+];
+
+const allOn = (items, channelId) =>
+    items.length > 0 && items.every((item) => item[channelId] === true);
 
 export default function NotificationEmailsPage() {
     const { toast } = useToast();
@@ -28,7 +31,9 @@ export default function NotificationEmailsPage() {
     const [allowed, setAllowed] = useState(false);
     const [loading, setLoading] = useState(true);
     const [groups, setGroups] = useState([]);
-    const [savingKey, setSavingKey] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [expanded, setExpanded] = useState({});
+    const [detailItem, setDetailItem] = useState(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -55,7 +60,19 @@ export default function NotificationEmailsPage() {
         setLoading(true);
         try {
             const res = await axiosInstance.get('/NotificationEmailPermission');
-            setGroups(Array.isArray(res.data?.groups) ? res.data.groups : []);
+            const next = Array.isArray(res.data?.groups) ? res.data.groups : [];
+            setGroups(next);
+            setExpanded((prev) => {
+                if (Object.keys(prev).length) return prev;
+                const open = {};
+                next.forEach((group) => {
+                    open[group.group] = true;
+                    (group.modules || []).forEach((mod) => {
+                        open[`${group.group}::${mod.module}`] = true;
+                    });
+                });
+                return open;
+            });
         } catch (error) {
             toast({
                 title: 'Could not load permissions',
@@ -72,23 +89,39 @@ export default function NotificationEmailsPage() {
         load();
     }, [allowed, load]);
 
-    const saveChannel = async (item, patch) => {
-        setSavingKey(item.key);
-        try {
-            await axiosInstance.patch('/NotificationEmailPermission', {
-                eventKey: item.key,
-                ...patch,
-            });
-            setGroups((prev) =>
-                prev.map((group) => ({
-                    ...group,
-                    modules: group.modules.map((mod) => ({
-                        ...mod,
-                        items: mod.items.map((row) =>
-                            row.key === item.key ? { ...row, ...patch } : row,
-                        ),
-                    })),
+    const allItems = useMemo(
+        () =>
+            groups.flatMap((group) =>
+                (group.modules || []).flatMap((mod) =>
+                    (mod.items || []).map((item) => ({ ...item, group: group.group, module: mod.module })),
+                ),
+            ),
+        [groups],
+    );
+
+    const applyLocalPatch = (keys, patch) => {
+        const set = new Set(keys);
+        setGroups((prev) =>
+            prev.map((group) => ({
+                ...group,
+                modules: group.modules.map((mod) => ({
+                    ...mod,
+                    items: mod.items.map((row) => (set.has(row.key) ? { ...row, ...patch } : row)),
                 })),
+            })),
+        );
+    };
+
+    const saveItems = async (items, patch) => {
+        if (!items.length) return;
+        setSaving(true);
+        const keys = items.map((item) => item.key);
+        applyLocalPatch(keys, patch);
+        try {
+            await Promise.all(
+                keys.map((eventKey) =>
+                    axiosInstance.patch('/NotificationEmailPermission', { eventKey, ...patch }),
+                ),
             );
         } catch (error) {
             toast({
@@ -98,16 +131,25 @@ export default function NotificationEmailsPage() {
             });
             load();
         } finally {
-            setSavingKey('');
+            setSaving(false);
         }
     };
 
-    if (!accessChecked) {
+    const toggle = (id) => {
+        setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+    };
+
+    if (!accessChecked || (allowed && loading && !groups.length)) {
         return (
-            <div className="flex min-h-screen bg-slate-50">
+            <div className="flex min-h-screen bg-[#F2F6F9] w-full max-w-full overflow-x-hidden">
                 <Sidebar />
-                <div className="flex flex-1 items-center justify-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-teal-600" />
+                <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
+                    <Navbar />
+                    <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden">
+                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 lg:p-6 text-center text-xs sm:text-sm text-gray-500">
+                            Loading permissions...
+                        </div>
+                    </div>
                 </div>
             </div>
         );
@@ -115,7 +157,7 @@ export default function NotificationEmailsPage() {
 
     if (!allowed) {
         return (
-            <div className="flex min-h-screen bg-slate-50">
+            <div className="flex min-h-screen bg-[#F2F6F9]">
                 <Sidebar />
                 <div className="flex flex-1 flex-col">
                     <Navbar />
@@ -130,113 +172,247 @@ export default function NotificationEmailsPage() {
     }
 
     return (
-        <div className="flex min-h-screen bg-[#f4f6f8]">
+        <div className="flex min-h-screen bg-[#F2F6F9] w-full max-w-full overflow-x-hidden">
             <Sidebar />
-            <div className="flex flex-1 flex-col min-w-0">
+            <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
-                <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-auto">
-                    <div className="max-w-5xl mx-auto">
-                        <div className="mb-6">
-                            <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">
-                                Notifications and Email Permission
-                            </h1>
-                            <p className="mt-2 text-sm text-slate-600 max-w-3xl">
-                                Turn Notification, Email, and WhatsApp on or off for each event. WhatsApp is paid:
-                                if the employee has a company email, only that email is sent. If they have no company
-                                email, only WhatsApp is sent. Never both, and never a second copy.
-                            </p>
+                <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden">
+                    <div className="mb-4 sm:mb-6">
+                        <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">
+                            Notifications and Email Permission
+                        </h1>
+                        <p className="text-sm sm:text-base text-gray-600">
+                            Turn Notification, Email, and WhatsApp on or off for each event. Click a topic for the full
+                            description. WhatsApp is paid: company email gets one email only; no company email gets one
+                            WhatsApp.
+                        </p>
+                    </div>
+
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 lg:p-6">
+                        <div className="mb-4 flex items-center gap-2">
+                            <input
+                                type="checkbox"
+                                id="full-channel"
+                                checked={
+                                    allItems.length > 0 &&
+                                    allItems.every((item) => item.notification && item.email && item.whatsapp)
+                                }
+                                disabled={saving}
+                                onChange={(event) =>
+                                    void saveItems(allItems, {
+                                        notification: event.target.checked,
+                                        email: event.target.checked,
+                                        whatsapp: event.target.checked,
+                                    })
+                                }
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:opacity-40"
+                            />
+                            <label htmlFor="full-channel" className="text-sm font-medium text-gray-700 cursor-pointer">
+                                Full Permission (select all notification, email, WhatsApp)
+                            </label>
                         </div>
 
-                        {loading ? (
-                            <div className="flex justify-center py-16">
-                                <Loader2 className="h-8 w-8 animate-spin text-teal-600" />
-                            </div>
-                        ) : (
-                            <div className="space-y-6">
-                                {groups.map((group) => (
-                                    <section key={group.group} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-                                        <div className="border-b border-slate-100 px-5 py-3">
-                                            <h2 className="text-sm font-bold uppercase tracking-wide text-teal-700">
-                                                {group.group}
-                                            </h2>
-                                        </div>
-                                        {group.modules.map((mod) => (
-                                            <div key={`${group.group}-${mod.module}`} className="border-b border-slate-100 last:border-b-0">
-                                                <div className="bg-slate-50 px-5 py-2">
-                                                    <h3 className="text-sm font-semibold text-slate-800">{mod.module}</h3>
-                                                </div>
-                                                <ul>
-                                                    {mod.items.map((item) => (
-                                                        <li
-                                                            key={item.key}
-                                                            className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-start sm:justify-between border-t border-slate-100 first:border-t-0"
-                                                        >
-                                                            <div className="min-w-0 flex-1">
-                                                                <p className="text-sm font-medium text-slate-800 flex items-center gap-1.5">
-                                                                    {item.label}
-                                                                    <span
-                                                                        className="relative inline-flex group"
-                                                                        title={item.detail}
-                                                                    >
-                                                                        <Info
-                                                                            size={14}
-                                                                            className="text-slate-400 cursor-help"
-                                                                        />
-                                                                        <span className="pointer-events-none absolute left-0 top-5 z-20 hidden w-72 rounded-lg border border-slate-200 bg-white p-2 text-[11px] leading-relaxed text-slate-600 shadow-lg group-hover:block">
-                                                                            {item.detail}
-                                                                        </span>
-                                                                    </span>
-                                                                </p>
-                                                                <p className="mt-0.5 text-xs text-slate-500">{item.hint}</p>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-3">
+                                Module notifications
+                            </label>
+                            <div className="border border-gray-300 rounded-lg overflow-x-auto">
+                                <table className="w-full min-w-[640px] text-xs sm:text-sm">
+                                    <thead className="bg-gray-50 border-b border-gray-200">
+                                        <tr>
+                                            <th className="px-3 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-700 uppercase">
+                                                Module
+                                            </th>
+                                            {CHANNELS.map((channel) => (
+                                                <th
+                                                    key={channel.id}
+                                                    className="px-3 sm:px-4 py-2 sm:py-3 text-center text-[10px] sm:text-xs font-medium text-gray-700 uppercase"
+                                                >
+                                                    {channel.label}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {groups.map((group) => {
+                                            const groupOpen = expanded[group.group] !== false;
+                                            const groupItems = (group.modules || []).flatMap((mod) => mod.items || []);
+                                            return (
+                                                <Fragment key={group.group}>
+                                                    <tr className="hover:bg-gray-50">
+                                                        <td className="px-4 py-3">
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => toggle(group.group)}
+                                                                    className="text-gray-400 hover:text-gray-600"
+                                                                    aria-label={
+                                                                        groupOpen
+                                                                            ? `Collapse ${group.group}`
+                                                                            : `Expand ${group.group}`
+                                                                    }
+                                                                >
+                                                                    {groupOpen ? (
+                                                                        <ChevronDown size={16} />
+                                                                    ) : (
+                                                                        <ChevronRight size={16} />
+                                                                    )}
+                                                                </button>
+                                                                <span className="text-sm font-medium text-gray-900">
+                                                                    {group.group}
+                                                                </span>
                                                             </div>
-                                                            <div className="flex flex-wrap items-center gap-4 sm:justify-end">
-                                                                <ChannelCheck
-                                                                    label={
-                                                                        <span className="inline-flex items-center gap-1">
-                                                                            <Bell size={12} /> Notification
-                                                                        </span>
+                                                        </td>
+                                                        {CHANNELS.map((channel) => (
+                                                            <td key={channel.id} className="px-4 py-3 text-center">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={allOn(groupItems, channel.id)}
+                                                                    disabled={saving}
+                                                                    onChange={(event) =>
+                                                                        void saveItems(groupItems, {
+                                                                            [channel.id]: event.target.checked,
+                                                                        })
                                                                     }
-                                                                    checked={item.notification}
-                                                                    disabled={savingKey === item.key}
-                                                                    onChange={(notification) =>
-                                                                        saveChannel(item, { notification })
-                                                                    }
+                                                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:opacity-40"
+                                                                    aria-label={`${group.group} - ${channel.label}`}
+                                                                    title={`${group.group} - ${channel.label}`}
                                                                 />
-                                                                <ChannelCheck
-                                                                    label={
-                                                                        <span className="inline-flex items-center gap-1">
-                                                                            <Mail size={12} /> Email
-                                                                        </span>
-                                                                    }
-                                                                    checked={item.email}
-                                                                    disabled={savingKey === item.key}
-                                                                    onChange={(email) => saveChannel(item, { email })}
-                                                                />
-                                                                <ChannelCheck
-                                                                    label={
-                                                                        <span className="inline-flex items-center gap-1">
-                                                                            <MessageCircle size={12} /> WhatsApp
-                                                                        </span>
-                                                                    }
-                                                                    checked={item.whatsapp}
-                                                                    disabled={savingKey === item.key}
-                                                                    onChange={(whatsapp) =>
-                                                                        saveChannel(item, { whatsapp })
-                                                                    }
-                                                                />
-                                                            </div>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        ))}
-                                    </section>
-                                ))}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                    {groupOpen &&
+                                                        (group.modules || []).map((mod) => {
+                                                            const modId = `${group.group}::${mod.module}`;
+                                                            const modOpen = expanded[modId] !== false;
+                                                            const modItems = mod.items || [];
+                                                            return (
+                                                                <Fragment key={modId}>
+                                                                    <tr className="hover:bg-gray-50">
+                                                                        <td className="px-4 py-3 pl-8">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => toggle(modId)}
+                                                                                    className="text-gray-400 hover:text-gray-600"
+                                                                                    aria-label={
+                                                                                        modOpen
+                                                                                            ? `Collapse ${mod.module}`
+                                                                                            : `Expand ${mod.module}`
+                                                                                    }
+                                                                                >
+                                                                                    {modOpen ? (
+                                                                                        <ChevronDown size={16} />
+                                                                                    ) : (
+                                                                                        <ChevronRight size={16} />
+                                                                                    )}
+                                                                                </button>
+                                                                                <span className="text-sm font-medium text-gray-900">
+                                                                                    {mod.module}
+                                                                                </span>
+                                                                            </div>
+                                                                        </td>
+                                                                        {CHANNELS.map((channel) => (
+                                                                            <td
+                                                                                key={channel.id}
+                                                                                className="px-4 py-3 text-center"
+                                                                            >
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    checked={allOn(modItems, channel.id)}
+                                                                                    disabled={saving}
+                                                                                    onChange={(event) =>
+                                                                                        void saveItems(modItems, {
+                                                                                            [channel.id]:
+                                                                                                event.target.checked,
+                                                                                        })
+                                                                                    }
+                                                                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:opacity-40"
+                                                                                    aria-label={`${mod.module} - ${channel.label}`}
+                                                                                    title={`${mod.module} - ${channel.label}`}
+                                                                                />
+                                                                            </td>
+                                                                        ))}
+                                                                    </tr>
+                                                                    {modOpen &&
+                                                                        modItems.map((item) => (
+                                                                            <tr key={item.key} className="hover:bg-gray-50">
+                                                                                <td className="px-4 py-3 pl-16">
+                                                                                    <div className="flex items-center gap-2">
+                                                                                        <span className="w-4" />
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => setDetailItem(item)}
+                                                                                            className="text-left text-sm font-medium text-gray-900 hover:text-blue-700"
+                                                                                        >
+                                                                                            {item.label}
+                                                                                        </button>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => setDetailItem(item)}
+                                                                                            className="text-gray-400 hover:text-blue-600"
+                                                                                            title="View description"
+                                                                                            aria-label={`Details for ${item.label}`}
+                                                                                        >
+                                                                                            <Info size={14} />
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </td>
+                                                                                {CHANNELS.map((channel) => (
+                                                                                    <td
+                                                                                        key={channel.id}
+                                                                                        className="px-4 py-3 text-center"
+                                                                                    >
+                                                                                        <input
+                                                                                            type="checkbox"
+                                                                                            checked={item[channel.id] === true}
+                                                                                            disabled={saving}
+                                                                                            onChange={(event) =>
+                                                                                                void saveItems([item], {
+                                                                                                    [channel.id]:
+                                                                                                        event.target.checked,
+                                                                                                })
+                                                                                            }
+                                                                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:opacity-40"
+                                                                                            aria-label={`${item.label} - ${channel.label}`}
+                                                                                            title={`${item.label} - ${channel.label}`}
+                                                                                        />
+                                                                                    </td>
+                                                                                ))}
+                                                                            </tr>
+                                                                        ))}
+                                                                </Fragment>
+                                                            );
+                                                        })}
+                                                </Fragment>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
                             </div>
-                        )}
+                        </div>
                     </div>
-                </main>
+                </div>
             </div>
+
+            <AlertDialog open={Boolean(detailItem)} onOpenChange={(open) => !open && setDetailItem(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{detailItem?.label || 'Topic'}</AlertDialogTitle>
+                        {detailItem?.hint ? (
+                            <p className="text-sm font-medium text-gray-800 text-left">{detailItem.hint}</p>
+                        ) : null}
+                        <AlertDialogDescription className="text-left whitespace-pre-wrap">
+                            {detailItem?.detail || ''}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction type="button" onClick={() => setDetailItem(null)}>
+                            Close
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
