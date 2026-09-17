@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import DocumentViewerModal from './modals/DocumentViewerModal';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { ERP_JPEG_ACCEPT } from '@/utils/uploadFileTypes';
-import { Camera } from 'lucide-react';
+import { Camera, MessageCircle } from 'lucide-react';
 import { filterSnapshotRowsToChangesOnly } from '../utils/pendingActivationSnapshotRows';
 import PendingChangeSnapshotTable from './PendingChangeSnapshotTable';
 import EmployeeHeroCardBackground from './EmployeeHeroCardBackground';
@@ -30,7 +30,7 @@ import { isEmployeeLeftUser } from '@/utils/employeeWorkStatus';
 import OnDutyFromLeaveControl, { ownerHasOnLeaveAssets } from '@/app/HRM/Asset/components/OnDutyFromLeaveControl';
 import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
 import { buildActivationHoldPayload } from '@/utils/buildActivationHoldPayload';
-// import axiosInstance from '@/utils/axios';
+import axiosInstance from '@/utils/axios';
 
 function pendingQueueIncludesLeftUser(pendingChanges = []) {
     return (Array.isArray(pendingChanges) ? pendingChanges : []).some(
@@ -121,7 +121,6 @@ function ProfileHeader({
     }, [employeeImageKey, setImageErrorProp]);
 
     const { toast } = useToast();
-    /* Temporarily hidden: profile "Send message through WP"
     const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
 
     const handleSendWhatsApp = async () => {
@@ -175,7 +174,6 @@ function ProfileHeader({
             setSendingWhatsApp(false);
         }
     };
-    */
     const hasLeftUserPending = useMemo(
         () => pendingQueueIncludesLeftUser(employee?.pendingReactivationChanges),
         [employee?.pendingReactivationChanges],
@@ -974,7 +972,6 @@ function ProfileHeader({
                                     <span>{employee.companyEmail || employee.workEmail}</span>
                                 </div>
                             )}
-                            {/* Temporarily hidden: Send message through WP
                             <button
                                 type="button"
                                 onClick={handleSendWhatsApp}
@@ -984,7 +981,6 @@ function ProfileHeader({
                                 <MessageCircle size={15} />
                                 {sendingWhatsApp ? 'Sending...' : 'Send message through WP'}
                             </button>
-                            */}
                         </div>
 
                         {onTogglePortalAccess && (
