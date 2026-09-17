@@ -13,6 +13,7 @@ import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import { navHrefProps } from '@/utils/linkContextMenu';
 import {
     Camera,
+    Clock,
     Edit2,
     Lock,
     User as UserIcon,
@@ -369,11 +370,17 @@ export default function UserProfilePage() {
                                                 value={user.employeeId}
                                             />
                                         )}
+                                        <DetailItem
+                                            icon={<Clock size={20} className="text-blue-500" />}
+                                            label="Last Login"
+                                            value={formatDeviceSeen(user.lastLogin || user.mobileDevice?.lastSeenAt)}
+                                        />
                                     </div>
 
                                     {!user.isSystemAdmin && (
                                         <CurrentDevicePanel
                                             device={user.mobileDevice}
+                                            lastLogin={user.lastLogin}
                                             busy={isUpdatingDevice}
                                             onFix={handleFixMobileDevice}
                                             onChange={handleChangeMobileDevice}
@@ -446,14 +453,14 @@ export default function UserProfilePage() {
     );
 }
 
-function DetailItem({ icon, label, value }) {
+function DetailItem({ icon, label, value, emptyDisplay = '-' }) {
     return (
         <div className="flex flex-col gap-1">
             <span className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
                 {icon}
                 {label}
             </span>
-            <span className="text-base font-semibold text-gray-800">{value || '-'}</span>
+            <span className="text-base font-semibold text-gray-800">{value || emptyDisplay}</span>
         </div>
     );
 }
@@ -465,12 +472,17 @@ function formatDeviceSeen(value) {
     return date.toLocaleString();
 }
 
-function CurrentDevicePanel({ device, busy, onFix, onChange }) {
+function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
     const status = device?.status === 'fixed' ? 'fixed' : 'not_fixed';
     const isFixed = status === 'fixed';
-    const hasDevice = Boolean(device?.hasDevice);
-    const canFix = Boolean(device?.canFix);
-    const lastSeen = formatDeviceSeen(device?.lastSeenAt);
+    const deviceName = String(device?.deviceName || '').trim();
+    const location = String(device?.location || '').trim();
+    const ipAddress = String(device?.ipAddress || '').trim();
+    const hasDevice = Boolean(
+        device?.hasDevice || device?.deviceId || deviceName || location || ipAddress
+    );
+    const canFix = Boolean(device?.canFix || String(device?.deviceId || '').trim());
+    const lastSeen = formatDeviceSeen(device?.lastSeenAt || (hasDevice ? lastLogin : null));
 
     return (
         <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/80 p-5 sm:p-6">
@@ -478,7 +490,7 @@ function CurrentDevicePanel({ device, busy, onFix, onChange }) {
                 <div>
                     <h4 className="text-base font-bold text-gray-900">Current Device Logged In</h4>
                     <p className="text-xs text-gray-500 mt-1">
-                        Shown from the VeRP mobile app. Not Fixed can log in from any phone. Fixed locks this user to one phone.
+                        Login info from the VeRP mobile app: device, GPS location, and IP.
                     </p>
                 </div>
                 <span
@@ -488,36 +500,41 @@ function CurrentDevicePanel({ device, busy, onFix, onChange }) {
                             : 'bg-amber-100 text-amber-700 border-amber-200'
                     }`}
                 >
-                    {isFixed ? 'Fixed' : 'Not Fixed'}
+                    {device?.statusLabel || (isFixed ? 'Fixed' : 'Not Fixed')}
                 </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
                 <DetailItem
                     icon={<Smartphone size={18} className="text-blue-500" />}
                     label="Device Name"
-                    value={device?.deviceName}
+                    value={deviceName}
+                    emptyDisplay={hasDevice ? '-' : ''}
                 />
                 <DetailItem
                     icon={<MapPin size={18} className="text-blue-500" />}
                     label="Location"
-                    value={device?.location}
+                    value={location}
+                    emptyDisplay={hasDevice ? '-' : ''}
                 />
                 <DetailItem
                     icon={<Globe size={18} className="text-blue-500" />}
                     label="IP Address"
-                    value={device?.ipAddress}
+                    value={ipAddress}
+                    emptyDisplay={hasDevice ? '-' : ''}
+                />
+                <DetailItem
+                    icon={<Clock size={18} className="text-blue-500" />}
+                    label="Last Login"
+                    value={lastSeen}
+                    emptyDisplay={hasDevice ? '-' : ''}
                 />
             </div>
 
             {!hasDevice ? (
                 <p className="text-sm text-gray-600 mb-5">
-                    No mobile has logged in yet. After this user opens the VeRP app, the phone name, location, and IP will show here.
+                    No mobile has logged in yet
                 </p>
-            ) : null}
-
-            {lastSeen ? (
-                <p className="text-xs text-gray-400 mb-4">Last seen {lastSeen}</p>
             ) : null}
 
             <div className="flex flex-wrap gap-2">
@@ -527,7 +544,7 @@ function CurrentDevicePanel({ device, busy, onFix, onChange }) {
                     disabled={busy || isFixed || !canFix}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs sm:text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    {busy ? 'Saving...' : 'Fix this as permanent'}
+                    {busy ? 'Saving...' : 'Fix'}
                 </button>
                 <button
                     type="button"
@@ -535,7 +552,7 @@ function CurrentDevicePanel({ device, busy, onFix, onChange }) {
                     disabled={busy || (!hasDevice && !isFixed)}
                     className="px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-xs sm:text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    Change Device Details
+                    Change device
                 </button>
             </div>
         </div>
