@@ -647,19 +647,29 @@ export function buildModuleNotificationBundle(feeds = {}) {
     return { byModule, counts, all, pendingItems };
 }
 
-function filterBundleByNotificationPermission(bundle, byDashboardType) {
+export function hiddenNotificationTypesFromMap(byDashboardType) {
+    return Object.entries(byDashboardType || {})
+        .filter(([, channels]) => channels && channels.notification === false)
+        .map(([type]) => type);
+}
+
+export function isNotificationTypeHidden(item, hiddenTypes) {
+    if (!hiddenTypes || !hiddenTypes.size) return false;
+    const type = String(item?.type || item?.requestType || '').trim();
+    return hiddenTypes.has(type);
+}
+
+export function filterBundleByNotificationPermission(bundle, byDashboardType) {
     if (!bundle || !byDashboardType || typeof byDashboardType !== 'object') return bundle;
-    const allow = (item) => {
-        const type = String(item?.type || '').trim();
-        const channels = byDashboardType[type];
-        if (!channels) return true;
-        return channels.notification !== false;
-    };
+    const hiddenNotificationTypes = hiddenNotificationTypesFromMap(byDashboardType);
+    const hiddenTypes = new Set(hiddenNotificationTypes);
+    const allow = (item) => !isNotificationTypeHidden(item, hiddenTypes);
     const byModule = {};
     for (const [key, rows] of Object.entries(bundle.byModule || {})) {
         byModule[key] = (Array.isArray(rows) ? rows : []).filter(allow);
     }
     const all = (Array.isArray(bundle.all) ? bundle.all : []).filter(allow);
+    const pendingItems = (Array.isArray(bundle.pendingItems) ? bundle.pendingItems : []).filter(allow);
     const counts = { ...(bundle.counts || {}) };
     counts.company = byModule.Company?.length || 0;
     counts.employee = byModule.Employees?.length || 0;
@@ -686,12 +696,16 @@ function filterBundleByNotificationPermission(bundle, byDashboardType) {
         (counts.toolsAsset || 0) +
         (counts.vehicleAsset || 0) +
         (counts.utilityBill || 0);
-    return { ...bundle, byModule, counts, all };
+    return { ...bundle, byModule, counts, all, pendingItems, hiddenNotificationTypes };
 }
 
 let permissionMapCache = { at: 0, byDashboardType: null };
 
-async function loadNotificationChannelMap(axiosInstance) {
+export function invalidateNotificationChannelMap() {
+    permissionMapCache = { at: 0, byDashboardType: null };
+}
+
+export async function loadNotificationChannelMap(axiosInstance) {
     const now = Date.now();
     if (permissionMapCache.byDashboardType && now - permissionMapCache.at < 20000) {
         return permissionMapCache.byDashboardType;
@@ -731,6 +745,7 @@ export async function loadModuleNotificationBundle(axiosInstance, options = {}) 
 export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
     const base = Array.isArray(userStatsItems) ? userStatsItems : [];
     const moduleAll = Array.isArray(bundle?.all) ? bundle.all : [];
+    const hiddenTypes = new Set(bundle?.hiddenNotificationTypes || []);
 
     const moduleTypes = new Set(
         moduleAll.map((item) => String(item?.type || '').trim()).filter(Boolean),
@@ -789,6 +804,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
     };
 
     const kept = base.filter((item) => {
+        if (isNotificationTypeHidden(item, hiddenTypes)) return false;
         if (isCardDeletedNotificationHiddenType(item?.type)) return false;
         // Notice Request: hide from dashboard (also removed from Employees bell).
         if (isEmployeeNotificationHiddenType(item?.type)) return false;
@@ -809,6 +825,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
     return sortNotificationsStackOrder(
         dedupe([...moduleAll, ...kept]).filter(
             (item) =>
+                !isNotificationTypeHidden(item, hiddenTypes) &&
                 !isEmployeeNotificationHiddenType(item?.type) &&
                 !isCardDeletedNotificationHiddenType(item?.type),
         ),

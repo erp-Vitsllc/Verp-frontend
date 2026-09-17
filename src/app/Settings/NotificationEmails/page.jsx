@@ -1,11 +1,16 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { ChevronDown, ChevronRight, Info } from 'lucide-react';
+import {
+    invalidateModuleNotificationFeedsCache,
+    invalidateNotificationChannelMap,
+    loadModuleNotificationBundle,
+} from '@/utils/moduleNotifications';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -25,14 +30,45 @@ const CHANNELS = [
 const allOn = (items, channelId) =>
     items.length > 0 && items.every((item) => item[channelId] === true);
 
+const someOn = (items, channelId) => items.some((item) => item[channelId] === true);
+
+function ChannelCheckbox({
+    id,
+    checked,
+    indeterminate = false,
+    onCheckedChange,
+    label,
+    disabled = false,
+}) {
+    const ref = useRef(null);
+    useEffect(() => {
+        if (ref.current) {
+            ref.current.indeterminate = Boolean(indeterminate) && !checked;
+        }
+    }, [checked, indeterminate]);
+    return (
+        <input
+            id={id}
+            ref={ref}
+            type="checkbox"
+            checked={checked}
+            disabled={disabled}
+            onChange={(event) => onCheckedChange(event.target.checked)}
+            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:opacity-40"
+            aria-label={label}
+            title={label}
+        />
+    );
+}
+
 export default function NotificationEmailsPage() {
     const { toast } = useToast();
     const [accessChecked, setAccessChecked] = useState(false);
     const [allowed, setAllowed] = useState(false);
     const [loading, setLoading] = useState(true);
     const [groups, setGroups] = useState([]);
-    const [saving, setSaving] = useState(false);
     const [expanded, setExpanded] = useState({});
+    const saveSeq = useRef(0);
     const [detailItem, setDetailItem] = useState(null);
 
     useEffect(() => {
@@ -114,24 +150,28 @@ export default function NotificationEmailsPage() {
 
     const saveItems = async (items, patch) => {
         if (!items.length) return;
-        setSaving(true);
         const keys = items.map((item) => item.key);
+        const seq = ++saveSeq.current;
         applyLocalPatch(keys, patch);
         try {
-            await Promise.all(
-                keys.map((eventKey) =>
-                    axiosInstance.patch('/NotificationEmailPermission', { eventKey, ...patch }),
-                ),
-            );
+            await axiosInstance.patch('/NotificationEmailPermission', {
+                eventKey: keys[0],
+                eventKeys: keys,
+                ...patch,
+            });
+            if (Object.prototype.hasOwnProperty.call(patch, 'notification')) {
+                invalidateNotificationChannelMap();
+                invalidateModuleNotificationFeedsCache();
+                void loadModuleNotificationBundle(axiosInstance, { force: true });
+            }
         } catch (error) {
+            if (seq !== saveSeq.current) return;
             toast({
                 title: 'Could not save',
                 description: error.response?.data?.message || error.message,
                 variant: 'destructive',
             });
             load();
-        } finally {
-            setSaving(false);
         }
     };
 
@@ -190,22 +230,24 @@ export default function NotificationEmailsPage() {
 
                     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 lg:p-6">
                         <div className="mb-4 flex items-center gap-2">
-                            <input
-                                type="checkbox"
+                            <ChannelCheckbox
                                 id="full-channel"
                                 checked={
                                     allItems.length > 0 &&
                                     allItems.every((item) => item.notification && item.email && item.whatsapp)
                                 }
-                                disabled={saving}
-                                onChange={(event) =>
+                                indeterminate={
+                                    allItems.some((item) => item.notification || item.email || item.whatsapp) &&
+                                    !allItems.every((item) => item.notification && item.email && item.whatsapp)
+                                }
+                                label="Full Permission (select all notification, email, WhatsApp)"
+                                onCheckedChange={(checked) =>
                                     void saveItems(allItems, {
-                                        notification: event.target.checked,
-                                        email: event.target.checked,
-                                        whatsapp: event.target.checked,
+                                        notification: checked,
+                                        email: checked,
+                                        whatsapp: checked,
                                     })
                                 }
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:opacity-40"
                             />
                             <label htmlFor="full-channel" className="text-sm font-medium text-gray-700 cursor-pointer">
                                 Full Permission (select all notification, email, WhatsApp)
@@ -265,18 +307,18 @@ export default function NotificationEmailsPage() {
                                                         </td>
                                                         {CHANNELS.map((channel) => (
                                                             <td key={channel.id} className="px-4 py-3 text-center">
-                                                                <input
-                                                                    type="checkbox"
+                                                                <ChannelCheckbox
                                                                     checked={allOn(groupItems, channel.id)}
-                                                                    disabled={saving}
-                                                                    onChange={(event) =>
+                                                                    indeterminate={
+                                                                        someOn(groupItems, channel.id) &&
+                                                                        !allOn(groupItems, channel.id)
+                                                                    }
+                                                                    label={`${group.group} - ${channel.label}`}
+                                                                    onCheckedChange={(checked) =>
                                                                         void saveItems(groupItems, {
-                                                                            [channel.id]: event.target.checked,
+                                                                            [channel.id]: checked,
                                                                         })
                                                                     }
-                                                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:opacity-40"
-                                                                    aria-label={`${group.group} - ${channel.label}`}
-                                                                    title={`${group.group} - ${channel.label}`}
                                                                 />
                                                             </td>
                                                         ))}
@@ -317,19 +359,18 @@ export default function NotificationEmailsPage() {
                                                                                 key={channel.id}
                                                                                 className="px-4 py-3 text-center"
                                                                             >
-                                                                                <input
-                                                                                    type="checkbox"
+                                                                                <ChannelCheckbox
                                                                                     checked={allOn(modItems, channel.id)}
-                                                                                    disabled={saving}
-                                                                                    onChange={(event) =>
+                                                                                    indeterminate={
+                                                                                        someOn(modItems, channel.id) &&
+                                                                                        !allOn(modItems, channel.id)
+                                                                                    }
+                                                                                    label={`${mod.module} - ${channel.label}`}
+                                                                                    onCheckedChange={(checked) =>
                                                                                         void saveItems(modItems, {
-                                                                                            [channel.id]:
-                                                                                                event.target.checked,
+                                                                                            [channel.id]: checked,
                                                                                         })
                                                                                     }
-                                                                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:opacity-40"
-                                                                                    aria-label={`${mod.module} - ${channel.label}`}
-                                                                                    title={`${mod.module} - ${channel.label}`}
                                                                                 />
                                                                             </td>
                                                                         ))}
@@ -363,19 +404,14 @@ export default function NotificationEmailsPage() {
                                                                                         key={channel.id}
                                                                                         className="px-4 py-3 text-center"
                                                                                     >
-                                                                                        <input
-                                                                                            type="checkbox"
+                                                                                        <ChannelCheckbox
                                                                                             checked={item[channel.id] === true}
-                                                                                            disabled={saving}
-                                                                                            onChange={(event) =>
+                                                                                            label={`${item.label} - ${channel.label}`}
+                                                                                            onCheckedChange={(checked) =>
                                                                                                 void saveItems([item], {
-                                                                                                    [channel.id]:
-                                                                                                        event.target.checked,
+                                                                                                    [channel.id]: checked,
                                                                                                 })
                                                                                             }
-                                                                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:opacity-40"
-                                                                                            aria-label={`${item.label} - ${channel.label}`}
-                                                                                            title={`${item.label} - ${channel.label}`}
                                                                                         />
                                                                                     </td>
                                                                                 ))}

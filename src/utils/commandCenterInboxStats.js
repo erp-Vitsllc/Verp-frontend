@@ -20,6 +20,8 @@ import {
     buildModuleNotificationBundle,
     mergeUserStatsWithModuleBundle,
     rememberModuleNotificationBundle,
+    loadNotificationChannelMap,
+    filterBundleByNotificationPermission,
 } from '@/utils/moduleNotifications';
 
 const COMPANY_DASHBOARD_ACTION_TYPES = new Set([
@@ -225,7 +227,9 @@ export async function loadPreparedCommandCenterItems(
     feeds.userStatsItems = base;
     feeds.statsData = { ...(feeds.statsData || {}), ...payload, items: base };
 
-    const bundle = buildModuleNotificationBundle(feeds);
+    const rawBundle = buildModuleNotificationBundle(feeds);
+    const byDashboardType = await loadNotificationChannelMap(axiosInstance);
+    const bundle = filterBundleByNotificationPermission(rawBundle, byDashboardType);
     if (!targetUserId) {
         rememberModuleNotificationBundle(feeds, bundle);
     }
