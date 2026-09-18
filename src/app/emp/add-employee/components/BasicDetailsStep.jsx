@@ -19,7 +19,9 @@ export default function BasicDetailsStep({
     handlePhoneChange,
     handleWhatsappPhoneChange,
     defaultPhoneCountry,
-    companies
+    companies,
+    checkingWhatsApp = false,
+    whatsappRegistered = false,
 }) {
     return (
         <div>
@@ -170,8 +172,17 @@ export default function BasicDetailsStep({
                         placeholder="WhatsApp Number"
                         disabled={false}
                         error={fieldErrors?.whatsappNumber}
-                        validatedLabel="Format valid"
+                        validatedLabel={
+                            whatsappRegistered
+                                ? 'WhatsApp registered'
+                                : checkingWhatsApp
+                                    ? 'Checking'
+                                    : 'Format valid'
+                        }
                     />
+                    {checkingWhatsApp && (
+                        <p className="text-xs text-blue-600 mt-1">Checking WhatsApp...</p>
+                    )}
                     {fieldErrors?.whatsappNumber && (
                         <p className="text-xs text-red-500 mt-1">{fieldErrors.whatsappNumber}</p>
                     )}

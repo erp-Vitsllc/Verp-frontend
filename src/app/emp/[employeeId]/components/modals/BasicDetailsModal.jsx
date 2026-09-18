@@ -40,7 +40,7 @@ export default function BasicDetailsModal({
 }) {
     if (!isOpen) return null;
 
-    const busy = updating || checkingWhatsApp;
+    const busy = updating;
 
     return (
         <>
@@ -117,17 +117,16 @@ export default function BasicDetailsModal({
                                                     error={editFormErrors[input.field]}
                                                     validatedLabel={
                                                         input.field === 'whatsappNumber'
-                                                            ? (whatsappRegistered ? 'WhatsApp registered' : 'Format valid')
+                                                            ? (whatsappRegistered
+                                                                ? 'WhatsApp registered'
+                                                                : checkingWhatsApp
+                                                                    ? 'Checking'
+                                                                    : 'Format valid')
                                                             : 'Validated'
                                                     }
                                                 />
-                                                {input.field === 'whatsappNumber'
-                                                    && !editFormErrors[input.field]
-                                                    && !whatsappRegistered
-                                                    && String(editForm.whatsappNumber || '').trim() !== '' && (
-                                                    <p className="text-xs text-gray-500 mt-1">
-                                                        Click Update to verify this number is registered on WhatsApp.
-                                                    </p>
+                                                {input.field === 'whatsappNumber' && checkingWhatsApp && (
+                                                    <p className="text-xs text-blue-600 mt-1">Checking WhatsApp...</p>
                                                 )}
                                             </>
                                         ) : input.type === 'select' ? (
@@ -234,9 +233,7 @@ export default function BasicDetailsModal({
                             className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
                             disabled={busy}
                         >
-                            {updating || checkingWhatsApp
-                                ? (checkingWhatsApp ? 'Checking WhatsApp...' : 'Updating...')
-                                : 'Update'}
+                            {updating ? 'Updating...' : 'Update'}
                         </button>
                     </div>
                 </div>

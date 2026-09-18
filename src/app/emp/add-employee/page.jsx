@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { DatePicker } from "@/components/ui/date-picker";
 import { Country, State, City } from 'country-state-city';
 import Select from 'react-select';
@@ -137,6 +137,10 @@ export default function AddEmployee({ id }) {
         other: true // Other allowance visible by default
     });
     const [error, setError] = useState('');
+    const [checkingWhatsApp, setCheckingWhatsApp] = useState(false);
+    const [whatsappRegistered, setWhatsappRegistered] = useState(false);
+    const whatsappLiveCheckTimerRef = useRef(null);
+    const whatsappLiveCheckSeqRef = useRef(0);
     const [fieldErrors, setFieldErrors] = useState({
         basic: {},
         salary: {},
@@ -448,7 +452,13 @@ export default function AddEmployee({ id }) {
     const handleWhatsappPhoneChange = (value, country) => {
         const cleanedValue = value.replace(/\s/g, '');
         handleBasicDetailsChange('whatsappNumber', cleanedValue);
+        setWhatsappRegistered(false);
+        if (whatsappLiveCheckTimerRef.current) {
+            clearTimeout(whatsappLiveCheckTimerRef.current);
+        }
         if (!cleanedValue) {
+            whatsappLiveCheckSeqRef.current += 1;
+            setCheckingWhatsApp(false);
             setBasicFieldError('whatsappNumber', '');
             return;
         }
@@ -457,6 +467,32 @@ export default function AddEmployee({ id }) {
         else if (country?.dialCode) countryCode = country.dialCode;
         const validation = validateInternationalPhone(cleanedValue, countryCode);
         setBasicFieldError('whatsappNumber', validation.isValid ? '' : validation.error);
+        if (!validation.isValid) {
+            whatsappLiveCheckSeqRef.current += 1;
+            setCheckingWhatsApp(false);
+            return;
+        }
+        const seq = ++whatsappLiveCheckSeqRef.current;
+        whatsappLiveCheckTimerRef.current = setTimeout(async () => {
+            setCheckingWhatsApp(true);
+            try {
+                const waCheck = await checkWhatsAppNumberRegistered(cleanedValue, axios);
+                if (seq !== whatsappLiveCheckSeqRef.current) return;
+                if (waCheck.onWhatsApp === true) {
+                    setWhatsappRegistered(true);
+                    setBasicFieldError('whatsappNumber', '');
+                    return;
+                }
+                setWhatsappRegistered(false);
+                if (waCheck.onWhatsApp === false) {
+                    setBasicFieldError('whatsappNumber', waCheck.error || WHATSAPP_NOT_REGISTERED_ERROR);
+                }
+            } finally {
+                if (seq === whatsappLiveCheckSeqRef.current) {
+                    setCheckingWhatsApp(false);
+                }
+            }
+        }, 700);
     };
 
     const handleDateChange = (target, field, date) => {
@@ -1061,25 +1097,19 @@ export default function AddEmployee({ id }) {
                 setError('');
 
                 // Comprehensive validation
+                const waLiveError = String(fieldErrors.basic?.whatsappNumber || '');
+
                 if (!validateAllFields()) {
                     setLoading(false);
                     return;
                 }
 
-                if (basicDetails.whatsappNumber) {
-                    const waCheck = await checkWhatsAppNumberRegistered(basicDetails.whatsappNumber, axios);
-                    if (!waCheck.ok) {
-                        setBasicFieldError('whatsappNumber', waCheck.error || WHATSAPP_NOT_REGISTERED_ERROR);
-                        setCurrentStep(1);
-                        setError(waCheck.error || WHATSAPP_NOT_REGISTERED_ERROR);
-                        toast({
-                            variant: 'destructive',
-                            title: 'WhatsApp number',
-                            description: waCheck.error || WHATSAPP_NOT_REGISTERED_ERROR,
-                        });
-                        setLoading(false);
-                        return;
-                    }
+                if (/not registered on WhatsApp/i.test(waLiveError)) {
+                    setBasicFieldError('whatsappNumber', waLiveError);
+                    setCurrentStep(1);
+                    setError(waLiveError);
+                    setLoading(false);
+                    return;
                 }
 
                 // Remove age from personalDetails - backend will calculate it from dateOfBirth
@@ -1348,6 +1378,8 @@ export default function AddEmployee({ id }) {
                                     handleWhatsappPhoneChange={handleWhatsappPhoneChange}
                                     defaultPhoneCountry={DEFAULT_PHONE_COUNTRY}
                                     companies={activeCompanies}
+                                    checkingWhatsApp={checkingWhatsApp}
+                                    whatsappRegistered={whatsappRegistered}
                                 />
                             )}
 
