@@ -22,11 +22,7 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-const CHANNELS = [
-    { id: 'notification', label: 'Notification' },
-    { id: 'email', label: 'Email' },
-    { id: 'whatsapp', label: 'WhatsApp' },
-];
+const CHANNELS = [{ id: 'whatsapp', label: 'WhatsApp' }];
 
 const allOn = (items, channelId) =>
     items.length > 0 && items.every((item) => item[channelId] === true);
@@ -76,7 +72,7 @@ export default function NotificationEmailsPage() {
         let cancelled = false;
         (async () => {
             try {
-                const res = await axiosInstance.get('/NotificationEmailPermission/access');
+                const res = await axiosInstance.get('/NotificationEmailPermission/access', { skipToast: true });
                 if (!cancelled) {
                     setAllowed(!!res.data?.allowed);
                     setAccessChecked(true);
@@ -160,7 +156,7 @@ export default function NotificationEmailsPage() {
                 eventKeys: keys,
                 ...patch,
             });
-            if (Object.prototype.hasOwnProperty.call(patch, 'notification')) {
+            if (Object.prototype.hasOwnProperty.call(patch, 'whatsapp')) {
                 invalidateNotificationChannelMap();
                 invalidateModuleNotificationFeedsCache();
                 clearCompanyNotificationBundleCache();
@@ -205,7 +201,7 @@ export default function NotificationEmailsPage() {
                     <Navbar />
                     <main className="flex flex-1 items-center justify-center p-8">
                         <p className="text-slate-600">
-                            You do not have access to Notifications and Email Permission. Super User (admin) only.
+                            You do not have access to Notifications and Email Permission. Super User or flowchart HR only.
                         </p>
                     </main>
                 </div>
@@ -224,9 +220,8 @@ export default function NotificationEmailsPage() {
                             Notifications and Email Permission
                         </h1>
                         <p className="text-sm sm:text-base text-gray-600">
-                            Turn Notification, Email, and WhatsApp on or off for each event. Click a topic for the full
-                            description. WhatsApp is paid: company email gets one email only; no company email gets one
-                            WhatsApp.
+                            Turn WhatsApp on or off for each event. Click the WhatsApp header to change all rows. Click a
+                            topic for the full description. Notification and email always go; they are not gated here.
                         </p>
                     </div>
 
@@ -234,25 +229,17 @@ export default function NotificationEmailsPage() {
                         <div className="mb-4 flex items-center gap-2">
                             <ChannelCheckbox
                                 id="full-channel"
-                                checked={
-                                    allItems.length > 0 &&
-                                    allItems.every((item) => item.notification && item.email && item.whatsapp)
-                                }
-                                indeterminate={
-                                    allItems.some((item) => item.notification || item.email || item.whatsapp) &&
-                                    !allItems.every((item) => item.notification && item.email && item.whatsapp)
-                                }
-                                label="Full Permission (select all notification, email, WhatsApp)"
+                                checked={allOn(allItems, 'whatsapp')}
+                                indeterminate={someOn(allItems, 'whatsapp') && !allOn(allItems, 'whatsapp')}
+                                label="Full Permission (select all WhatsApp)"
                                 onCheckedChange={(checked) =>
                                     void saveItems(allItems, {
-                                        notification: checked,
-                                        email: checked,
                                         whatsapp: checked,
                                     })
                                 }
                             />
                             <label htmlFor="full-channel" className="text-sm font-medium text-gray-700 cursor-pointer">
-                                Full Permission (select all notification, email, WhatsApp)
+                                Full Permission (select all WhatsApp)
                             </label>
                         </div>
 
@@ -272,7 +259,33 @@ export default function NotificationEmailsPage() {
                                                     key={channel.id}
                                                     className="px-3 sm:px-4 py-2 sm:py-3 text-center text-[10px] sm:text-xs font-medium text-gray-700 uppercase"
                                                 >
-                                                    {channel.label}
+                                                    <span className="inline-flex items-center justify-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            className="uppercase font-medium text-gray-700 hover:text-blue-700"
+                                                            title={`Click to ${allOn(allItems, channel.id) ? 'turn off' : 'turn on'} all ${channel.label}`}
+                                                            onClick={() =>
+                                                                void saveItems(allItems, {
+                                                                    [channel.id]: !allOn(allItems, channel.id),
+                                                                })
+                                                            }
+                                                        >
+                                                            {channel.label}
+                                                        </button>
+                                                        <ChannelCheckbox
+                                                            checked={allOn(allItems, channel.id)}
+                                                            indeterminate={
+                                                                someOn(allItems, channel.id) &&
+                                                                !allOn(allItems, channel.id)
+                                                            }
+                                                            label={`${channel.label} header — select all`}
+                                                            onCheckedChange={(checked) =>
+                                                                void saveItems(allItems, {
+                                                                    [channel.id]: checked,
+                                                                })
+                                                            }
+                                                        />
+                                                    </span>
                                                 </th>
                                             ))}
                                         </tr>

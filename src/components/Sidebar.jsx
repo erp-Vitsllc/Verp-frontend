@@ -221,7 +221,7 @@ const menuItems = [
             },
             { label: 'Flowchart', icon: GitBranch, permissionModule: 'settings' },
             { label: 'WhatsApp Messages', icon: MessageCircle, whatsappInbox: true },
-            { label: 'Notifications & Emails', icon: Bell, restoreRecovery: true },
+            { label: 'Notifications & Emails', icon: Bell, notificationEmails: true },
             { label: 'Activity Logs', icon: Activity, restoreRecovery: true },
             { label: 'Deleted Records', icon: Trash2, restoreRecovery: true },
         ],
@@ -336,6 +336,8 @@ export default function Sidebar() {
     });
     const [sidebarCounts, setSidebarCounts] = useState(EMPTY_SIDEBAR_COUNTS);
     const [canRestoreRecovery, setCanRestoreRecovery] = useState(false);
+    const [canWhatsAppInbox, setCanWhatsAppInbox] = useState(false);
+    const [canNotificationEmails, setCanNotificationEmails] = useState(false);
     const [assetFlowchartReady, setAssetFlowchartReady] = useState(false);
 
     // Handle client-side mounting to prevent hydration mismatch
@@ -366,12 +368,24 @@ export default function Sidebar() {
         if (!mounted) return;
         if (isAdmin()) {
             setCanRestoreRecovery(true);
+            setCanWhatsAppInbox(true);
+            setCanNotificationEmails(true);
             return;
         }
+        setCanWhatsAppInbox(canViewWhatsAppInbox());
+        const skipToast = { skipToast: true };
         axiosInstance
-            .get('/AdminDeletionArchive/access')
+            .get('/AdminDeletionArchive/access', skipToast)
             .then((res) => setCanRestoreRecovery(!!res.data?.allowed))
             .catch(() => setCanRestoreRecovery(false));
+        axiosInstance
+            .get('/whatsapp/access', skipToast)
+            .then((res) => setCanWhatsAppInbox(!!res.data?.allowed))
+            .catch(() => setCanWhatsAppInbox(canViewWhatsAppInbox()));
+        axiosInstance
+            .get('/NotificationEmailPermission/access', skipToast)
+            .then((res) => setCanNotificationEmails(!!res.data?.allowed))
+            .catch(() => setCanNotificationEmails(false));
     }, [mounted]);
 
     // Warm flowchart AC / Admin Officer override so Vehicle + Tools show without group perms
@@ -855,8 +869,11 @@ export default function Sidebar() {
             return true;
         }
 
-        // Settings: HR with employee view can open WhatsApp Messages even without settings module.
-        if (item.id === 'Settings' && canViewWhatsAppInbox()) {
+        // Settings: WhatsApp, Notifications & Emails, or Deleted Records without a settings module row.
+        if (
+            item.id === 'Settings' &&
+            (canViewWhatsAppInbox() || canWhatsAppInbox || canNotificationEmails || canRestoreRecovery)
+        ) {
             return true;
         }
 
@@ -899,7 +916,11 @@ export default function Sidebar() {
         }
 
         if (subItem.whatsappInbox) {
-            return canViewWhatsAppInbox();
+            return canViewWhatsAppInbox() || canWhatsAppInbox;
+        }
+
+        if (subItem.notificationEmails) {
+            return isAdmin() || canNotificationEmails;
         }
 
         if (subItem.restoreRecovery) {

@@ -423,8 +423,7 @@ function EmployeeProfilePageContent() {
     const [updating, setUpdating] = useState(false);
     const [checkingWhatsApp, setCheckingWhatsApp] = useState(false);
     const [whatsappRegistered, setWhatsappRegistered] = useState(false);
-    const whatsappLiveCheckTimerRef = useRef(null);
-    const whatsappLiveCheckSeqRef = useRef(0);
+    const [whatsappInvalid, setWhatsappInvalid] = useState(false);
     const [confirmUpdateOpen, setConfirmUpdateOpen] = useState(false);
     // Confirmation dialogs state
     const [confirmDeleteEducation, setConfirmDeleteEducation] = useState({
@@ -3377,56 +3376,67 @@ function EmployeeProfilePageContent() {
         setContactForms(prev => prev.filter((_, i) => i !== index));
     };
 
-    const scheduleWhatsAppLiveCheck = (phone) => {
-        if (whatsappLiveCheckTimerRef.current) {
-            clearTimeout(whatsappLiveCheckTimerRef.current);
-        }
-        const digits = String(phone || '').replace(/\D/g, '');
+    const handleValidateWhatsApp = async () => {
+        if (checkingWhatsApp || updating) return;
+        const digits = String(editForm.whatsappNumber || '').replace(/\D/g, '');
         if (!digits) {
-            whatsappLiveCheckSeqRef.current += 1;
-            setCheckingWhatsApp(false);
             setWhatsappRegistered(false);
+            setWhatsappInvalid(true);
+            setEditFormErrors((prev) => ({
+                ...prev,
+                whatsappNumber: 'Please enter a WhatsApp number',
+            }));
             return;
         }
-        const seq = ++whatsappLiveCheckSeqRef.current;
-        whatsappLiveCheckTimerRef.current = setTimeout(async () => {
-            setCheckingWhatsApp(true);
-            try {
-                const waCheck = await checkWhatsAppNumberRegistered(digits, axiosInstance);
-                if (seq !== whatsappLiveCheckSeqRef.current) return;
-                if (waCheck.onWhatsApp === true) {
-                    setWhatsappRegistered(true);
-                    setEditFormErrors((prev) => {
-                        const updated = { ...prev };
-                        delete updated.whatsappNumber;
-                        return updated;
-                    });
-                    return;
-                }
-                setWhatsappRegistered(false);
-                if (waCheck.onWhatsApp === false) {
-                    setEditFormErrors((prev) => ({
-                        ...prev,
-                        whatsappNumber: waCheck.error || WHATSAPP_NOT_REGISTERED_ERROR,
-                    }));
-                }
-            } finally {
-                if (seq === whatsappLiveCheckSeqRef.current) {
-                    setCheckingWhatsApp(false);
-                }
+        const validation = validatePhoneNumber(digits, editCountryCode, false);
+        if (!validation.isValid) {
+            setWhatsappRegistered(false);
+            setWhatsappInvalid(true);
+            setEditFormErrors((prev) => ({
+                ...prev,
+                whatsappNumber: validation.error,
+            }));
+            return;
+        }
+        setCheckingWhatsApp(true);
+        setWhatsappRegistered(false);
+        setWhatsappInvalid(false);
+        try {
+            const waCheck = await checkWhatsAppNumberRegistered(digits, axiosInstance, {
+                firstName: editForm.firstName,
+                employeeId: employee?.employeeId,
+            });
+            if (waCheck.onWhatsApp === true) {
+                setWhatsappRegistered(true);
+                setWhatsappInvalid(false);
+                setEditFormErrors((prev) => {
+                    const updated = { ...prev };
+                    delete updated.whatsappNumber;
+                    return updated;
+                });
+                return;
             }
-        }, 700);
+            setWhatsappRegistered(false);
+            setWhatsappInvalid(true);
+            setEditFormErrors((prev) => ({
+                ...prev,
+                whatsappNumber: waCheck.error || WHATSAPP_NOT_REGISTERED_ERROR,
+            }));
+        } finally {
+            setCheckingWhatsApp(false);
+        }
     };
 
     useEffect(() => {
         if (!showEditModal) {
-            if (whatsappLiveCheckTimerRef.current) {
-                clearTimeout(whatsappLiveCheckTimerRef.current);
-            }
+            setCheckingWhatsApp(false);
             return undefined;
         }
         const digits = String(editForm.whatsappNumber || '').replace(/\D/g, '');
-        if (digits) scheduleWhatsAppLiveCheck(digits);
+        const saved = String(employee?.whatsappNumber || '').replace(/\D/g, '');
+        const sameSavedNumber = Boolean(digits && saved && digits === saved);
+        setWhatsappRegistered(sameSavedNumber);
+        setWhatsappInvalid(false);
         return undefined;
         // Only when the basic details modal opens.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3464,10 +3474,9 @@ function EmployeeProfilePageContent() {
             const validation = validatePhoneNumber(cleanedValue, countryCode, required);
             if (field === 'whatsappNumber') {
                 setWhatsappRegistered(false);
-                if (!cleanedValue || !validation.isValid) {
-                    scheduleWhatsAppLiveCheck('');
-                } else {
-                    scheduleWhatsAppLiveCheck(cleanedValue);
+                setWhatsappInvalid(false);
+                if (!cleanedValue) {
+                    setCheckingWhatsApp(false);
                 }
             }
             if (!validation.isValid) {
@@ -7193,14 +7202,18 @@ function EmployeeProfilePageContent() {
     // Open visa modal and populate with existing data
 
     const handleRequestBasicDetailsUpdate = () => {
-        if (!employee || updating) return;
+        if (!employee || updating || checkingWhatsApp) return;
 
         const errors = validateEmployeeProfileBasicDetailsForm(editForm, {
             defaultCountry: editCountryCode,
         });
+        const whatsappDigits = String(editForm.whatsappNumber || '').replace(/\D/g, '');
+        if (whatsappDigits && !whatsappRegistered) {
+            errors.whatsappNumber = 'Click Validate to confirm this WhatsApp number';
+        }
         if (
             editFormErrors.whatsappNumber
-            && /not registered on WhatsApp/i.test(String(editFormErrors.whatsappNumber))
+            && /not a valid WhatsApp number|not registered on WhatsApp/i.test(String(editFormErrors.whatsappNumber))
         ) {
             errors.whatsappNumber = editFormErrors.whatsappNumber;
         }
@@ -7220,6 +7233,10 @@ function EmployeeProfilePageContent() {
             const errors = validateEmployeeProfileBasicDetailsForm(editForm, {
                 defaultCountry: editCountryCode,
             });
+            const whatsappDigitsCheck = String(editForm.whatsappNumber || '').replace(/\D/g, '');
+            if (whatsappDigitsCheck && !whatsappRegistered) {
+                errors.whatsappNumber = 'Click Validate to confirm this WhatsApp number';
+            }
 
             if (Object.keys(errors).length > 0) {
                 setEditFormErrors(errors);
@@ -10058,11 +10075,13 @@ function EmployeeProfilePageContent() {
                     updating={updating}
                     checkingWhatsApp={checkingWhatsApp}
                     whatsappRegistered={whatsappRegistered}
+                    whatsappInvalid={whatsappInvalid}
                     editCountryCode={editCountryCode}
                     setEditCountryCode={setEditCountryCode}
                     allCountriesOptions={allCountriesOptions}
                     DEFAULT_PHONE_COUNTRY={DEFAULT_PHONE_COUNTRY}
                     onEditChange={handleEditChange}
+                    onValidateWhatsApp={handleValidateWhatsApp}
                     onRequestUpdate={handleRequestBasicDetailsUpdate}
                     onUpdate={handleUpdateEmployee}
                     confirmUpdateOpen={confirmUpdateOpen}

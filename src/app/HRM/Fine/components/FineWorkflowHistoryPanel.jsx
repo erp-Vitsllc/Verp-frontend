@@ -14,15 +14,23 @@ const FINE_WORKFLOW_STEPS = [
     { id: 1, label: 'Created', role: 'Creator' },
     { id: 2, label: 'Requester', role: 'Requester' },
     { id: 3, label: 'HR', role: 'HR' },
-    { id: 4, label: 'Management', role: 'Management' },
-    { id: 5, label: 'Accounts', role: 'Accounts' },
+    { id: 4, label: 'Accounts', role: 'Accounts' },
+    { id: 5, label: 'Management', role: 'Management' },
 ];
 
-function isAccountsSettled(fine) {
-    return Boolean(
-        String(fine?.accountsPaymentPath || '').trim() ||
-            String(fine?.zohoBillId || '').trim() ||
-            fine?.fineStatus === 'Paid',
+function isHrApprovalDone(fine, workflow = []) {
+    return Boolean(fine?.hrApprovedBy) || workflow.some((w) => w.role === 'HR' && w.status === 'Approved');
+}
+
+function isAccountsApprovalDone(fine, workflow = []) {
+    return Boolean(fine?.accountsApprovedBy) ||
+        workflow.some((w) => w.role === 'Accounts' && w.status === 'Approved');
+}
+
+function isManagementApprovalDone(fine, workflow = []) {
+    return (
+        Boolean(fine?.approvedBy) ||
+        workflow.some((w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved')
     );
 }
 
@@ -30,30 +38,18 @@ function isFineWorkflowStepApproved(step, fine, workflow = []) {
     const status = fine?.fineStatus;
     if (step.id === 1) return true;
     if (step.id === 2) return String(status || '').toLowerCase() !== 'draft';
-    if (step.id === 3) return workflow.some((w) => w.role === 'HR' && w.status === 'Approved');
-    if (step.id === 4) {
-        return (
-            workflow.some((w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') ||
-            ['Approved', 'Active', 'Completed', 'Paid'].includes(status)
-        );
-    }
-    if (step.id === 5) {
-        return isAccountsSettled(fine) || workflow.some((w) => w.role === 'Accounts' && w.status === 'Approved');
-    }
+    if (step.id === 3) return isHrApprovalDone(fine, workflow);
+    if (step.id === 4) return isAccountsApprovalDone(fine, workflow);
+    if (step.id === 5) return isManagementApprovalDone(fine, workflow);
     return false;
 }
 
 function isFineWorkflowConnectorGreen(step, fine, workflow = []) {
     const nextId = step.id + 1;
     if (nextId === 2) return String(fine?.fineStatus || '').toLowerCase() !== 'draft';
-    if (nextId === 3) return workflow.some((w) => w.role === 'HR' && w.status === 'Approved');
-    if (nextId === 4) {
-        return (
-            workflow.some((w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') ||
-            ['Approved', 'Active', 'Completed', 'Paid'].includes(fine?.fineStatus)
-        );
-    }
-    if (nextId === 5) return isAccountsSettled(fine);
+    if (nextId === 3) return isHrApprovalDone(fine, workflow);
+    if (nextId === 4) return isAccountsApprovalDone(fine, workflow);
+    if (nextId === 5) return isManagementApprovalDone(fine, workflow);
     return false;
 }
 
@@ -61,9 +57,8 @@ function getFineCurrentActiveStepId(fine) {
     const status = fine?.fineStatus;
     if (status === 'Draft') return 2;
     if (status === 'Pending HR' || status === 'Pending Review' || status === 'Pending') return 3;
-    if (status === 'Pending Authorization' || status === 'Pending Management') return 4;
-    if (status === 'Pending Accounts' || status === 'Pending Finance') return 5;
-    if (['Approved', 'Active'].includes(status) && !isAccountsSettled(fine)) return 5;
+    if (status === 'Pending Accounts' || status === 'Pending Finance') return 4;
+    if (status === 'Pending Authorization' || status === 'Pending Management') return 5;
     if (['Approved', 'Active', 'Completed', 'Paid'].includes(status)) return 6;
     return 2;
 }
@@ -112,6 +107,19 @@ function getFineStepActor(step, fine, workflow) {
         return 'HR Manager';
     }
     if (step.id === 4) {
+        const accStep = workflow.find((w) => w.role === 'Accounts');
+        const fromWf = resolvePersonName(accStep?.assignedTo);
+        if (fromWf) return fromWf;
+        const fromApprover = resolvePersonName(fine.accountsApprovedBy);
+        if (fromApprover) return fromApprover;
+        const fromSubmitted = resolvePersonName(fine.submittedTo);
+        if (fromSubmitted && (fine.fineStatus === 'Pending Accounts' || fine.fineStatus === 'Pending Finance')) {
+            return fromSubmitted;
+        }
+        if (fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
+        return 'Accounts Officer';
+    }
+    if (step.id === 5) {
         const mgtStep = workflow.find((w) => w.role === 'Management' || w.role === 'CEO');
         const fromWf = resolvePersonName(mgtStep?.assignedTo);
         if (fromWf) return fromWf;
@@ -122,28 +130,20 @@ function getFineStepActor(step, fine, workflow) {
         if (fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
         return 'CEO / Management';
     }
-    if (step.id === 5) {
-        const accStep = workflow.find((w) => w.role === 'Accounts');
-        const fromWf = resolvePersonName(accStep?.assignedTo);
-        if (fromWf) return fromWf;
-        const fromApprover = resolvePersonName(fine.accountsPaymentBy || fine.accountsApprovedBy);
-        if (fromApprover) return fromApprover;
-        if (fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
-        return 'Accounts Officer';
-    }
     return '';
 }
 
 function getFineStepDateRaw(step, fine, workflow) {
     if (step.id <= 2) return fine.createdAt;
     if (step.id === 4) {
+        const accStep = workflow.find((w) => w.role === 'Accounts' && w.status === 'Approved');
+        return accStep?.actionedAt || null;
+    }
+    if (step.id === 5) {
         const mgtStep = workflow.find(
             (w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved'
         );
         return fine.approvedDate || mgtStep?.actionedAt || null;
-    }
-    if (step.id === 5) {
-        return fine.accountsPaymentAt || null;
     }
     const wfStep = workflow.find((w) => w.role === step.role && w.status === 'Approved');
     return wfStep?.actionedAt || null;

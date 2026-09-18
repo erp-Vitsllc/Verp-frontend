@@ -354,7 +354,7 @@ function FineDetailsPageContent() {
                     currentFineStatus === 'Pending Review' ||
                     currentFineStatus === 'Pending'
                 ) {
-                    optimisticStatus = 'Pending Authorization';
+                    optimisticStatus = 'Pending Accounts';
                 } else if (
                     currentFineStatus === 'Pending Accounts' ||
                     currentFineStatus === 'Pending Finance'

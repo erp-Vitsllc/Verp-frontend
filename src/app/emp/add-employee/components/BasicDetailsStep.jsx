@@ -22,7 +22,10 @@ export default function BasicDetailsStep({
     companies,
     checkingWhatsApp = false,
     whatsappRegistered = false,
+    whatsappInvalid = false,
+    onValidateWhatsApp,
 }) {
+    const fieldsLocked = Boolean(checkingWhatsApp);
     return (
         <div>
             <div className="mb-6">
@@ -33,6 +36,7 @@ export default function BasicDetailsStep({
                     value={basicDetails.company}
                     onChange={(e) => handleBasicDetailsChange('company', e.target.value)}
                     onBlur={() => validateBasicDetailField('company', basicDetails.company)}
+                    disabled={fieldsLocked}
                     className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors?.company ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
                         }`}
                 >
@@ -58,6 +62,7 @@ export default function BasicDetailsStep({
                         value={basicDetails.firstName}
                         onChange={(e) => handleNameInput('firstName', e.target.value)}
                         onBlur={() => validateBasicDetailField('firstName', basicDetails.firstName)}
+                        disabled={fieldsLocked}
                         className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors?.firstName ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
                             }`}
                         placeholder="First Name"
@@ -75,6 +80,7 @@ export default function BasicDetailsStep({
                         value={basicDetails.lastName}
                         onChange={(e) => handleNameInput('lastName', e.target.value)}
                         onBlur={() => validateBasicDetailField('lastName', basicDetails.lastName)}
+                        disabled={fieldsLocked}
                         className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors?.lastName ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
                             }`}
                         placeholder="Last Name"
@@ -107,7 +113,7 @@ export default function BasicDetailsStep({
                         value={basicDetails.dateOfJoining || ''}
                         onChange={(date) => handleDateChange('basic', 'dateOfJoining', date)}
                         className={`w-full ${fieldErrors?.dateOfJoining ? 'border-red-500 bg-red-50' : 'border-blue-200 bg-blue-50 text-blue-900'}`}
-                        disabled={false}
+                        disabled={fieldsLocked}
                         disabledDays={{ after: new Date() }}
                     />
                     {fieldErrors?.dateOfJoining && (
@@ -137,6 +143,7 @@ export default function BasicDetailsStep({
                         value={basicDetails.email}
                         onChange={(e) => handleBasicDetailsChange('email', e.target.value.trimStart())}
                         onBlur={() => validateBasicDetailField('email', basicDetails.email.trim())}
+                        disabled={fieldsLocked}
                         className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors?.email ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
                             }`}
                         placeholder="Email"
@@ -154,7 +161,7 @@ export default function BasicDetailsStep({
                         value={basicDetails.contactNumber}
                         onChange={(value, country) => handlePhoneChange(value, country)}
                         placeholder="Contact Number"
-                        disabled={false}
+                        disabled={fieldsLocked}
                         error={fieldErrors?.contactNumber}
                     />
                     {fieldErrors?.contactNumber && (
@@ -165,23 +172,54 @@ export default function BasicDetailsStep({
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                         WhatsApp Number
                     </label>
-                    <PhoneInputField
-                        defaultCountry={defaultPhoneCountry}
-                        value={basicDetails.whatsappNumber}
-                        onChange={(value, country) => handleWhatsappPhoneChange(value, country)}
-                        placeholder="WhatsApp Number"
-                        disabled={false}
-                        error={fieldErrors?.whatsappNumber}
-                        validatedLabel={
-                            whatsappRegistered
-                                ? 'WhatsApp registered'
-                                : checkingWhatsApp
-                                    ? 'Checking'
-                                    : 'Format valid'
-                        }
-                    />
+                    <div className="flex flex-wrap items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                            <PhoneInputField
+                                defaultCountry={defaultPhoneCountry}
+                                value={basicDetails.whatsappNumber}
+                                onChange={(value, country) => handleWhatsappPhoneChange(value, country)}
+                                placeholder="WhatsApp Number"
+                                disabled={fieldsLocked}
+                                error=""
+                                showValidatedBadge={false}
+                            />
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 pt-0.5">
+                            <button
+                                type="button"
+                                onClick={onValidateWhatsApp}
+                                disabled={fieldsLocked || !String(basicDetails.whatsappNumber || '').trim()}
+                                className="h-11 px-4 rounded-xl bg-[#4C6FFF] text-white text-sm font-semibold hover:bg-[#3A54D4] transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                            >
+                                {checkingWhatsApp ? (
+                                    <>
+                                        <span className="h-4 w-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                        Sending...
+                                    </>
+                                ) : 'Validate'}
+                            </button>
+                            {whatsappRegistered && !checkingWhatsApp && (
+                                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-green-100 text-green-600" title="Valid WhatsApp number">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </span>
+                            )}
+                            {whatsappInvalid && !checkingWhatsApp && (
+                                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-100 text-red-600" title="Not a valid WhatsApp number">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                    </svg>
+                                </span>
+                            )}
+                        </div>
+                    </div>
                     {checkingWhatsApp && (
-                        <p className="text-xs text-blue-600 mt-1">Checking WhatsApp...</p>
+                        <p className="text-xs text-blue-600 mt-1">Sending welcome message. Fields stay locked until WhatsApp confirms delivery.</p>
+                    )}
+                    {whatsappRegistered && !checkingWhatsApp && (
+                        <p className="text-xs text-green-600 mt-1">Valid WhatsApp number</p>
                     )}
                     {fieldErrors?.whatsappNumber && (
                         <p className="text-xs text-red-500 mt-1">{fieldErrors.whatsappNumber}</p>
@@ -194,6 +232,7 @@ export default function BasicDetailsStep({
                         type="checkbox"
                         checked={basicDetails.enablePortalAccess}
                         onChange={(e) => handleBasicDetailsChange('enablePortalAccess', e.target.checked)}
+                        disabled={fieldsLocked}
                         className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                     />
                     <span className="text-sm font-medium text-gray-700">Enable Portal Access</span>

@@ -14,6 +14,7 @@ export default function SortableTh({
     className = '',
     align = 'left',
     compact = false,
+    rowSpan,
 }) {
     const isActive = activeKey === sortKey;
     const alignClass = align === 'right' ? 'text-right' : 'text-left';
@@ -25,7 +26,8 @@ export default function SortableTh({
 
     return (
         <th
-            className={`${sizeClass} ${alignClass} ${className}`}
+            rowSpan={rowSpan}
+            className={`${sizeClass} ${alignClass} align-middle ${className}`}
         >
             <button
                 type="button"

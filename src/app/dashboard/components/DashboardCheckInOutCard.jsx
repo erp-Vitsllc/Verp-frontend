@@ -11,8 +11,28 @@ import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
     salaryLockFromAttendancePayload,
 } from './DashboardSalaryEnrollLock';
+import { buildDashboardPunchBody, detectDashboardPunchSource } from '@/utils/dashboardPunchMeta';
 
 export const ATTENDANCE_CHECK_CHANGED = 'verp:attendance-check-changed';
+
+const WEB_CONTACT_LOCK =
+    'Cannot check in. Add your Company Email ID in Work Details first, then check in.';
+const APP_CONTACT_LOCK =
+    'Cannot check in. Add your WhatsApp number in Basic Details first, then check in.';
+const WEB_ACCESS_LOCK =
+    'Cannot check in from the website. Enable Web access first.';
+const APP_ACCESS_LOCK =
+    'Cannot check in from the mobile app. Enable App access first.';
+
+function contactLockFromPayload(data) {
+    const flags = data?.contactGate || data?.employee || {};
+    const source = detectDashboardPunchSource();
+    if (source === 'app' && flags.portalApp === false) return APP_ACCESS_LOCK;
+    if (source !== 'app' && flags.web === false) return WEB_ACCESS_LOCK;
+    if (source === 'app' && flags.hasWhatsappNumber === false) return APP_CONTACT_LOCK;
+    if (source !== 'app' && flags.hasCompanyEmail === false) return WEB_CONTACT_LOCK;
+    return '';
+}
 
 function getDubaiDateKey(date = new Date()) {
     return new Intl.DateTimeFormat('en-CA', {
@@ -121,6 +141,7 @@ export default function DashboardCheckInOutCard() {
     const [officeHours, setOfficeHours] = useState({ isOffDay: false, range: '' });
     const [siteHours, setSiteHours] = useState({ isOffDay: false, range: '' });
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
+    const [contactLock, setContactLock] = useState('');
     const tickRef = useRef(null);
 
     const checkedIn = Boolean(timeIn);
@@ -142,6 +163,7 @@ export default function DashboardCheckInOutCard() {
                 setSalaryLock(lock);
                 setTimeIn('');
                 setTimeOut('');
+                setContactLock(contactLockFromPayload(res.data));
                 setError('');
                 return;
             }
@@ -153,6 +175,7 @@ export default function DashboardCheckInOutCard() {
             setStaffType(nextStaff);
             setOfficeHours(resolveTodayHours(res.data?.workingTime?.office, today));
             setSiteHours(resolveTodayHours(res.data?.workingTime?.site, today));
+            setContactLock(contactLockFromPayload(res.data));
             setError('');
         } catch (err) {
             if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
@@ -239,11 +262,15 @@ export default function DashboardCheckInOutCard() {
     }, [timeIn, timeOut]);
 
     const handleCheckIn = async () => {
-        if (salaryLock.locked || checkedIn || saving || loading) return;
+        if (salaryLock.locked || contactLock || checkedIn || saving || loading) return;
         setSaving(true);
         setError('');
         try {
-            const res = await axiosInstance.post('/Attendance/me/check-in', {}, { skipToast: true });
+            const res = await axiosInstance.post(
+                '/Attendance/me/check-in',
+                await buildDashboardPunchBody({ requireLocation: true }),
+                { skipToast: true },
+            );
             const nextIn =
                 res.data?.timeIn ||
                 res.data?.record?.timeIn ||
@@ -257,7 +284,13 @@ export default function DashboardCheckInOutCard() {
                 setSalaryLock(salaryLockFromAttendancePayload(err.response.data));
                 return;
             }
-            const msg = err?.response?.data?.message || 'Check-in failed.';
+            const msg =
+                err?.code === 'LOCATION_REQUIRED'
+                    ? err.message
+                    : err?.response?.data?.message || 'Check-in failed.';
+            if (err?.response?.data?.punchContactLocked) {
+                setContactLock(msg);
+            }
             setError(msg);
             // If already checked in, sync times from record so timer can run
             const record = err?.response?.data?.record;
@@ -271,11 +304,15 @@ export default function DashboardCheckInOutCard() {
     };
 
     const handleCheckOut = async () => {
-        if (salaryLock.locked || !checkedIn || checkedOut || saving || loading) return;
+        if (salaryLock.locked || contactLock || !checkedIn || checkedOut || saving || loading) return;
         setSaving(true);
         setError('');
         try {
-            const res = await axiosInstance.post('/Attendance/me/check-out', {}, { skipToast: true });
+            const res = await axiosInstance.post(
+                '/Attendance/me/check-out',
+                await buildDashboardPunchBody({ requireLocation: true }),
+                { skipToast: true },
+            );
             const nextOut =
                 res.data?.timeOut ||
                 res.data?.record?.timeOut ||
@@ -287,7 +324,13 @@ export default function DashboardCheckInOutCard() {
                 setSalaryLock(salaryLockFromAttendancePayload(err.response.data));
                 return;
             }
-            const msg = err?.response?.data?.message || 'Check-out failed.';
+            const msg =
+                err?.code === 'LOCATION_REQUIRED'
+                    ? err.message
+                    : err?.response?.data?.message || 'Check-out failed.';
+            if (err?.response?.data?.punchContactLocked) {
+                setContactLock(msg);
+            }
             setError(msg);
             const record = err?.response?.data?.record;
             if (record?.timeOut) {
@@ -385,7 +428,9 @@ export default function DashboardCheckInOutCard() {
                     ) : (
                         <p className="text-xs text-slate-300">No check-in yet today</p>
                     )}
-                    {error ? (
+                    {contactLock ? (
+                        <p className="text-[11px] text-amber-600 px-1">{contactLock}</p>
+                    ) : error ? (
                         <div className="space-y-1">
                             <p className="text-[11px] text-red-500 px-1">{error}</p>
                             <button
@@ -403,7 +448,7 @@ export default function DashboardCheckInOutCard() {
             <div className="flex items-center gap-3 shrink-0">
                 <button
                     type="button"
-                    disabled={salaryLock.locked || saving || loading || checkedIn}
+                    disabled={salaryLock.locked || Boolean(contactLock) || saving || loading || checkedIn}
                     onClick={handleCheckIn}
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0B7A3E] hover:bg-[#086433] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#0B7A3E] disabled:hover:translate-y-0 disabled:!text-white"
                     title={checkedIn ? `Checked in at ${formatClock(timeIn)}` : 'Check in'}
@@ -417,7 +462,7 @@ export default function DashboardCheckInOutCard() {
                 </button>
                 <button
                     type="button"
-                    disabled={salaryLock.locked || saving || loading || !checkedIn || checkedOut}
+                    disabled={salaryLock.locked || Boolean(contactLock) || saving || loading || !checkedIn || checkedOut}
                     onClick={handleCheckOut}
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#B71C1C] hover:bg-[#9A1616] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#B71C1C] disabled:hover:translate-y-0 disabled:!text-white"
                     title={

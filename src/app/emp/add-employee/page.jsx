@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { DatePicker } from "@/components/ui/date-picker";
 import { Country, State, City } from 'country-state-city';
 import Select from 'react-select';
@@ -139,8 +139,7 @@ export default function AddEmployee({ id }) {
     const [error, setError] = useState('');
     const [checkingWhatsApp, setCheckingWhatsApp] = useState(false);
     const [whatsappRegistered, setWhatsappRegistered] = useState(false);
-    const whatsappLiveCheckTimerRef = useRef(null);
-    const whatsappLiveCheckSeqRef = useRef(0);
+    const [whatsappInvalid, setWhatsappInvalid] = useState(false);
     const [fieldErrors, setFieldErrors] = useState({
         basic: {},
         salary: {},
@@ -223,6 +222,8 @@ export default function AddEmployee({ id }) {
                         enablePortalAccess: emp.enablePortalAccess || false,
                         company: emp.company?._id || emp.company || '',
                     });
+                    setWhatsappRegistered(Boolean(String(emp.whatsappNumber || '').trim()));
+                    setWhatsappInvalid(false);
 
                     // Set Salary Details
                     const houseRent = parseFloat(emp.houseRentAllowance) > 0;
@@ -453,11 +454,8 @@ export default function AddEmployee({ id }) {
         const cleanedValue = value.replace(/\s/g, '');
         handleBasicDetailsChange('whatsappNumber', cleanedValue);
         setWhatsappRegistered(false);
-        if (whatsappLiveCheckTimerRef.current) {
-            clearTimeout(whatsappLiveCheckTimerRef.current);
-        }
+        setWhatsappInvalid(false);
         if (!cleanedValue) {
-            whatsappLiveCheckSeqRef.current += 1;
             setCheckingWhatsApp(false);
             setBasicFieldError('whatsappNumber', '');
             return;
@@ -467,32 +465,45 @@ export default function AddEmployee({ id }) {
         else if (country?.dialCode) countryCode = country.dialCode;
         const validation = validateInternationalPhone(cleanedValue, countryCode);
         setBasicFieldError('whatsappNumber', validation.isValid ? '' : validation.error);
-        if (!validation.isValid) {
-            whatsappLiveCheckSeqRef.current += 1;
-            setCheckingWhatsApp(false);
+    };
+
+    const handleValidateWhatsApp = async () => {
+        if (checkingWhatsApp || loading) return;
+        const cleanedValue = String(basicDetails.whatsappNumber || '').replace(/\s/g, '');
+        const digits = cleanedValue.replace(/\D/g, '');
+        if (!digits) {
+            setWhatsappRegistered(false);
+            setWhatsappInvalid(true);
+            setBasicFieldError('whatsappNumber', 'Please enter a WhatsApp number');
             return;
         }
-        const seq = ++whatsappLiveCheckSeqRef.current;
-        whatsappLiveCheckTimerRef.current = setTimeout(async () => {
-            setCheckingWhatsApp(true);
-            try {
-                const waCheck = await checkWhatsAppNumberRegistered(cleanedValue, axios);
-                if (seq !== whatsappLiveCheckSeqRef.current) return;
-                if (waCheck.onWhatsApp === true) {
-                    setWhatsappRegistered(true);
-                    setBasicFieldError('whatsappNumber', '');
-                    return;
-                }
-                setWhatsappRegistered(false);
-                if (waCheck.onWhatsApp === false) {
-                    setBasicFieldError('whatsappNumber', waCheck.error || WHATSAPP_NOT_REGISTERED_ERROR);
-                }
-            } finally {
-                if (seq === whatsappLiveCheckSeqRef.current) {
-                    setCheckingWhatsApp(false);
-                }
+        const validation = validateInternationalPhone(cleanedValue, selectedCountryCode);
+        if (!validation.isValid) {
+            setWhatsappRegistered(false);
+            setWhatsappInvalid(true);
+            setBasicFieldError('whatsappNumber', validation.error);
+            return;
+        }
+        setCheckingWhatsApp(true);
+        setWhatsappRegistered(false);
+        setWhatsappInvalid(false);
+        try {
+            const waCheck = await checkWhatsAppNumberRegistered(cleanedValue, axios, {
+                firstName: basicDetails.firstName,
+                employeeId: basicDetails.employeeId,
+            });
+            if (waCheck.onWhatsApp === true) {
+                setWhatsappRegistered(true);
+                setWhatsappInvalid(false);
+                setBasicFieldError('whatsappNumber', '');
+                return;
             }
-        }, 700);
+            setWhatsappRegistered(false);
+            setWhatsappInvalid(true);
+            setBasicFieldError('whatsappNumber', waCheck.error || WHATSAPP_NOT_REGISTERED_ERROR);
+        } finally {
+            setCheckingWhatsApp(false);
+        }
     };
 
     const handleDateChange = (target, field, date) => {
@@ -975,7 +986,7 @@ export default function AddEmployee({ id }) {
     };
 
     const handleNext = () => {
-        if (currentStep >= 3) return;
+        if (currentStep >= 3 || checkingWhatsApp) return;
         setError('');
 
         if (currentStep === 1) {
@@ -989,6 +1000,13 @@ export default function AddEmployee({ id }) {
                 setFieldErrors(prev => ({ ...prev, basic: step1.errors }));
                 const msgs = Object.values(step1.errors).filter(Boolean);
                 setError(msgs.join('\n'));
+                return;
+            }
+            const waDigits = String(basicDetails.whatsappNumber || '').replace(/\D/g, '');
+            if (waDigits && !whatsappRegistered) {
+                const message = 'Click Validate to confirm this WhatsApp number';
+                setBasicFieldError('whatsappNumber', message);
+                setError(message);
                 return;
             }
         }
@@ -1085,7 +1103,7 @@ export default function AddEmployee({ id }) {
     };
 
     const handleSaveAndContinue = async () => {
-        if (!allowSave) {
+        if (!allowSave || checkingWhatsApp) {
             return;
         }
         if (currentStep < 3) {
@@ -1104,10 +1122,19 @@ export default function AddEmployee({ id }) {
                     return;
                 }
 
-                if (/not registered on WhatsApp/i.test(waLiveError)) {
+                if (/not a valid WhatsApp number|not registered on WhatsApp/i.test(waLiveError)) {
                     setBasicFieldError('whatsappNumber', waLiveError);
                     setCurrentStep(1);
                     setError(waLiveError);
+                    setLoading(false);
+                    return;
+                }
+                const waDigits = String(basicDetails.whatsappNumber || '').replace(/\D/g, '');
+                if (waDigits && !whatsappRegistered) {
+                    const message = 'Click Validate to confirm this WhatsApp number';
+                    setBasicFieldError('whatsappNumber', message);
+                    setCurrentStep(1);
+                    setError(message);
                     setLoading(false);
                     return;
                 }
@@ -1380,6 +1407,8 @@ export default function AddEmployee({ id }) {
                                     companies={activeCompanies}
                                     checkingWhatsApp={checkingWhatsApp}
                                     whatsappRegistered={whatsappRegistered}
+                                    whatsappInvalid={whatsappInvalid}
+                                    onValidateWhatsApp={handleValidateWhatsApp}
                                 />
                             )}
 
@@ -2317,7 +2346,7 @@ export default function AddEmployee({ id }) {
                                     {currentStep === 1 ? (
                                         <button
                                             onClick={() => router.push('/emp')}
-                                            disabled={loading}
+                                            disabled={loading || checkingWhatsApp}
                                             className="px-6 py-2 text-gray-700 hover:bg-gray-100 rounded-lg font-medium disabled:opacity-50"
                                         >
                                             Cancel
@@ -2325,7 +2354,7 @@ export default function AddEmployee({ id }) {
                                     ) : (
                                         <button
                                             onClick={handleBack}
-                                            disabled={loading}
+                                            disabled={loading || checkingWhatsApp}
                                             className="px-6 py-2 text-gray-700 hover:bg-gray-100 rounded-lg font-medium disabled:opacity-50"
                                         >
                                             Back
@@ -2334,7 +2363,7 @@ export default function AddEmployee({ id }) {
                                 </div>
                                 <button
                                     onClick={handleSaveAndContinue}
-                                    disabled={loading || !allowSave}
+                                    disabled={loading || checkingWhatsApp || !allowSave}
                                     title={
                                         !allowSave
                                             ? (id ? 'Enable Edit on Employee List in your group permissions' : 'Enable Create on Add Employee in your group permissions')

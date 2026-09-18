@@ -8,6 +8,7 @@ import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/
 import MarkAttendanceDetailsModal, {
     getMarkFormConfig,
 } from './MarkAttendanceDetailsModal';
+import { PunchLocationPinCell, PunchTypeCell } from './MarkAttendancePunchCells';
 
 const MARK_OPTIONS = [
     { key: 'work_from_home', label: 'Work from home' },
@@ -62,7 +63,10 @@ function applyDayRecordsToState(employees, records) {
             label: rec.statusLabel,
             reason: rec.reason || '',
             attachmentName: rec.attachmentName || '',
-            approvalStatus: rec.approvalStatus || '',
+            punchSource: rec.punchSource || '',
+            checkOutSource: rec.checkOutSource || '',
+            checkInLocation: rec.checkInLocation || null,
+            checkOutLocation: rec.checkOutLocation || null,
         };
         return {
             ...e,
@@ -282,22 +286,18 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
                     <span className="text-sm text-gray-400">—</span>
                 )}
             </td>
-            <td className="px-3 py-3 align-middle min-w-[130px]">
-                {mark?.approvalStatus ? (
-                    <span
-                        className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded ${
-                            String(mark.approvalStatus).toLowerCase() === 'approved'
-                                ? 'text-emerald-700 bg-emerald-50'
-                                : String(mark.approvalStatus).toLowerCase() === 'rejected'
-                                  ? 'text-rose-700 bg-rose-50'
-                                  : 'text-amber-700 bg-amber-50'
-                        }`}
-                    >
-                        {mark.approvalStatus}
-                    </span>
-                ) : (
-                    <span className="text-sm text-gray-400">—</span>
-                )}
+            <td className="px-3 py-3 align-middle text-center min-w-[88px]">
+                <PunchLocationPinCell location={mark?.checkInLocation} time={timeIn} kind="in" />
+            </td>
+            <td className="px-3 py-3 align-middle text-center min-w-[88px]">
+                <PunchLocationPinCell location={mark?.checkOutLocation} time={timeOut} kind="out" />
+            </td>
+            <td className="px-3 py-3 align-middle min-w-[90px]">
+                <PunchTypeCell
+                    punchSource={mark?.punchSource}
+                    checkOutSource={mark?.checkOutSource}
+                    timeOut={timeOut}
+                />
             </td>
             <td className="px-3 py-3 align-middle text-right min-w-[150px]">
                 <div className="relative inline-flex items-center justify-end min-h-[36px]">
@@ -470,6 +470,10 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                     label: markLabel,
                     reason: reason || '',
                     attachmentName: attachmentName || '',
+                    punchSource: 'manual',
+                    checkOutSource: timeOut ? 'manual' : '',
+                    checkInLocation: null,
+                    checkOutLocation: null,
                 };
             });
 
@@ -668,10 +672,10 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
             ) : null}
 
             <div className="overflow-x-auto overflow-y-visible">
-                <table className="w-full min-w-[900px] border-collapse">
+                <table className="w-full min-w-[1040px] border-collapse">
                     <thead>
                         <tr className="bg-gray-50 border-b border-gray-200">
-                            <th className="px-3 py-3 text-left w-10">
+                            <th className="px-3 py-3 text-left w-10" rowSpan={2}>
                                 <input
                                     type="checkbox"
                                     checked={allChecked}
@@ -684,29 +688,40 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                                     title={allChecked ? 'Uncheck all' : 'Check all'}
                                 />
                             </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
                                 Sl No
                             </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
                                 Emp Name
                             </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
                                 Emp No
                             </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
                                 Time In
                             </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
                                 Time Out
                             </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
                                 Status
                             </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
-                                Approval Status
+                            <th className="px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-gray-500 border-l border-gray-200" colSpan={2}>
+                                Location
                             </th>
-                            <th className="px-3 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 border-l border-gray-200" rowSpan={2}>
+                                Type
+                            </th>
+                            <th className="px-3 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
                                 Action
+                            </th>
+                        </tr>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                            <th className="px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-gray-500 border-l border-t border-gray-200">
+                                Check-in
+                            </th>
+                            <th className="px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-gray-500 border-t border-gray-200">
+                                Check-out
                             </th>
                         </tr>
                     </thead>

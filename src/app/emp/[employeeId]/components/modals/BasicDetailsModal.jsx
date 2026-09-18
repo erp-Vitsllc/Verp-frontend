@@ -34,13 +34,15 @@ export default function BasicDetailsModal({
     onEditChange,
     onUpdate,
     onRequestUpdate,
+    onValidateWhatsApp,
     confirmUpdateOpen,
     setConfirmUpdateOpen,
     whatsappRegistered = false,
+    whatsappInvalid = false,
 }) {
     if (!isOpen) return null;
 
-    const busy = updating;
+    const busy = updating || checkingWhatsApp;
 
     return (
         <>
@@ -56,7 +58,8 @@ export default function BasicDetailsModal({
                                     setEditFormErrors({});
                                 }
                             }}
-                            className="absolute right-0 text-gray-400 hover:text-gray-600"
+                            disabled={busy}
+                            className="absolute right-0 text-gray-400 hover:text-gray-600 disabled:opacity-50"
                         >
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -108,25 +111,59 @@ export default function BasicDetailsModal({
                                     <div className="w-full md:flex-1 flex flex-col gap-1">
                                         {input.type === 'phone' ? (
                                             <>
-                                                <PhoneInputField
-                                                    defaultCountry={DEFAULT_PHONE_COUNTRY}
-                                                    value={editForm[input.field]}
-                                                    onChange={(value, country) => onEditChange(input.field, value, country)}
-                                                    placeholder={input.placeholder || "Enter contact number"}
-                                                    disabled={busy}
-                                                    error={editFormErrors[input.field]}
-                                                    validatedLabel={
-                                                        input.field === 'whatsappNumber'
-                                                            ? (whatsappRegistered
-                                                                ? 'WhatsApp registered'
-                                                                : checkingWhatsApp
-                                                                    ? 'Checking'
-                                                                    : 'Format valid')
-                                                            : 'Validated'
-                                                    }
-                                                />
+                                                <div className={input.field === 'whatsappNumber' ? 'flex flex-wrap items-start gap-2' : ''}>
+                                                    <div className={input.field === 'whatsappNumber' ? 'flex-1 min-w-0' : 'w-full'}>
+                                                        <PhoneInputField
+                                                            defaultCountry={DEFAULT_PHONE_COUNTRY}
+                                                            value={editForm[input.field]}
+                                                            onChange={(value, country) => onEditChange(input.field, value, country)}
+                                                            placeholder={input.placeholder || "Enter contact number"}
+                                                            disabled={busy}
+                                                            error={input.field === 'whatsappNumber' ? '' : editFormErrors[input.field]}
+                                                            showValidatedBadge={input.field !== 'whatsappNumber'}
+                                                        />
+                                                    </div>
+                                                    {input.field === 'whatsappNumber' && (
+                                                        <div className="flex items-center gap-2 shrink-0 pt-0.5">
+                                                            <button
+                                                                type="button"
+                                                                onClick={onValidateWhatsApp}
+                                                                disabled={busy || !String(editForm.whatsappNumber || '').trim()}
+                                                                className="h-11 px-4 rounded-xl bg-[#4C6FFF] text-white text-sm font-semibold hover:bg-[#3A54D4] transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                                                            >
+                                                                {checkingWhatsApp ? (
+                                                                    <>
+                                                                        <span className="h-4 w-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                                                        Sending...
+                                                                    </>
+                                                                ) : 'Validate'}
+                                                            </button>
+                                                            {whatsappRegistered && !checkingWhatsApp && (
+                                                                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-green-100 text-green-600" title="Valid WhatsApp number">
+                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                                                    </svg>
+                                                                </span>
+                                                            )}
+                                                            {whatsappInvalid && !checkingWhatsApp && (
+                                                                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-100 text-red-600" title="Not a valid WhatsApp number">
+                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                                                    </svg>
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
                                                 {input.field === 'whatsappNumber' && checkingWhatsApp && (
-                                                    <p className="text-xs text-blue-600 mt-1">Checking WhatsApp...</p>
+                                                    <p className="text-xs text-blue-600 mt-1">Sending welcome message. Fields stay locked until WhatsApp confirms delivery.</p>
+                                                )}
+                                                {input.field === 'whatsappNumber' && whatsappRegistered && !checkingWhatsApp && (
+                                                    <p className="text-xs text-green-600 mt-1">Valid WhatsApp number</p>
+                                                )}
+                                                {input.field === 'whatsappNumber' && editFormErrors[input.field] && (
+                                                    <p className="text-xs text-red-500 mt-1">{editFormErrors[input.field]}</p>
                                                 )}
                                             </>
                                         ) : input.type === 'select' ? (
@@ -233,7 +270,7 @@ export default function BasicDetailsModal({
                             className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
                             disabled={busy}
                         >
-                            {updating ? 'Updating...' : 'Update'}
+                            {updating ? 'Updating...' : checkingWhatsApp ? 'Validating...' : 'Update'}
                         </button>
                     </div>
                 </div>

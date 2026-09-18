@@ -37,7 +37,15 @@ import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
 import { canAccessAddFine } from '@/app/HRM/Fine/utils/finePermissionAccess';
-import { formatFineVendorBillPaymentLabel } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
+import {
+    formatFineListAssigneePayment,
+    formatFineListCompanyName,
+    formatFineListEmpName,
+    formatFineListStatus,
+    formatFineListVendorPayment,
+    formatFineListZohoNo,
+    isFineListCompleted,
+} from '@/app/HRM/Fine/utils/fineListDisplay';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -91,6 +99,30 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
 
     return <>{count}</>;
 };
+
+function listStatusPillClass(label) {
+    const value = String(label || '').trim().toLowerCase();
+    if (value === 'paid' || value === 'employee paid' || value === 'completed') {
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    }
+    if (value === 'pending') {
+        return 'bg-amber-50 text-amber-700 border-amber-200';
+    }
+    if (value === 'rejected' || value === 'cancelled') {
+        return 'bg-rose-50 text-rose-700 border-rose-200';
+    }
+    return 'bg-gray-50 text-gray-400 border-gray-200';
+}
+
+function FineListStatusPill({ label, compact = false }) {
+    return (
+        <span
+            className={`${compact ? 'px-2 py-0.5 text-[9px]' : 'px-3 py-1 text-[10px]'} rounded-full font-bold uppercase tracking-wide border ${listStatusPillClass(label)}`}
+        >
+            {label}
+        </span>
+    );
+}
 
 function FineManagementContent({
     embedded = false,
@@ -240,13 +272,24 @@ function FineManagementContent({
                 );
                 const vendorFields = {
                     zohoBillId: vendorSource?.zohoBillId || first?.zohoBillId || '',
+                    zohoBillNumber: vendorSource?.zohoBillNumber || first?.zohoBillNumber || '',
                     vendorBillStatus: vendorPaid
                         ? 'Paid'
                         : vendorSource?.vendorBillStatus || first?.vendorBillStatus || 'Pending',
                     zohoVendorPaymentId:
                         vendorSource?.zohoVendorPaymentId || first?.zohoVendorPaymentId || '',
+                    zohoVendorPaymentNumber:
+                        vendorSource?.zohoVendorPaymentNumber || first?.zohoVendorPaymentNumber || '',
                     zohoOrganizationId:
                         vendorSource?.zohoOrganizationId || first?.zohoOrganizationId || '',
+                    accountsPaymentPath:
+                        members.find((m) => String(m?.accountsPaymentPath || '').trim())
+                            ?.accountsPaymentPath || first?.accountsPaymentPath || '',
+                    companyShortName:
+                        first?.companyShortName ||
+                        first?.company?.nickName ||
+                        vendorSource?.companyShortName ||
+                        '',
                 };
                 const rowBase = { ...first, ...vendorFields };
 
@@ -430,11 +473,9 @@ function FineManagementContent({
                     (fine) => String(fine.vendorBillStatus || '').toLowerCase() === 'paid',
                 );
             } else if (selectedStatus === 'Pending') {
-                // Show all pending statuses and draft: Pending, Pending HR, Pending Accounts, Pending Authorization, Draft, etc.
-                result = result.filter(fine => {
-                    const status = (fine.fineStatus || '').toLowerCase();
-                    return status.includes('pending') || status === 'draft';
-                });
+                result = result.filter((fine) => formatFineListStatus(fine) === 'Pending');
+            } else if (selectedStatus === 'Completed') {
+                result = result.filter((fine) => isFineListCompleted(fine));
             } else {
                 // Exact match for other statuses
                 result = result.filter(fine => fine.fineStatus === selectedStatus);
@@ -488,24 +529,24 @@ function FineManagementContent({
             switch (sortKey) {
                 case 'fineId':
                     return fine.fineId || '';
-                case 'employeeId':
-                    return fine.isGroup
-                        ? `group-${fine.empCount || 0}`
-                        : fine.employeeId || '';
                 case 'employeeName':
                     return fine.isGroup
                         ? `Group Request (${fine.empCount || 0})`
-                        : fine.employeeName || '';
+                        : formatFineListEmpName(fine.employeeName);
                 case 'companyName':
-                    return fine.companyName || '';
+                    return formatFineListCompanyName(fine);
                 case 'fineType':
                     return fine.fineType || '';
                 case 'amount':
                     return Number(fine.displayAmount || fine.amount || 0);
+                case 'assigneePayment':
+                    return formatFineListAssigneePayment(fine);
+                case 'vendorPayment':
+                    return formatFineListVendorPayment(fine);
                 case 'fineStatus':
-                    return fine.fineStatus || '';
-                case 'vendorBillStatus':
-                    return formatFineVendorBillPaymentLabel(fine) || '';
+                    return formatFineListStatus(fine);
+                case 'zohoNo':
+                    return formatFineListZohoNo(fine);
                 default:
                     return null;
             }
@@ -950,16 +991,17 @@ function FineManagementContent({
                         {/* Fines Table */}
                         <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full border border-gray-200">
                             <div className="overflow-x-auto w-full max-w-full">
-                                <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 table-auto text-xs sm:text-sm">
+                                <table className="w-full min-w-[860px] sm:min-w-[980px] lg:min-w-0 table-auto text-xs sm:text-sm">
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
                                             <SortableTh
-                                                label="SL No"
+                                                label="SL"
                                                 sortKey="slNo"
                                                 activeKey={sortKey}
                                                 direction={sortDirection}
                                                 onSort={handleSort}
-                                                className="w-14 sm:w-16"
+                                                className="w-12 sm:w-14"
+                                                rowSpan={2}
                                             />
                                             <SortableTh
                                                 label="Fine ID"
@@ -967,20 +1009,15 @@ function FineManagementContent({
                                                 activeKey={sortKey}
                                                 direction={sortDirection}
                                                 onSort={handleSort}
+                                                rowSpan={2}
                                             />
                                             <SortableTh
-                                                label="Emp. ID"
-                                                sortKey="employeeId"
-                                                activeKey={sortKey}
-                                                direction={sortDirection}
-                                                onSort={handleSort}
-                                            />
-                                            <SortableTh
-                                                label="Name"
+                                                label="Emp Name"
                                                 sortKey="employeeName"
                                                 activeKey={sortKey}
                                                 direction={sortDirection}
                                                 onSort={handleSort}
+                                                rowSpan={2}
                                             />
                                             <SortableTh
                                                 label="Company"
@@ -988,6 +1025,7 @@ function FineManagementContent({
                                                 activeKey={sortKey}
                                                 direction={sortDirection}
                                                 onSort={handleSort}
+                                                rowSpan={2}
                                             />
                                             <SortableTh
                                                 label="Fine Type"
@@ -995,6 +1033,7 @@ function FineManagementContent({
                                                 activeKey={sortKey}
                                                 direction={sortDirection}
                                                 onSort={handleSort}
+                                                rowSpan={2}
                                             />
                                             <SortableTh
                                                 label="Amount"
@@ -1002,36 +1041,66 @@ function FineManagementContent({
                                                 activeKey={sortKey}
                                                 direction={sortDirection}
                                                 onSort={handleSort}
+                                                rowSpan={2}
                                             />
+                                            <th
+                                                colSpan={2}
+                                                className="px-2 sm:px-4 py-2 text-center text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider border-b border-gray-200"
+                                            >
+                                                Payment Status
+                                            </th>
                                             <SortableTh
-                                                label="Status"
+                                                label="Fine Status"
                                                 sortKey="fineStatus"
                                                 activeKey={sortKey}
                                                 direction={sortDirection}
                                                 onSort={handleSort}
+                                                rowSpan={2}
                                             />
                                             <SortableTh
-                                                label="Paid to Vendor"
-                                                sortKey="vendorBillStatus"
+                                                label="Zoho No"
+                                                sortKey="zohoNo"
                                                 activeKey={sortKey}
                                                 direction={sortDirection}
                                                 onSort={handleSort}
+                                                rowSpan={2}
                                             />
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th
+                                                rowSpan={2}
+                                                className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider align-middle"
+                                            >
                                                 Actions
                                             </th>
+                                        </tr>
+                                        <tr>
+                                            <SortableTh
+                                                label="Assignee"
+                                                sortKey="assigneePayment"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                                compact
+                                            />
+                                            <SortableTh
+                                                label="Vendor"
+                                                sortKey="vendorPayment"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                                compact
+                                            />
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="10" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                <td colSpan="11" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     Loading fines...
                                                 </td>
                                             </tr>
                                         ) : sortedFines.length === 0 ? (
                                             <tr>
-                                                <td colSpan="10" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                <td colSpan="11" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     No fines found. Click "Add Fine" to create one.
                                                 </td>
                                             </tr>
@@ -1104,29 +1173,20 @@ function FineManagementContent({
                                                                     {fine.fineId}
                                                                 </div>
                                                             </td>
-                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm font-bold text-gray-700">
-                                                                <div className="relative z-10 pointer-events-none">
-                                                                    {isGroupRow ? (
-                                                                        <span className="text-gray-500 uppercase tracking-tighter">
-                                                                            Group ({fine.empCount + (fine.hasCompanyShare ? 1 : 0)})
-                                                                        </span>
-                                                                    ) : isCompanyRow ? (
-                                                                        <span className="text-gray-400 font-medium italic">Internal</span>
-                                                                    ) : (fine.employeeId || '').replace(/\s+/g, '')}
-                                                                </div>
-                                                            </td>
                                                             <td className={`px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-gray-700 ${isGroupRow && fine.hasCompanyShare ? 'text-[10px] sm:text-xs' : 'text-xs sm:text-sm'}`}>
                                                                 <div className="relative z-10 pointer-events-none">
                                                                     {isGroupRow ? (
                                                                         <span className="text-gray-500 font-bold uppercase tracking-wide italic">
                                                                             {`Group Request (${fine.empCount} Emps${fine.hasCompanyShare ? ' + Co.' : ''})`}
                                                                         </span>
-                                                                    ) : fine.employeeName}
+                                                                    ) : isCompanyRow ? (
+                                                                        <span className="text-gray-400 font-medium italic">Internal</span>
+                                                                    ) : formatFineListEmpName(fine.employeeName)}
                                                                 </div>
                                                             </td>
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                 <div className="relative z-10 pointer-events-none">
-                                                                    {fine.companyName || 'N/A'}
+                                                                    {formatFineListCompanyName(fine)}
                                                                 </div>
                                                             </td>
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700">
@@ -1148,43 +1208,22 @@ function FineManagementContent({
                                                             </td>
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
                                                                 <div className="relative z-10 pointer-events-none">
-                                                                    <span
-                                                                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${fine.fineStatus === 'Active' || fine.fineStatus === 'Approved' || fine.fineStatus === 'Completed'
-                                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                                            : fine.fineStatus === 'Pending HR'
-                                                                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                                                                : fine.fineStatus === 'Pending Accounts'
-                                                                                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                                                                                    : fine.fineStatus === 'Pending Authorization' || fine.fineStatus === 'Pending Management'
-                                                                                        ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                                                                        : fine.fineStatus === 'Rejected' || fine.fineStatus === 'Cancelled'
-                                                                                            ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                                                                            : 'bg-amber-50 text-amber-700 border-amber-200'
-                                                                            }`}
-                                                                    >
-                                                                        {fine.fineStatus || 'Pending'}
-                                                                    </span>
+                                                                    <FineListStatusPill label={formatFineListAssigneePayment(fine)} />
                                                                 </div>
                                                             </td>
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
                                                                 <div className="relative z-10 pointer-events-none">
-                                                                    {(() => {
-                                                                        const vendorLabel = formatFineVendorBillPaymentLabel(fine);
-                                                                        const vendorPaid = vendorLabel === 'Paid';
-                                                                        return (
-                                                                            <span
-                                                                                className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
-                                                                                    vendorPaid
-                                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                                                        : vendorLabel === 'Not Paid'
-                                                                                          ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                                                                          : 'bg-gray-50 text-gray-400 border-gray-200'
-                                                                                }`}
-                                                                            >
-                                                                                {vendorLabel}
-                                                                            </span>
-                                                                        );
-                                                                    })()}
+                                                                    <FineListStatusPill label={formatFineListVendorPayment(fine)} />
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
+                                                                <div className="relative z-10 pointer-events-none">
+                                                                    <FineListStatusPill label={formatFineListStatus(fine)} />
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm font-semibold tabular-nums text-gray-700">
+                                                                <div className="relative z-10 pointer-events-none">
+                                                                    {formatFineListZohoNo(fine)}
                                                                 </div>
                                                             </td>
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-right">
@@ -1253,18 +1292,15 @@ function FineManagementContent({
                                                                 <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs font-mono text-gray-400 pl-8 sm:pl-12 italic">
                                                                     ↳ {member.fineId}
                                                                 </td>
-                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs font-bold text-gray-600">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs text-gray-600">
                                                                     {member.isCompany ? (
                                                                         <span className="text-blue-600 font-semibold italic">
-                                                                            Company (Click to View)
+                                                                            Company
                                                                         </span>
-                                                                    ) : member.employeeId}
-                                                                </td>
-                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs text-gray-600">
-                                                                    {member.employeeName}
+                                                                    ) : formatFineListEmpName(member.employeeName)}
                                                                 </td>
                                                                 <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs text-gray-500">
-                                                                    {fine.companyName}
+                                                                    {formatFineListCompanyName(fine)}
                                                                 </td>
                                                                 <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs text-gray-500">
                                                                     {fine.fineType}
@@ -1273,37 +1309,53 @@ function FineManagementContent({
                                                                     {Number(member.fineAmount || 0).toLocaleString()} AED
                                                                 </td>
                                                                 <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
-                                                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border ${member.fineStatus === 'Active' || member.fineStatus === 'Approved' || member.fineStatus === 'Completed'
-                                                                        ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                                                                        : 'bg-gray-100 text-gray-600 border-gray-200'
-                                                                        }`}>
-                                                                        {member.fineStatus}
-                                                                    </span>
+                                                                    <FineListStatusPill
+                                                                        compact
+                                                                        label={formatFineListAssigneePayment({
+                                                                            ...fine,
+                                                                            ...member,
+                                                                            isGroup: false,
+                                                                            isCompany: member.isCompany,
+                                                                            isCompanyOnly: member.isCompany,
+                                                                        })}
+                                                                    />
                                                                 </td>
                                                                 <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
-                                                                    {(() => {
-                                                                        const vendorLabel = formatFineVendorBillPaymentLabel({
+                                                                    <FineListStatusPill
+                                                                        compact
+                                                                        label={formatFineListVendorPayment({
                                                                             ...fine,
                                                                             ...member,
                                                                             zohoBillId: member.zohoBillId || fine.zohoBillId,
                                                                             vendorBillStatus:
                                                                                 member.vendorBillStatus || fine.vendorBillStatus,
-                                                                        });
-                                                                        const vendorPaid = vendorLabel === 'Paid';
-                                                                        return (
-                                                                            <span
-                                                                                className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border ${
-                                                                                    vendorPaid
-                                                                                        ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                                                                                        : vendorLabel === 'Not Paid'
-                                                                                          ? 'bg-amber-50 text-amber-600 border-amber-100'
-                                                                                          : 'bg-gray-50 text-gray-400 border-gray-200'
-                                                                                }`}
-                                                                            >
-                                                                                {vendorLabel}
-                                                                            </span>
-                                                                        );
-                                                                    })()}
+                                                                            accountsPaymentPath:
+                                                                                member.accountsPaymentPath || fine.accountsPaymentPath,
+                                                                        })}
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
+                                                                    <FineListStatusPill
+                                                                        compact
+                                                                        label={formatFineListStatus({
+                                                                            ...fine,
+                                                                            ...member,
+                                                                            vendorBillStatus:
+                                                                                member.vendorBillStatus || fine.vendorBillStatus,
+                                                                            accountsPaymentPath:
+                                                                                member.accountsPaymentPath || fine.accountsPaymentPath,
+                                                                        })}
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs font-semibold tabular-nums text-gray-600">
+                                                                    {formatFineListZohoNo({
+                                                                        ...fine,
+                                                                        ...member,
+                                                                        zohoBillId: member.zohoBillId || fine.zohoBillId,
+                                                                        zohoBillNumber: member.zohoBillNumber || fine.zohoBillNumber,
+                                                                        accountsPaymentPath:
+                                                                            member.accountsPaymentPath || fine.accountsPaymentPath,
+                                                                    })}
                                                                 </td>
                                                                 <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right">
                                                                     {canOpenMember && (

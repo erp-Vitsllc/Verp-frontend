@@ -25,6 +25,7 @@ import {
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
+import PaymentInvoiceModal from './LeavePaymentInvoiceDocument';
 import { DatePicker, MonthPicker } from '@/components/ui/date-picker';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -50,6 +51,7 @@ import {
     workflowIsLocked,
     liveLeaveRecordsInProcessingWindow,
     overtimeHoursToDays,
+    overtimeHoursRemainder,
     OVERTIME_HOURS_PER_DAY,
     roundMoney,
 } from '../utils/salaryHistoricalCalculations';
@@ -201,14 +203,6 @@ function formatHoursLabel(value) {
     return `${rounded} h`;
 }
 
-function formatOvertimeTaken(hours, days) {
-    const h = Math.max(0, Number(hours) || 0);
-    const d = Math.max(0, Number(days) || overtimeHoursToDays(h));
-    if (h <= 0 && d <= 0) return '0';
-    const dayLabel = d === 1 ? 'day' : 'days';
-    return `${formatHoursLabel(h)} → ${d} ${dayLabel}`;
-}
-
 function eligibilityTowardNextRows({
     historicalWorkingDays,
     liveWorkingDays,
@@ -252,7 +246,7 @@ function eligibilityTowardNextRows({
             rows.push({
                 key: 'live-ot',
                 date: liveDate,
-                type: 'Overtime taken',
+                type: 'Overtime days',
                 count: otDays,
             });
         }
@@ -621,6 +615,74 @@ function remainingKindAmount(row, cycles, kind) {
     return payableBalance(due, entitlementKindPaidAmount(row, cycles, kind));
 }
 
+function invoiceReductionLines({ cycle, cycleIndex, kind, entitlements, cycles }) {
+    const kindKey = kind === 'ticket' ? 'ticket' : 'leave';
+    const options = entitlementDateOptions(entitlements);
+    const others = (Array.isArray(cycles) ? cycles : []).filter((_, index) => index !== cycleIndex);
+    const allocs = (Array.isArray(cycle?.allocations) ? cycle.allocations : []).filter(
+        (item) => String(item?.kind || 'leave') === kindKey && Number(item?.amount) > 0,
+    );
+    const parts = allocs.length
+        ? allocs.map((item) => ({
+              entitlementNo: Number(item.entitlementNo) || 0,
+              entitlementDate: String(item.entitlementDate || ''),
+              amount: roundMoney(item.amount),
+          }))
+        : allocatePaymentAcrossEntitlements(
+              options,
+              others,
+              kindKey,
+              cycleKindAmount(cycle, kindKey),
+          ).filter((part) => part.entitlementDate || Number(part.entitlementNo) > 0);
+    const label = kindKey === 'ticket' ? 'Ticket' : 'Leave salary';
+    const lines = parts.map((part) => {
+        const opt =
+            options.find((row) =>
+                entitlementOptionMatchesTarget(row, {
+                    entitlementNo: part.entitlementNo,
+                    entitlementDate: part.entitlementDate,
+                    date: part.entitlementDate,
+                }),
+            ) || {};
+        const row = {
+            ...opt,
+            entitlementDate: opt.date || opt.entitlementDate || part.entitlementDate,
+            entitlementNo: opt.entitlementNo || part.entitlementNo,
+        };
+        const due = Number(kindKey === 'ticket' ? row.ticketAmount : row.leaveSalary) || 0;
+        const paidAll = entitlementKindPaidAmount(row, cycles, kindKey);
+        const applied = roundMoney(part.amount);
+        const paidBefore = roundMoney(Math.max(0, paidAll - applied));
+        const paidAfter = roundMoney(paidBefore + applied);
+        return {
+            label: `${label} ${row.entitlementNo || '—'}`,
+            entitlementDate: row.entitlementDate || part.entitlementDate || '',
+            due,
+            paidBefore,
+            applied,
+            paidAfter,
+            balanceBefore: payableBalance(due, paidBefore),
+            balanceAfter: payableBalance(due, paidAfter),
+        };
+    });
+    const paidAmount = cycleKindAmount(cycle, kindKey);
+    if (!lines.length && paidAmount > 0) {
+        return [
+            {
+                label: `${label} payment`,
+                entitlementDate: '',
+                due: 0,
+                paidBefore: 0,
+                applied: paidAmount,
+                paidAfter: paidAmount,
+                balanceBefore: 0,
+                balanceAfter: 0,
+            },
+        ];
+    }
+    return lines;
+}
+
 function entitlementHasKindPayment(row, cycles, kind) {
     const due = Number(kind === 'ticket' ? row?.ticketAmount : row?.leaveSalary) || 0;
     const paid = entitlementKindPaidAmount(row, cycles, kind);
@@ -701,12 +763,16 @@ function remainingEntitlementOptions(options, cycles, { includeLeave = true, inc
     });
 }
 
-/** Pay oldest unpaid entitlement first; leftover keeps going to the next row. */
-function allocatePaymentAcrossEntitlements(options, cycles, kind, amount, excludeIndex = -1) {
+/** Pay oldest unpaid entitlement first; leftover keeps going to the next row.
+ *  Pass `target` to apply the amount only to that unpaid/partial row. */
+function allocatePaymentAcrossEntitlements(options, cycles, kind, amount, excludeIndex = -1, target = null) {
     const active = (Array.isArray(cycles) ? cycles : []).filter((_, index) => index !== excludeIndex);
     let left = roundMoney(Math.max(0, Number(amount) || 0));
     const parts = [];
-    for (const opt of Array.isArray(options) ? options : []) {
+    const list = (Array.isArray(options) ? options : []).filter((opt) =>
+        target ? entitlementOptionMatchesTarget(opt, target) : true,
+    );
+    for (const opt of list) {
         if (left <= 0) break;
         const row = {
             ...opt,
@@ -730,6 +796,48 @@ function allocatePaymentAcrossEntitlements(options, cycles, kind, amount, exclud
         parts.push({ entitlementNo: 0, entitlementDate: '', amount: left });
     }
     return parts;
+}
+
+function entitlementOptionMatchesTarget(opt, target) {
+    if (!target) return true;
+    const tNo = Number(target.entitlementNo) || 0;
+    const tDate = String(target.entitlementDate || target.date || '');
+    const oNo = Number(opt?.entitlementNo) || 0;
+    const oDate = String(opt?.date || opt?.entitlementDate || '');
+    if (tNo && oNo) return tNo === oNo && (!tDate || !oDate || tDate === oDate);
+    return Boolean(tDate && oDate && tDate === oDate);
+}
+
+function entitlementRowKey(row) {
+    return `${Number(row?.entitlementNo) || 0}|${String(row?.date || row?.entitlementDate || '')}`;
+}
+
+function parseEntitlementRowKey(key) {
+    const value = String(key || '');
+    if (!value) return null;
+    const splitAt = value.indexOf('|');
+    if (splitAt < 0) return { entitlementNo: Number(value) || 0, entitlementDate: '', date: '' };
+    return {
+        entitlementNo: Number(value.slice(0, splitAt)) || 0,
+        entitlementDate: value.slice(splitAt + 1),
+        date: value.slice(splitAt + 1),
+    };
+}
+
+function remainingAmountForTarget(options, cycles, kind, target, excludeIndex = -1) {
+    if (!target) return 0;
+    const active = (Array.isArray(cycles) ? cycles : []).filter((_, index) => index !== excludeIndex);
+    const opt = (Array.isArray(options) ? options : []).find((row) => entitlementOptionMatchesTarget(row, target));
+    if (!opt) return 0;
+    return remainingKindAmount(
+        {
+            ...opt,
+            entitlementDate: opt.date || opt.entitlementDate,
+            entitlementNo: opt.entitlementNo,
+        },
+        active,
+        kind,
+    );
 }
 
 function mergeAllocatedPaymentParts(leaveParts, ticketParts) {
@@ -775,8 +883,15 @@ function totalRemainingKind(options, cycles, kind, excludeIndex = -1) {
     );
 }
 
-function entitlementPaymentPreview(options, cycles, kind, enteredAmount, excludeIndex = -1) {
-    const parts = allocatePaymentAcrossEntitlements(options, cycles, kind, enteredAmount, excludeIndex);
+function entitlementPaymentPreview(options, cycles, kind, enteredAmount, excludeIndex = -1, target = null) {
+    const parts = allocatePaymentAcrossEntitlements(
+        options,
+        cycles,
+        kind,
+        enteredAmount,
+        excludeIndex,
+        target,
+    );
     const takeByKey = new Map();
     let leftover = 0;
     (Array.isArray(parts) ? parts : []).forEach((part) => {
@@ -827,6 +942,7 @@ function buildCycleAllocations(ctx) {
             'leave',
             ctx.leaveAmt,
             ctx.editingIndex,
+            ctx.leaveTarget,
         ).forEach((part) => {
             if (!(Number(part.amount) > 0) || (!part.entitlementDate && !(Number(part.entitlementNo) > 0))) return;
             allocations.push({
@@ -844,6 +960,7 @@ function buildCycleAllocations(ctx) {
             'ticket',
             ctx.ticketAmt,
             ctx.editingIndex,
+            ctx.ticketTarget,
         ).forEach((part) => {
             if (!(Number(part.amount) > 0) || (!part.entitlementDate && !(Number(part.entitlementNo) > 0))) return;
             allocations.push({
@@ -857,12 +974,25 @@ function buildCycleAllocations(ctx) {
     return allocations;
 }
 
-function EntitlementAllocationTable({ kind, rows = [], leftover = 0 }) {
+function EntitlementAllocationTable({
+    kind,
+    rows = [],
+    leftover = 0,
+    selectedKey = '',
+    onSelectRow,
+    disabled = false,
+}) {
     const title = kind === 'ticket' ? 'Ticket' : 'Leave salary';
-    if (!rows.length) {
+    const visibleRows = (Array.isArray(rows) ? rows : []).filter((row) => {
+        const remainingBefore = roundMoney(
+            (Number(row.balance) || 0) + (Number(row.thisPay) || 0),
+        );
+        return remainingBefore > 0;
+    });
+    if (!visibleRows.length) {
         return (
             <p className="rounded-[10px] border border-[#E6EAF0] px-3 py-4 text-center text-[12px] text-[#94A3B8]">
-                No {title.toLowerCase()} entitlements yet.
+                No unpaid {title.toLowerCase()} rows.
             </p>
         );
     }
@@ -880,27 +1010,43 @@ function EntitlementAllocationTable({ kind, rows = [], leftover = 0 }) {
                     </tr>
                 </thead>
                 <tbody>
-                    {rows.map((row) => (
-                        <tr
-                            key={`${kind}-${row.entitlementNo}-${row.date}`}
-                            className={`border-b border-[#F1F5F9] last:border-0 ${
-                                row.thisPay > 0 ? 'bg-[#F8FBFF]' : ''
-                            }`}
-                        >
-                            <td className="px-3 py-2 text-[13px] font-medium text-[#0F172A]">
-                                {title} {row.entitlementNo || '—'}
-                            </td>
-                            <td className="px-3 py-2 text-[13px] text-[#334155]">{prettyDate(row.date)}</td>
-                            <td className="px-3 py-2 text-[13px] tabular-nums text-[#334155]">{aedMoney(row.total)}</td>
-                            <td className="px-3 py-2 text-[13px] font-semibold tabular-nums text-[#0F172A]">
-                                {aedMoney(row.paid)}
-                            </td>
-                            <td className="px-3 py-2 text-[13px] tabular-nums text-[#334155]">{aedMoney(row.balance)}</td>
-                            <td className="px-3 py-2">
-                                <EntitlementStatusBadge status={row.status} />
-                            </td>
-                        </tr>
-                    ))}
+                    {visibleRows.map((row) => {
+                        const key = entitlementRowKey(row);
+                        const remainingBefore = roundMoney(
+                            (Number(row.balance) || 0) + (Number(row.thisPay) || 0),
+                        );
+                        const selectable = !disabled && remainingBefore > 0;
+                        const selected = selectedKey === key;
+                        return (
+                            <tr
+                                key={`${kind}-${row.entitlementNo}-${row.date}`}
+                                className={`border-b border-[#F1F5F9] last:border-0 ${
+                                    selected
+                                        ? 'bg-[#EEF4FF]'
+                                        : row.thisPay > 0
+                                          ? 'bg-[#F8FBFF]'
+                                          : ''
+                                } ${selectable ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+                                onClick={() => {
+                                    if (!selectable) return;
+                                    onSelectRow?.(row);
+                                }}
+                            >
+                                <td className="px-3 py-2 text-[13px] font-medium text-[#0F172A]">
+                                    {title} {row.entitlementNo || '—'}
+                                </td>
+                                <td className="px-3 py-2 text-[13px] text-[#334155]">{prettyDate(row.date)}</td>
+                                <td className="px-3 py-2 text-[13px] tabular-nums text-[#334155]">{aedMoney(row.total)}</td>
+                                <td className="px-3 py-2 text-[13px] font-semibold tabular-nums text-[#0F172A]">
+                                    {aedMoney(row.paid)}
+                                </td>
+                                <td className="px-3 py-2 text-[13px] tabular-nums text-[#334155]">{aedMoney(row.balance)}</td>
+                                <td className="px-3 py-2">
+                                    <EntitlementStatusBadge status={row.status} clickable={selectable} />
+                                </td>
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
             {leftover > 0 ? (
@@ -1025,7 +1171,7 @@ function PaymentKindCard({
                                             title={
                                                 row.fromSalarySlip
                                                     ? 'Open salary slip'
-                                                    : 'Open payment cycle'
+                                                    : 'View payment invoice'
                                             }
                                             className="rounded-md text-[13px] font-semibold text-[#2563EB] hover:underline"
                                         >
@@ -1036,7 +1182,11 @@ function PaymentKindCard({
                                         <div className="inline-flex items-center justify-end gap-1">
                                             <button
                                                 type="button"
-                                                onClick={() => onOpen?.(row.cycleIndex, row.cycle)}
+                                                onClick={(event) => {
+                                                    event.preventDefault();
+                                                    event.stopPropagation();
+                                                    onOpen?.(row.cycleIndex, row.cycle);
+                                                }}
                                                 className="rounded-md px-1.5 py-1 text-[12px] font-semibold text-[#2563EB] hover:bg-slate-50 hover:underline"
                                             >
                                                 Open
@@ -1089,6 +1239,50 @@ function PaymentKindCard({
     );
 }
 
+function buildPaymentInvoice({
+    cycle,
+    cycleIndex,
+    kind,
+    entitlements,
+    cycles,
+    employeeName,
+    employeeId,
+    companyName,
+    designation,
+    department,
+}) {
+    const kindKey = kind === 'ticket' ? 'ticket' : 'leave';
+    const title = kindKey === 'ticket' ? 'Ticket payment' : 'Leave salary payment';
+    const slNo = formatCycleSl(cycle?.cycleNumber, (Number(cycleIndex) || 0) + 1);
+    return {
+        invoiceNo: `${slNo}-${kindKey === 'ticket' ? 'TK' : 'LS'}`,
+        slNo,
+        title,
+        kindLabel: kindKey === 'ticket' ? 'Ticket' : 'Leave salary',
+        paidAmount: cycleKindAmount(cycle, kindKey),
+        paymentDate:
+            kindKey === 'ticket'
+                ? cycle?.ticketProcessDate || cycle?.paymentDate || cycle?.ticketPaymentDate
+                : cycle?.leaveProcessDate || cycle?.paymentDate || cycle?.leaveSalaryPaymentDate,
+        issuedOn: format(new Date(), 'd MMM yyyy'),
+        mode: isSalarySlipPayment(cycle) ? 'Payroll' : 'Manual',
+        currency: cycle?.currency || 'AED',
+        remarks: String(cycle?.remarks || '').trim(),
+        employeeName: employeeName || '—',
+        employeeId: employeeId || '—',
+        companyName: companyName || '',
+        designation: designation || '',
+        department: department || '',
+        lines: invoiceReductionLines({
+            cycle,
+            cycleIndex,
+            kind: kindKey,
+            entitlements,
+            cycles,
+        }),
+    };
+}
+
 function EntitlementStatusBadge({ status, clickable = false }) {
     const key = String(status || '').toLowerCase();
     const tone =
@@ -1097,7 +1291,9 @@ function EntitlementStatusBadge({ status, clickable = false }) {
             : key === 'in progress' ||
                 key === 'calculated' ||
                 key === 'not completed' ||
-                key === 'not paid'
+                key === 'not paid' ||
+                key === 'unpaid' ||
+                key === 'partial'
               ? 'bg-amber-50 text-amber-700'
               : 'bg-slate-100 text-slate-600';
     return (
@@ -1552,7 +1748,7 @@ function AddHolidaysModal({
     return (
         <ModalShell open={open} title="Add the holidays" onClose={onClose} width="max-w-lg" zClass="z-[100]">
             <p className="mt-1 text-[12px] text-[#64748B]">
-                Check the holidays to save. Only checked days are listed in Existing Leave History, and each row
+                Check the holidays to save. Only checked days are listed in Historical Leave History, and each row
                 reduces 1 day from the eligible day total.
             </p>
             {error ? <p className="mt-2 text-[12px] text-red-600">{error}</p> : null}
@@ -2628,8 +2824,14 @@ function PaymentCycleKindFields({
     onDateChange,
     disabled = false,
     pendingAmount = 0,
+    selectedLabel = '',
 }) {
     const pending = roundMoney(Math.max(0, Number(pendingAmount) || 0));
+    const pendingHint = selectedLabel
+        ? `Selected ${selectedLabel} · ${aedMoney(pending)}`
+        : pending > 0
+          ? `Pending ${aedMoney(pending)} · enter this or less`
+          : 'No pending amount';
     return (
         <div className="space-y-3 rounded-[10px] border border-[#E6EAF0] bg-[#F8FAFC] p-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -2654,9 +2856,7 @@ function PaymentCycleKindFields({
                         onChange={(e) => onAmountChange(clampMoneyInput(e.target.value, pending))}
                         className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm tabular-nums disabled:bg-slate-50"
                     />
-                    <p className="mt-1 text-[11px] text-slate-500">
-                        {pending > 0 ? `Pending ${aedMoney(pending)} · enter this or less` : 'No pending amount'}
-                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">{pendingHint}</p>
                 </label>
             </div>
         </div>
@@ -2721,6 +2921,8 @@ function AddCycleModal({
         }
         return '';
     });
+    const [selectedLeaveKey, setSelectedLeaveKey] = useState('');
+    const [selectedTicketKey, setSelectedTicketKey] = useState('');
     const [reduceHistoricalWorkingDays] = useState(
         () => recordReducesWorkingDays(initial, false),
     );
@@ -2740,8 +2942,14 @@ function AddCycleModal({
     const previewCycles = Number.isInteger(editingIndex)
         ? paymentCycles.filter((_, index) => index !== editingIndex)
         : paymentCycles;
-    const leavePending = pendingKindAmount('leave', dateOptions, previewCycles, leaveDueTotal);
-    const ticketPending = pendingKindAmount('ticket', dateOptions, previewCycles, ticketDueTotal);
+    const leaveTarget = parseEntitlementRowKey(selectedLeaveKey);
+    const ticketTarget = parseEntitlementRowKey(selectedTicketKey);
+    const leavePending = leaveTarget
+        ? remainingAmountForTarget(dateOptions, previewCycles, 'leave', leaveTarget)
+        : pendingKindAmount('leave', dateOptions, previewCycles, leaveDueTotal);
+    const ticketPending = ticketTarget
+        ? remainingAmountForTarget(dateOptions, previewCycles, 'ticket', ticketTarget)
+        : pendingKindAmount('ticket', dateOptions, previewCycles, ticketDueTotal);
     const leaveAmt = roundMoney(Math.min(Number(leaveSalaryAmount) || 0, leavePending));
     const ticketAmt = roundMoney(Math.min(Number(ticketAmount) || 0, ticketPending));
     const saveLeave = leaveAmt > 0 && Boolean(leavePaymentDate);
@@ -2753,8 +2961,52 @@ function AddCycleModal({
         leaveAmt <= leavePending &&
         ticketAmt <= ticketPending;
     const combinedTotal = roundMoney((saveLeave ? leaveAmt : 0) + (saveTicket ? ticketAmt : 0));
-    const leavePreview = entitlementPaymentPreview(dateOptions, previewCycles, 'leave', leaveAmt);
-    const ticketPreview = entitlementPaymentPreview(dateOptions, previewCycles, 'ticket', ticketAmt);
+    const leavePreview = entitlementPaymentPreview(
+        dateOptions,
+        previewCycles,
+        'leave',
+        leaveAmt,
+        -1,
+        leaveTarget,
+    );
+    const ticketPreview = entitlementPaymentPreview(
+        dateOptions,
+        previewCycles,
+        'ticket',
+        ticketAmt,
+        -1,
+        ticketTarget,
+    );
+    const selectedLeaveLabel = leaveTarget
+        ? `Leave salary ${leaveTarget.entitlementNo || ''}`.trim()
+        : '';
+    const selectedTicketLabel = ticketTarget
+        ? `Ticket ${ticketTarget.entitlementNo || ''}`.trim()
+        : '';
+
+    function selectPayableRow(kind, row) {
+        const status = String(row?.status || '').toLowerCase();
+        if (fieldsDisabled || status === 'paid' || !(Number(row?.balance) > 0 || Number(row?.thisPay) > 0)) {
+            return;
+        }
+        const key = entitlementRowKey(row);
+        const remaining = roundMoney((Number(row.balance) || 0) + (Number(row.thisPay) || 0));
+        if (kind === 'leave') {
+            if (selectedLeaveKey === key) {
+                setSelectedLeaveKey('');
+                return;
+            }
+            setSelectedLeaveKey(key);
+            setLeaveSalaryAmount(amountInputValue(remaining));
+            return;
+        }
+        if (selectedTicketKey === key) {
+            setSelectedTicketKey('');
+            return;
+        }
+        setSelectedTicketKey(key);
+        setTicketAmount(amountInputValue(remaining));
+    }
 
     function cycleSaveContext(attachment) {
         return {
@@ -2780,6 +3032,8 @@ function AddCycleModal({
             remarks,
             annualLeaveKeyValue,
             attachment,
+            leaveTarget,
+            ticketTarget,
         };
     }
 
@@ -2860,6 +3114,7 @@ function AddCycleModal({
                         onDateChange={setLeavePaymentDate}
                         disabled={fieldsDisabled}
                         pendingAmount={leavePending}
+                        selectedLabel={selectedLeaveLabel}
                     />
                 ) : (
                     <PaymentCycleKindFields
@@ -2871,6 +3126,7 @@ function AddCycleModal({
                         onDateChange={setTicketPaymentDate}
                         disabled={fieldsDisabled}
                         pendingAmount={ticketPending}
+                        selectedLabel={selectedTicketLabel}
                     />
                 )}
                 {paymentTab === 'leave' ? (
@@ -2878,12 +3134,18 @@ function AddCycleModal({
                         kind="leave"
                         rows={leavePreview.rows}
                         leftover={leavePreview.leftover}
+                        selectedKey={selectedLeaveKey}
+                        disabled={fieldsDisabled}
+                        onSelectRow={(row) => selectPayableRow('leave', row)}
                     />
                 ) : (
                     <EntitlementAllocationTable
                         kind="ticket"
                         rows={ticketPreview.rows}
                         leftover={ticketPreview.leftover}
+                        selectedKey={selectedTicketKey}
+                        disabled={fieldsDisabled}
+                        onSelectRow={(row) => selectPayableRow('ticket', row)}
                     />
                 )}
                 <div className="flex items-center justify-between rounded-[10px] border border-[#E6EAF0] bg-[#F8FAFC] px-3 py-2.5">
@@ -3019,6 +3281,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [leaveModal, setLeaveModal] = useState(false);
     const [holidaysModal, setHolidaysModal] = useState(false);
     const [leaveTypeFilter, setLeaveTypeFilter] = useState('');
+    const [systemLeaveTypeFilter, setSystemLeaveTypeFilter] = useState('');
     const [leaveGroupModal, setLeaveGroupModal] = useState(null);
     const [leaveDraftIndex, setLeaveDraftIndex] = useState(null);
     const [cycleModal, setCycleModal] = useState(false);
@@ -3029,6 +3292,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [cycleDeleteIndex, setCycleDeleteIndex] = useState(null);
     const [leaveDeleteRow, setLeaveDeleteRow] = useState(null);
     const [entitlementDetail, setEntitlementDetail] = useState(null);
+    const [paymentInvoice, setPaymentInvoice] = useState(null);
     const [leaveSalaryDetailsOpen, setLeaveSalaryDetailsOpen] = useState(false);
     const [eligibilityDetail, setEligibilityDetail] = useState(null);
     const [showCreate, setShowCreate] = useState(false);
@@ -3202,8 +3466,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         hiddenSystemLeave,
         verpStartDate,
     ]);
-    const existingLeaveHistoryRows = useMemo(() => {
-        const manual = (leaveRecords || []).map((row, storedIndex) => {
+    const historicalLeaveHistoryRows = useMemo(() => {
+        return (leaveRecords || []).map((row, storedIndex) => {
             const next = {
                 ...row,
                 source: 'manual',
@@ -3219,7 +3483,9 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             }
             return next;
         });
-        const system = systemLeaveHistoryRows(liveLeaveRecords, leaveMultipliers).map((row) => {
+    }, [leaveRecords]);
+    const systemLeaveHistoryList = useMemo(() => {
+        return systemLeaveHistoryRows(liveLeaveRecords, leaveMultipliers).map((row) => {
             if (leaveTypeKey(row) !== 'holiday') return row;
             const actualDays = Math.max(1, Number(row.actualDays ?? row.eligibleWorkingDays) || 1);
             return {
@@ -3232,20 +3498,29 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 deduction: actualDays,
             };
         });
-        return [...manual, ...system];
-    }, [leaveMultipliers, leaveRecords, liveLeaveRecords]);
+    }, [leaveMultipliers, liveLeaveRecords]);
+    const existingLeaveHistoryRows = useMemo(
+        () => [...historicalLeaveHistoryRows, ...systemLeaveHistoryList],
+        [historicalLeaveHistoryRows, systemLeaveHistoryList],
+    );
     const filteredLeaveHistoryRows = useMemo(() => {
-        if (!leaveTypeFilter) return existingLeaveHistoryRows;
-        return existingLeaveHistoryRows.filter((row) => leaveTypeKey(row) === leaveTypeFilter);
-    }, [existingLeaveHistoryRows, leaveTypeFilter]);
+        if (!leaveTypeFilter) return historicalLeaveHistoryRows;
+        return historicalLeaveHistoryRows.filter((row) => leaveTypeKey(row) === leaveTypeFilter);
+    }, [historicalLeaveHistoryRows, leaveTypeFilter]);
+    const filteredSystemLeaveHistoryRows = useMemo(() => {
+        if (!systemLeaveTypeFilter) return systemLeaveHistoryList;
+        return systemLeaveHistoryList.filter((row) => leaveTypeKey(row) === systemLeaveTypeFilter);
+    }, [systemLeaveHistoryList, systemLeaveTypeFilter]);
     const leaveHistoryGroups = useMemo(
         () => summarizeLeaveHistoryGroups(filteredLeaveHistoryRows),
         [filteredLeaveHistoryRows],
     );
     const leaveGroupRows = useMemo(() => {
         if (!leaveGroupModal) return [];
-        return leaveRowsForGroup(existingLeaveHistoryRows, leaveGroupModal.type, leaveGroupModal.source);
-    }, [existingLeaveHistoryRows, leaveGroupModal]);
+        const pool =
+            leaveGroupModal.source === 'system' ? systemLeaveHistoryList : historicalLeaveHistoryRows;
+        return leaveRowsForGroup(pool, leaveGroupModal.type, leaveGroupModal.source);
+    }, [historicalLeaveHistoryRows, leaveGroupModal, systemLeaveHistoryList]);
     useEffect(() => {
         if (!leaveGroupModal) return;
         if (!leaveGroupRows.length) setLeaveGroupModal(null);
@@ -3279,11 +3554,14 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         cycleDays,
         leaveMultipliers,
     });
+    const liveOvertimeHours = Number(data?.liveAttendance?.overtimeHours) || 0;
+    const liveOvertimeDays = overtimeHoursToDays(liveOvertimeHours);
+    const liveOvertimeRemainderHours = overtimeHoursRemainder(liveOvertimeHours);
     const calc = calculateHistoricalEligibility({
         workingDays:
             (Number(data?.workingDays) || 0) +
             (Number(data?.liveAttendance?.workingDays) || 0) +
-            (Number(data?.liveAttendance?.overtimeDays) || 0),
+            liveOvertimeDays,
         calendarDays: Number(data?.calendarDays) || 0,
         leaveRecords: [...(splitLeave.leaveRecords || []), ...liveLeaveRecords],
         annualLeaveRecords: splitLeave.annualLeaveRecords,
@@ -3339,8 +3617,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         ticketRate,
     });
     const liveAttendanceEnabled = Boolean(data?.liveAttendance?.enabled);
-    const liveOvertimeHours = Number(data?.liveAttendance?.overtimeHours) || 0;
-    const liveOvertimeDays = Number(data?.liveAttendance?.overtimeDays) || overtimeHoursToDays(liveOvertimeHours);
     const reservedLeaveDays =
         Number(leaveSalaryEntitlement.availableEntitlements) *
         Number(leaveSalaryEntitlement.requiredDaysPerEntitlement || 0);
@@ -3394,7 +3670,28 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             ? !canEditEnrolled
             : !hrEdit || !permissions.canEdit);
     const canManagePayments = !locked;
+    const openPaymentInvoice = ({ cycleIndex, cycle, kind }) => {
+        setCycleModal(false);
+        setCycleDraft(null);
+        setCycleDraftIndex(null);
+        setCycleModalViewOnly(false);
+        setPaymentInvoice(
+            buildPaymentInvoice({
+                cycle,
+                cycleIndex,
+                kind,
+                entitlements: leaveSalaryEntitlement,
+                cycles: paymentCycles,
+                employeeName: data?.employee?.name ? toTitleName(data.employee.name) : employeeId,
+                employeeId: data?.employee?.employeeId || employeeId,
+                companyName: data?.employee?.companyName,
+                designation: data?.employee?.designation,
+                department: data?.employee?.department,
+            }),
+        );
+    };
     const openPaymentCycle = ({ cycleIndex = null, cycle = null, viewOnly = true, tab = 'leave' } = {}) => {
+        setPaymentInvoice(null);
         setCycleDraftIndex(Number.isInteger(cycleIndex) ? cycleIndex : null);
         setCycleDraft(cycle || null);
         setCycleModalViewOnly(Boolean(viewOnly) || locked);
@@ -3409,12 +3706,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             }
             return;
         }
-        openPaymentCycle({
-            cycleIndex,
-            cycle,
-            viewOnly: !canManagePayments,
-            tab,
-        });
+        openPaymentInvoice({ cycleIndex, cycle, kind: tab });
     };
     const currentSnapshot = useMemo(
         () =>
@@ -3479,13 +3771,13 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         const to = data?.liveAttendance?.to || '';
         const count = Number(data?.liveAttendance?.workingDays) || 0;
         setEligibilityDetail({
-            title: 'Working days since VERP start',
+            title: 'Present working days',
             subtitle: from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from),
             rows: [
                 {
                     key: 'live-working',
                     date: from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from) || '—',
-                    type: 'Working days',
+                    type: 'Present days',
                     count,
                 },
             ],
@@ -3560,15 +3852,41 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         });
     }
 
-    function openLiveOvertimeDetail() {
+    function openLiveOvertimeDaysDetail() {
+        const from = data?.liveAttendance?.from || toMonthStartDate(verpStartDate);
+        const to = data?.liveAttendance?.to || '';
+        const range = from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from);
+        setEligibilityDetail({
+            title: 'Overtime days',
+            subtitle: `${range || 'Processing date to today'}. ${OVERTIME_HOURS_PER_DAY} hours = 1 day.`,
+            rows: [
+                {
+                    key: 'ot-hours',
+                    date: range || '—',
+                    type: 'Overtime hours',
+                    count: liveOvertimeHours,
+                },
+                {
+                    key: 'ot-days',
+                    date: range || '—',
+                    type: 'Overtime days',
+                    count: liveOvertimeDays,
+                },
+            ],
+            total: liveOvertimeDays,
+            totalLabel: 'Overtime days',
+        });
+    }
+
+    function openLiveOvertimeHoursDetail() {
         const from = data?.liveAttendance?.from || toMonthStartDate(verpStartDate);
         const to = data?.liveAttendance?.to || '';
         const records = Array.isArray(data?.liveAttendance?.overtimeRecords)
             ? data.liveAttendance.overtimeRecords
             : [];
         setEligibilityDetail({
-            title: 'Overtime taken',
-            subtitle: `${from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from)}. ${OVERTIME_HOURS_PER_DAY} hours = 1 day.`,
+            title: 'Overtime hours',
+            subtitle: `${from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from) || 'Processing date to today'}. ${OVERTIME_HOURS_PER_DAY} hours = 1 day. Leftover hours under ${OVERTIME_HOURS_PER_DAY} stay as hours.`,
             rows: records.map((row, index) => ({
                 key: `${row.date || 'ot'}-${index}`,
                 date: prettyDate(row.date),
@@ -3576,7 +3894,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 count: Number(row.hours) || 0,
             })),
             total: liveOvertimeHours,
-            totalLabel: `Hours → ${liveOvertimeDays} ${liveOvertimeDays === 1 ? 'day' : 'days'}`,
+            totalLabel: `${formatHoursLabel(liveOvertimeHours)} · ${liveOvertimeDays} ${liveOvertimeDays === 1 ? 'day' : 'days'} + ${formatHoursLabel(liveOvertimeRemainderHours)} leftover`,
         });
     }
 
@@ -3595,10 +3913,16 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     count: Number(data?.liveAttendance?.workingDays) || 0,
                 },
                 {
-                    key: 'live-ot',
+                    key: 'live-ot-days',
                     date,
-                    type: 'Overtime taken',
+                    type: 'Overtime days',
                     count: liveOvertimeDays,
+                },
+                {
+                    key: 'live-ot-hours',
+                    date,
+                    type: `Overtime hours (${OVERTIME_HOURS_PER_DAY} hr = 1 day)`,
+                    count: liveOvertimeHours,
                 },
                 {
                     key: 'live-leave',
@@ -4382,7 +4706,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             <Calendar size={16} />
                                                         </CardIcon>
                                                         <h3 className="text-[15px] font-semibold text-[#0F172A]">
-                                                            Existing Leave History
+                                                            Historical Leave History
                                                         </h3>
                                                     </div>
                                                     <div className="flex flex-nowrap items-center justify-end gap-2">
@@ -4407,7 +4731,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 <LeaveTypeFilter
                                                     value={leaveTypeFilter}
                                                     onChange={setLeaveTypeFilter}
-                                                    rows={existingLeaveHistoryRows}
+                                                    rows={historicalLeaveHistoryRows}
                                                 />
                                             </div>
                                             <LeaveHistorySummaryTable
@@ -4455,6 +4779,57 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             </span>
                                                         </>
                                                     ) : null}
+                                                </p>
+                                            </div>
+                                        </section>
+
+                                        <section className={CARD}>
+                                            <div className="mb-4 flex flex-col gap-3">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="flex min-w-0 items-start gap-3">
+                                                        <CardIcon tone="red">
+                                                            <Calendar size={16} />
+                                                        </CardIcon>
+                                                        <div className="min-w-0">
+                                                            <h3 className="text-[15px] font-semibold text-[#0F172A]">
+                                                                System Leave History
+                                                            </h3>
+                                                            <p className="mt-0.5 text-[12px] text-[#64748B]">
+                                                                Each attendance leave after the processing date
+                                                                {(data?.liveAttendance?.from ||
+                                                                    toMonthStartDate(verpStartDate)) &&
+                                                                data?.liveAttendance?.to
+                                                                    ? ` · ${prettyDate(
+                                                                          data.liveAttendance.from ||
+                                                                              toMonthStartDate(verpStartDate),
+                                                                      )} — ${prettyDate(data.liveAttendance.to)}`
+                                                                    : ''}
+                                                                . Dates come from attendance and cannot be edited here.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <LeaveTypeFilter
+                                                    value={systemLeaveTypeFilter}
+                                                    onChange={setSystemLeaveTypeFilter}
+                                                    rows={systemLeaveHistoryList}
+                                                />
+                                            </div>
+                                            <LeaveTable
+                                                rows={filteredSystemLeaveHistoryRows}
+                                                readOnly
+                                                emptyMessage={
+                                                    systemLeaveTypeFilter
+                                                        ? `No ${leaveMeta(systemLeaveTypeFilter).label.toLowerCase()} attendance after the processing date.`
+                                                        : 'No attendance leave after the processing date.'
+                                                }
+                                            />
+                                            <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
+                                                <p className="inline-flex flex-wrap items-center gap-2 text-[12px] text-[#64748B]">
+                                                    Total leave deduction
+                                                    <span className="rounded-md border border-[#E6EAF0] bg-[#F1F5F9] px-2 py-0.5 text-[12px] font-medium tabular-nums text-[#334155]">
+                                                        {Math.max(0, Number(attendanceLeaveDeduction) || 0)} days
+                                                    </span>
                                                 </p>
                                             </div>
                                         </section>
@@ -4529,11 +4904,10 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         openPaymentCycle({ viewOnly: false, tab: 'leave' })
                                                     }
                                                     onOpen={(cycleIndex, cycle) =>
-                                                        openPaymentCycle({
+                                                        openPaymentInvoice({
                                                             cycleIndex,
                                                             cycle,
-                                                            viewOnly: true,
-                                                            tab: 'leave',
+                                                            kind: 'leave',
                                                         })
                                                     }
                                                     onEdit={(cycleIndex, cycle) =>
@@ -4560,11 +4934,10 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         openPaymentCycle({ viewOnly: false, tab: 'ticket' })
                                                     }
                                                     onOpen={(cycleIndex, cycle) =>
-                                                        openPaymentCycle({
+                                                        openPaymentInvoice({
                                                             cycleIndex,
                                                             cycle,
-                                                            viewOnly: true,
-                                                            tab: 'ticket',
+                                                            kind: 'ticket',
                                                         })
                                                     }
                                                     onEdit={(cycleIndex, cycle) =>
@@ -4620,32 +4993,20 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                             </div>
 
                                             <div className="mt-9">
+                                                <p className="px-4 pb-1 text-[9px] font-bold uppercase leading-3 tracking-[0.8px] text-[#7B8797]">
+                                                    Historical
+                                                </p>
                                                 <EligibilityCalcRow
                                                     label="Historical working days"
                                                     value={historicalCalc.workingDays}
                                                     onClick={openHistoricalWorkingDaysDetail}
                                                 />
-                                                {data?.liveAttendance?.enabled ? (
-                                                    <EligibilityCalcRow
-                                                        label="Working days since VERP start"
-                                                        value={Number(data.liveAttendance.workingDays) || 0}
-                                                        onClick={openLiveWorkingDaysDetail}
-                                                    />
-                                                ) : null}
                                                 <EligibilityCalcRow
                                                     label="Historical leave deduction"
                                                     value={formatDeductionDays(historicalCalc.totalLeaveDeduction)}
                                                     danger={Number(historicalCalc.totalLeaveDeduction) > 0}
                                                     onClick={openHistoricalLeaveDetail}
                                                 />
-                                                {data?.liveAttendance?.enabled ? (
-                                                    <EligibilityCalcRow
-                                                        label="Attendance leave (policy)"
-                                                        value={formatDeductionDays(attendanceLeaveDeduction)}
-                                                        danger={Number(attendanceLeaveDeduction) > 0}
-                                                        onClick={openAttendanceLeaveDetail}
-                                                    />
-                                                ) : null}
                                                 {Number(leaveSalaryEntitlement.availableEntitlements) > 0 ? (
                                                     <EligibilityCalcRow
                                                         label={`Leave salary reserved (${leaveSalaryEntitlement.availableEntitlements} × ${leaveSalaryEntitlement.requiredDaysPerEntitlement})`}
@@ -4684,9 +5045,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         / {leaveSalaryEntitlement.requiredDaysPerEntitlement} days
                                                     </span>
                                                 </div>
-                                                <p className="mt-3 text-[11px] font-medium leading-[15px] text-[#49DDBB]">
-                                                    {towardNextFormula}
-                                                </p>
                                                 <div className="mt-[14px] h-[6px] w-full overflow-hidden rounded-full bg-white/[0.17]">
                                                     <div
                                                         className="h-full rounded-full bg-[#49DDBB]"
@@ -4720,14 +5078,18 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                             {liveAttendanceEnabled ? (
                                                 <div className="border-t border-[#E8ECF1] bg-[#F8FAFC]">
                                                     <p className="px-4 pt-3 text-[9px] font-bold uppercase leading-3 tracking-[0.8px] text-[#7B8797]">
-                                                        {(data?.liveAttendance?.from || toMonthStartDate(verpStartDate)) &&
-                                                        data?.liveAttendance?.to
-                                                            ? `${prettyDate(
-                                                                  data.liveAttendance.from ||
-                                                                      toMonthStartDate(verpStartDate),
-                                                              )} — ${prettyDate(data.liveAttendance.to)}`
-                                                            : 'Processing date to today'}
+                                                        Processing date to today
                                                     </p>
+                                                    {(data?.liveAttendance?.from || toMonthStartDate(verpStartDate)) &&
+                                                    data?.liveAttendance?.to ? (
+                                                        <p className="px-4 pt-1 text-[10px] font-medium leading-4 text-[#94A3B8]">
+                                                            {prettyDate(
+                                                                data.liveAttendance.from ||
+                                                                    toMonthStartDate(verpStartDate),
+                                                            )}{' '}
+                                                            — {prettyDate(data.liveAttendance.to)}
+                                                        </p>
+                                                    ) : null}
                                                     <div className="mt-2">
                                                         <EligibilityCalcRow
                                                             label="Working days"
@@ -4735,12 +5097,15 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             onClick={openLiveWorkingDaysDetail}
                                                         />
                                                         <EligibilityCalcRow
-                                                            label="Overtime taken"
-                                                            value={formatOvertimeTaken(
-                                                                liveOvertimeHours,
-                                                                liveOvertimeDays,
-                                                            )}
-                                                            onClick={openLiveOvertimeDetail}
+                                                            label="Overtime days"
+                                                            value={liveOvertimeDays}
+                                                            onClick={openLiveOvertimeDaysDetail}
+                                                        />
+                                                        <EligibilityCalcRow
+                                                            label="Overtime hours"
+                                                            hint={`${OVERTIME_HOURS_PER_DAY} hr = 1 day`}
+                                                            value={formatHoursLabel(liveOvertimeHours)}
+                                                            onClick={openLiveOvertimeHoursDetail}
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Leave"
@@ -4767,8 +5132,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 />
                                                 <p className="text-[9px] font-normal leading-[18px] text-[#6F7C8F]">
                                                     {data?.liveAttendance?.enabled
-                                                        ? `From the processing date through today, scheduled working days accrue automatically. Overtime punches count as extra days (${OVERTIME_HOURS_PER_DAY} hours = 1 day). Approved or taken leave and holidays from attendance refresh this card. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
-                                                        : `Earned eligible balance uses historical working days minus leave deductions. Historical overtime is already in those working days. After the VERP processing date is reached, this card updates from attendance working days, overtime (${OVERTIME_HOURS_PER_DAY} hours = 1 day), leave, and holidays.`}
+                                                        ? `From the processing date through today, only present attendance days count as working days. Absent and unauthorized days are deducted, not counted as present. Overtime punches count as extra days only in full ${OVERTIME_HOURS_PER_DAY}-hour blocks (${OVERTIME_HOURS_PER_DAY} hours = 1 day). Leftover hours under ${OVERTIME_HOURS_PER_DAY} stay as hours (1, 2, 3…) until they reach another ${OVERTIME_HOURS_PER_DAY}. Approved or taken leave and holidays from attendance refresh this card. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
+                                                        : `Earned eligible balance uses historical working days minus leave deductions. Historical overtime is already in those working days. After the VERP processing date is reached, this card updates from present attendance days, overtime (${OVERTIME_HOURS_PER_DAY} hours = 1 day; leftover hours stay as hours), leave, and holidays.`}
                                                 </p>
                                             </div>
                                         </section>
@@ -4858,10 +5223,15 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     }
                     if (action.type === 'paymentCycle' && Number.isInteger(action.cycleIndex)) {
                         setLeaveSalaryDetailsOpen(false);
-                        setCycleDraftIndex(action.cycleIndex);
-                        setCycleDraft(action.cycle);
-                        setCycleModalViewOnly(true);
-                        setCycleModal(true);
+                        const kind =
+                            cycleKindAmount(action.cycle, 'leave') > 0
+                                ? 'leave'
+                                : 'ticket';
+                        openPaymentInvoice({
+                            cycleIndex: action.cycleIndex,
+                            cycle: action.cycle,
+                            kind,
+                        });
                     }
                 }}
                 onClose={() => setLeaveSalaryDetailsOpen(false)}
@@ -4925,6 +5295,11 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     );
                     if (!ok) setLeaveRecords(leaveRecords);
                 }}
+            />
+            <PaymentInvoiceModal
+                open={Boolean(paymentInvoice)}
+                invoice={paymentInvoice}
+                onClose={() => setPaymentInvoice(null)}
             />
             <AddCycleModal
                 key={cycleModal ? `cycle-open-${cycleDraftIndex ?? 'new'}-${cycleDraft?.annualLeaveKey || ''}-${cycleModalDefaultTab}` : 'cycle-closed'}
@@ -5172,10 +5547,11 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     <LeaveTable
                         rows={leaveGroupRows}
                         emptyMessage="No leave records in this group."
+                        readOnly={leaveGroupModal?.source === 'system'}
                         locked={locked}
                         isRowLocked={(row) => leaveComplete && leaveTypeKey(row) !== 'holiday'}
                         onEdit={(row) => {
-                            if (locked) return;
+                            if (leaveGroupModal?.source === 'system' || locked) return;
                             if (leaveTypeKey(row) === 'holiday') {
                                 setHolidaysModal(true);
                                 return;
@@ -5186,22 +5562,13 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                             setLeaveModal(true);
                         }}
                         onRemove={(row) => {
-                            if (locked) return;
+                            if (leaveGroupModal?.source === 'system' || locked) return;
                             if (leaveComplete && leaveTypeKey(row) !== 'holiday') return;
                             setLeaveDeleteRow(row);
                         }}
                     />
                 </div>
                 <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
-                    {leaveGroupModal?.source === 'system' && portalHref ? (
-                        <button
-                            type="button"
-                            onClick={openEmployeePortal}
-                            className="h-10 rounded-xl border px-4 text-sm font-semibold text-slate-600"
-                        >
-                            Open leave portal
-                        </button>
-                    ) : null}
                     <button
                         type="button"
                         onClick={() => setLeaveGroupModal(null)}
@@ -5496,7 +5863,7 @@ function EligibilityDetailModal({
     );
 }
 
-function EligibilityCalcRow({ label, value, danger, strong, onClick }) {
+function EligibilityCalcRow({ label, hint, value, danger, strong, onClick }) {
     const className = `flex min-h-[42px] w-full items-center justify-between border-b border-[#E8ECF1] pl-4 pr-[22px] text-left ${
         onClick ? 'cursor-pointer hover:bg-slate-50' : ''
     }`;
@@ -5507,6 +5874,11 @@ function EligibilityCalcRow({ label, value, danger, strong, onClick }) {
                     }`}
             >
                 {label}
+                {hint ? (
+                    <span className="mt-0.5 block text-[9px] font-normal leading-3 text-[#94A3B8]">
+                        {hint}
+                    </span>
+                ) : null}
             </span>
             <span
                 className={`text-right text-[11px] leading-4 tabular-nums ${
@@ -5636,6 +6008,7 @@ function LeaveTable({
     onEdit,
     onRemove,
     onOpenSystem,
+    readOnly = false,
     emptyMessage = 'No leave records yet.',
 }) {
     if (!rows.length) {
@@ -5652,7 +6025,7 @@ function LeaveTable({
                         <th className="px-2 py-2.5 font-semibold">Rule</th>
                         <th className="px-2 py-2.5 font-semibold">Deduction</th>
                         <th className="px-2 py-2.5 font-semibold">Source</th>
-                        <th className="px-2 py-2.5 font-semibold" />
+                        {readOnly ? null : <th className="px-2 py-2.5 font-semibold" />}
                     </tr>
                 </thead>
                 <tbody>
@@ -5661,10 +6034,10 @@ function LeaveTable({
                         const actual = row.actualDays || row.eligibleWorkingDays || 0;
                         const deduction = row.deductionDays || row.deduction || 0;
                         const source = leaveSourceKey(row);
-                        const rowLocked = Boolean(locked || isRowLocked?.(row));
-                        const canEdit = !rowLocked && source !== 'system';
-                        const canDelete = !rowLocked;
-                        const canOpenSystem = source === 'system' && Boolean(onOpenSystem);
+                        const rowLocked = Boolean(readOnly || locked || isRowLocked?.(row));
+                        const canEdit = !rowLocked && source !== 'system' && Boolean(onEdit);
+                        const canDelete = !readOnly && !rowLocked && Boolean(onRemove);
+                        const canOpenSystem = !readOnly && source === 'system' && Boolean(onOpenSystem);
                         return (
                             <tr
                                 key={row.id || `${row.fromDate}-${source}-${index}`}
@@ -5728,19 +6101,21 @@ function LeaveTable({
                                         {source === 'system' ? 'System' : 'Manual'}
                                     </span>
                                 </td>
-                                <td className="px-2 py-3 text-right">
-                                    <button
-                                        type="button"
-                                        disabled={!canDelete}
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            onRemove(row);
-                                        }}
-                                        className="rounded-md p-1 text-[#94A3B8] hover:text-slate-600 disabled:opacity-30"
-                                    >
-                                        <X size={14} />
-                                    </button>
-                                </td>
+                                {readOnly ? null : (
+                                    <td className="px-2 py-3 text-right">
+                                        <button
+                                            type="button"
+                                            disabled={!canDelete}
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                onRemove?.(row);
+                                            }}
+                                            className="rounded-md p-1 text-[#94A3B8] hover:text-slate-600 disabled:opacity-30"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </td>
+                                )}
                             </tr>
                         );
                     })}

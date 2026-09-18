@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import axiosInstance, { resetSessionExpiryHandled, resetSidebarPollingState } from '@/utils/axios';
 import { touchActivity } from '@/utils/authSession';
 import { validateEmailOrUsername, validatePassword } from '@/utils/validation';
+import { punchLocationPayload, requireBrowserLocation } from '@/utils/dashboardPunchMeta';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -52,11 +53,14 @@ export default function LoginPage() {
             setLoading(true);
             setServerError('');
 
+            const coords = await requireBrowserLocation(12000);
             const { data } = await axiosInstance.post(
                 '/Login',
                 {
                     email: email.trim().toLowerCase(),
                     password: password.trim(),
+                    source: 'web',
+                    ...punchLocationPayload(coords),
                 },
                 { skipActionDedupe: true },
             );

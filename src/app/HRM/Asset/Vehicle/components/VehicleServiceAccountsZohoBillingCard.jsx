@@ -35,6 +35,16 @@ function money(value) {
     return Number.isFinite(n) ? n : 0;
 }
 
+function localDateKey(value = '') {
+    const raw = String(value || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 function emptyPayableLine() {
     return {
         partyType: '',
@@ -135,6 +145,8 @@ function buildInitialBillingState(service, { asset = null, employees = [], compa
     return {
         garageName: String(remark.garageName || remark.vendorName || '').trim(),
         zohoVendorId: String(remark.zohoVendorId || '').trim(),
+        billNumber: String(remark.billNumber || '').trim(),
+        billDate: localDateKey(remark.billDate),
         garageBillAmount: seedAmount > 0 ? String(seedAmount) : '',
         payAccountId: String(remark.payAccountId || remark.garagePayAccountId || '').trim(),
         payAccountName: String(remark.payAccountName || remark.garagePayAccountName || '').trim(),
@@ -180,7 +192,11 @@ function buildInitialZohoBills(service, opts = {}) {
         existingAttachmentName:
             existingGarageAttachmentName ||
             (existingGarageAttachmentUrl ? 'Garage invoice (from service details)' : ''),
-    });
+    }).map((bill) => ({
+        ...bill,
+        billNumber: String(bill.billNumber || '').trim(),
+        billDate: localDateKey(bill.billDate),
+    }));
 }
 
 function normalizePayableLines(rows = []) {
@@ -571,6 +587,8 @@ export default function VehicleServiceAccountsZohoBillingCard({
             garageName: String(billing.garageName || '').trim() || remark.garageName,
             vendorName: String(billing.garageName || '').trim() || remark.vendorName,
             zohoVendorId: String(billing.zohoVendorId || '').trim() || remark.zohoVendorId,
+            billNumber: String(billing.billNumber || '').trim(),
+            billDate: localDateKey(billing.billDate),
             billingPayables: lines,
             billingTotalAmount: total,
             garageBillAmount: total,
@@ -628,6 +646,8 @@ export default function VehicleServiceAccountsZohoBillingCard({
                 garageName: String(bill.garageName || '').trim(),
                 vendorName: String(bill.garageName || '').trim(),
                 zohoVendorId: String(bill.zohoVendorId || '').trim(),
+                billNumber: String(bill.billNumber || '').trim(),
+                billDate: localDateKey(bill.billDate),
                 billingPayables: lines,
                 billingTotalAmount: total,
                 garageBillAmount: total,
@@ -663,6 +683,8 @@ export default function VehicleServiceAccountsZohoBillingCard({
             garageName: first.garageName || remark.garageName,
             vendorName: first.garageName || remark.vendorName,
             zohoVendorId: first.zohoVendorId || remark.zohoVendorId,
+            billNumber: first.billNumber || remark.billNumber || '',
+            billDate: first.billDate || remark.billDate || '',
             billingPayables: first.billingPayables || [],
             billingTotalAmount: grandTotal,
             garageBillAmount: grandTotal,
@@ -697,6 +719,12 @@ export default function VehicleServiceAccountsZohoBillingCard({
     };
 
     const validateSingleBeforeSubmit = (parsedRemark) => {
+        if (!String(parsedRemark.billNumber || '').trim()) {
+            return 'Enter Bill No before submitting to Zoho.';
+        }
+        if (!String(parsedRemark.billDate || '').trim()) {
+            return 'Enter Date before submitting to Zoho.';
+        }
         const total = money(parsedRemark.billingTotalAmount);
         const payableLines = (Array.isArray(parsedRemark.billingPayables)
             ? parsedRemark.billingPayables
@@ -728,7 +756,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
             if (validationError) {
                 toast({
                     variant: 'destructive',
-                    title: 'Payable from required',
+                    title: 'Billing incomplete',
                     description: validationError,
                 });
                 setBusy(false);
@@ -920,6 +948,32 @@ export default function VehicleServiceAccountsZohoBillingCard({
         </div>
     );
 
+    const renderBillNoAndDate = ({ billNumber, billDate, onChange, canEdit }) => (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-xs font-semibold text-gray-500">
+                Bill No <span className="text-red-500">*</span>
+                <input
+                    type="text"
+                    className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-200 px-2.5 text-sm font-semibold text-gray-900 placeholder:text-gray-400 disabled:bg-gray-50"
+                    placeholder="Enter bill number"
+                    value={billNumber || ''}
+                    disabled={!canEdit || busy}
+                    onChange={(e) => onChange({ billNumber: e.target.value })}
+                />
+            </label>
+            <label className="block text-xs font-semibold text-gray-500">
+                Date <span className="text-red-500">*</span>
+                <input
+                    type="date"
+                    className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-200 px-2.5 text-sm font-semibold text-gray-900 disabled:bg-gray-50"
+                    value={billDate || ''}
+                    disabled={!canEdit || busy}
+                    onChange={(e) => onChange({ billDate: e.target.value })}
+                />
+            </label>
+        </div>
+    );
+
     return (
         <div className={`w-full ${className}`.trim()}>
             <VehicleServiceLockedSection
@@ -960,6 +1014,12 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                     </span>
                                 ) : remark.zohoBillId ? (
                                     <span className="font-semibold"> Bill ID: {remark.zohoBillId}</span>
+                                ) : null}
+                                {remark.billNumber ? (
+                                    <span className="font-semibold"> · Bill No: {remark.billNumber}</span>
+                                ) : null}
+                                {remark.billDate ? (
+                                    <span className="font-semibold"> · Date: {remark.billDate}</span>
                                 ) : null}
                             </p>
                         ) : !awaitingBilling ? (
@@ -1016,6 +1076,11 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                                         <h4 className="text-sm font-bold text-slate-800">
                                                             {title}
+                                                            {bill.billNumber ? (
+                                                                <span className="ml-2 text-xs font-semibold text-slate-600">
+                                                                    Bill No: {bill.billNumber}
+                                                                </span>
+                                                            ) : null}
                                                             {bill.zohoBillNumber ? (
                                                                 <span className="ml-2 text-xs font-semibold text-emerald-700">
                                                                     {bill.zohoBillNumber}
@@ -1077,6 +1142,13 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                                                 ? ' — will attach to Zoho bill'
                                                                 : ''
                                                         }`,
+                                                        canEdit: canAct,
+                                                    })}
+
+                                                    {renderBillNoAndDate({
+                                                        billNumber: bill.billNumber,
+                                                        billDate: bill.billDate,
+                                                        onChange: (patch) => setBillField(bill.id, patch),
                                                         canEdit: canAct,
                                                     })}
 
@@ -1181,6 +1253,14 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                                 ? ' — will attach to Zoho bill'
                                                 : ''
                                         }`,
+                                        canEdit: canAct,
+                                    })}
+
+                                    {renderBillNoAndDate({
+                                        billNumber: billing.billNumber,
+                                        billDate: billing.billDate,
+                                        onChange: (patch) =>
+                                            setBilling((prev) => ({ ...prev, ...patch })),
                                         canEdit: canAct,
                                     })}
 

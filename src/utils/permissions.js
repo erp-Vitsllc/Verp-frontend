@@ -247,7 +247,7 @@ const WHATSAPP_INBOX_VIEW_MODULES = [
     'hrm_employees_view_basic',
 ];
 
-/** Admin or HR with employee view — WhatsApp Messages inbox. */
+/** Admin or HR with employee view — WhatsApp Messages inbox (flowchart HR is confirmed by /whatsapp/access). */
 export function canViewWhatsAppInbox() {
     if (isAdmin()) return true;
     return WHATSAPP_INBOX_VIEW_MODULES.some((moduleId) => hasAnyPermission(moduleId));

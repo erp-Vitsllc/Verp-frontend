@@ -24,7 +24,14 @@ import {
     Smartphone,
     MapPin,
     Globe,
+    Monitor,
 } from 'lucide-react';
+import {
+    LocationMapPin,
+    PunchLocationCell,
+    PunchTypeCell,
+    punchCoords,
+} from '@/app/HRM/Attendance/mark/components/MarkAttendancePunchCells';
 
 export default function UserProfilePage() {
     const router = useRouter();
@@ -45,6 +52,7 @@ export default function UserProfilePage() {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
     const [isUpdatingDevice, setIsUpdatingDevice] = useState(false);
+    const [isUpdatingLoginThrough, setIsUpdatingLoginThrough] = useState(false);
 
     useEffect(() => {
         if (!userId) return undefined;
@@ -221,6 +229,46 @@ export default function UserProfilePage() {
         }
     };
 
+    const handleToggleLoginThrough = async (channel, checked) => {
+        if (isUpdatingLoginThrough || user?.isSystemAdmin) return;
+        if (!user?.employeeId || user.employeeId === 'System Users') {
+            toast({
+                title: 'Link an employee first',
+                description: 'App and Web access belong to the linked employee profile.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        const next = {
+            portalApp: user.loginThrough?.portalApp === true,
+            web: user.loginThrough?.web === true,
+            [channel]: checked,
+        };
+        try {
+            setIsUpdatingLoginThrough(true);
+            const response = await axiosInstance.patch(`/User/${userId}`, { loginThrough: next });
+            const saved = response.data?.user?.loginThrough || next;
+            setUser((prev) => ({
+                ...prev,
+                loginThrough: saved,
+                employee: prev?.employee ? { ...prev.employee, loginThrough: saved } : prev?.employee,
+            }));
+            toast({
+                title: 'Access updated',
+                description: `${channel === 'portalApp' ? 'App access' : 'Web access'} ${checked ? 'enabled' : 'disabled'}.`,
+                variant: 'success',
+            });
+        } catch (err) {
+            toast({
+                title: 'Could not update access',
+                description: err.response?.data?.message || 'Failed to update App / Web access.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsUpdatingLoginThrough(false);
+        }
+    };
+
     return (
         <PermissionGuard moduleId="settings_user_group" permissionType="view">
             <div className="flex min-h-screen bg-white">
@@ -375,6 +423,30 @@ export default function UserProfilePage() {
                                             label="Last Login"
                                             value={formatDeviceSeen(user.lastLogin || user.mobileDevice?.lastSeenAt)}
                                         />
+                                        <LoginAccessItem
+                                            icon={<Smartphone size={20} className="text-blue-500" />}
+                                            label="App Access"
+                                            checked={user.loginThrough?.portalApp === true}
+                                            disabled={
+                                                isUpdatingLoginThrough ||
+                                                user.isSystemAdmin ||
+                                                !user.employeeId ||
+                                                user.employeeId === 'System Users'
+                                            }
+                                            onChange={(checked) => handleToggleLoginThrough('portalApp', checked)}
+                                        />
+                                        <LoginAccessItem
+                                            icon={<Monitor size={20} className="text-blue-500" />}
+                                            label="Web Access"
+                                            checked={user.loginThrough?.web === true}
+                                            disabled={
+                                                isUpdatingLoginThrough ||
+                                                user.isSystemAdmin ||
+                                                !user.employeeId ||
+                                                user.employeeId === 'System Users'
+                                            }
+                                            onChange={(checked) => handleToggleLoginThrough('web', checked)}
+                                        />
                                     </div>
 
                                     {!user.isSystemAdmin && (
@@ -386,6 +458,10 @@ export default function UserProfilePage() {
                                             onChange={handleChangeMobileDevice}
                                         />
                                     )}
+                                    <WebLoginPanel webLogin={user.webLogin} lastLogin={user.lastLogin} />
+                                    {!user.isSystemAdmin ? (
+                                        <AttendancePunchPanel attendance={user.todayAttendance} />
+                                    ) : null}
                                 </div>
 
                             </div>
@@ -461,6 +537,29 @@ function DetailItem({ icon, label, value, emptyDisplay = '-' }) {
                 {label}
             </span>
             <span className="text-base font-semibold text-gray-800">{value || emptyDisplay}</span>
+        </div>
+    );
+}
+
+function LoginAccessItem({ icon, label, checked, disabled, onChange }) {
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                {icon}
+                {label}
+            </span>
+            <label className={`mt-1 inline-flex items-center gap-2 ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={(e) => onChange(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-60"
+                />
+                <span className="text-base font-semibold text-gray-800">
+                    {checked ? 'Enabled' : 'Disabled'}
+                </span>
+            </label>
         </div>
     );
 }
@@ -575,6 +674,7 @@ function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
     );
     const canFix = Boolean(device?.canFix || String(device?.deviceId || '').trim());
     const lastSeen = formatDeviceSeen(device?.lastSeenAt || (hasDevice ? lastLogin : null));
+    const coords = punchCoords(device);
 
     return (
         <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/80 p-5 sm:p-6">
@@ -608,7 +708,11 @@ function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
                         <MapPin size={18} className="text-blue-500" />
                         Location
                     </span>
-                    <LoginLocationPin device={device} emptyDisplay={hasDevice ? '-' : ''} />
+                    {coords ? (
+                        <LocationMapPin coords={coords} kind="app" />
+                    ) : (
+                        <LoginLocationPin device={device} emptyDisplay={hasDevice ? '-' : ''} />
+                    )}
                 </div>
                 <DetailItem
                     icon={<Globe size={18} className="text-blue-500" />}
@@ -648,6 +752,108 @@ function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
                     Change device
                 </button>
             </div>
+        </div>
+    );
+}
+
+function WebLoginPanel({ webLogin, lastLogin }) {
+    const hasSession = Boolean(webLogin?.hasSession);
+    const coords = punchCoords(webLogin);
+    const ipAddress = String(webLogin?.ipAddress || '').trim();
+    const deviceName = String(webLogin?.deviceName || '').trim();
+    const lastSeen = formatDeviceSeen(webLogin?.lastSeenAt || (hasSession ? lastLogin : null));
+
+    return (
+        <div className="mt-6 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-5 sm:p-6">
+            <div className="mb-4">
+                <h4 className="text-base font-bold text-gray-900">Web login (laptop)</h4>
+                <p className="text-xs text-gray-500 mt-1">
+                    Current location captured when this user signs in on the website from a laptop or browser.
+                </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <DetailItem
+                    icon={<Monitor size={18} className="text-indigo-500" />}
+                    label="Device"
+                    value={deviceName}
+                    emptyDisplay={hasSession ? '-' : ''}
+                />
+                <div className="flex flex-col gap-1">
+                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                        <MapPin size={18} className="text-indigo-500" />
+                        Location
+                    </span>
+                    {coords ? (
+                        <LocationMapPin coords={coords} kind="web" />
+                    ) : (
+                        <span className="text-base font-semibold text-gray-800">
+                            {hasSession ? 'No GPS' : '-'}
+                        </span>
+                    )}
+                </div>
+                <DetailItem
+                    icon={<Globe size={18} className="text-indigo-500" />}
+                    label="IP Address"
+                    value={ipAddress}
+                    emptyDisplay={hasSession ? '-' : ''}
+                />
+                <DetailItem
+                    icon={<Clock size={18} className="text-indigo-500" />}
+                    label="Last Web Login"
+                    value={lastSeen}
+                    emptyDisplay={hasSession ? '-' : ''}
+                />
+            </div>
+
+            {!hasSession ? (
+                <p className="text-sm text-gray-600 mt-4">No website login location yet</p>
+            ) : null}
+        </div>
+    );
+}
+
+function AttendancePunchPanel({ attendance }) {
+    const hasPunch = Boolean(attendance?.timeIn || attendance?.timeOut);
+
+    return (
+        <div className="mt-6 rounded-2xl border border-rose-100 bg-rose-50/60 p-5 sm:p-6">
+            <div className="mb-4">
+                <h4 className="text-base font-bold text-gray-900">Check-in / Check-out location</h4>
+                <p className="text-xs text-gray-500 mt-1">
+                    Today&apos;s dashboard punch GPS from the website or mobile app.
+                </p>
+            </div>
+
+            {!hasPunch ? (
+                <p className="text-sm text-gray-600">No check-in yet today</p>
+            ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1">
+                        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                            Location
+                        </span>
+                        <PunchLocationCell
+                            checkInLocation={attendance.checkInLocation}
+                            checkOutLocation={attendance.checkOutLocation}
+                            timeIn={attendance.timeIn}
+                            timeOut={attendance.timeOut}
+                            punchSource={attendance.punchSource}
+                            checkOutSource={attendance.checkOutSource}
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                            Type
+                        </span>
+                        <PunchTypeCell
+                            punchSource={attendance.punchSource}
+                            checkOutSource={attendance.checkOutSource}
+                            timeOut={attendance.timeOut}
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

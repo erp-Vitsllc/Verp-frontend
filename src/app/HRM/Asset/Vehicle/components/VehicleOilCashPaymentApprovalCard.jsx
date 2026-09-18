@@ -37,6 +37,16 @@ function formatAed(value) {
     return money(value).toLocaleString(undefined, { minimumFractionDigits: 2 });
 }
 
+function localDateKey(value = '') {
+    const raw = String(value || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 function SegmentedToggle({ options, value, onChange, disabled, selectedFallback }) {
     const selected = value || selectedFallback;
     return (
@@ -140,6 +150,8 @@ function buildInitialBillingState(service) {
     return {
         garageName: String(remark.garageName || remark.vendorName || '').trim(),
         zohoVendorId: String(remark.zohoVendorId || '').trim(),
+        billNumber: String(remark.billNumber || '').trim(),
+        billDate: localDateKey(remark.billDate),
         garageBillAmount: seedAmount > 0 ? String(seedAmount) : '',
         payAccountId: String(remark.payAccountId || remark.garagePayAccountId || '').trim(),
         payAccountName: String(remark.payAccountName || remark.garagePayAccountName || '').trim(),
@@ -526,6 +538,8 @@ export default function VehicleOilCashPaymentApprovalCard({
             garageName: String(billing.garageName || '').trim() || remark.garageName,
             vendorName: String(billing.garageName || '').trim() || remark.vendorName,
             zohoVendorId: String(billing.zohoVendorId || '').trim() || remark.zohoVendorId,
+            billNumber: String(billing.billNumber || '').trim(),
+            billDate: localDateKey(billing.billDate),
             billingPayables: lines,
             billingTotalAmount: total,
             garageBillAmount: total,
@@ -572,6 +586,24 @@ export default function VehicleOilCashPaymentApprovalCard({
         try {
             const serviceUpdates = buildServiceUpdates();
             const parsedRemark = JSON.parse(serviceUpdates.remark || '{}');
+            if (!String(parsedRemark.billNumber || '').trim()) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Bill No required',
+                    description: 'Enter Bill No before submitting to Zoho.',
+                });
+                setBusy(false);
+                return;
+            }
+            if (!String(parsedRemark.billDate || '').trim()) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Date required',
+                    description: 'Enter Date before submitting to Zoho.',
+                });
+                setBusy(false);
+                return;
+            }
             const total = money(parsedRemark.billingTotalAmount);
             const payableLines = (
                 Array.isArray(parsedRemark.billingPayables) ? parsedRemark.billingPayables : []
@@ -752,6 +784,40 @@ export default function VehicleOilCashPaymentApprovalCard({
                                         </div>
                                     )}
                                 </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <label className="block text-xs font-semibold text-gray-500">
+                                    Bill No <span className="text-red-500">*</span>
+                                    <input
+                                        type="text"
+                                        className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-200 px-2.5 text-sm font-semibold text-gray-900 placeholder:text-gray-400 disabled:bg-gray-50"
+                                        placeholder="Enter bill number"
+                                        value={billing.billNumber || ''}
+                                        disabled={fieldsDisabled}
+                                        onChange={(e) =>
+                                            setBilling((prev) => ({
+                                                ...prev,
+                                                billNumber: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                </label>
+                                <label className="block text-xs font-semibold text-gray-500">
+                                    Date <span className="text-red-500">*</span>
+                                    <input
+                                        type="date"
+                                        className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-200 px-2.5 text-sm font-semibold text-gray-900 disabled:bg-gray-50"
+                                        value={billing.billDate || ''}
+                                        disabled={fieldsDisabled}
+                                        onChange={(e) =>
+                                            setBilling((prev) => ({
+                                                ...prev,
+                                                billDate: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                </label>
                             </div>
 
                             <div className="rounded-lg border border-gray-200 bg-white p-3">

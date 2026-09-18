@@ -1,26 +1,26 @@
-export const WHATSAPP_NOT_REGISTERED_ERROR = 'This number is not registered on WhatsApp';
+export const WHATSAPP_NOT_REGISTERED_ERROR = 'Not a valid WhatsApp number';
 
 /**
- * Ask the backend whether a number is registered on WhatsApp.
- * This never sends a WhatsApp message. Empty numbers are skipped.
+ * Send the welcome template to the number and wait until WhatsApp reports delivery.
  */
-export async function checkWhatsAppNumberRegistered(phone, axiosInstance) {
+export async function checkWhatsAppNumberRegistered(phone, axiosInstance, extras = {}) {
     const digits = String(phone || '').replace(/\D/g, '');
     if (!digits) {
-        return { ok: true, skipped: true, onWhatsApp: null };
+        return { ok: false, onWhatsApp: false, error: 'Please enter a WhatsApp number' };
     }
 
     try {
         const res = await axiosInstance.post(
             '/whatsapp/check-number',
-            { phone: digits },
+            {
+                phone: digits,
+                firstName: String(extras.firstName || '').trim(),
+                employeeId: String(extras.employeeId || '').trim(),
+            },
             { skipToast: true },
         );
-        if (res.data?.skipped) {
-            return { ok: true, skipped: true, onWhatsApp: null };
-        }
         if (res.data?.onWhatsApp === true) {
-            return { ok: true, onWhatsApp: true };
+            return { ok: true, onWhatsApp: true, delivered: Boolean(res.data?.delivered) };
         }
         if (res.data?.onWhatsApp === false) {
             return {
@@ -29,16 +29,17 @@ export async function checkWhatsAppNumberRegistered(phone, axiosInstance) {
                 error: res.data?.error || res.data?.message || WHATSAPP_NOT_REGISTERED_ERROR,
             };
         }
-        return { ok: true, onWhatsApp: null, checkUnavailable: true };
+        return {
+            ok: false,
+            onWhatsApp: false,
+            error: res.data?.error || WHATSAPP_NOT_REGISTERED_ERROR,
+        };
     } catch (error) {
         const data = error?.response?.data;
-        if (error?.response?.status === 400 && data?.onWhatsApp === false) {
-            return {
-                ok: false,
-                onWhatsApp: false,
-                error: data?.error || data?.message || WHATSAPP_NOT_REGISTERED_ERROR,
-            };
-        }
-        return { ok: true, onWhatsApp: null, checkUnavailable: true };
+        return {
+            ok: false,
+            onWhatsApp: false,
+            error: data?.error || data?.message || WHATSAPP_NOT_REGISTERED_ERROR,
+        };
     }
 }

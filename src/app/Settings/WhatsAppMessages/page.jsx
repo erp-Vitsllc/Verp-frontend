@@ -95,7 +95,7 @@ export default function WhatsAppMessagesPage() {
         let cancelled = false;
         (async () => {
             try {
-                const res = await axiosInstance.get('/whatsapp/access');
+                const res = await axiosInstance.get('/whatsapp/access', { skipToast: true });
                 if (!cancelled) {
                     setAllowed(!!res.data?.allowed);
                     setAccessChecked(true);

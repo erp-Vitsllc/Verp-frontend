@@ -75,6 +75,7 @@ const PhoneInputField = ({
     required = false,
     disabled = false,
     validatedLabel = 'Validated',
+    showValidatedBadge = true,
     ...props
 }) => {
     const [internalError, setInternalError] = useState('');
@@ -232,7 +233,7 @@ const PhoneInputField = ({
                 </p>
             )}
 
-            {validatedNumber && !displayError && (
+            {showValidatedBadge && validatedNumber && !displayError && (
                 <div className="mt-2 flex items-center gap-2 py-1.5 px-3 bg-green-50 border border-green-100 rounded-lg w-fit">
                     <span className="text-xs font-semibold text-green-700 uppercase tracking-wider">{String(validatedLabel)}:</span>
                     <span className="text-sm font-bold text-green-900 tracking-tight">+{String(validatedNumber)}</span>
