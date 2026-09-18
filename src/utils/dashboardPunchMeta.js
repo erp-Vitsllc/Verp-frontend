@@ -47,8 +47,8 @@ export async function buildDashboardPunchBody({ requireLocation = false, coords 
     const resolved = hasValidCoords(coords)
         ? coords
         : requireLocation
-          ? await requireBrowserLocation()
-          : await readBrowserLocation();
+            ? await requireBrowserLocation()
+            : await readBrowserLocation();
     return {
         source,
         ...punchLocationPayload(resolved),
@@ -178,28 +178,79 @@ async function readBestPosition(timeoutMs, options) {
     };
 }
 
-export async function requireBrowserLocation(timeoutMs = 20000) {
-    if (typeof window !== 'undefined' && window.isSecureContext === false) {
-        throw locationRequiredError(
-            'Location needs a secure connection (HTTPS). Open the ERP with https, then try again.',
-        );
-    }
+function isHttpPage() {
+    if (typeof window === 'undefined') return false;
+    return window.location.protocol === 'http:';
+}
 
+async function fetchJson(url, timeoutMs = 4000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch {
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/** Chrome/Safari block GPS on http:// hosts (except localhost). Test servers still need a point. */
+async function readHttpFallbackLocation() {
+    const sources = [
+        {
+            url: 'http://ip-api.com/json/?fields=status,lat,lon',
+            pick: (d) => (d?.status === 'success' ? [d.lat, d.lon] : null),
+        },
+        {
+            url: 'https://ipwho.is/',
+            pick: (d) => (d?.success === false ? null : [d?.latitude, d?.longitude]),
+        },
+        {
+            url: 'https://ipapi.co/json/',
+            pick: (d) => [d?.latitude, d?.longitude],
+        },
+    ];
+    for (const source of sources) {
+        const data = await fetchJson(source.url);
+        if (!data) continue;
+        const pair = source.pick(data);
+        const latitude = Number(pair?.[0]);
+        const longitude = Number(pair?.[1]);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+        if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) continue;
+        return { latitude, longitude, accuracy: 5000 };
+    }
+    return null;
+}
+
+export async function requireBrowserLocation(timeoutMs = 20000) {
     await requestNativeLocationAccess();
 
-    // Wi-Fi / cell / cached position first. High-accuracy GPS often times out
-    // indoors even when the device Location toggle is already on.
-    const network = await readBestPosition(Math.min(Math.max(timeoutMs, 8000), 15000), {
+    const insecureHttp =
+        isHttpPage() && typeof window !== 'undefined' && window.isSecureContext === false;
+    // Remote http:// is blocked by Chrome/Safari GPS. Keep the wait short, then fall back.
+    const networkTimeout = insecureHttp ? 3000 : Math.min(Math.max(timeoutMs, 8000), 15000);
+    const gpsTimeout = insecureHttp ? 3000 : timeoutMs;
+
+    const network = await readBestPosition(networkTimeout, {
         enableHighAccuracy: false,
         maximumAge: 180000,
     });
     if (network.coords) return network.coords;
 
-    const gps = await readBestPosition(timeoutMs, {
+    const gps = await readBestPosition(gpsTimeout, {
         enableHighAccuracy: true,
         maximumAge: 15000,
     });
     if (gps.coords) return gps.coords;
+
+    if (isHttpPage()) {
+        const fallback = await readHttpFallbackLocation();
+        if (fallback) return fallback;
+    }
 
     throw locationRequiredError(network.error || gps.error || LOCATION_REQUIRED_MESSAGE);
 }

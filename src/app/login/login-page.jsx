@@ -144,8 +144,8 @@ export default function LoginPage() {
             if (err?.silent || err?.code === 'ACTION_DEDUPED') return;
             setLocationError(
                 err.response?.data?.message ||
-                    err.message ||
-                    'Turn on location, allow access, then try again.',
+                err.message ||
+                'Turn on location, allow access, then try again.',
             );
         } finally {
             submittingRef.current = false;

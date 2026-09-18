@@ -356,8 +356,8 @@ export default function DashboardCheckInOutCard() {
         } catch (err) {
             setLocationError(
                 err.response?.data?.message ||
-                    err.message ||
-                    'Turn on location, allow access, then try again.',
+                err.message ||
+                'Turn on location, allow access, then try again.',
             );
         } finally {
             setLocationBusy(false);
@@ -417,9 +417,8 @@ export default function DashboardCheckInOutCard() {
                         strokeWidth={2}
                     />
                     <p
-                        className={`text-xl sm:text-2xl lg:text-3xl font-black tabular-nums tracking-tight ${
-                            running ? 'text-slate-900' : 'text-slate-500'
-                        }`}
+                        className={`text-xl sm:text-2xl lg:text-3xl font-black tabular-nums tracking-tight ${running ? 'text-slate-900' : 'text-slate-500'
+                            }`}
                     >
                         {loading ? '--:--:--' : formatElapsed(elapsed)}
                     </p>
@@ -489,8 +488,8 @@ export default function DashboardCheckInOutCard() {
                         checkedOut
                             ? `Checked out at ${formatClock(timeOut)}`
                             : checkedIn
-                              ? 'Check out'
-                              : 'Check in first'
+                                ? 'Check out'
+                                : 'Check in first'
                     }
                 >
                     {checkedOut ? (
