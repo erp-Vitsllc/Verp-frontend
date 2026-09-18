@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import {
     LocationMapPin,
-    PunchLocationCell,
+    PunchLocationPinCell,
     PunchTypeCell,
     punchCoords,
 } from '@/app/HRM/Attendance/mark/components/MarkAttendancePunchCells';
@@ -831,15 +831,22 @@ function AttendancePunchPanel({ attendance }) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1">
                         <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                            Location
+                            Check-in
                         </span>
-                        <PunchLocationCell
-                            checkInLocation={attendance.checkInLocation}
-                            checkOutLocation={attendance.checkOutLocation}
-                            timeIn={attendance.timeIn}
-                            timeOut={attendance.timeOut}
-                            punchSource={attendance.punchSource}
-                            checkOutSource={attendance.checkOutSource}
+                        <PunchLocationPinCell
+                            location={attendance.checkInLocation}
+                            time={attendance.timeIn}
+                            kind="in"
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                            Check-out
+                        </span>
+                        <PunchLocationPinCell
+                            location={attendance.checkOutLocation}
+                            time={attendance.timeOut}
+                            kind="out"
                         />
                     </div>
                     <div className="flex flex-col gap-1">

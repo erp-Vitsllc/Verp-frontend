@@ -6,7 +6,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import axiosInstance, { resetSessionExpiryHandled, resetSidebarPollingState } from '@/utils/axios';
 import { touchActivity } from '@/utils/authSession';
 import { validateEmailOrUsername, validatePassword } from '@/utils/validation';
-import { punchLocationPayload, requireBrowserLocation } from '@/utils/dashboardPunchMeta';
+import {
+    isLocationRequiredError,
+    promptSystemLocation,
+    punchLocationPayload,
+    requireBrowserLocation,
+} from '@/utils/dashboardPunchMeta';
+import LocationTurnOnModal from '@/components/LocationTurnOnModal';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -19,7 +25,57 @@ export default function LoginPage() {
     const [errors, setErrors] = useState({});
     const [serverError, setServerError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [locationModalOpen, setLocationModalOpen] = useState(false);
+    const [locationBusy, setLocationBusy] = useState(false);
+    const [locationError, setLocationError] = useState('');
     const submittingRef = useRef(false);
+
+    const completeLogin = async (coords) => {
+        const { data } = await axiosInstance.post(
+            '/Login',
+            {
+                email: email.trim().toLowerCase(),
+                password: password.trim(),
+                source: 'web',
+                ...punchLocationPayload(coords),
+            },
+            { skipActionDedupe: true },
+        );
+
+        if (typeof window !== 'undefined') {
+            const userData = {
+                ...data?.user,
+                isSystemSuperUser:
+                    data?.user?.isSystemSuperUser === true ||
+                    data?.isSystemSuperUser === true,
+                isAdmin: data?.user?.isAdmin === true || data?.isAdmin === true,
+                isAdministrator:
+                    data?.user?.isAdministrator === true ||
+                    data?.isAdministrator === true,
+            };
+            localStorage.setItem('token', data?.token || '');
+            localStorage.setItem('user', JSON.stringify(userData));
+            localStorage.setItem('employeeUser', JSON.stringify(userData));
+
+            if (data?.permissions) {
+                localStorage.setItem('userPermissions', JSON.stringify(data.permissions));
+            }
+
+            if (data?.isAdmin !== undefined) {
+                localStorage.setItem('isAdmin', data.isAdmin.toString());
+            }
+
+            touchActivity();
+            resetSessionExpiryHandled();
+            resetSidebarPollingState();
+        }
+
+        let redirectTo = searchParams.get('redirectTo') || '/dashboard';
+        if (redirectTo.startsWith('/login') || redirectTo === '/login') {
+            redirectTo = '/dashboard';
+        }
+        router.push(redirectTo);
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -32,7 +88,6 @@ export default function LoginPage() {
             formErrors.email = "Email/Username required & valid format";
         }
 
-        // For login, only check if password is not empty (don't validate format)
         if (!password || password.trim() === '') {
             formErrors.password = "Password is required";
         }
@@ -53,60 +108,15 @@ export default function LoginPage() {
             setLoading(true);
             setServerError('');
 
-            const coords = await requireBrowserLocation(12000);
-            const { data } = await axiosInstance.post(
-                '/Login',
-                {
-                    email: email.trim().toLowerCase(),
-                    password: password.trim(),
-                    source: 'web',
-                    ...punchLocationPayload(coords),
-                },
-                { skipActionDedupe: true },
-            );
-
-            if (typeof window !== 'undefined') {
-                // Store token and user data
-                const userData = {
-                    ...data?.user,
-                    // Prefer nested user flags (system admin only). Do not promote Flowchart
-                    // Admin Officer via top-level isAdministrator alone.
-                    isSystemSuperUser:
-                        data?.user?.isSystemSuperUser === true ||
-                        data?.isSystemSuperUser === true,
-                    isAdmin: data?.user?.isAdmin === true || data?.isAdmin === true,
-                    isAdministrator:
-                        data?.user?.isAdministrator === true ||
-                        data?.isAdministrator === true,
-                };
-                localStorage.setItem('token', data?.token || '');
-                localStorage.setItem('user', JSON.stringify(userData));
-                // Also store for backward compatibility
-                localStorage.setItem('employeeUser', JSON.stringify(userData));
-
-                // Store permissions if available
-                if (data?.permissions) {
-                    localStorage.setItem('userPermissions', JSON.stringify(data.permissions));
-                }
-
-                // Store admin status
-                if (data?.isAdmin !== undefined) {
-                    localStorage.setItem('isAdmin', data.isAdmin.toString());
-                }
-
-                touchActivity();
-                resetSessionExpiryHandled();
-                resetSidebarPollingState();
-            }
-
-            // Show success and redirect
-            let redirectTo = searchParams.get('redirectTo') || '/dashboard';
-            if (redirectTo.startsWith('/login') || redirectTo === '/login') {
-                redirectTo = '/dashboard';
-            }
-            router.push(redirectTo);
+            const coords = await requireBrowserLocation(20000);
+            await completeLogin(coords);
         } catch (err) {
             if (err?.silent || err?.code === 'ACTION_DEDUPED') {
+                return;
+            }
+            if (isLocationRequiredError(err)) {
+                setLocationError(err.response?.data?.message || err.message || '');
+                setLocationModalOpen(true);
                 return;
             }
             const errorMessage =
@@ -117,6 +127,30 @@ export default function LoginPage() {
         } finally {
             submittingRef.current = false;
             setLoading(false);
+        }
+    };
+
+    const handleTurnOnLocation = async () => {
+        if (locationBusy) return;
+        setLocationBusy(true);
+        setLocationError('');
+        submittingRef.current = true;
+        setLoading(true);
+        try {
+            const coords = await promptSystemLocation();
+            await completeLogin(coords);
+            setLocationModalOpen(false);
+        } catch (err) {
+            if (err?.silent || err?.code === 'ACTION_DEDUPED') return;
+            setLocationError(
+                err.response?.data?.message ||
+                    err.message ||
+                    'Turn on location, allow access, then try again.',
+            );
+        } finally {
+            submittingRef.current = false;
+            setLoading(false);
+            setLocationBusy(false);
         }
     };
 
@@ -272,6 +306,16 @@ export default function LoginPage() {
                     {/* FORM END */}
                 </div>
             </div>
+            <LocationTurnOnModal
+                open={locationModalOpen}
+                busy={locationBusy}
+                error={locationError}
+                onTurnOn={handleTurnOnLocation}
+                onClose={() => {
+                    if (locationBusy) return;
+                    setLocationModalOpen(false);
+                }}
+            />
         </div>
     );
 }

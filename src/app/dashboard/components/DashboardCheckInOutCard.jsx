@@ -11,7 +11,13 @@ import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
     salaryLockFromAttendancePayload,
 } from './DashboardSalaryEnrollLock';
-import { buildDashboardPunchBody, detectDashboardPunchSource } from '@/utils/dashboardPunchMeta';
+import LocationTurnOnModal from '@/components/LocationTurnOnModal';
+import {
+    buildDashboardPunchBody,
+    detectDashboardPunchSource,
+    isLocationRequiredError,
+    promptSystemLocation,
+} from '@/utils/dashboardPunchMeta';
 
 export const ATTENDANCE_CHECK_CHANGED = 'verp:attendance-check-changed';
 
@@ -142,6 +148,10 @@ export default function DashboardCheckInOutCard() {
     const [siteHours, setSiteHours] = useState({ isOffDay: false, range: '' });
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
     const [contactLock, setContactLock] = useState('');
+    const [locationModalOpen, setLocationModalOpen] = useState(false);
+    const [locationBusy, setLocationBusy] = useState(false);
+    const [locationError, setLocationError] = useState('');
+    const pendingPunchRef = useRef('');
     const tickRef = useRef(null);
 
     const checkedIn = Boolean(timeIn);
@@ -261,14 +271,35 @@ export default function DashboardCheckInOutCard() {
         };
     }, [timeIn, timeOut]);
 
-    const handleCheckIn = async () => {
+    const handlePunchError = (err, fallbackMessage) => {
+        if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
+            setSalaryLock(salaryLockFromAttendancePayload(err.response.data));
+            return;
+        }
+        if (isLocationRequiredError(err)) {
+            setLocationError(err.response?.data?.message || err.message || '');
+            setLocationModalOpen(true);
+            return;
+        }
+        const msg = err?.response?.data?.message || fallbackMessage;
+        if (err?.response?.data?.punchContactLocked) {
+            setContactLock(msg);
+        }
+        setError(msg);
+        const record = err?.response?.data?.record;
+        if (record?.timeIn) setTimeIn(record.timeIn);
+        if (record?.timeOut) setTimeOut(record.timeOut);
+    };
+
+    const handleCheckIn = async (coords = null) => {
         if (salaryLock.locked || contactLock || checkedIn || saving || loading) return;
+        pendingPunchRef.current = 'in';
         setSaving(true);
         setError('');
         try {
             const res = await axiosInstance.post(
                 '/Attendance/me/check-in',
-                await buildDashboardPunchBody({ requireLocation: true }),
+                await buildDashboardPunchBody({ requireLocation: true, coords }),
                 { skipToast: true },
             );
             const nextIn =
@@ -277,40 +308,24 @@ export default function DashboardCheckInOutCard() {
                 getDubaiClockNow();
             setTimeIn(nextIn);
             setTimeOut('');
-            // Notify calendar only — avoid hard reload wiping timer state
             notifyAttendanceChanged();
+            setLocationModalOpen(false);
         } catch (err) {
-            if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
-                setSalaryLock(salaryLockFromAttendancePayload(err.response.data));
-                return;
-            }
-            const msg =
-                err?.code === 'LOCATION_REQUIRED'
-                    ? err.message
-                    : err?.response?.data?.message || 'Check-in failed.';
-            if (err?.response?.data?.punchContactLocked) {
-                setContactLock(msg);
-            }
-            setError(msg);
-            // If already checked in, sync times from record so timer can run
-            const record = err?.response?.data?.record;
-            if (record?.timeIn) {
-                setTimeIn(record.timeIn);
-                setTimeOut(record.timeOut || '');
-            }
+            handlePunchError(err, 'Check-in failed.');
         } finally {
             setSaving(false);
         }
     };
 
-    const handleCheckOut = async () => {
+    const handleCheckOut = async (coords = null) => {
         if (salaryLock.locked || contactLock || !checkedIn || checkedOut || saving || loading) return;
+        pendingPunchRef.current = 'out';
         setSaving(true);
         setError('');
         try {
             const res = await axiosInstance.post(
                 '/Attendance/me/check-out',
-                await buildDashboardPunchBody({ requireLocation: true }),
+                await buildDashboardPunchBody({ requireLocation: true, coords }),
                 { skipToast: true },
             );
             const nextOut =
@@ -319,28 +334,33 @@ export default function DashboardCheckInOutCard() {
                 getDubaiClockNow();
             setTimeOut(nextOut);
             notifyAttendanceChanged();
+            setLocationModalOpen(false);
         } catch (err) {
-            if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
-                setSalaryLock(salaryLockFromAttendancePayload(err.response.data));
-                return;
-            }
-            const msg =
-                err?.code === 'LOCATION_REQUIRED'
-                    ? err.message
-                    : err?.response?.data?.message || 'Check-out failed.';
-            if (err?.response?.data?.punchContactLocked) {
-                setContactLock(msg);
-            }
-            setError(msg);
-            const record = err?.response?.data?.record;
-            if (record?.timeOut) {
-                setTimeOut(record.timeOut);
-            }
-            if (record?.timeIn) {
-                setTimeIn(record.timeIn);
-            }
+            handlePunchError(err, 'Check-out failed.');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleTurnOnLocation = async () => {
+        if (locationBusy) return;
+        setLocationBusy(true);
+        setLocationError('');
+        try {
+            const coords = await promptSystemLocation();
+            if (pendingPunchRef.current === 'out') {
+                await handleCheckOut(coords);
+            } else {
+                await handleCheckIn(coords);
+            }
+        } catch (err) {
+            setLocationError(
+                err.response?.data?.message ||
+                    err.message ||
+                    'Turn on location, allow access, then try again.',
+            );
+        } finally {
+            setLocationBusy(false);
         }
     };
 
@@ -449,7 +469,7 @@ export default function DashboardCheckInOutCard() {
                 <button
                     type="button"
                     disabled={salaryLock.locked || Boolean(contactLock) || saving || loading || checkedIn}
-                    onClick={handleCheckIn}
+                    onClick={() => handleCheckIn()}
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0B7A3E] hover:bg-[#086433] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#0B7A3E] disabled:hover:translate-y-0 disabled:!text-white"
                     title={checkedIn ? `Checked in at ${formatClock(timeIn)}` : 'Check in'}
                 >
@@ -463,7 +483,7 @@ export default function DashboardCheckInOutCard() {
                 <button
                     type="button"
                     disabled={salaryLock.locked || Boolean(contactLock) || saving || loading || !checkedIn || checkedOut}
-                    onClick={handleCheckOut}
+                    onClick={() => handleCheckOut()}
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#B71C1C] hover:bg-[#9A1616] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#B71C1C] disabled:hover:translate-y-0 disabled:!text-white"
                     title={
                         checkedOut
@@ -482,6 +502,16 @@ export default function DashboardCheckInOutCard() {
                 </button>
             </div>
             <DashboardSalaryEnrollLock {...salaryLock} />
+            <LocationTurnOnModal
+                open={locationModalOpen}
+                busy={locationBusy || saving}
+                error={locationError}
+                onTurnOn={handleTurnOnLocation}
+                onClose={() => {
+                    if (locationBusy) return;
+                    setLocationModalOpen(false);
+                }}
+            />
         </motion.div>
     );
 }
