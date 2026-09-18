@@ -37,7 +37,7 @@ import {
     MessageCircle,
     Bell,
 } from 'lucide-react';
-import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
+import { hasAnyPermission, isAdmin, getUserPermissions, canViewWhatsAppInbox } from '@/utils/permissions';
 import {
     canAccessAssetModuleViaFlowchart,
     ensureAssetFlowchartRoleMeta,
@@ -220,7 +220,7 @@ const menuItems = [
                 ],
             },
             { label: 'Flowchart', icon: GitBranch, permissionModule: 'settings' },
-            { label: 'WhatsApp Messages', icon: MessageCircle, restoreRecovery: true },
+            { label: 'WhatsApp Messages', icon: MessageCircle, whatsappInbox: true },
             { label: 'Notifications & Emails', icon: Bell, restoreRecovery: true },
             { label: 'Activity Logs', icon: Activity, restoreRecovery: true },
             { label: 'Deleted Records', icon: Trash2, restoreRecovery: true },
@@ -855,6 +855,11 @@ export default function Sidebar() {
             return true;
         }
 
+        // Settings: HR with employee view can open WhatsApp Messages even without settings module.
+        if (item.id === 'Settings' && canViewWhatsAppInbox()) {
+            return true;
+        }
+
         // Check if user has isView permission for this module
         if (item.permissionModule) {
             const permissions = getUserPermissions();
@@ -891,6 +896,10 @@ export default function Sidebar() {
         // Logout is always visible
         if (subItem.label === 'Logout') {
             return true;
+        }
+
+        if (subItem.whatsappInbox) {
+            return canViewWhatsAppInbox();
         }
 
         if (subItem.restoreRecovery) {

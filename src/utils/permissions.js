@@ -240,6 +240,19 @@ export const hasAnyPermission = (moduleId) => {
     return false;
 };
 
+const WHATSAPP_INBOX_VIEW_MODULES = [
+    'hrm_employees_list',
+    'hrm_employees',
+    'hrm_employees_view',
+    'hrm_employees_view_basic',
+];
+
+/** Admin or HR with employee view — WhatsApp Messages inbox. */
+export function canViewWhatsAppInbox() {
+    if (isAdmin()) return true;
+    return WHATSAPP_INBOX_VIEW_MODULES.some((moduleId) => hasAnyPermission(moduleId));
+}
+
 /**
  * True if the user has View (or legacy isActive) on any of the listed modules.
  * Used for main tabs / sidebar where a section should appear if any child is granted.

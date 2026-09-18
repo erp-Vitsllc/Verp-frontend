@@ -262,7 +262,7 @@ export default function WhatsAppMessagesPage() {
                     <Navbar />
                     <main className="flex flex-1 items-center justify-center p-8">
                         <p className="text-slate-600">
-                            You do not have access to WhatsApp Messages. Super User (admin) only.
+                            You do not have access to WhatsApp Messages.
                         </p>
                     </main>
                 </div>
