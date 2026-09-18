@@ -67,8 +67,8 @@ export function formatLoginThroughDisplay(value) {
     if (value == null || value === '') return '-';
     if (typeof value !== 'object' || Array.isArray(value)) return toDisplayValue(value);
     const parts = [];
-    if (value.portalApp !== false) parts.push('Portal App');
-    if (value.web !== false) parts.push('Web');
+    if (value.portalApp === true) parts.push('Portal App');
+    if (value.web === true) parts.push('Web');
     return parts.length ? parts.join(', ') : 'None';
 }
 

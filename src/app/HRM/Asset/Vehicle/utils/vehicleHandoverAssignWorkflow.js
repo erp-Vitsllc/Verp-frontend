@@ -189,8 +189,8 @@ function localGetHandoverAssigneeCanSelfAcknowledge(vehicle, assignee = null, hi
     const hasStored =
         loginThrough &&
         (typeof loginThrough.portalApp === 'boolean' || typeof loginThrough.web === 'boolean');
-    if (!hasStored) return true;
-    return loginThrough.portalApp !== false || loginThrough.web !== false;
+    if (!hasStored) return false;
+    return loginThrough.portalApp === true || loginThrough.web === true;
 }
 
 export function resolveHandoverWorkflowActors({

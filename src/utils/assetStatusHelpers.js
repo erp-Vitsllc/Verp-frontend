@@ -99,8 +99,8 @@ export const getAssetWaitingForMeta = (asset) => {
         const hasStored =
             stored &&
             (typeof stored.portalApp === 'boolean' || typeof stored.web === 'boolean');
-        if (!hasStored) return false;
-        return stored.portalApp === false && stored.web === false;
+        if (!hasStored) return true;
+        return stored.portalApp !== true && stored.web !== true;
     })();
     const ackSaysNoSelf = asset.assignmentAck?.assigneeCanSelfAcknowledge === false;
 

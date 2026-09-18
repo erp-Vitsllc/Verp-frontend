@@ -126,7 +126,6 @@ const nextConfig = {
     config.parallelism = 1;
 
     if (dev) {
-      config.devtool = 'eval';
       config.watchOptions = {
         ignored: ['**/node_modules/**', '**/.git/**', '**/.next/**'],
       };

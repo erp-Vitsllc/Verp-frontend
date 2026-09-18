@@ -7081,8 +7081,8 @@ function EmployeeProfilePageContent() {
     const handleToggleLoginThrough = async (channel, checked) => {
         if (togglingLoginThrough || !employee) return;
         const next = {
-            portalApp: employee?.loginThrough?.portalApp !== false,
-            web: employee?.loginThrough?.web !== false,
+            portalApp: employee?.loginThrough?.portalApp === true,
+            web: employee?.loginThrough?.web === true,
             [channel]: checked,
         };
         try {

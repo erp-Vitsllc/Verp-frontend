@@ -1434,11 +1434,8 @@ export default function SalaryTab({
         isLoggedInAdmin || (isProfileOwner && isAssetController);
     const isManager = employee?.primaryReportee === loggedInEmployeeId || employee?.primaryReportee?._id === loggedInEmployeeId;
     const loginThrough = employee?.loginThrough;
-    const hasLoginChannel = !(
-        loginThrough &&
-        loginThrough.portalApp === false &&
-        loginThrough.web === false
-    );
+    const hasLoginChannel =
+        loginThrough?.portalApp === true || loginThrough?.web === true;
     const assigneeHasNoAccess = !employee?.companyEmail || !hasLoginChannel;
     const hasPendingControllerQueue = useMemo(() => {
         const all = [...(unassignedAssets || []), ...(onLeaveAssets || []), ...(onServiceAssets || [])];

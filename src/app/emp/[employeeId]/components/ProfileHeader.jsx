@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import DocumentViewerModal from './modals/DocumentViewerModal';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { ERP_JPEG_ACCEPT } from '@/utils/uploadFileTypes';
-import { Camera, MessageCircle } from 'lucide-react';
+import { Camera } from 'lucide-react';
 import { filterSnapshotRowsToChangesOnly } from '../utils/pendingActivationSnapshotRows';
 import PendingChangeSnapshotTable from './PendingChangeSnapshotTable';
 import EmployeeHeroCardBackground from './EmployeeHeroCardBackground';
@@ -30,7 +30,7 @@ import { isEmployeeLeftUser } from '@/utils/employeeWorkStatus';
 import OnDutyFromLeaveControl, { ownerHasOnLeaveAssets } from '@/app/HRM/Asset/components/OnDutyFromLeaveControl';
 import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
 import { buildActivationHoldPayload } from '@/utils/buildActivationHoldPayload';
-import axiosInstance from '@/utils/axios';
+// import axiosInstance from '@/utils/axios';
 
 function pendingQueueIncludesLeftUser(pendingChanges = []) {
     return (Array.isArray(pendingChanges) ? pendingChanges : []).some(
@@ -119,59 +119,59 @@ function ProfileHeader({
     }, [employeeImageKey, setImageErrorProp]);
 
     const { toast } = useToast();
-    const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
-
-    const handleSendWhatsApp = async () => {
-        const NO_WP_FIELD = 'This user have no WP';
-        const NO_WP_ACCOUNT = 'This WhatsApp number does not have a WhatsApp account';
-        const hasWp = Boolean(String(employee?.whatsappNumber || '').trim());
-        if (!hasWp) {
-            toast({
-                title: 'This user have no WP',
-                description: 'Add a WhatsApp number in Basic Details first.',
-                variant: 'destructive',
-            });
-            return;
-        }
-        if (sendingWhatsApp) return;
-        try {
-            setSendingWhatsApp(true);
-            const id = employee?.employeeId || employee?._id;
-            const response = await axiosInstance.post(`/whatsapp/employee/${encodeURIComponent(id)}`);
-            if (!response.data?.success) {
-                const errMsg = response.data?.error || 'WhatsApp not sent';
-                toast({
-                    title: errMsg === NO_WP_FIELD
-                        ? 'This user have no WP'
-                        : errMsg === NO_WP_ACCOUNT
-                            ? 'No WhatsApp account'
-                            : 'WhatsApp not sent',
-                    description: errMsg,
-                    variant: 'destructive',
-                });
-                return;
-            }
-            toast({
-                title: 'WhatsApp sent',
-                description: `Template vega_digital_it_solution sent to ${employee.whatsappNumber}. Open that phone and look for Vegadigital UAE.`,
-                variant: 'success',
-            });
-        } catch (err) {
-            const msg = err.response?.data?.error || err.message || 'This user have no WP';
-            toast({
-                title:
-                    msg === 'This user have no WP'
-                        ? 'This user have no WP'
-                        : msg === 'This WhatsApp number does not have a WhatsApp account'
-                            ? 'No WhatsApp account'
-                            : 'WhatsApp not sent',
-                description: msg,
-                variant: 'destructive',
-            });
-        } finally {
-            setSendingWhatsApp(false);
-        }
-    };
+    // const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
+    //
+    // const handleSendWhatsApp = async () => {
+    //     const NO_WP_FIELD = 'This user have no WP';
+    //     const NO_WP_ACCOUNT = 'This WhatsApp number does not have a WhatsApp account';
+    //     const hasWp = Boolean(String(employee?.whatsappNumber || '').trim());
+    //     if (!hasWp) {
+    //         toast({
+    //             title: 'This user have no WP',
+    //             description: 'Add a WhatsApp number in Basic Details first.',
+    //             variant: 'destructive',
+    //         });
+    //         return;
+    //     }
+    //     if (sendingWhatsApp) return;
+    //     try {
+    //         setSendingWhatsApp(true);
+    //         const id = employee?.employeeId || employee?._id;
+    //         const response = await axiosInstance.post(`/whatsapp/employee/${encodeURIComponent(id)}`);
+    //         if (!response.data?.success) {
+    //             const errMsg = response.data?.error || 'WhatsApp not sent';
+    //             toast({
+    //                 title: errMsg === NO_WP_FIELD
+    //                     ? 'This user have no WP'
+    //                     : errMsg === NO_WP_ACCOUNT
+    //                         ? 'No WhatsApp account'
+    //                         : 'WhatsApp not sent',
+    //                 description: errMsg,
+    //                 variant: 'destructive',
+    //             });
+    //             return;
+    //         }
+    //         toast({
+    //             title: 'WhatsApp sent',
+    //             description: `Template vega_digital_it_solution sent to ${employee.whatsappNumber}. Open that phone and look for Vegadigital UAE.`,
+    //             variant: 'success',
+    //         });
+    //     } catch (err) {
+    //         const msg = err.response?.data?.error || err.message || 'This user have no WP';
+    //         toast({
+    //             title:
+    //                 msg === 'This user have no WP'
+    //                     ? 'This user have no WP'
+    //                     : msg === 'This WhatsApp number does not have a WhatsApp account'
+    //                         ? 'No WhatsApp account'
+    //                         : 'WhatsApp not sent',
+    //             description: msg,
+    //             variant: 'destructive',
+    //         });
+    //     } finally {
+    //         setSendingWhatsApp(false);
+    //     }
+    // };
     const hasLeftUserPending = useMemo(
         () => pendingQueueIncludesLeftUser(employee?.pendingReactivationChanges),
         [employee?.pendingReactivationChanges],
@@ -978,7 +978,7 @@ function ProfileHeader({
                                     <span>{employee.companyEmail || employee.workEmail}</span>
                                 </div>
                             )}
-                            <button
+                            {/* <button
                                 type="button"
                                 onClick={handleSendWhatsApp}
                                 disabled={sendingWhatsApp}
@@ -986,7 +986,7 @@ function ProfileHeader({
                             >
                                 <MessageCircle size={15} />
                                 {sendingWhatsApp ? 'Sending...' : 'Send message through WP'}
-                            </button>
+                            </button> */}
                         </div>
 
                     </div>
@@ -1004,7 +1004,7 @@ function ProfileHeader({
                                         <label className="inline-flex items-center gap-1.5 text-sm text-gray-700">
                                             <input
                                                 type="checkbox"
-                                                checked={employee?.loginThrough?.portalApp !== false}
+                                                checked={employee?.loginThrough?.portalApp === true}
                                                 disabled={togglingLoginThrough || !canTogglePortal}
                                                 onChange={(e) => onToggleLoginThrough('portalApp', e.target.checked)}
                                                 className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -1014,7 +1014,7 @@ function ProfileHeader({
                                         <label className="inline-flex items-center gap-1.5 text-sm text-gray-700">
                                             <input
                                                 type="checkbox"
-                                                checked={employee?.loginThrough?.web !== false}
+                                                checked={employee?.loginThrough?.web === true}
                                                 disabled={togglingLoginThrough || !canTogglePortal}
                                                 onChange={(e) => onToggleLoginThrough('web', e.target.checked)}
                                                 className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
