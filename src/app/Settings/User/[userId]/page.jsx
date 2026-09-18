@@ -472,6 +472,92 @@ function formatDeviceSeen(value) {
     return date.toLocaleString();
 }
 
+function toFiniteNumber(value) {
+    if (value == null || value === '') return null;
+    const n = typeof value === 'number' ? value : Number(String(value).trim());
+    return Number.isFinite(n) ? n : null;
+}
+
+function parseLoginCoordinates(device) {
+    let lat = toFiniteNumber(device?.latitude);
+    let lng = toFiniteNumber(device?.longitude);
+    if (lat == null || lng == null) {
+        const text = String(device?.location || '').trim();
+        const match = text.match(/^(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)$/);
+        if (match) {
+            lat = toFiniteNumber(match[1]);
+            lng = toFiniteNumber(match[2]);
+        }
+    }
+    if (lat == null || lng == null) return null;
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+    return { lat, lng };
+}
+
+function prefersAppleMaps() {
+    if (typeof navigator === 'undefined') return false;
+    return /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent || '');
+}
+
+function mapsHrefForLoginLocation(device) {
+    const coords = parseLoginCoordinates(device);
+    const locationText = String(device?.location || '').trim();
+    const apple = prefersAppleMaps();
+    if (coords) {
+        const { lat, lng } = coords;
+        if (apple) {
+            return {
+                href: `https://maps.apple.com/?ll=${lat},${lng}&q=${encodeURIComponent('Login location')}`,
+                provider: 'Apple Maps',
+            };
+        }
+        return {
+            href: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
+            provider: 'Google Maps',
+        };
+    }
+    if (!locationText) return null;
+    const query = encodeURIComponent(locationText);
+    if (apple) {
+        return { href: `https://maps.apple.com/?q=${query}`, provider: 'Apple Maps' };
+    }
+    return {
+        href: `https://www.google.com/maps/search/?api=1&query=${query}`,
+        provider: 'Google Maps',
+    };
+}
+
+function LoginLocationPin({ device, emptyDisplay = '-' }) {
+    const maps = mapsHrefForLoginLocation(device);
+    if (!maps) {
+        return <span className="text-base font-semibold text-gray-800">{emptyDisplay}</span>;
+    }
+
+    return (
+        <a
+            href={maps.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group mt-1 inline-flex items-center gap-3 rounded-xl border border-blue-100 bg-white px-3 py-2 shadow-sm transition hover:border-blue-300 hover:shadow-md"
+            title={`Open login location in ${maps.provider}`}
+        >
+            <span className="relative flex h-11 w-9 shrink-0 items-end justify-center">
+                <span className="absolute bottom-0 h-1.5 w-4 rounded-full bg-black/20 blur-[1px]" />
+                <MapPin
+                    size={36}
+                    className="relative text-red-500 drop-shadow-md transition group-hover:-translate-y-0.5 group-hover:scale-110"
+                    fill="currentColor"
+                    strokeWidth={1.6}
+                />
+            </span>
+            <span className="flex min-w-0 flex-col">
+                <span className="text-sm font-semibold text-gray-900">Open in {maps.provider}</span>
+                <span className="text-xs text-blue-600">Click the pin to open this login GPS</span>
+            </span>
+        </a>
+    );
+}
+
 function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
     const status = device?.status === 'fixed' ? 'fixed' : 'not_fixed';
     const isFixed = status === 'fixed';
@@ -479,7 +565,13 @@ function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
     const location = String(device?.location || '').trim();
     const ipAddress = String(device?.ipAddress || '').trim();
     const hasDevice = Boolean(
-        device?.hasDevice || device?.deviceId || deviceName || location || ipAddress
+        device?.hasDevice ||
+            device?.deviceId ||
+            deviceName ||
+            location ||
+            ipAddress ||
+            device?.latitude != null ||
+            device?.longitude != null
     );
     const canFix = Boolean(device?.canFix || String(device?.deviceId || '').trim());
     const lastSeen = formatDeviceSeen(device?.lastSeenAt || (hasDevice ? lastLogin : null));
@@ -511,12 +603,13 @@ function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
                     value={deviceName}
                     emptyDisplay={hasDevice ? '-' : ''}
                 />
-                <DetailItem
-                    icon={<MapPin size={18} className="text-blue-500" />}
-                    label="Location"
-                    value={location}
-                    emptyDisplay={hasDevice ? '-' : ''}
-                />
+                <div className="flex flex-col gap-1">
+                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                        <MapPin size={18} className="text-blue-500" />
+                        Location
+                    </span>
+                    <LoginLocationPin device={device} emptyDisplay={hasDevice ? '-' : ''} />
+                </div>
                 <DetailItem
                     icon={<Globe size={18} className="text-blue-500" />}
                     label="IP Address"

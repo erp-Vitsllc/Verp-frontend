@@ -367,7 +367,7 @@ function FineManagementContent({
     useEffect(() => {
         if (mounted) {
             fetchFines();
-            if (!embedded) fetchPendingInboxCount();
+            if (!embedded) fetchPendingInboxCount({ force: true });
         }
     }, [mounted, fetchFines, fetchPendingInboxCount, embedded]);
 

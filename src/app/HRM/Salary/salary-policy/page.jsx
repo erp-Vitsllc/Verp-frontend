@@ -91,7 +91,7 @@ export default function SalaryPolicyPage() {
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                <SalaryPolicyFields form={form} setForm={setForm} />
+                                <SalaryPolicyFields form={form} setForm={setForm} showEmployeeExclusionFields />
                                 <div className="flex justify-end">
                                     <button
                                         type="button"

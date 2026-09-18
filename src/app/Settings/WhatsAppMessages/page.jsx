@@ -89,6 +89,7 @@ export default function WhatsAppMessagesPage() {
     const [loadingThread, setLoadingThread] = useState(false);
     const [draft, setDraft] = useState('');
     const [sending, setSending] = useState(false);
+    const [webhookStatus, setWebhookStatus] = useState(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -161,6 +162,25 @@ export default function WhatsAppMessagesPage() {
     }, [allowed, loadConversations]);
 
     useEffect(() => {
+        if (!allowed) return undefined;
+        let cancelled = false;
+        const loadStatus = async () => {
+            try {
+                const res = await axiosInstance.get('/whatsapp/status', { skipToast: true });
+                if (!cancelled) setWebhookStatus(res.data || null);
+            } catch {
+                if (!cancelled) setWebhookStatus(null);
+            }
+        };
+        loadStatus();
+        const timer = setInterval(loadStatus, 20000);
+        return () => {
+            cancelled = true;
+            clearInterval(timer);
+        };
+    }, [allowed]);
+
+    useEffect(() => {
         if (!allowed || !activePhone) return;
         loadThread(activePhone);
     }, [allowed, activePhone, loadThread]);
@@ -191,6 +211,13 @@ export default function WhatsAppMessagesPage() {
     ]
         .filter(Boolean)
         .join(' · ');
+
+    const inboundMissing =
+        Boolean(activePhone) &&
+        Array.isArray(thread?.messages) &&
+        thread.messages.length > 0 &&
+        thread.messages.every((row) => row.direction !== 'in');
+    const webhookNeverSeen = !webhookStatus?.lastWebhookAt && !(webhookStatus?.inboundStored > 0);
 
     const sendReply = async (event) => {
         event?.preventDefault?.();
@@ -328,8 +355,8 @@ export default function WhatsAppMessagesPage() {
                                                         </span>
                                                     </span>
                                                     <span className="mt-0.5 block truncate text-xs text-slate-500">
-                                                        {last.direction === 'out' ? 'You: ' : ''}
-                                                        {last.body || '—'}
+                                                        {last.direction === 'out' ? 'You: ' : 'Received: '}
+                                                        {last.body || last.templateName || '—'}
                                                     </span>
                                                     <span className="mt-1 flex flex-wrap gap-1">
                                                         {row.inboundCount > 0 ? (
@@ -390,13 +417,30 @@ export default function WhatsAppMessagesPage() {
                                                         >
                                                             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                                                                 {outgoing
-                                                                    ? `Sent by ${message.sentByName || 'ERP'}`
-                                                                    : `From ${message.contactName || `+${message.conversationPhone}`}`}
-                                                                {' · '}
-                                                                {sourceLabel(message)}
+                                                                    ? [
+                                                                          `Sent by ${message.sentByName || 'ERP'}`,
+                                                                          message.accountPhone || message.fromPhone
+                                                                              ? `Account +${message.accountPhone || message.fromPhone}`
+                                                                              : '',
+                                                                          sourceLabel(message),
+                                                                      ]
+                                                                          .filter(Boolean)
+                                                                          .join(' · ')
+                                                                    : [
+                                                                          'Received',
+                                                                          message.contactName ||
+                                                                              (message.conversationPhone
+                                                                                  ? `+${message.conversationPhone}`
+                                                                                  : ''),
+                                                                          message.accountPhone || message.toPhone
+                                                                              ? `to +${message.accountPhone || message.toPhone}`
+                                                                              : '',
+                                                                      ]
+                                                                          .filter(Boolean)
+                                                                          .join(' · ')}
                                                             </p>
-                                                            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">
-                                                                {message.body || '—'}
+                                                            <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed">
+                                                                {message.body || message.templateName || '—'}
                                                             </p>
                                                             {message.error ? (
                                                                 <p className="mt-1 text-[11px] text-red-600">{message.error}</p>
@@ -410,6 +454,22 @@ export default function WhatsAppMessagesPage() {
                                                 );
                                             })
                                         )}
+                                        {inboundMissing ? (
+                                            <div className="mx-auto max-w-md rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-900">
+                                                <p className="font-semibold">Received replies are not in ERP yet</p>
+                                                <p className="mt-1 text-[13px] leading-relaxed text-amber-800">
+                                                    Phone messages such as “hi” and “hy” stay on WhatsApp until Meta POSTs
+                                                    them to{' '}
+                                                    <span className="font-mono text-[12px]">
+                                                        {webhookStatus?.webhookPath || '/api/whatsapp/webhook'}
+                                                    </span>
+                                                    . Sent bubbles appear because ERP saves them when it sends.
+                                                    {webhookNeverSeen
+                                                        ? ' Meta has not delivered an inbound webhook to this backend.'
+                                                        : ''}
+                                                </p>
+                                            </div>
+                                        ) : null}
                                         <div ref={threadEndRef} />
                                     </div>
                                     <form

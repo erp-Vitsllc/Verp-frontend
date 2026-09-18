@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
     addDays,
     addMonths,
@@ -38,6 +39,7 @@ import {
 import axiosInstance from '@/utils/axios';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import AttendanceDayDetailPanel, { emptyDayDetailStats } from './AttendanceDayDetailPanel';
+import { markAttendanceHref } from '../utils/markAttendanceHref';
 
 const VIEW_OPTIONS = ['Day', 'Week', 'Month', 'Year'];
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -409,7 +411,7 @@ function DayStatsPanel({ day, compact = false }) {
                 </span>
             )}
             {!compact && !isFuture ? (
-                <p className="mt-4 text-sm text-gray-400">Click for attendance details</p>
+                <p className="mt-4 text-sm text-gray-400">Click to open attendance list</p>
             ) : null}
         </div>
     );
@@ -506,6 +508,7 @@ function MonthGrid({
 }
 
 export default function AttendanceMonthCalendar({ staffType = null }) {
+    const router = useRouter();
     const [view, setView] = useState('Month');
     const [cursorDate, setCursorDate] = useState(() => new Date());
     const [selectedDate, setSelectedDate] = useState(() => new Date());
@@ -647,9 +650,11 @@ export default function AttendanceMonthCalendar({ staffType = null }) {
     };
 
     const openDayDetail = (day) => {
+        if (!day || isAfter(startOfDay(day), startOfDay(new Date()))) return;
         setSelectedDate(day);
         setCursorDate(day);
         setDetailDay(day);
+        router.push(markAttendanceHref({ date: day, staffType }));
     };
 
     return (

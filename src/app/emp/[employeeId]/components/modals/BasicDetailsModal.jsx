@@ -26,16 +26,21 @@ export default function BasicDetailsModal({
     editFormErrors,
     setEditFormErrors,
     updating,
+    checkingWhatsApp = false,
     editCountryCode,
     setEditCountryCode,
     allCountriesOptions,
     DEFAULT_PHONE_COUNTRY,
     onEditChange,
     onUpdate,
+    onRequestUpdate,
     confirmUpdateOpen,
-    setConfirmUpdateOpen
+    setConfirmUpdateOpen,
+    whatsappRegistered = false,
 }) {
     if (!isOpen) return null;
+
+    const busy = updating || checkingWhatsApp;
 
     return (
         <>
@@ -46,7 +51,7 @@ export default function BasicDetailsModal({
                         <h3 className="text-[22px] font-semibold text-gray-800">Basic Details</h3>
                         <button
                             onClick={() => {
-                                if (!updating) {
+                                if (!busy) {
                                     onClose();
                                     setEditFormErrors({});
                                 }
@@ -102,14 +107,29 @@ export default function BasicDetailsModal({
                                     </label>
                                     <div className="w-full md:flex-1 flex flex-col gap-1">
                                         {input.type === 'phone' ? (
-                                            <PhoneInputField
-                                                defaultCountry={DEFAULT_PHONE_COUNTRY}
-                                                value={editForm[input.field]}
-                                                onChange={(value, country) => onEditChange(input.field, value, country)}
-                                                placeholder={input.placeholder || "Enter contact number"}
-                                                disabled={updating}
-                                                error={editFormErrors[input.field]}
-                                            />
+                                            <>
+                                                <PhoneInputField
+                                                    defaultCountry={DEFAULT_PHONE_COUNTRY}
+                                                    value={editForm[input.field]}
+                                                    onChange={(value, country) => onEditChange(input.field, value, country)}
+                                                    placeholder={input.placeholder || "Enter contact number"}
+                                                    disabled={busy}
+                                                    error={editFormErrors[input.field]}
+                                                    validatedLabel={
+                                                        input.field === 'whatsappNumber'
+                                                            ? (whatsappRegistered ? 'WhatsApp registered' : 'Format valid')
+                                                            : 'Validated'
+                                                    }
+                                                />
+                                                {input.field === 'whatsappNumber'
+                                                    && !editFormErrors[input.field]
+                                                    && !whatsappRegistered
+                                                    && String(editForm.whatsappNumber || '').trim() !== '' && (
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        Click Update to verify this number is registered on WhatsApp.
+                                                    </p>
+                                                )}
+                                            </>
                                         ) : input.type === 'select' ? (
                                             <div className="flex flex-col gap-1 w-full">
                                                 <select
@@ -125,7 +145,7 @@ export default function BasicDetailsModal({
                                                         }
                                                     }}
                                                     className={`w-full h-10 px-3 rounded-xl border ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                                    disabled={updating}
+                                                    disabled={busy}
                                                 >
                                                     {input.options.map((option) => (
                                                         <option key={option.value} value={option.value}>
@@ -152,7 +172,7 @@ export default function BasicDetailsModal({
                                                         }
                                                     }}
                                                     className={`w-full ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'}`}
-                                                    disabled={updating || input.readOnly}
+                                                    disabled={busy || input.readOnly}
                                                     disabledDays={input.field === 'dateOfBirth' ? { after: new Date() } : undefined}
                                                 />
                                                 {editFormErrors[input.field] && (
@@ -177,7 +197,7 @@ export default function BasicDetailsModal({
                                                         }
                                                     }}
                                                     className={`w-full h-10 px-3 rounded-xl border ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                                    disabled={updating || input.readOnly}
+                                                    disabled={busy || input.readOnly}
                                                     readOnly={input.readOnly}
                                                 />
                                                 {editFormErrors[input.field] && (
@@ -193,22 +213,30 @@ export default function BasicDetailsModal({
                     <div className="flex items-center justify-end gap-4 px-4 pt-4 border-t border-gray-100">
                         <button
                             onClick={() => {
-                                if (!updating) {
+                                if (!busy) {
                                     onClose();
                                     setEditFormErrors({});
                                 }
                             }}
                             className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors disabled:opacity-50"
-                            disabled={updating}
+                            disabled={busy}
                         >
                             Cancel
                         </button>
                         <button
-                            onClick={() => setConfirmUpdateOpen(true)}
+                            onClick={() => {
+                                if (typeof onRequestUpdate === 'function') {
+                                    onRequestUpdate();
+                                    return;
+                                }
+                                setConfirmUpdateOpen(true);
+                            }}
                             className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
-                            disabled={updating}
+                            disabled={busy}
                         >
-                            {updating ? 'Updating...' : 'Update'}
+                            {updating || checkingWhatsApp
+                                ? (checkingWhatsApp ? 'Checking WhatsApp...' : 'Updating...')
+                                : 'Update'}
                         </button>
                     </div>
                 </div>

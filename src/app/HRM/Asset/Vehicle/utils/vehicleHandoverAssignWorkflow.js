@@ -185,7 +185,12 @@ function localGetHandoverAssigneeCanSelfAcknowledge(vehicle, assignee = null, hi
     if (!target || typeof target !== 'object') return false;
     const hasEmail = Boolean(target.companyEmail && String(target.companyEmail).trim());
     if (!hasEmail) return false;
-    return target.enablePortalAccess === true;
+    const stored = target.loginThrough;
+    const hasStored =
+        stored &&
+        (typeof stored.portalApp === 'boolean' || typeof stored.web === 'boolean');
+    if (!hasStored) return true;
+    return stored.portalApp !== false || stored.web !== false;
 }
 
 export function resolveHandoverWorkflowActors({

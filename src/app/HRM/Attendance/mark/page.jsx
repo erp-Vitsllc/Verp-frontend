@@ -11,7 +11,8 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import MarkAttendanceTable from './components/MarkAttendanceTable';
 import useWorkLocations from '@/hooks/useWorkLocations';
-import { workLocationLabel } from '@/utils/workLocations';
+import { normalizeWorkLocationKey, workLocationLabel } from '@/utils/workLocations';
+import { markAttendanceHref } from '../utils/markAttendanceHref';
 
 /** Company calendar day (Asia/Dubai) as yyyy-MM-dd — matches backend midnight routine. */
 function getDubaiDateKey(date = new Date()) {
@@ -40,11 +41,17 @@ function MarkAttendanceContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const dateParam = searchParams.get('date');
+    const staffTypeParam = searchParams.get('staffType');
     const { tabs: staffTabs } = useWorkLocations();
 
     const selectedDate = useMemo(() => parseDateParam(dateParam), [dateParam]);
     const dateKey = format(selectedDate, 'yyyy-MM-dd');
     const fullDateLabel = format(selectedDate, 'EEEE, d MMMM yyyy');
+    const staffTabFromUrl = useMemo(() => {
+        const key = normalizeWorkLocationKey(staffTypeParam);
+        const match = staffTabs.find((tab) => tab.key === key);
+        return match?.key || staffTabs[0]?.key || 'office';
+    }, [staffTypeParam, staffTabs]);
 
     // Follow "today" so after 12 AM (Dubai) the page opens a fresh empty day.
     const [followToday, setFollowToday] = useState(() => {
@@ -53,17 +60,23 @@ function MarkAttendanceContent() {
     });
     const [dayRolledOver, setDayRolledOver] = useState(false);
     const [calendarOpen, setCalendarOpen] = useState(false);
-    const [staffTab, setStaffTab] = useState('office');
+    const [staffTab, setStaffTab] = useState(staffTabFromUrl);
     const lastDubaiDayRef = useRef(getDubaiDateKey());
 
+    useEffect(() => {
+        setStaffTab(staffTabFromUrl);
+    }, [staffTabFromUrl]);
+
     const goToDate = useCallback(
-        (nextDate, { follow = false } = {}) => {
+        (nextDate, { follow = false, staffType } = {}) => {
             const date = format(startOfDay(nextDate), 'yyyy-MM-dd');
+            const group = staffType || staffTab;
             setFollowToday(follow || date === getDubaiDateKey());
             setDayRolledOver(false);
-            router.replace(`/HRM/Attendance/mark?date=${date}`);
+            if (group) setStaffTab(group);
+            router.replace(markAttendanceHref({ date, staffType: group }));
         },
-        [router],
+        [router, staffTab],
     );
 
     const goPrev = () => goToDate(addDays(selectedDate, -1), { follow: false });
@@ -78,10 +91,10 @@ function MarkAttendanceContent() {
     useEffect(() => {
         if (!dateParam) {
             const today = getDubaiDateKey();
-            router.replace(`/HRM/Attendance/mark?date=${today}`);
+            router.replace(markAttendanceHref({ date: today, staffType: staffTab }));
             setFollowToday(true);
         }
-    }, [dateParam, router]);
+    }, [dateParam, router, staffTab]);
 
     useEffect(() => {
         const checkRollover = () => {
@@ -94,7 +107,7 @@ function MarkAttendanceContent() {
             if (followToday) {
                 setDayRolledOver(true);
                 setFollowToday(true);
-                router.replace(`/HRM/Attendance/mark?date=${dubaiToday}`);
+                router.replace(markAttendanceHref({ date: dubaiToday, staffType: staffTab }));
             }
         };
 
@@ -110,7 +123,7 @@ function MarkAttendanceContent() {
             document.removeEventListener('visibilitychange', onVisible);
             window.removeEventListener('focus', checkRollover);
         };
-    }, [followToday, router]);
+    }, [followToday, router, staffTab]);
 
     return (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-visible">
@@ -121,7 +134,7 @@ function MarkAttendanceContent() {
                         <button
                             key={tab.key}
                             type="button"
-                            onClick={() => setStaffTab(tab.key)}
+                            onClick={() => goToDate(selectedDate, { follow: followToday, staffType: tab.key })}
                             className={`px-3 sm:px-4 lg:px-6 py-2.5 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${
                                 active
                                     ? 'text-[#EA3D2F]'

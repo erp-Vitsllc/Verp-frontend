@@ -74,6 +74,7 @@ const PhoneInputField = ({
     defaultCountry = "AE",
     required = false,
     disabled = false,
+    validatedLabel = 'Validated',
     ...props
 }) => {
     const [internalError, setInternalError] = useState('');
@@ -233,7 +234,7 @@ const PhoneInputField = ({
 
             {validatedNumber && !displayError && (
                 <div className="mt-2 flex items-center gap-2 py-1.5 px-3 bg-green-50 border border-green-100 rounded-lg w-fit">
-                    <span className="text-xs font-semibold text-green-700 uppercase tracking-wider">Validated:</span>
+                    <span className="text-xs font-semibold text-green-700 uppercase tracking-wider">{String(validatedLabel)}:</span>
                     <span className="text-sm font-bold text-green-900 tracking-tight">+{String(validatedNumber)}</span>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-green-600">
                         <polyline points="20 6 9 17 4 12"></polyline>

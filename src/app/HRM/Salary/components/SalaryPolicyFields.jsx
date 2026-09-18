@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, Minus, Paperclip, Plus, X } from 'lucide-react';
+import Select from 'react-select';
 import {
     currentMonthDayOptions,
     cutoffDayForCurrentMonth,
@@ -22,6 +23,7 @@ import {
 } from '../utils/salaryPolicyForm';
 import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { validateErpUploadFile } from '@/utils/uploadFileTypes';
+import axiosInstance from '@/utils/axios';
 
 const inputClass =
     'h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15';
@@ -229,6 +231,108 @@ function DaySelect({ value, days, onChange }) {
     );
 }
 
+function employeeNameOf(emp) {
+    const name = `${emp?.firstName || ''} ${emp?.lastName || ''}`.trim();
+    return name || String(emp?.name || '').trim() || String(emp?.employeeId || '').trim() || 'Employee';
+}
+
+function isCompanyShellName(emp) {
+    const last = String(emp?.lastName || '').trim();
+    if (/^\(company\)$/i.test(last)) return true;
+    const full = `${emp?.firstName || ''} ${emp?.lastName || ''} ${emp?.name || ''}`.trim();
+    return /\(company\)\s*$/i.test(full);
+}
+
+function employeeExclusionOption(emp) {
+    const id = String(emp?.employeeId || emp?.value || '').trim();
+    if (!id) return null;
+    const name = employeeNameOf(emp);
+    return {
+        value: id,
+        label: `${name} (${id}) · Active`,
+        name,
+    };
+}
+
+const employeeSelectStyles = {
+    control: (base, state) => ({
+        ...base,
+        minHeight: 36,
+        borderRadius: '0.5rem',
+        borderColor: state.isFocused ? '#93c5fd' : '#e5e7eb',
+        boxShadow: state.isFocused ? '0 0 0 2px rgba(59, 130, 246, 0.15)' : 'none',
+        backgroundColor: '#fff',
+        fontSize: '0.875rem',
+        '&:hover': { borderColor: '#93c5fd' },
+    }),
+    valueContainer: (base) => ({
+        ...base,
+        padding: '2px 8px',
+        gap: 4,
+    }),
+    multiValue: (base) => ({
+        ...base,
+        backgroundColor: '#eff6ff',
+        borderRadius: 6,
+    }),
+    multiValueLabel: (base) => ({
+        ...base,
+        color: '#1e40af',
+        fontSize: '0.75rem',
+        fontWeight: 600,
+    }),
+    placeholder: (base) => ({
+        ...base,
+        color: '#9ca3af',
+        fontSize: '0.875rem',
+    }),
+    menu: (base) => ({
+        ...base,
+        zIndex: 40,
+        borderRadius: '0.5rem',
+        overflow: 'hidden',
+    }),
+    menuPortal: (base) => ({
+        ...base,
+        zIndex: 9999,
+    }),
+    option: (base, state) => ({
+        ...base,
+        fontSize: '0.875rem',
+        backgroundColor: state.isSelected ? '#2563eb' : state.isFocused ? '#eff6ff' : '#fff',
+        color: state.isSelected ? '#fff' : '#1f2937',
+    }),
+    indicatorSeparator: () => ({ display: 'none' }),
+};
+
+function EmployeeExclusionSelect({ value, onChange, options, placeholder, loading }) {
+    const selected = useMemo(() => {
+        const wanted = new Set((Array.isArray(value) ? value : []).map((id) => String(id || '').trim()).filter(Boolean));
+        const byId = new Map((options || []).map((opt) => [opt.value, opt]));
+        return [...wanted].map((id) => byId.get(id) || { value: id, label: id, name: id });
+    }, [options, value]);
+
+    return (
+        <Select
+            isMulti
+            isSearchable
+            isClearable
+            isLoading={loading}
+            options={options}
+            value={selected}
+            onChange={(rows) => onChange((rows || []).map((row) => row.value).filter(Boolean))}
+            placeholder={placeholder}
+            styles={employeeSelectStyles}
+            className="w-full"
+            classNamePrefix="salary-exclusion"
+            menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+            menuPosition="fixed"
+            closeMenuOnSelect={false}
+            noOptionsMessage={() => (loading ? 'Loading employees…' : 'No active employees')}
+        />
+    );
+}
+
 function readFileAsDataUrl(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -238,9 +342,16 @@ function readFileAsDataUrl(file) {
     });
 }
 
-export default function SalaryPolicyFields({ form, setForm, showGroupLeaveCapFields = true }) {
+export default function SalaryPolicyFields({
+    form,
+    setForm,
+    showGroupLeaveCapFields = true,
+    showEmployeeExclusionFields = false,
+}) {
     const fileRef = useRef(null);
     const [attachError, setAttachError] = useState('');
+    const [employeeOptions, setEmployeeOptions] = useState([]);
+    const [employeesLoading, setEmployeesLoading] = useState(false);
     const attachment = form.attachment || EMPTY_POLICY_ATTACHMENT;
     const hasAttachment = Boolean(attachment.name || attachment.publicId || attachment.url || attachment.data);
     const cutoffDays = useMemo(() => currentMonthDayOptions(), []);
@@ -253,6 +364,44 @@ export default function SalaryPolicyFields({ form, setForm, showGroupLeaveCapFie
             String(prev.salaryCutoffDate || '') === next ? prev : { ...prev, salaryCutoffDate: next },
         );
     }, [form.salaryCutoffDate, setForm]);
+
+    useEffect(() => {
+        if (!showEmployeeExclusionFields) return undefined;
+        let cancelled = false;
+        async function loadActiveEmployees() {
+            setEmployeesLoading(true);
+            try {
+                const res = await axiosInstance.get('/Employee', {
+                    params: { profileStatus: 'active', limit: 1000 },
+                    skipToast: true,
+                });
+                const rows = Array.isArray(res.data?.employees)
+                    ? res.data.employees
+                    : Array.isArray(res.data)
+                      ? res.data
+                      : [];
+                if (cancelled) return;
+                setEmployeeOptions(
+                    rows
+                        .filter((emp) => {
+                            if (!emp?.employeeId || isCompanyShellName(emp)) return false;
+                            return String(emp.status || '').trim().toLowerCase() !== 'left user';
+                        })
+                        .map(employeeExclusionOption)
+                        .filter(Boolean)
+                        .sort((a, b) => String(a.name || a.label).localeCompare(String(b.name || b.label))),
+                );
+            } catch {
+                if (!cancelled) setEmployeeOptions([]);
+            } finally {
+                if (!cancelled) setEmployeesLoading(false);
+            }
+        }
+        loadActiveEmployees();
+        return () => {
+            cancelled = true;
+        };
+    }, [showEmployeeExclusionFields]);
 
     function toggleRule(key) {
         setForm((prev) => ({
@@ -312,6 +461,40 @@ export default function SalaryPolicyFields({ form, setForm, showGroupLeaveCapFie
                         onChange={(day) => setForm((p) => ({ ...p, salaryCutoffDate: day }))}
                     />
                 </FieldRow>
+                {showEmployeeExclusionFields ? (
+                    <>
+                        <div className="flex flex-col gap-1.5 py-2.5 border-b border-gray-100 px-3 sm:px-4">
+                            <span className="text-sm text-slate-700">Exclusion of attendance</span>
+                            <EmployeeExclusionSelect
+                                value={form.attendanceExclusionEmployeeIds}
+                                onChange={(ids) =>
+                                    setForm((p) => ({ ...p, attendanceExclusionEmployeeIds: ids }))
+                                }
+                                options={employeeOptions}
+                                loading={employeesLoading}
+                                placeholder="Select active employees"
+                            />
+                            <p className="text-xs text-slate-500">
+                                Selected people get full salary. Loan, advance, fine, reward and similar items still apply.
+                            </p>
+                        </div>
+                        <div className="flex flex-col gap-1.5 py-2.5 px-3 sm:px-4">
+                            <span className="text-sm text-slate-700">Exclusion of leave</span>
+                            <EmployeeExclusionSelect
+                                value={form.leaveExclusionEmployeeIds}
+                                onChange={(ids) =>
+                                    setForm((p) => ({ ...p, leaveExclusionEmployeeIds: ids }))
+                                }
+                                options={employeeOptions}
+                                loading={employeesLoading}
+                                placeholder="Select active employees"
+                            />
+                            <p className="text-xs text-slate-500">
+                                Leaves taken by selected people are not shown or deducted on their salary slip.
+                            </p>
+                        </div>
+                    </>
+                ) : null}
             </div>
 
             <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -367,7 +550,7 @@ export default function SalaryPolicyFields({ form, setForm, showGroupLeaveCapFie
                 <NumberedFieldRow
                     number={9}
                     label="Processing date"
-                    hint="Day of each month salary is processed (default 1st). Reminder emails go out this many days before."
+                    hint="Day of the following month salary is processed (default 1st). September salary is processed on 1 October. Reminders count days after that date."
                 >
                     <select
                         value={String(form.salaryProcessingDate || '1')}
@@ -498,9 +681,9 @@ export default function SalaryPolicyFields({ form, setForm, showGroupLeaveCapFie
             <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
                 <SectionHead roman="III" title="Account Policy" />
                 <p className="px-3 sm:px-4 pt-2.5 text-xs text-slate-500">
-                    Reminder emails go out days before the processing date (default 1st), then again on that date.
-                    Checked flowchart people get the mail at their company email. Pending task user is each enrolled
-                    employee for that month who has a company email.
+                    Reminder emails go out on the processing date of the next month, then days after that date.
+                    September salary uses 1 October, not 1 September. Checked flowchart people get the mail at their
+                    company email. Pending task user is each enrolled employee for that month who has a company email.
                 </p>
                 {toReminderRows(form.salaryProcessReminders).map((row, index) => {
                     const selected = Array.isArray(row.forWhom) ? row.forWhom : [];
@@ -546,7 +729,7 @@ export default function SalaryPolicyFields({ form, setForm, showGroupLeaveCapFie
                                     >
                                         <option value="">
                                             {reminderEnabled
-                                                ? 'Days before'
+                                                ? 'Days after'
                                                 : 'Select previous reminder first'}
                                         </option>
                                         {dayOptions.map((day) => (

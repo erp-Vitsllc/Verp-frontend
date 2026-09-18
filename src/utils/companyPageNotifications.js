@@ -1,3 +1,4 @@
+import { isCardDeletedNotificationHiddenType } from '@/utils/cardDeletedNotifications';
 import {
     collectCompanyLiveExpiryNotifications,
     mergeExpiryNotificationDedupe,
@@ -6,7 +7,11 @@ import {
     collectCompanyActivationIncompleteNotifications,
     COMPANY_ACTIVATION_INCOMPLETE_TYPE,
 } from '@/utils/companyActivationIncompleteNotifications';
-import { isCardDeletedNotificationHiddenType } from '@/utils/cardDeletedNotifications';
+import {
+    filterItemsByNotificationPermission,
+    getHiddenNotificationTypesSet,
+    loadNotificationChannelMap,
+} from '@/utils/notificationChannelPermissionUi';
 import {
     clearEmployeeDashboardStatsCache,
     fetchEmployeeDashboardStats,
@@ -94,6 +99,7 @@ async function loadCompanyNotificationBundleImpl(
     axiosInstance,
     { hrLive = false, cachedCompanies = [], skipExpirySync = false, skipCompanyFetch = false, force = false } = {},
 ) {
+    await loadNotificationChannelMap(axiosInstance);
     let runExpirySync = hrLive && !skipExpirySync && shouldRunCompanyExpirySync();
 
     if (runExpirySync) {
@@ -132,6 +138,7 @@ export async function loadCompanyNotificationBundle(
     if (!force) {
         const cached = getCachedCompanyNotificationBundle();
         if (cached) {
+            await loadNotificationChannelMap(axiosInstance);
             const companiesList =
                 skipCompanyFetch && Array.isArray(cachedCompanies) && cachedCompanies.length > 0
                     ? cachedCompanies
@@ -168,30 +175,36 @@ export function buildCompanyPageNotifications(
     hrLive = false,
     mandatoryCardsHrLive = false,
 ) {
+    const hidden = getHiddenNotificationTypesSet();
     const companyFiltered = (pendingItems || []).filter((item) => {
         const type = String(item?.type || '').trim();
         if (isCardDeletedNotificationHiddenType(type)) return false;
+        if (hidden.has(type)) return false;
         return COMPANY_NOTIFICATION_TYPES.has(type);
     });
 
-    const liveExpiry = hrLive
-        ? collectCompanyLiveExpiryNotifications(companiesList)
-        : [];
+    const liveExpiry =
+        hrLive && !hidden.has('Document Expiry Reminder')
+            ? collectCompanyLiveExpiryNotifications(companiesList)
+            : [];
 
-    const activationIncomplete = mandatoryCardsHrLive
-        ? collectCompanyActivationIncompleteNotifications(companiesList)
-        : [];
+    const activationIncomplete =
+        mandatoryCardsHrLive && !hidden.has(COMPANY_ACTIVATION_INCOMPLETE_TYPE)
+            ? collectCompanyActivationIncompleteNotifications(companiesList)
+            : [];
 
     const hasCompanyList = Array.isArray(companiesList) && companiesList.length > 0;
 
-    return sortNotificationsStackOrder(
-        mergeExpiryNotificationDedupe(
-            companyFiltered,
-            [...liveExpiry, ...activationIncomplete],
-            {
-                companies: hasCompanyList ? companiesList : null,
-                preferLiveForTypes: hrLive && hasCompanyList ? ['Document Expiry Reminder'] : [],
-            },
+    return filterItemsByNotificationPermission(
+        sortNotificationsStackOrder(
+            mergeExpiryNotificationDedupe(
+                companyFiltered,
+                [...liveExpiry, ...activationIncomplete],
+                {
+                    companies: hasCompanyList ? companiesList : null,
+                    preferLiveForTypes: hrLive && hasCompanyList ? ['Document Expiry Reminder'] : [],
+                },
+            ),
         ),
     );
 }

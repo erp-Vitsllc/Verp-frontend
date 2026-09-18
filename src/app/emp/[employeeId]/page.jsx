@@ -191,6 +191,7 @@ import {
     validateProfileNationality,
 } from '@/utils/employeeProfileBasicDetailsValidation';
 import { validateEmployeeEmail, validateDateOfBirth, getCountryIsoCode } from '@/utils/employeeAddValidation';
+import { checkWhatsAppNumberRegistered, WHATSAPP_NOT_REGISTERED_ERROR } from '@/utils/checkWhatsAppNumber';
 
 import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
 import HeldPendingsReviewModal from './components/HeldPendingsReviewModal';
@@ -302,6 +303,20 @@ function hasProfileActivationHoldPending(employee) {
     );
 }
 
+function lastRejectedProfileActivationReason(employee) {
+    if (String(employee?.profileApprovalStatus || '').toLowerCase() !== 'rejected') return '';
+    const stored = String(employee?.profileActivationLastRejectReason || '').trim();
+    if (stored) return stored;
+    const workflow = Array.isArray(employee?.profileWorkflow) ? employee.profileWorkflow : [];
+    for (let i = workflow.length - 1; i >= 0; i -= 1) {
+        const step = workflow[i];
+        if (String(step?.status || '').toLowerCase() === 'rejected') {
+            return String(step?.comment || '').trim();
+        }
+    }
+    return '';
+}
+
 const EMP_PROFILE_MAIN_TABS = ['basic', 'personal', 'work-details', 'salary', 'documents', 'training'];
 const EMP_PROFILE_SALARY_ACTIONS = [
     'Salary History',
@@ -406,6 +421,8 @@ function EmployeeProfilePageContent() {
     const [selectedCountryCode, setSelectedCountryCode] = useState('ae'); // Default to UAE (ISO code)
     const [contactCountryCode, setContactCountryCode] = useState('ae'); // Default to UAE (ISO code)
     const [updating, setUpdating] = useState(false);
+    const [checkingWhatsApp, setCheckingWhatsApp] = useState(false);
+    const [whatsappRegistered, setWhatsappRegistered] = useState(false);
     const [confirmUpdateOpen, setConfirmUpdateOpen] = useState(false);
     // Confirmation dialogs state
     const [confirmDeleteEducation, setConfirmDeleteEducation] = useState({
@@ -1104,6 +1121,7 @@ function EmployeeProfilePageContent() {
 
             setEditForm(nextForm);
             setEditFormErrors({});
+            setWhatsappRegistered(false);
             setShowEditModal(true);
         },
         [employee, activeTab, normalizeNationalityForEditForm],
@@ -3387,6 +3405,9 @@ function EmployeeProfilePageContent() {
 
             const required = field === 'contactNumber';
             const validation = validatePhoneNumber(cleanedValue, countryCode, required);
+            if (field === 'whatsappNumber') {
+                setWhatsappRegistered(false);
+            }
             if (!validation.isValid) {
                 setEditFormErrors(prev => ({
                     ...prev,
@@ -7055,36 +7076,7 @@ function EmployeeProfilePageContent() {
         return navigateToEmployeeTab('basic');
     };
 
-    const [togglingPortalAccess, setTogglingPortalAccess] = useState(false);
     const [togglingLoginThrough, setTogglingLoginThrough] = useState(false);
-
-    const handleTogglePortalAccess = async (newValue) => {
-        if (togglingPortalAccess || !employee) return;
-        try {
-            setTogglingPortalAccess(true);
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                enablePortalAccess: newValue
-            });
-
-            // Update local state immediately
-            setEmployee(prev => ({ ...prev, enablePortalAccess: newValue }));
-
-            toast({
-                variant: "default",
-                title: "Portal Access Updated",
-                description: `Portal access has been ${newValue ? 'enabled' : 'disabled'}.`
-            });
-        } catch (error) {
-            console.error('Failed to toggle portal access', error);
-            toast({
-                variant: "destructive",
-                title: "Update failed",
-                description: error.response?.data?.message || error.message || "Failed to update portal access."
-            });
-        } finally {
-            setTogglingPortalAccess(false);
-        }
-    };
 
     const handleToggleLoginThrough = async (channel, checked) => {
         if (togglingLoginThrough || !employee) return;
@@ -7137,6 +7129,44 @@ function EmployeeProfilePageContent() {
     };
 
     // Open visa modal and populate with existing data
+
+    const handleRequestBasicDetailsUpdate = async () => {
+        if (!employee || updating || checkingWhatsApp) return;
+
+        const errors = validateEmployeeProfileBasicDetailsForm(editForm, {
+            defaultCountry: editCountryCode,
+        });
+        if (Object.keys(errors).length > 0) {
+            setEditFormErrors(errors);
+            return;
+        }
+
+        const whatsappDigits = (editForm.whatsappNumber || '').replace(/\D/g, '');
+        if (whatsappDigits) {
+            setCheckingWhatsApp(true);
+            try {
+                const waCheck = await checkWhatsAppNumberRegistered(
+                    formatPhoneForSave(whatsappDigits),
+                    axiosInstance,
+                );
+                if (!waCheck.ok) {
+                    setWhatsappRegistered(false);
+                    setEditFormErrors((prev) => ({
+                        ...prev,
+                        whatsappNumber: waCheck.error || WHATSAPP_NOT_REGISTERED_ERROR,
+                    }));
+                    return;
+                }
+                setWhatsappRegistered(waCheck.onWhatsApp === true);
+            } finally {
+                setCheckingWhatsApp(false);
+            }
+        } else {
+            setWhatsappRegistered(false);
+        }
+
+        setConfirmUpdateOpen(true);
+    };
 
     const handleUpdateEmployee = async () => {
         if (!employee) return;
@@ -7199,10 +7229,16 @@ function EmployeeProfilePageContent() {
             });
         } catch (error) {
             console.error('Failed to update employee', error);
+            const field = error.response?.data?.field;
+            const description = error.response?.data?.message || error.message || "Something went wrong.";
+            if (field === 'whatsappNumber') {
+                setWhatsappRegistered(false);
+                setEditFormErrors((prev) => ({ ...prev, whatsappNumber: description }));
+            }
             toast({
                 variant: "destructive",
                 title: "Update failed",
-                description: error.response?.data?.message || error.message || "Something went wrong."
+                description
             });
         } finally {
             setUpdating(false);
@@ -8381,6 +8417,7 @@ function EmployeeProfilePageContent() {
 
 
     const currentApprovalStatus = employee?.profileApprovalStatus || 'draft';
+    const lastRejectedActivationReason = lastRejectedProfileActivationReason(employee);
 
     const isProfileReady = profileCompletion >= 100;
 
@@ -9377,7 +9414,6 @@ function EmployeeProfilePageContent() {
                                         canViewActivation={canViewActivation}
                                         canCreateActivation={canCreateActivation}
                                         onViewRequestedChange={handleViewRequestedChange}
-                                        onTogglePortalAccess={handleTogglePortalAccess}
                                         onToggleLoginThrough={handleToggleLoginThrough}
                                         togglingLoginThrough={togglingLoginThrough}
                                         canTogglePortal={
@@ -9386,7 +9422,6 @@ function EmployeeProfilePageContent() {
                                                 hasPermission('hrm_employees', 'isEdit') ||
                                                 hasPermission('hrm_employees_view_work_details', 'isEdit'))
                                         }
-                                        togglingPortalAccess={togglingPortalAccess}
                                         hideStatusToggle={isCompanyProfile}
                                         onOnDutyChanged={() => fetchEmployee(true, true, true)}
                                         hideProgressBar={isCompanyProfile}
@@ -9977,11 +10012,14 @@ function EmployeeProfilePageContent() {
                     editFormErrors={editFormErrors}
                     setEditFormErrors={setEditFormErrors}
                     updating={updating}
+                    checkingWhatsApp={checkingWhatsApp}
+                    whatsappRegistered={whatsappRegistered}
                     editCountryCode={editCountryCode}
                     setEditCountryCode={setEditCountryCode}
                     allCountriesOptions={allCountriesOptions}
                     DEFAULT_PHONE_COUNTRY={DEFAULT_PHONE_COUNTRY}
                     onEditChange={handleEditChange}
+                    onRequestUpdate={handleRequestBasicDetailsUpdate}
                     onUpdate={handleUpdateEmployee}
                     confirmUpdateOpen={confirmUpdateOpen}
                     setConfirmUpdateOpen={setConfirmUpdateOpen}
@@ -10541,14 +10579,18 @@ function EmployeeProfilePageContent() {
                                 <h3 className="text-lg font-bold text-gray-900">
                                     {isPortalAdminUser
                                         ? 'Apply changes'
-                                        : profileApproved
-                                          ? 'Submit pending'
-                                          : 'Send for activation'}
+                                        : lastRejectedActivationReason
+                                          ? 'Resubmit for activation'
+                                          : profileApproved
+                                            ? 'Submit pending'
+                                            : 'Send for activation'}
                                 </h3>
                                 <p className="text-sm text-gray-500 mt-0.5">
                                     {isPortalAdminUser
                                         ? 'Select changes to apply immediately. HR will be notified by email.'
-                                        : 'Select requested changes and submit for approval.'}
+                                        : lastRejectedActivationReason
+                                          ? 'Review the rejection reason, update the employee profile, then resubmit.'
+                                          : 'Select requested changes and submit for approval.'}
                                 </p>
                             </div>
                             <button
@@ -10568,6 +10610,15 @@ function EmployeeProfilePageContent() {
                             </button>
                         </div>
                         <div className="px-6 py-5 space-y-4 overflow-y-auto min-h-0">
+                            {lastRejectedActivationReason ? (
+                                <div className="rounded-xl border border-red-200 bg-red-50/70 p-4 space-y-1">
+                                    <p className="text-sm font-semibold text-red-800">HR rejection reason</p>
+                                    <p className="text-sm text-red-700 whitespace-pre-wrap">{lastRejectedActivationReason}</p>
+                                    <p className="text-xs text-red-600">
+                                        Check the reason and update the employee profile activation, then resubmit.
+                                    </p>
+                                </div>
+                            ) : null}
                             {approvalSubmitPendingDisplayGroups.length > 0 ? (
                                 <div className="space-y-2">
                                     <p className="text-xs text-gray-500 leading-snug">
@@ -10689,9 +10740,11 @@ function EmployeeProfilePageContent() {
                                     ? 'Submitting...'
                                     : isPortalAdminUser
                                       ? 'Submit for approval'
-                                      : profileApproved
-                                        ? 'Submit pending'
-                                        : 'Send for activation'}
+                                      : lastRejectedActivationReason
+                                        ? 'Resubmit for activation'
+                                        : profileApproved
+                                          ? 'Submit pending'
+                                          : 'Send for activation'}
                             </button>
                         </div>
                     </div>

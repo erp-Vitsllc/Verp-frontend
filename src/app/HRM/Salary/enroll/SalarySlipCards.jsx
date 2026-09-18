@@ -508,8 +508,15 @@ export default function SalarySlipCards({ slip, onPatch }) {
     const multipliers = summary.leaveMultipliers || {};
     const lopDays = summary.lossOfPayDays || {};
     const otherTimes = summary.otherDeductionTimes || {};
+    const excludeAttendance = Boolean(slip?.exclusions?.attendance);
+    const excludeLeave = Boolean(slip?.exclusions?.leave);
 
-    const monthlyEarningRows = MONTHLY_EARNING_ROWS.map((item, index) => {
+    const monthlyEarningRows = MONTHLY_EARNING_ROWS.filter((item) => {
+        if (excludeAttendance && (item.name === 'Overtime Hours' || item.name === 'Overtime Days')) {
+            return false;
+        }
+        return true;
+    }).map((item, index) => {
         const amount = liveMonthlyEarningAmount(slip, item.name);
         const formulaRow = FORMULA_EARNINGS.has(item.name);
         return {
@@ -606,7 +613,17 @@ export default function SalarySlipCards({ slip, onPatch }) {
     }));
     const annualEarningTotal = money(leaveSalaryAmount + airTicketAmount);
 
-    const lopRows = LOSS_OF_PAY_ROWS.map((item, index) => {
+    const lopRows = LOSS_OF_PAY_ROWS.filter((item) => {
+        const isLeaveRow =
+            item.name === 'Authorized Leave' ||
+            item.name === 'Unauthorized Leave' ||
+            item.name === 'Annual Leave' ||
+            item.name === 'Comp off leave';
+        const isLateRow = item.name === 'Late Arrival';
+        if ((excludeLeave || excludeAttendance) && isLeaveRow) return false;
+        if (excludeAttendance && isLateRow) return false;
+        return true;
+    }).map((item, index) => {
         const days =
             Number(lopDays[item.dayKey]) ||
             parseLeadingNumber(
@@ -718,14 +735,16 @@ export default function SalarySlipCards({ slip, onPatch }) {
                         title="Deductions"
                         subtitle="Loss of pay and this month's other deductions"
                     >
-                        <SlipTable
-                            headers={['SL', 'Loss of pay', 'Period', 'Amount']}
-                            rows={lopRows}
-                            totalLabel="Total"
-                            total={lopTotal}
-                            tone="deduct"
-                        />
-                        <div className="mt-3">
+                        {lopRows.length ? (
+                            <SlipTable
+                                headers={['SL', 'Loss of pay', 'Period', 'Amount']}
+                                rows={lopRows}
+                                totalLabel="Total"
+                                total={lopTotal}
+                                tone="deduct"
+                            />
+                        ) : null}
+                        <div className={lopRows.length ? 'mt-3' : ''}>
                             <SlipTable
                                 headers={['SL', 'Deduction', 'Times', 'Total']}
                                 rows={otherDeductionRows}

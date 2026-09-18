@@ -14,7 +14,10 @@ import {
     countVisibleAssetPendingInbox,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { isPendingInboxRowVisible } from '@/app/HRM/Asset/utils/assetRequestLabels';
-import { countVisibleFinePendingInbox } from '@/app/HRM/Fine/utils/finePendingInboxCount';
+import {
+    countVisibleFinePendingInbox,
+    filterFinePendingInboxApprovalItems,
+} from '@/app/HRM/Fine/utils/finePendingInboxCount';
 import { countVisiblePaymentPendingInbox } from '@/app/Accounts/Payments/utils/paymentPendingInboxCount';
 import { countVisibleRewardPendingInbox } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
 import { countVisibleLoanPendingInbox } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
@@ -28,6 +31,12 @@ import {
 } from '@/utils/companyPageNotifications';
 import { buildEmployeeListBellFromStats, isEmployeeNotificationHiddenType } from '@/utils/employeePageNotifications';
 import { isCardDeletedNotificationHiddenType } from '@/utils/cardDeletedNotifications';
+import {
+    hiddenNotificationTypesFromMap,
+    invalidateNotificationChannelMap,
+    isNotificationTypeHidden,
+    loadNotificationChannelMap,
+} from '@/utils/notificationChannelPermissionUi';
 import {
     fetchAssetPendingInbox,
     fetchFinePendingInbox,
@@ -534,7 +543,8 @@ export function buildModuleNotificationBundle(feeds = {}) {
     )
         .map((row) => tagModule(row, 'Employees'));
 
-    const fine = (Array.isArray(fineItems) ? fineItems : []).map((row) =>
+    const visibleFineItems = filterFinePendingInboxApprovalItems(fineItems);
+    const fine = visibleFineItems.map((row) =>
         pendingInboxToItem(row, 'Fine'),
     );
     const payments = (Array.isArray(paymentItems) ? paymentItems : []).map((row) =>
@@ -603,7 +613,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         attendance: countVisibleAttendancePendingInbox(attendanceItems),
         leave: countVisibleLeavePendingInbox(leaveItems),
         salary: countVisibleSalaryPendingInbox(salaryItems),
-        fine: countVisibleFinePendingInbox(fineItems),
+        fine: countVisibleFinePendingInbox(visibleFineItems),
         reward: countVisibleRewardPendingInbox(rewardItems),
         payment: countVisiblePaymentPendingInbox(paymentItems),
         toolsAsset: countVisibleAssetPendingInbox(toolsVisible),
@@ -647,18 +657,6 @@ export function buildModuleNotificationBundle(feeds = {}) {
     return { byModule, counts, all, pendingItems };
 }
 
-export function hiddenNotificationTypesFromMap(byDashboardType) {
-    return Object.entries(byDashboardType || {})
-        .filter(([, channels]) => channels && channels.notification === false)
-        .map(([type]) => type);
-}
-
-export function isNotificationTypeHidden(item, hiddenTypes) {
-    if (!hiddenTypes || !hiddenTypes.size) return false;
-    const type = String(item?.type || item?.requestType || '').trim();
-    return hiddenTypes.has(type);
-}
-
 export function filterBundleByNotificationPermission(bundle, byDashboardType) {
     if (!bundle || !byDashboardType || typeof byDashboardType !== 'object') return bundle;
     const hiddenNotificationTypes = hiddenNotificationTypesFromMap(byDashboardType);
@@ -699,26 +697,7 @@ export function filterBundleByNotificationPermission(bundle, byDashboardType) {
     return { ...bundle, byModule, counts, all, pendingItems, hiddenNotificationTypes };
 }
 
-let permissionMapCache = { at: 0, byDashboardType: null };
-
-export function invalidateNotificationChannelMap() {
-    permissionMapCache = { at: 0, byDashboardType: null };
-}
-
-export async function loadNotificationChannelMap(axiosInstance) {
-    const now = Date.now();
-    if (permissionMapCache.byDashboardType && now - permissionMapCache.at < 20000) {
-        return permissionMapCache.byDashboardType;
-    }
-    try {
-        const res = await axiosInstance.get('/NotificationEmailPermission/map', { skipToast: true });
-        const byDashboardType = res.data?.byDashboardType || {};
-        permissionMapCache = { at: now, byDashboardType };
-        return byDashboardType;
-    } catch {
-        return permissionMapCache.byDashboardType || {};
-    }
-}
+export { invalidateNotificationChannelMap, loadNotificationChannelMap };
 
 /** Convenience: load feeds + build bundle (sidebar + dashboard). */
 export async function loadModuleNotificationBundle(axiosInstance, options = {}) {

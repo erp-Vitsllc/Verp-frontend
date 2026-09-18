@@ -22,6 +22,13 @@ const nextConfig = {
   // Performance optimizations
   compress: true,
   reactStrictMode: true,
+  productionBrowserSourceMaps: false,
+
+  // Drop compiled pages from memory quickly while clicking around in `next dev`.
+  onDemandEntries: {
+    maxInactiveAge: 15 * 1000,
+    pagesBufferLength: 2,
+  },
 
   // Image optimization
   images: {
@@ -105,11 +112,33 @@ const nextConfig = {
   // Experimental optimizations
   experimental: {
     optimizeCss: false, // Disabled due to 'unsupported color function lab' error
-    optimizePackageImports: ['lucide-react', 'react-phone-input-2'],
+    optimizePackageImports: ['lucide-react', 'react-phone-input-2', 'recharts', 'date-fns'],
+    webpackMemoryOptimizations: true,
+    cpus: 1,
+    preloadEntriesOnStart: false,
+    serverSourceMaps: false,
   },
 
   // Webpack optimizations
   webpack: (config, { isServer, dev }) => {
+    // One compile at a time — parallel webpack workers were blowing the Windows heap
+    // (RangeError: Array buffer allocation failed) on large ERP pages.
+    config.parallelism = 1;
+
+    if (dev) {
+      config.devtool = 'eval';
+      config.watchOptions = {
+        ignored: ['**/node_modules/**', '**/.git/**', '**/.next/**'],
+      };
+      if (config.cache && typeof config.cache === 'object') {
+        config.cache = {
+          ...config.cache,
+          compression: 'gzip',
+          maxMemoryGenerations: 1,
+        };
+      }
+    }
+
     if (!isServer && !dev) {
       // Production client-side optimizations
       config.optimization = {

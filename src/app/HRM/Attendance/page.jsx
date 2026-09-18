@@ -16,6 +16,7 @@ import {
 } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import AttendanceMonthCalendar from './components/AttendanceMonthCalendar';
 import PendingAttendanceRequestsModal from './components/PendingAttendanceRequestsModal';
+import { markAttendanceHref } from './utils/markAttendanceHref';
 
 const AnimatedCounter = ({ value, duration = 600 }) => {
     const [count, setCount] = useState(0);
@@ -127,7 +128,7 @@ export default function AttendancePage() {
                                     ) : null}
                                 </button>
                                 <Link
-                                    href="/HRM/Attendance/mark"
+                                    href={markAttendanceHref({ staffType: staffTab })}
                                     className="h-9 sm:h-10 px-3 sm:px-4 rounded-lg bg-[#EA3D2F] hover:bg-[#d43528] text-white text-xs sm:text-sm font-semibold transition-colors flex items-center justify-center whitespace-nowrap"
                                 >
                                     Mark Attendance

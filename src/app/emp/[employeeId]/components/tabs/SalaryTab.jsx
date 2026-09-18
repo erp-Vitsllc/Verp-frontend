@@ -1433,7 +1433,13 @@ export default function SalaryTab({
     const canRunServiceOverdueCheck =
         isLoggedInAdmin || (isProfileOwner && isAssetController);
     const isManager = employee?.primaryReportee === loggedInEmployeeId || employee?.primaryReportee?._id === loggedInEmployeeId;
-    const assigneeHasNoAccess = !employee?.companyEmail || !employee?.enablePortalAccess;
+    const loginThrough = employee?.loginThrough;
+    const hasLoginChannel = !(
+        loginThrough &&
+        loginThrough.portalApp === false &&
+        loginThrough.web === false
+    );
+    const assigneeHasNoAccess = !employee?.companyEmail || !hasLoginChannel;
     const hasPendingControllerQueue = useMemo(() => {
         const all = [...(unassignedAssets || []), ...(onLeaveAssets || []), ...(onServiceAssets || [])];
         return all.some((asset) => hasOpenTargetApproval(asset));

@@ -113,6 +113,7 @@ const LEAVE_REQUEST_BOXES = [
         key: 'on_leave',
         label: 'Annual leave',
         leaveType: 'annual',
+        metrics: 'request',
         Icon: Plane,
         wrap: 'bg-[#EEF4FF]',
         iconWrap: 'bg-[#DCEBFF] text-[#2563EB]',
@@ -121,6 +122,7 @@ const LEAVE_REQUEST_BOXES = [
         key: 'authorized_leave',
         label: 'Authorized leave',
         leaveType: 'authorized',
+        metrics: 'request',
         Icon: Check,
         wrap: 'bg-[#ECF8F0]',
         iconWrap: 'bg-[#D8F5DE] text-[#1F7A3A]',
@@ -129,6 +131,7 @@ const LEAVE_REQUEST_BOXES = [
         key: 'unauthorized_leave',
         label: 'Unauthorized leave',
         leaveType: 'unauthorized',
+        metrics: 'request',
         Icon: AlertTriangle,
         wrap: 'bg-[#FDF2F2]',
         iconWrap: 'bg-[#F8D5D5] text-[#B42318]',
@@ -137,6 +140,7 @@ const LEAVE_REQUEST_BOXES = [
         key: 'sick_leave',
         label: 'Sick leave',
         leaveType: 'sick',
+        metrics: 'request',
         Icon: Stethoscope,
         wrap: 'bg-[#F6F0FB]',
         iconWrap: 'bg-[#E8D9F8] text-[#6B3FA0]',
@@ -145,6 +149,7 @@ const LEAVE_REQUEST_BOXES = [
         key: 'compoff_leave',
         label: 'Comp off leave',
         leaveType: 'compoff',
+        metrics: 'compoff',
         Icon: CalendarDays,
         wrap: 'bg-[#F4F1FE]',
         iconWrap: 'bg-[#EDE9FE] text-[#6D28D9]',
@@ -538,8 +543,35 @@ function possessiveName(name) {
     return /s$/i.test(value) ? `${value}'` : `${value}'s`;
 }
 
-function EmployeeLeaveRequestCard({ employeeName, employeeId, requestStats }) {
+function boxMetrics(box, requestStats, leaveBalances, counts) {
+    if (box.metrics === 'compoff') {
+        const balance = leaveBalances?.compoff_leave || {};
+        const used = n(counts?.compoff_leave ?? balance.taken);
+        const unused = n(balance.remaining);
+        return {
+            total: used + unused,
+            items: [
+                { label: 'Used', value: used, wrap: 'bg-white/80 text-[#6D28D9]' },
+                { label: 'Unused', value: unused, wrap: 'bg-white/80 text-[#15803D]' },
+            ],
+        };
+    }
+    const bucket = requestStats?.[box.key] || {};
+    const requested = n(bucket.request);
+    const approved = n(bucket.approved);
+    return {
+        total: requested + approved,
+        items: [
+            { label: 'Requested', value: requested, wrap: 'bg-white/80 text-[#C05621]' },
+            { label: 'Approved', value: approved, wrap: 'bg-white/80 text-[#15803D]' },
+        ],
+    };
+}
+
+function EmployeeLeaveRequestCard({ employeeName, employeeId, requestStats, leaveBalances, counts }) {
     const stats = requestStats || {};
+    const balances = leaveBalances || {};
+    const yearCounts = counts || {};
     const hrefFor = (leaveType) => {
         const params = new URLSearchParams();
         if (employeeId) params.set('employeeId', employeeId);
@@ -548,10 +580,10 @@ function EmployeeLeaveRequestCard({ employeeName, employeeId, requestStats }) {
         const query = params.toString();
         return query ? `/HRM/Leave/annual-leave?${query}` : '/HRM/Leave/annual-leave';
     };
-    const grandTotal = LEAVE_REQUEST_BOXES.reduce((sum, box) => {
-        const bucket = stats[box.key] || {};
-        return sum + (n(bucket.total) || n(bucket.request) + n(bucket.approved) + n(bucket.rejected));
-    }, 0);
+    const grandTotal = LEAVE_REQUEST_BOXES.reduce(
+        (sum, box) => sum + boxMetrics(box, stats, balances, yearCounts).total,
+        0,
+    );
 
     return (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -561,7 +593,7 @@ function EmployeeLeaveRequestCard({ employeeName, employeeId, requestStats }) {
                         {possessiveName(employeeName)} leave request
                     </h2>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                        Requested, approved and rejected counts by leave type
+                        Requested and approved leave, plus comp off used and unused
                     </p>
                 </div>
                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[12px] font-bold tabular-nums text-[#1B2A4A] shrink-0">
@@ -571,11 +603,7 @@ function EmployeeLeaveRequestCard({ employeeName, employeeId, requestStats }) {
             <div className="px-3 pb-4 grid grid-cols-2 gap-3">
                 {LEAVE_REQUEST_BOXES.map((box) => {
                     const Icon = box.Icon;
-                    const bucket = stats[box.key] || {};
-                    const requested = n(bucket.request);
-                    const approved = n(bucket.approved);
-                    const rejected = n(bucket.rejected);
-                    const total = n(bucket.total) || requested + approved + rejected;
+                    const { total, items } = boxMetrics(box, stats, balances, yearCounts);
                     return (
                         <Link
                             key={box.key}
@@ -597,24 +625,8 @@ function EmployeeLeaveRequestCard({ employeeName, employeeId, requestStats }) {
                                     {total}
                                 </span>
                             </div>
-                            <div className="grid grid-cols-3 gap-1.5">
-                                {[
-                                    {
-                                        label: 'Requested',
-                                        value: requested,
-                                        wrap: 'bg-white/80 text-[#C05621]',
-                                    },
-                                    {
-                                        label: 'Approved',
-                                        value: approved,
-                                        wrap: 'bg-white/80 text-[#15803D]',
-                                    },
-                                    {
-                                        label: 'Rejected',
-                                        value: rejected,
-                                        wrap: 'bg-white/80 text-[#B42318]',
-                                    },
-                                ].map((item) => (
+                            <div className="grid grid-cols-2 gap-1.5">
+                                {items.map((item) => (
                                     <div
                                         key={item.label}
                                         className={`rounded-xl ${item.wrap} px-1.5 py-2 text-center`}
@@ -1044,9 +1056,15 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
 
     const eventsByKey = useMemo(() => {
         const map = {};
+        const yearPrefix = profile?.year ? `${profile.year}-` : '';
         for (const row of DATA_ROWS) map[row.key] = [];
         for (const event of profile?.events || []) {
             const statusKey = event.statusKey;
+            if (statusKey === 'compoff_leave') {
+                const date = String(event.date || '').trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+                if (yearPrefix && !date.startsWith(yearPrefix)) continue;
+            }
             if (!map[statusKey]) map[statusKey] = [];
             map[statusKey].push(event);
             for (const row of DATA_ROWS) {
@@ -1055,7 +1073,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
             }
         }
         return map;
-    }, [profile?.events]);
+    }, [profile?.events, profile?.year]);
 
     const expandedEvents = expandedStatKey ? eventsByKey[expandedStatKey] || [] : [];
     const expandedLabel = DATA_ROWS.find((row) => row.key === expandedStatKey)?.label || '';
@@ -1341,11 +1359,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                     ? ` · Annual ${leavePolicy.annualAllowedDays} days/${leavePolicy.annualPeriod || 'year'}`
                                     : ''}
                                 {leavePolicy.sickAllowedDays != null || leavePolicy.allowedSickLeaveDaysPerYear != null
-                                    ? ` · Sick leave ${leavePolicy.sickAllowedDays ?? leavePolicy.allowedSickLeaveDaysPerYear ?? 0} days/${leavePolicy.sickPeriod || 'year'}${
-                                          leavePolicy.sickEnabled && n(leaveBalances.sick_leave?.remaining) === 0
-                                              ? ' · extra sick counts as authorized leave'
-                                              : ''
-                                      }`
+                                    ? ` · Sick leave ${leavePolicy.sickAllowedDays ?? leavePolicy.allowedSickLeaveDaysPerYear ?? 0} days ${leavePolicy.sickPeriod || 'from last annual leave to next'} · extra sick counts as authorized leave`
                                     : ''}
                                 {leavePolicy.sandwichLeave ? ' · Sandwich leave on' : ''}
                             </p>
@@ -1578,6 +1592,8 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                     employeeName={employee?.name}
                     employeeId={employee?.employeeId}
                     requestStats={requestStats}
+                    leaveBalances={leaveBalances}
+                    counts={counts}
                 />
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
                     <div className="px-4 pt-4 pb-3.5 flex items-start justify-between gap-3">

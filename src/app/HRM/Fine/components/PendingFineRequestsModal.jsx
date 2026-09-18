@@ -8,6 +8,7 @@ import { buildFineNotificationPath, normalizeFineNotificationItem } from '@/util
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import {
     countVisibleFinePendingInbox,
+    filterFinePendingInboxApprovalItems,
 } from '../utils/finePendingInboxCount';
 import { shouldUseBlockingNotificationLoader } from '@/utils/notificationModalLoad';
 import {
@@ -35,8 +36,9 @@ export default function PendingFineRequestsModal({ isOpen, onClose, onRefreshPar
     const load = useCallback(async ({ force = false } = {}) => {
         const cached = !force ? getCachedPendingInbox(FINE_PENDING_INBOX_ENDPOINT) : null;
         if (cached && itemsRef.current.length === 0) {
-            setItems(cached);
-            const count = countVisibleFinePendingInbox(cached);
+            const visibleCached = filterFinePendingInboxApprovalItems(cached);
+            setItems(visibleCached);
+            const count = countVisibleFinePendingInbox(visibleCached);
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(count);
             }
@@ -52,7 +54,9 @@ export default function PendingFineRequestsModal({ isOpen, onClose, onRefreshPar
         if (block) setLoading(true);
         else setRefreshing(true);
         try {
-            const list = await fetchFinePendingInbox(axiosInstance, { force });
+            const list = filterFinePendingInboxApprovalItems(
+                await fetchFinePendingInbox(axiosInstance, { force: true }),
+            );
             setItems(list);
             const count = countVisibleFinePendingInbox(list);
             if (typeof onPendingInboxCount === 'function') {
@@ -77,7 +81,7 @@ export default function PendingFineRequestsModal({ isOpen, onClose, onRefreshPar
 
     useEffect(() => {
         if (!isOpen) return;
-        load();
+        load({ force: true });
     }, [isOpen, load]);
 
     const handleRowActivate = (row) => {

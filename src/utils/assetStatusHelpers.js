@@ -94,7 +94,14 @@ export const getAssetWaitingForMeta = (asset) => {
         (asset.assignmentAck?.primaryReporteeId ? String(asset.assignmentAck.primaryReporteeId) : '');
     const assigneeName = empDisplayNameFromRef(asset.assignedTo);
     const reporteeName = empDisplayNameFromRef(asset.assignedTo?.primaryReportee);
-    const assigneeHasNoPortal = asset.assignedTo?.enablePortalAccess === false;
+    const assigneeHasNoPortal = (() => {
+        const stored = asset.assignedTo?.loginThrough;
+        const hasStored =
+            stored &&
+            (typeof stored.portalApp === 'boolean' || typeof stored.web === 'boolean');
+        if (!hasStored) return false;
+        return stored.portalApp === false && stored.web === false;
+    })();
     const ackSaysNoSelf = asset.assignmentAck?.assigneeCanSelfAcknowledge === false;
 
     if (asset.pendingAction) {

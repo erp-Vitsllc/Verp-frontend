@@ -263,15 +263,6 @@ export default function WorkDetailsCard({
                             normalizeWorkLocationKey(pendingWorkProposal.proposedData.staffType) !==
                                 normalizeWorkLocationKey(employee.staffType),
                     },
-                    {
-                        label: 'Portal Access',
-                        value: (
-                            <span className={`font-bold ${employee.enablePortalAccess ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                {employee.enablePortalAccess ? 'Enabled' : 'Disabled'}
-                            </span>
-                        ),
-                        show: !isCompanyProfile
-                    },
                     { label: 'Overtime', value: employee.overtime !== undefined ? (employee.overtime ? 'Yes' : 'No') : null, show: !isCompanyProfile && employee.overtime !== undefined },
                     {
                         label: 'Primary Reportee',

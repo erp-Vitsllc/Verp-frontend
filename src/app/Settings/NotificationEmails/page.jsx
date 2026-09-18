@@ -11,6 +11,7 @@ import {
     invalidateNotificationChannelMap,
     loadModuleNotificationBundle,
 } from '@/utils/moduleNotifications';
+import { clearCompanyNotificationBundleCache } from '@/utils/companyPageNotifications';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -162,6 +163,7 @@ export default function NotificationEmailsPage() {
             if (Object.prototype.hasOwnProperty.call(patch, 'notification')) {
                 invalidateNotificationChannelMap();
                 invalidateModuleNotificationFeedsCache();
+                clearCompanyNotificationBundleCache();
                 void loadModuleNotificationBundle(axiosInstance, { force: true });
             }
         } catch (error) {

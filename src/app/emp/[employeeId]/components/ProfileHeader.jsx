@@ -73,8 +73,6 @@ function ProfileHeader({
     onReviewProbation,
     onReturnUser,
     returnUserLoading = false,
-    onTogglePortalAccess,
-    togglingPortalAccess,
     canTogglePortal = false, // Default to false
     onToggleLoginThrough,
     togglingLoginThrough = false,
@@ -399,6 +397,11 @@ function ProfileHeader({
         onEnsureSnapshotLookups?.();
     };
 
+    const canRejectActivationFromModal =
+        !isDirectHrAction &&
+        !hasLeftUserPending &&
+        (scopedReviewEntries.length > 0 || isFirstActivationAwaitingHr);
+
     const handleActivationRejectAll = async () => {
         if (activatingProfile) return;
         const reason = String(rejectAllReason || '').trim();
@@ -406,7 +409,10 @@ function ProfileHeader({
             toast({
                 variant: 'destructive',
                 title: 'Reason required',
-                description: 'Enter a reason before rejecting all pending changes.',
+                description:
+                    scopedReviewEntries.length > 0
+                        ? 'Enter a reason before rejecting all pending changes.'
+                        : 'Enter a reason before rejecting this activation request.',
             });
             return;
         }
@@ -983,29 +989,6 @@ function ProfileHeader({
                             </button>
                         </div>
 
-                        {onTogglePortalAccess && (
-                            <div className={`flex flex-wrap items-center gap-2 sm:gap-3 ${compactHeader ? 'mt-2 pt-2' : 'mt-4 pt-4'} border-t border-gray-100`}>
-                                <span className="text-sm font-medium text-gray-700">Portal Access</span>
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (canTogglePortal) onTogglePortalAccess(!employee.enablePortalAccess);
-                                    }}
-                                    disabled={togglingPortalAccess || !canTogglePortal}
-                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${employee.enablePortalAccess ? 'bg-blue-600' : 'bg-gray-200'
-                                        } ${(togglingPortalAccess || !canTogglePortal) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                                >
-                                    <span
-                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${employee.enablePortalAccess ? 'translate-x-6' : 'translate-x-1'
-                                            }`}
-                                    />
-                                </button>
-                                <span className="text-xs text-gray-500">
-                                    {employee.enablePortalAccess ? 'Enabled' : 'Disabled'}
-                                </span>
-                            </div>
-                        )}
-
                     </div>
                 </div>
 
@@ -1356,13 +1339,17 @@ function ProfileHeader({
                                     Use <span className="font-semibold">Reject all</span> to send every pending change back to the submitter without applying updates.
                                 </p>
                             )}
-                            {showRejectAllConfirm && scopedReviewEntries.length > 0 ? (
+                            {showRejectAllConfirm && canRejectActivationFromModal ? (
                                 <div className="rounded-xl border border-red-200 bg-red-50/60 p-4 space-y-2">
                                     <p className="text-sm font-semibold text-red-800">
-                                        Reject all pending changes
+                                        {scopedReviewEntries.length > 0
+                                            ? 'Reject all pending changes'
+                                            : 'Reject profile activation'}
                                     </p>
                                     <p className="text-xs text-red-700">
-                                        Nothing will be applied to the live profile. The submitter will receive the queue back with your reason.
+                                        {scopedReviewEntries.length > 0
+                                            ? 'Nothing will be applied to the live profile. The requester will receive one email and one notification with your reason.'
+                                            : 'The requester will receive one email and one notification with your reason so they can update the profile and resubmit.'}
                                     </p>
                                     <textarea
                                         value={rejectAllReason}
@@ -1389,7 +1376,7 @@ function ProfileHeader({
                             >
                                 Cancel
                             </button>
-                            {scopedReviewEntries.length > 0 && !isDirectHrAction ? (
+                            {canRejectActivationFromModal ? (
                                 showRejectAllConfirm ? (
                                     <button
                                         type="button"
@@ -1397,7 +1384,11 @@ function ProfileHeader({
                                         disabled={activatingProfile}
                                         className="px-4 py-2 rounded-xl border border-red-300 bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        {activatingProfile ? 'Rejecting…' : 'Confirm reject all'}
+                                        {activatingProfile
+                                            ? 'Rejecting…'
+                                            : scopedReviewEntries.length > 0
+                                              ? 'Confirm reject all'
+                                              : 'Confirm reject'}
                                     </button>
                                 ) : (
                                     <button
@@ -1406,7 +1397,7 @@ function ProfileHeader({
                                         disabled={activatingProfile}
                                         className="px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        Reject all
+                                        {scopedReviewEntries.length > 0 ? 'Reject all' : 'Reject'}
                                     </button>
                                 )
                             ) : null}

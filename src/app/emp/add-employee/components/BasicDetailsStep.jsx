@@ -170,6 +170,7 @@ export default function BasicDetailsStep({
                         placeholder="WhatsApp Number"
                         disabled={false}
                         error={fieldErrors?.whatsappNumber}
+                        validatedLabel="Format valid"
                     />
                     {fieldErrors?.whatsappNumber && (
                         <p className="text-xs text-red-500 mt-1">{fieldErrors.whatsappNumber}</p>

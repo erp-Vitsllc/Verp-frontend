@@ -280,9 +280,6 @@ function buildWorkDetailsSnapshotRows(data, resolveContext = {}) {
     if (data.overtime !== undefined && data.overtime !== null) {
         pushScalarRow(rows, covered, 'Overtime', data.overtime, 'overtime');
     }
-    if (data.enablePortalAccess !== undefined && data.enablePortalAccess !== null) {
-        pushScalarRow(rows, covered, 'Portal Access', data.enablePortalAccess, 'enablePortalAccess');
-    }
     if (data.staffType !== undefined && data.staffType !== null && data.staffType !== '') {
         rows.push({ label: 'Work Location', value: workLocationLabel(data.staffType) });
         covered.add('staffType');
@@ -385,7 +382,6 @@ export function buildActivationSnapshotRows(data, options = {}) {
     pushIfPresentForKey('Other Bank Details', 'bankOtherDetails');
 
     pushIfPresentForKey('Probation Period (months)', 'probationPeriod');
-    pushIfPresentForKey('Portal Access', 'enablePortalAccess');
 
     if (normalized.loginThrough !== undefined && normalized.loginThrough !== null) {
         rows.push({

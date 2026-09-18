@@ -15,6 +15,10 @@ import {
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
 import { isAdmin } from '@/utils/permissions';
+import {
+    filterItemsByNotificationPermission,
+    getHiddenNotificationTypesSet,
+} from '@/utils/notificationChannelPermissionUi';
 
 export const EMPLOYEE_NOTIFICATION_TYPES = new Set([
     'Profile Activation',
@@ -37,28 +41,35 @@ export function buildEmployeePageNotifications(
     hrLive = false,
     mandatoryCardsHrLive = false,
 ) {
+    const hidden = getHiddenNotificationTypesSet();
     const employeeFiltered = filterMandatoryCardsNotificationsByProgress(
         (pendingItems || []).filter((item) => {
             const type = String(item?.type || '').trim();
             if (isEmployeeNotificationHiddenType(type)) return false;
             if (isCardDeletedNotificationHiddenType(type)) return false;
+            if (hidden.has(type)) return false;
             if (!mandatoryCardsHrLive && isMandatoryCardsProfileIncompleteItem(item)) return false;
             return EMPLOYEE_NOTIFICATION_TYPES.has(type);
         }),
         employeesList,
     );
 
-    const liveExpiry = hrLive ? collectEmployeeLiveExpiryNotifications(employeesList) : [];
+    const liveExpiry =
+        hrLive && !hidden.has('Employee Document Expiry Reminder')
+            ? collectEmployeeLiveExpiryNotifications(employeesList)
+            : [];
     const hasEmployeeList = Array.isArray(employeesList) && employeesList.length > 0;
 
-    return sortNotificationsStackOrder(
-        filterMandatoryCardsNotificationsByProgress(
-            mergeExpiryNotificationDedupe(employeeFiltered, liveExpiry, {
-                employees: hasEmployeeList ? employeesList : null,
-                preferLiveForTypes:
-                    hrLive && hasEmployeeList ? ['Employee Document Expiry Reminder'] : [],
-            }),
-            employeesList,
+    return filterItemsByNotificationPermission(
+        sortNotificationsStackOrder(
+            filterMandatoryCardsNotificationsByProgress(
+                mergeExpiryNotificationDedupe(employeeFiltered, liveExpiry, {
+                    employees: hasEmployeeList ? employeesList : null,
+                    preferLiveForTypes:
+                        hrLive && hasEmployeeList ? ['Employee Document Expiry Reminder'] : [],
+                }),
+                employeesList,
+            ),
         ),
     );
 }

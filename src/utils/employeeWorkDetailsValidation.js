@@ -430,9 +430,6 @@ export function validateEmployeeWorkDetailsForm(form = {}, { employee = null, re
         employeeEmployeeId,
     }));
 
-    if (form.enablePortalAccess === undefined || form.enablePortalAccess === null) {
-        errors.enablePortalAccess = 'Portal Access is required';
-    }
     if (form.overtime === undefined || form.overtime === null) {
         errors.overtime = 'Overtime selection is required';
     }

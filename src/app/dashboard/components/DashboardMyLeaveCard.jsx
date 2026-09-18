@@ -467,6 +467,7 @@ export default function DashboardMyLeaveCard() {
 
     const metricsCtx = useMemo(
         () => ({
+            counts,
             leaveBalances,
             leavePolicy,
             requestStats,
@@ -475,7 +476,7 @@ export default function DashboardMyLeaveCard() {
             presentDays: n(enrollAttendance.office ?? summary.presentDays),
             absentDays: n(enrollAttendance.absent ?? summary.absentDays),
         }),
-        [leaveBalances, leavePolicy, requestStats, enrollAttendance, annualLeave, summary.presentDays, summary.absentDays],
+        [counts, leaveBalances, leavePolicy, requestStats, enrollAttendance, annualLeave, summary.presentDays, summary.absentDays],
     );
 
     const detailHint = (key) => {
@@ -497,7 +498,7 @@ export default function DashboardMyLeaveCard() {
             return `Last taken ${formatLeaveDate(summary.lastAnnualLeaveDate)}`;
         }
         if (key === 'sick_leave' && leavePolicy?.sickPeriod) {
-            return `${leavePolicy.sickAllowedDays ?? leavePolicy.allowedSickLeaveDaysPerYear ?? 0} days/${leavePolicy.sickPeriod} from salary policy`;
+            return `${leavePolicy.sickAllowedDays ?? leavePolicy.allowedSickLeaveDaysPerYear ?? 0} days ${leavePolicy.sickPeriod} from salary policy`;
         }
         return '';
     };

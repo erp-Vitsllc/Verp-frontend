@@ -25,10 +25,10 @@ export const HR_RULE_CHECKS = [
     { key: 'allowedSickLeavePerYear', label: 'Allowed sick leave per year' },
 ];
 
-/** Days before the salary processing date (1st of the month by default). */
+/** Days after the salary processing date (1st of the following month by default). */
 export const REMINDER_DAY_OPTIONS = Array.from({ length: 30 }, (_, i) => String(i + 1));
 
-/** On-the-day email after 1st / 2nd / 3rd reminders. */
+/** On-the-day email on the processing date, before 1st / 2nd / 3rd after-date reminders. */
 export const PROCESSING_DAY_REMINDER_INDEX = 3;
 
 export function reminderDayCount(value) {
@@ -40,12 +40,8 @@ export function chainedReminderDayOptions(reminders, index) {
     if (index === PROCESSING_DAY_REMINDER_INDEX) return [];
     if (index <= 0) return REMINDER_DAY_OPTIONS;
     const prev = reminderDayCount(reminders?.[index - 1]?.daysBefore);
-    if (index === 1) {
-        if (prev < 2) return [];
-        return Array.from({ length: prev - 1 }, (_, i) => String(i + 1));
-    }
-    if (prev < 1) return [];
-    return Array.from({ length: prev }, (_, i) => String(i + 1));
+    if (prev < 1 || prev >= REMINDER_DAY_OPTIONS.length) return [];
+    return Array.from({ length: REMINDER_DAY_OPTIONS.length - prev }, (_, i) => String(prev + 1 + i));
 }
 
 export function clampChainedReminderDays(rows) {
@@ -144,6 +140,8 @@ export const EMPTY_POLICY_FORM = {
     ],
     minAllowedLeavePerGroupPercent: '',
     maxAllowedLeavePerGroupPercent: '',
+    attendanceExclusionEmployeeIds: [],
+    leaveExclusionEmployeeIds: [],
     attachment: { ...EMPTY_POLICY_ATTACHMENT },
 };
 
@@ -231,6 +229,12 @@ export function policyFormFromApi(data) {
         salaryProcessReminders: toReminderRows(data?.salaryProcessReminders),
         minAllowedLeavePerGroupPercent: data?.minAllowedLeavePerGroupPercent ?? '',
         maxAllowedLeavePerGroupPercent: data?.maxAllowedLeavePerGroupPercent ?? '',
+        attendanceExclusionEmployeeIds: Array.isArray(data?.attendanceExclusionEmployeeIds)
+            ? data.attendanceExclusionEmployeeIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : [],
+        leaveExclusionEmployeeIds: Array.isArray(data?.leaveExclusionEmployeeIds)
+            ? data.leaveExclusionEmployeeIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : [],
         attachment: toPolicyAttachment(data?.attachment),
     };
 }

@@ -70,6 +70,8 @@ export function SalarySlipFields({ slip, onPatch }) {
     const fines = Array.isArray(slip?.fines) ? slip.fines : [];
     const utilities = Array.isArray(slip?.utilities) ? slip.utilities : [];
     const recon = slip?.reconciliation || {};
+    const hideLeaveTaken = Boolean(slip?.exclusions?.leave || slip?.exclusions?.attendance);
+    const hideAttendancePay = Boolean(slip?.exclusions?.attendance);
 
     return (
         <div className="space-y-5 rounded-lg border border-[#E6EAF0] bg-white p-4">
@@ -101,16 +103,18 @@ export function SalarySlipFields({ slip, onPatch }) {
                             }))
                         }
                     />
-                    <SlipField
-                        label="Working day leaves"
-                        value={att.workingDayLeaves}
-                        onChange={(value) =>
-                            onPatch('attendance', (draft) => ({
-                                ...draft,
-                                attendance: { ...draft.attendance, workingDayLeaves: value },
-                            }))
-                        }
-                    />
+                    {hideLeaveTaken ? null : (
+                        <SlipField
+                            label="Working day leaves"
+                            value={att.workingDayLeaves}
+                            onChange={(value) =>
+                                onPatch('attendance', (draft) => ({
+                                    ...draft,
+                                    attendance: { ...draft.attendance, workingDayLeaves: value },
+                                }))
+                            }
+                        />
+                    )}
                     <SlipField
                         label="Present days"
                         value={att.presentDays}
@@ -121,36 +125,42 @@ export function SalarySlipFields({ slip, onPatch }) {
                             }))
                         }
                     />
-                    <SlipField
-                        label="Holidays worked"
-                        value={att.holidaysWorked}
-                        onChange={(value) =>
-                            onPatch('attendance', (draft) => ({
-                                ...draft,
-                                attendance: { ...draft.attendance, holidaysWorked: value },
-                            }))
-                        }
-                    />
-                    <SlipField
-                        label="Overtime hours"
-                        value={att.overtimeHours}
-                        onChange={(value) =>
-                            onPatch('attendance', (draft) => ({
-                                ...draft,
-                                attendance: { ...draft.attendance, overtimeHours: value },
-                            }))
-                        }
-                    />
-                    <SlipField
-                        label="Comp off leave"
-                        value={att.compOffLeave}
-                        onChange={(value) =>
-                            onPatch('attendance', (draft) => ({
-                                ...draft,
-                                attendance: { ...draft.attendance, compOffLeave: value },
-                            }))
-                        }
-                    />
+                    {hideAttendancePay ? null : (
+                        <SlipField
+                            label="Holidays worked"
+                            value={att.holidaysWorked}
+                            onChange={(value) =>
+                                onPatch('attendance', (draft) => ({
+                                    ...draft,
+                                    attendance: { ...draft.attendance, holidaysWorked: value },
+                                }))
+                            }
+                        />
+                    )}
+                    {hideAttendancePay ? null : (
+                        <SlipField
+                            label="Overtime hours"
+                            value={att.overtimeHours}
+                            onChange={(value) =>
+                                onPatch('attendance', (draft) => ({
+                                    ...draft,
+                                    attendance: { ...draft.attendance, overtimeHours: value },
+                                }))
+                            }
+                        />
+                    )}
+                    {hideLeaveTaken ? null : (
+                        <SlipField
+                            label="Comp off leave"
+                            value={att.compOffLeave}
+                            onChange={(value) =>
+                                onPatch('attendance', (draft) => ({
+                                    ...draft,
+                                    attendance: { ...draft.attendance, compOffLeave: value },
+                                }))
+                            }
+                        />
+                    )}
                 </div>
             </div>
 
@@ -267,6 +277,7 @@ export function SalarySlipFields({ slip, onPatch }) {
                 </div>
             </div>
 
+            {attendanceDeductions.length ? (
             <div>
                 <SectionTitle>Attendance-based deductions</SectionTitle>
                 <div className="space-y-3">
@@ -332,6 +343,7 @@ export function SalarySlipFields({ slip, onPatch }) {
                     ))}
                 </div>
             </div>
+            ) : null}
 
             <div>
                 <SectionTitle>Salary advance & loan schedule</SectionTitle>

@@ -138,7 +138,7 @@ function cycleFromPolicy(policy, parsed) {
         cutoffDate,
         startMonthLabel,
         reminderLabel: reminderDays
-            ? `${reminderDays} day${reminderDays === 1 ? '' : 's'} before processing`
+            ? `${reminderDays} day${reminderDays === 1 ? '' : 's'} after processing`
             : 'On processing date',
         reminderDay: reminderDays,
         leaveEligibility: policy?.workingDaysRequiredToEligible

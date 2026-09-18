@@ -109,6 +109,7 @@ import {
     sanitizePostalInput,
     isActiveCompany,
 } from '@/utils/employeeAddValidation';
+import { checkWhatsAppNumberRegistered, WHATSAPP_NOT_REGISTERED_ERROR } from '@/utils/checkWhatsAppNumber';
 
 export default function AddEmployee({ id }) {
     const router = useRouter();
@@ -1065,6 +1066,22 @@ export default function AddEmployee({ id }) {
                     return;
                 }
 
+                if (basicDetails.whatsappNumber) {
+                    const waCheck = await checkWhatsAppNumberRegistered(basicDetails.whatsappNumber, axios);
+                    if (!waCheck.ok) {
+                        setBasicFieldError('whatsappNumber', waCheck.error || WHATSAPP_NOT_REGISTERED_ERROR);
+                        setCurrentStep(1);
+                        setError(waCheck.error || WHATSAPP_NOT_REGISTERED_ERROR);
+                        toast({
+                            variant: 'destructive',
+                            title: 'WhatsApp number',
+                            description: waCheck.error || WHATSAPP_NOT_REGISTERED_ERROR,
+                        });
+                        setLoading(false);
+                        return;
+                    }
+                }
+
                 // Remove age from personalDetails - backend will calculate it from dateOfBirth
                 const { age, ...personalDetailsWithoutAge } = personalDetails;
 
@@ -1208,6 +1225,19 @@ export default function AddEmployee({ id }) {
                 router.push('/emp');
             } catch (err) {
                 if (err?.redirectedToNotFound) return;
+
+                if (err.response?.data?.field === 'whatsappNumber') {
+                    const waMessage = err.response.data.message || WHATSAPP_NOT_REGISTERED_ERROR;
+                    setBasicFieldError('whatsappNumber', waMessage);
+                    setCurrentStep(1);
+                    setError(waMessage);
+                    toast({
+                        variant: 'destructive',
+                        title: 'WhatsApp number',
+                        description: waMessage,
+                    });
+                    return;
+                }
 
                 let errorMessage = 'Error connecting to server.';
 

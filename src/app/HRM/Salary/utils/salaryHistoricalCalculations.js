@@ -524,6 +524,15 @@ export function summarizeAttendanceEligibility(rows = []) {
     return { workingDays, leaveRecords };
 }
 
+/** Extra punch hours after VERP start convert to qualifying days at 10 hours = 1 day. */
+export const OVERTIME_HOURS_PER_DAY = 10;
+
+export function overtimeHoursToDays(hours) {
+    const h = Math.max(0, Number(hours) || 0);
+    if (!h) return 0;
+    return Math.round((h / OVERTIME_HOURS_PER_DAY) * 100) / 100;
+}
+
 export function calculateHistoricalEligibility({
     workingDays = 0,
     calendarDays = 0,

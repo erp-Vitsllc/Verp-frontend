@@ -2936,7 +2936,9 @@ function FineDetailsPageContent() {
                     <FinePayChoiceModal
                         isOpen={finePayChoiceOpen}
                         fineId={fine?.fineId || ''}
-                        showEmployeePay={false}
+                        showEmployeePay
+                        employeePayLabel="Employee Pay"
+                        employeePayHint="Salary or cash. Marks Paid Employee. Emails the invoice to the employee. No Zoho entry."
                         onClose={() => setFinePayChoiceOpen(false)}
                         onExpenseRefund={() => {
                             setFinePayChoiceOpen(false);
@@ -2945,6 +2947,10 @@ function FineDetailsPageContent() {
                         onVendorCredit={() => {
                             setFinePayChoiceOpen(false);
                             setFineVendorCreditOpen(true);
+                        }}
+                        onEmployeePay={() => {
+                            setFinePayChoiceOpen(false);
+                            setFineEmployeePayOpen(true);
                         }}
                     />
                     <FineEmployeePayModal
