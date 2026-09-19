@@ -201,7 +201,7 @@ export default function NotificationEmailsPage() {
                     <Navbar />
                     <main className="flex flex-1 items-center justify-center p-8">
                         <p className="text-slate-600">
-                            You do not have access to Notifications and Email Permission. Super User or flowchart HR only.
+                            You do not have access to WhatsApp Permission. Super User or flowchart HR only.
                         </p>
                     </main>
                 </div>
@@ -217,11 +217,11 @@ export default function NotificationEmailsPage() {
                 <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden">
                     <div className="mb-4 sm:mb-6">
                         <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">
-                            Notifications and Email Permission
+                            WhatsApp Permission
                         </h1>
                         <p className="text-sm sm:text-base text-gray-600">
-                            Turn WhatsApp on or off for each event. Click the WhatsApp header to change all rows. Click a
-                            topic for the full description. Notification and email always go; they are not gated here.
+                            Turn WhatsApp on or off for tools handover report and tools monthly report. Click a topic
+                            for the full description. Notification and email always go; they are not gated here.
                         </p>
                     </div>
 

@@ -1,6 +1,7 @@
 import { resolveZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 import { isCompanyFineParty } from '@/utils/fineGroupClassification';
+import { isApprovedFineStatus } from './fineApprovedEdit';
 
 /** First name + first 3 letters of last name (e.g. Raseel Muhammad → Raseel Muh). */
 export function formatFineListEmpName(fullName) {
@@ -79,11 +80,10 @@ export function formatFineListAssigneePayment(fine) {
     return isFineAssigneeEmployeePaid(fine) ? 'Employee paid' : 'Pending';
 }
 
-/** Completed only when accounts work is done (Zoho vendor paid or employee-paid-to-vendor). */
+/** Completed when last approval (Management) is done — independent of employee/vendor payment. */
 export function isFineListCompleted(fine) {
     if (!fine || isClosedWorkflowStatus(fine.fineStatus)) return false;
-    if (isFineVendorSidePaid(fine)) return true;
-    return String(fine.fineStatus || '').trim() === 'Completed';
+    return isApprovedFineStatus(String(fine.fineStatus || '').trim());
 }
 
 export function formatFineListStatus(fine) {

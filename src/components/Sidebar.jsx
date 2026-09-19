@@ -221,7 +221,7 @@ const menuItems = [
             },
             { label: 'Flowchart', icon: GitBranch, permissionModule: 'settings' },
             { label: 'WhatsApp Messages', icon: MessageCircle, whatsappInbox: true },
-            { label: 'Notifications & Emails', icon: Bell, notificationEmails: true },
+            { label: 'WhatsApp Permission', icon: Bell, notificationEmails: true },
             { label: 'Activity Logs', icon: Activity, restoreRecovery: true },
             { label: 'Deleted Records', icon: Trash2, restoreRecovery: true },
         ],
@@ -307,7 +307,7 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'Flowchart') return '/Settings/FlowChart';
         if (label === 'Activity Logs') return '/Settings/ActivityLogs';
         if (label === 'WhatsApp Messages') return '/Settings/WhatsAppMessages';
-        if (label === 'Notifications & Emails') return '/Settings/NotificationEmails';
+        if (label === 'WhatsApp Permission') return '/Settings/NotificationEmails';
         if (label === 'Deleted Records') return '/Settings/DeletedRecords';
     }
     if (parentId === 'Accounts' && label === 'Vendors') return '/Accounts/Vendors';
@@ -742,7 +742,7 @@ export default function Sidebar() {
             router.push('/Settings/ActivityLogs');
         } else if (parentId === 'Settings' && subItem.label === 'WhatsApp Messages') {
             router.push('/Settings/WhatsAppMessages');
-        } else if (parentId === 'Settings' && subItem.label === 'Notifications & Emails') {
+        } else if (parentId === 'Settings' && subItem.label === 'WhatsApp Permission') {
             router.push('/Settings/NotificationEmails');
         } else if (parentId === 'Settings' && subItem.label === 'Deleted Records') {
             router.push('/Settings/DeletedRecords');
@@ -807,7 +807,7 @@ export default function Sidebar() {
             return pathname?.startsWith('/Settings/ActivityLogs');
         } else if (parentId === 'Settings' && subItem.label === 'WhatsApp Messages') {
             return pathname?.startsWith('/Settings/WhatsAppMessages');
-        } else if (parentId === 'Settings' && subItem.label === 'Notifications & Emails') {
+        } else if (parentId === 'Settings' && subItem.label === 'WhatsApp Permission') {
             return pathname?.startsWith('/Settings/NotificationEmails');
         } else if (parentId === 'Settings' && subItem.label === 'Deleted Records') {
             return pathname?.startsWith('/Settings/DeletedRecords');
@@ -869,7 +869,7 @@ export default function Sidebar() {
             return true;
         }
 
-        // Settings: WhatsApp, Notifications & Emails, or Deleted Records without a settings module row.
+        // Settings: WhatsApp Messages, WhatsApp Permission, or Deleted Records without a settings module row.
         if (
             item.id === 'Settings' &&
             (canViewWhatsAppInbox() || canWhatsAppInbox || canNotificationEmails || canRestoreRecovery)
