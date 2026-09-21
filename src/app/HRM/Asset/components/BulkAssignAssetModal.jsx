@@ -7,6 +7,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import { isPoolAssignableAssetStatus } from '@/utils/assetStatusHelpers';
+import { hasPositiveAssetValue, ZERO_ASSET_VALUE_TRANSFER_MESSAGE } from '../utils/canPerformAssetAction';
 
 function typeIdStr(a) {
     const t = a?.typeId;
@@ -466,12 +467,26 @@ export default function BulkAssignAssetModal({
         try {
             const staleAssets = await validateStagedAssetsAgainstLivePool(stagedAssignments);
             if (staleAssets.length > 0) {
+                setLoading(false);
                 return toast({
                     variant: 'destructive',
                     title: isReassignMode ? 'Reassign blocked' : 'Assignment blocked',
                     description: isReassignMode
                         ? `These assets are no longer Assigned (refresh the list and try again): ${staleAssets.join(', ')}`
                         : `These assets are no longer Unassigned/Returned (refresh the list and try again): ${staleAssets.join(', ')}`,
+                });
+            }
+
+            const zeroValueAssets = stagedAssignments
+                .filter((row) => !hasPositiveAssetValue(row.asset))
+                .map((row) => row.asset?.assetId || row.asset?._id)
+                .filter(Boolean);
+            if (zeroValueAssets.length > 0) {
+                setLoading(false);
+                return toast({
+                    variant: 'destructive',
+                    title: isReassignMode ? 'Reassign blocked' : 'Assignment blocked',
+                    description: `${ZERO_ASSET_VALUE_TRANSFER_MESSAGE} (${zeroValueAssets.join(', ')})`,
                 });
             }
 

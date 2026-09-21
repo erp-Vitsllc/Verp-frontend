@@ -265,6 +265,7 @@ export default function ToolsAssetProfileHeaderCards({
                                     key={action.key || action.label}
                                     type="button"
                                     disabled={action.disabled}
+                                    title={action.title || undefined}
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         if (!action.disabled) action.onClick?.();

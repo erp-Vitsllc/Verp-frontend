@@ -15,13 +15,17 @@ const FINE_PENDING_APPROVAL_STATUSES = new Set([
     'Pending Management',
 ]);
 
-/** Fine bell/inbox is approval-stage only — hide Completed / Approved / payable leftovers. */
+/** Approval stages, plus Accounts Make Payment after Management (until Zoho / employee pay). */
 export function isFinePendingInboxApprovalItem(item) {
     if (!item) return false;
     if (item.hubRequest) return true;
     const status = String(item?.fine?.fineStatus || '').trim();
     if (!status) return true;
-    return FINE_PENDING_APPROVAL_STATUSES.has(status);
+    if (FINE_PENDING_APPROVAL_STATUSES.has(status)) return true;
+    if (['Approved', 'Active'].includes(status) && !String(item?.fine?.accountsPaymentPath || '').trim()) {
+        return true;
+    }
+    return false;
 }
 
 export function filterFinePendingInboxApprovalItems(items) {

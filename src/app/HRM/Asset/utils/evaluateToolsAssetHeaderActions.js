@@ -3,7 +3,12 @@ import {
     isLeaveActive,
     isServiceActive,
 } from '@/utils/assetStatusHelpers';
-import { canPerformAssetAction, mapHeaderLabelToAssetAction } from './canPerformAssetAction';
+import {
+    canPerformAssetAction,
+    hasPositiveAssetValue,
+    mapHeaderLabelToAssetAction,
+    ZERO_ASSET_VALUE_TRANSFER_MESSAGE,
+} from './canPerformAssetAction';
 
 function shouldIncludeHeaderAction(action, asset) {
     if (action.label === 'TRANSFER ASSET') {
@@ -111,6 +116,7 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
         (isDraft && asset.actionRequiredBy != null) ||
         (isPending && asset.actionRequiredBy != null && !isAssignmentAcknowledgmentPending) ||
         !!asset?.pendingAction;
+    const isZeroValueAsset = !hasPositiveAssetValue(asset);
 
     const evaluated = actions
         .filter((action) => shouldIncludeHeaderAction(action, asset))
@@ -207,6 +213,7 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
 
             const isDisabled =
                 action.disabled ||
+                (isTransferReassignBtn && isZeroValueAsset) ||
                 isOutOfService ||
                 (isRequestOnDutyBtn && !!pendingOwnerOnDutyAcRequestId && isAssignedUser && !isAuthorized) ||
                 (isLeaveActive(asset) &&
@@ -249,6 +256,10 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
                 label: action.label,
                 displayLabel,
                 disabled: isDisabled,
+                title:
+                    isTransferReassignBtn && isZeroValueAsset
+                        ? ZERO_ASSET_VALUE_TRANSFER_MESSAGE
+                        : action.title,
                 onClick: action.onClick,
                 loading: (isDeleteBtn && isDeleting) || (isRequestOnDutyBtn && requestingOwnerOnDuty),
                 bgColor: isDeleteBtn && !isDisabled ? '#fee2e2' : undefined,

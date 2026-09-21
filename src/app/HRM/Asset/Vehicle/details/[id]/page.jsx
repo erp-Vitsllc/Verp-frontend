@@ -68,7 +68,9 @@ import {
 import { ensureAssetFlowchartRoleMeta } from '@/utils/assetFlowchartModuleAccess';
 import {
     buildAssetActionUser,
+    hasPositiveAssetValue,
     resolveAdminInCompanyFlowchart,
+    ZERO_ASSET_VALUE_TRANSFER_MESSAGE,
 } from '../../../utils/canPerformAssetAction';
 import AssignAssetModal from '../../../components/AssignAssetModal';
 import HandoverFormModal from '../../../components/HandoverFormModal';
@@ -2677,6 +2679,14 @@ function VehicleDetailsPageContent() {
 
     const openHandoverForAssignment = () => {
         if (!guardFleetAssignmentProfileActive()) return;
+        if (!hasPositiveAssetValue(asset)) {
+            toast({
+                variant: 'destructive',
+                title: 'Transfer disabled',
+                description: ZERO_ASSET_VALUE_TRANSFER_MESSAGE,
+            });
+            return;
+        }
         const inspectionStatus = String(asset?.vehicleInspectionStatus || 'none').toLowerCase();
         if (inspectionStatus === 'draft' || inspectionStatus === 'pending_hr') {
             toast({

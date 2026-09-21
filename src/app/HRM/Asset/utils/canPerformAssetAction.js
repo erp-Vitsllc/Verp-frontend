@@ -39,6 +39,14 @@ function normalizeEmployeeCode(value) {
     return String(value || '').toLowerCase().replace(/\s+/g, '');
 }
 
+export const ZERO_ASSET_VALUE_TRANSFER_MESSAGE =
+    'Transfer is disabled because the asset value is 0.';
+
+/** True when the asset has a transferable purchase/asset value. */
+export function hasPositiveAssetValue(asset) {
+    return Number(asset?.assetValue) > 0;
+}
+
 /**
  * True when the asset is assigned to an employee or allocated to a company.
  */

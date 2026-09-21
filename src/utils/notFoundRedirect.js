@@ -1,6 +1,6 @@
 export const NOT_FOUND_PATH = '/system-unavailable';
 
-const PUBLIC_PATH_PREFIXES = ['/login', '/print'];
+const PUBLIC_PATH_PREFIXES = ['/login', '/print', '/privacy-policy'];
 
 export function isPublicPath(pathname) {
     const path = String(pathname || '');

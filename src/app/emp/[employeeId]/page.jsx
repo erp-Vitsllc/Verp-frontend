@@ -7151,6 +7151,14 @@ function EmployeeProfilePageContent() {
 
     const handleToggleLoginThrough = async (channel, checked) => {
         if (togglingLoginThrough || !employee) return;
+        if (checked && !String(employee?.companyEmail || '').trim()) {
+            toast({
+                variant: 'destructive',
+                title: 'Company email required',
+                description: 'Add a company email address on Work Details before enabling Portal App or Web access.',
+            });
+            return;
+        }
         const next = {
             portalApp: employee?.loginThrough?.portalApp === true,
             web: employee?.loginThrough?.web === true,

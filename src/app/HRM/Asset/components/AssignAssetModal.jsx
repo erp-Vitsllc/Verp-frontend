@@ -11,6 +11,7 @@ import {
     isLeaveActive,
     isPoolAssignableAssetStatus,
 } from '@/utils/assetStatusHelpers';
+import { hasPositiveAssetValue, ZERO_ASSET_VALUE_TRANSFER_MESSAGE } from '../utils/canPerformAssetAction';
 
 export default function AssignAssetModal({
     isOpen,
@@ -196,6 +197,13 @@ export default function AssignAssetModal({
                 variant: 'destructive',
                 title: 'Error',
                 description: `Please select a ${itemLabelLower}`,
+            });
+        }
+        if (!hasPositiveAssetValue(selectedAsset)) {
+            return toast({
+                variant: 'destructive',
+                title: 'Transfer disabled',
+                description: ZERO_ASSET_VALUE_TRANSFER_MESSAGE,
             });
         }
         if (!formData.assignedTo) {

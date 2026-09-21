@@ -31,8 +31,9 @@ export default function LocationTurnOnModal({
                     </div>
                     <AlertDialogTitle>Turn on location</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Location is required for login and check-in / check-out. Tap Turn On, then
-                        allow the system prompt and wait until your position is found.
+                        Location is required to finish login. If it is already on, tap Turn On to
+                        continue. If it is off, turn it on, allow this site, then wait for your
+                        position.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 {error ? <p className="text-sm text-red-600">{error}</p> : null}

@@ -216,7 +216,7 @@ export default function BasicDetailsStep({
                         </div>
                     </div>
                     {checkingWhatsApp && (
-                        <p className="text-xs text-blue-600 mt-1">Sending welcome message. Fields stay locked until WhatsApp confirms delivery.</p>
+                        <p className="text-xs text-blue-600 mt-1">Sending welcome message to this number…</p>
                     )}
                     {whatsappRegistered && !checkingWhatsApp && (
                         <p className="text-xs text-green-600 mt-1">Valid WhatsApp number</p>

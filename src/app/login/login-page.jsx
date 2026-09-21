@@ -7,12 +7,10 @@ import axiosInstance, { resetSessionExpiryHandled, resetSidebarPollingState } fr
 import { touchActivity } from '@/utils/authSession';
 import { validateEmailOrUsername, validatePassword } from '@/utils/validation';
 import {
-    isLocationRequiredError,
     promptSystemLocation,
     punchLocationPayload,
-    requireBrowserLocation,
 } from '@/utils/dashboardPunchMeta';
-import LocationTurnOnModal from '@/components/LocationTurnOnModal';
+import { webDevicePayload } from '@/utils/webLoginDevice';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -25,51 +23,39 @@ export default function LoginPage() {
     const [errors, setErrors] = useState({});
     const [serverError, setServerError] = useState('');
     const [loading, setLoading] = useState(false);
-    const [locationModalOpen, setLocationModalOpen] = useState(false);
-    const [locationBusy, setLocationBusy] = useState(false);
-    const [locationError, setLocationError] = useState('');
+    const [otpToken, setOtpToken] = useState('');
+    const [otp, setOtp] = useState('');
+    const [maskedEmail, setMaskedEmail] = useState('');
+    const [otpMessage, setOtpMessage] = useState('');
     const submittingRef = useRef(false);
 
-    const completeLogin = async (coords) => {
-        const { data } = await axiosInstance.post(
-            '/Login',
-            {
-                email: email.trim().toLowerCase(),
-                password: password.trim(),
-                source: 'web',
-                ...punchLocationPayload(coords),
-            },
-            { skipActionDedupe: true },
-        );
-
-        if (typeof window !== 'undefined') {
-            const userData = {
-                ...data?.user,
-                isSystemSuperUser:
-                    data?.user?.isSystemSuperUser === true ||
-                    data?.isSystemSuperUser === true,
-                isAdmin: data?.user?.isAdmin === true || data?.isAdmin === true,
-                isAdministrator:
-                    data?.user?.isAdministrator === true ||
-                    data?.isAdministrator === true,
-            };
-            localStorage.setItem('token', data?.token || '');
-            localStorage.setItem('user', JSON.stringify(userData));
-            localStorage.setItem('employeeUser', JSON.stringify(userData));
-
-            if (data?.permissions) {
-                localStorage.setItem('userPermissions', JSON.stringify(data.permissions));
-            }
-
-            if (data?.isAdmin !== undefined) {
-                localStorage.setItem('isAdmin', data.isAdmin.toString());
-            }
-
-            touchActivity();
-            resetSessionExpiryHandled();
-            resetSidebarPollingState();
+    const persistSession = (data) => {
+        if (typeof window === 'undefined') return;
+        const userData = {
+            ...data?.user,
+            isSystemSuperUser:
+                data?.user?.isSystemSuperUser === true ||
+                data?.isSystemSuperUser === true,
+            isAdmin: data?.user?.isAdmin === true || data?.isAdmin === true,
+            isAdministrator:
+                data?.user?.isAdministrator === true ||
+                data?.isAdministrator === true,
+        };
+        localStorage.setItem('token', data?.token || '');
+        localStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem('employeeUser', JSON.stringify(userData));
+        if (data?.permissions) {
+            localStorage.setItem('userPermissions', JSON.stringify(data.permissions));
         }
+        if (data?.isAdmin !== undefined) {
+            localStorage.setItem('isAdmin', data.isAdmin.toString());
+        }
+        touchActivity();
+        resetSessionExpiryHandled();
+        resetSidebarPollingState();
+    };
 
+    const goAfterLogin = () => {
         let redirectTo = searchParams.get('redirectTo') || '/dashboard';
         if (redirectTo.startsWith('/login') || redirectTo === '/login') {
             redirectTo = '/dashboard';
@@ -77,9 +63,87 @@ export default function LoginPage() {
         router.push(redirectTo);
     };
 
+    const finishIfLoggedIn = (data) => {
+        if (!data?.token) return false;
+        persistSession(data);
+        goAfterLogin();
+        return true;
+    };
+
+    const applyOtpChallenge = (data) => {
+        setOtpToken(data.otpToken || '');
+        setMaskedEmail(data.maskedEmail || '');
+        setOtpMessage(data.message || `OTP sent to company email ${data.maskedEmail || ''}`);
+        setOtp('');
+        setServerError('');
+    };
+
+    const postPasswordLogin = async (coords) => {
+        const { data } = await axiosInstance.post(
+            '/Login',
+            {
+                email: email.trim().toLowerCase(),
+                password: password.trim(),
+                source: 'web',
+                ...webDevicePayload(),
+                ...(coords ? punchLocationPayload(coords) : {}),
+            },
+            { skipActionDedupe: true },
+        );
+        if (data?.needsOtp && data?.otpToken) {
+            applyOtpChallenge(data);
+            return;
+        }
+        if (!finishIfLoggedIn(data)) {
+            throw new Error(data?.message || 'Login failed. Please try again.');
+        }
+    };
+
+    const postOtpLogin = async (coords) => {
+        const { data } = await axiosInstance.post(
+            '/Login/otp',
+            {
+                otpToken,
+                otp: String(otp || '').trim(),
+                source: 'web',
+                ...webDevicePayload(),
+                ...punchLocationPayload(coords),
+            },
+            { skipActionDedupe: true },
+        );
+        if (!finishIfLoggedIn(data)) {
+            throw new Error(data?.message || 'OTP check failed.');
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (submittingRef.current || loading) return;
+
+        if (otpToken) {
+            if (!String(otp || '').trim()) {
+                setServerError('Enter the OTP sent to your company email.');
+                return;
+            }
+            try {
+                submittingRef.current = true;
+                setLoading(true);
+                setServerError('');
+                const coords = await promptSystemLocation();
+                await postOtpLogin(coords);
+            } catch (err) {
+                if (err?.silent || err?.code === 'ACTION_DEDUPED') return;
+                setServerError(
+                    err.response?.data?.message ||
+                    err.message ||
+                    'OTP check failed. Please try again.',
+                );
+            } finally {
+                submittingRef.current = false;
+                setLoading(false);
+            }
+            return;
+        }
 
         const formErrors = {};
 
@@ -107,50 +171,44 @@ export default function LoginPage() {
             submittingRef.current = true;
             setLoading(true);
             setServerError('');
-
-            const coords = await requireBrowserLocation(20000);
-            await completeLogin(coords);
+            const coords = await promptSystemLocation();
+            await postPasswordLogin(coords);
         } catch (err) {
             if (err?.silent || err?.code === 'ACTION_DEDUPED') {
                 return;
             }
-            if (isLocationRequiredError(err)) {
-                setLocationError(err.response?.data?.message || err.message || '');
-                setLocationModalOpen(true);
-                return;
-            }
-            const errorMessage =
+            setServerError(
                 err.response?.data?.message ||
                 err.message ||
-                'Login failed. Please try again.';
-            setServerError(errorMessage);
+                'Login failed. Please try again.',
+            );
         } finally {
             submittingRef.current = false;
             setLoading(false);
         }
     };
 
-    const handleTurnOnLocation = async () => {
-        if (locationBusy) return;
-        setLocationBusy(true);
-        setLocationError('');
-        submittingRef.current = true;
-        setLoading(true);
+    const handleResendOtp = async () => {
+        if (!otpToken || loading) return;
         try {
-            const coords = await promptSystemLocation();
-            await completeLogin(coords);
-            setLocationModalOpen(false);
+            submittingRef.current = true;
+            setLoading(true);
+            setServerError('');
+            const { data } = await axiosInstance.post(
+                '/Login/otp/resend',
+                { otpToken },
+                { skipActionDedupe: true },
+            );
+            applyOtpChallenge(data);
         } catch (err) {
-            if (err?.silent || err?.code === 'ACTION_DEDUPED') return;
-            setLocationError(
+            setServerError(
                 err.response?.data?.message ||
                 err.message ||
-                'Turn on location, allow access, then try again.',
+                'Could not resend OTP.',
             );
         } finally {
             submittingRef.current = false;
             setLoading(false);
-            setLocationBusy(false);
         }
     };
 
@@ -262,6 +320,46 @@ export default function LoginPage() {
                             )}
                         </div>
 
+                        {otpToken ? (
+                            <div className="mb-4">
+                                <p className="text-sm text-gray-600 mb-2">
+                                    {otpMessage || `OTP sent to company email ${maskedEmail}`}
+                                </p>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    autoComplete="one-time-code"
+                                    placeholder="Enter 6-digit OTP"
+                                    value={otp}
+                                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                    className="w-full px-5 py-3.5 rounded-lg text-sm bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                                <div className="mt-2 flex items-center justify-between gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={handleResendOtp}
+                                        disabled={loading}
+                                        className="text-sm text-blue-600 hover:underline font-medium disabled:opacity-50"
+                                    >
+                                        Resend OTP
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setOtpToken('');
+                                            setOtp('');
+                                            setOtpMessage('');
+                                            setMaskedEmail('');
+                                            setServerError('');
+                                        }}
+                                        className="text-sm text-gray-500 hover:underline"
+                                    >
+                                        Back to login
+                                    </button>
+                                </div>
+                            </div>
+                        ) : null}
+
                         {/* Agree Checkbox */}
                         <div className="mb-6 flex items-start gap-3">
                             <input
@@ -298,7 +396,7 @@ export default function LoginPage() {
                                 data-no-action-guard="true"
                                 className="bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed text-white px-8 py-3 rounded-full font-semibold shadow-md transition"
                             >
-                                {loading ? 'Logging in...' : 'Login →'}
+                                {loading ? 'Logging in...' : otpToken ? 'Verify OTP →' : 'Login →'}
                             </button>
                         </div>
 
@@ -306,16 +404,6 @@ export default function LoginPage() {
                     {/* FORM END */}
                 </div>
             </div>
-            <LocationTurnOnModal
-                open={locationModalOpen}
-                busy={locationBusy}
-                error={locationError}
-                onTurnOn={handleTurnOnLocation}
-                onClose={() => {
-                    if (locationBusy) return;
-                    setLocationModalOpen(false);
-                }}
-            />
         </div>
     );
 }

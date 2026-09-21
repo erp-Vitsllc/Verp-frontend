@@ -226,19 +226,32 @@ async function readHttpFallbackLocation() {
     return null;
 }
 
-export async function requireBrowserLocation(timeoutMs = 20000) {
-    await requestNativeLocationAccess();
+function hasCapacitorGeo() {
+    return Boolean(typeof window !== 'undefined' && window.Capacitor?.Plugins?.Geolocation?.getCurrentPosition);
+}
 
+export async function requireBrowserLocation(timeoutMs = 20000) {
     const insecureHttp =
         isHttpPage() && typeof window !== 'undefined' && window.isSecureContext === false;
-    // Remote http:// is blocked by Chrome/Safari GPS. Keep the wait short, then fall back.
     const networkTimeout = insecureHttp ? 3000 : Math.min(Math.max(timeoutMs, 8000), 15000);
     const gpsTimeout = insecureHttp ? 3000 : timeoutMs;
 
-    const network = await readBestPosition(networkTimeout, {
+    // Start GPS in this click. Safari/Mac drops the prompt if we await anything first.
+    const firstTry = readNavigatorLocation(networkTimeout, {
         enableHighAccuracy: false,
-        maximumAge: 180000,
+        maximumAge: 10 * 60 * 1000,
     });
+
+    if (hasCapacitorGeo()) {
+        await requestNativeLocationAccess();
+        const native = await readCapacitorLocation(networkTimeout, {
+            enableHighAccuracy: false,
+            maximumAge: 10 * 60 * 1000,
+        });
+        if (native.coords) return native.coords;
+    }
+
+    const network = await firstTry;
     if (network.coords) return network.coords;
 
     const gps = await readBestPosition(gpsTimeout, {

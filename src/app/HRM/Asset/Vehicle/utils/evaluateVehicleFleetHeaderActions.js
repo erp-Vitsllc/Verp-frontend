@@ -1,4 +1,4 @@
-import { isAssetAssigned } from '../../utils/canPerformAssetAction';
+import { isAssetAssigned, hasPositiveAssetValue, ZERO_ASSET_VALUE_TRANSFER_MESSAGE } from '../../utils/canPerformAssetAction';
 
 const ACTION_BTN_BASE =
     'min-h-[48px] rounded-2xl px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-center leading-snug transition-all break-words';
@@ -136,6 +136,7 @@ export function evaluateVehicleHandoverCardActions({
     const inspectionComplete = isVehicleFirstInspectionComplete(asset);
     const inspectionHandoverStarted = hasVehicleInspectionHandoverStarted(asset);
     const showReinspection = canShowVehicleReinspectionAction(asset, vehicleActPhase);
+    const isZeroValueAsset = !hasPositiveAssetValue(asset);
     const assigneeMayReassign =
         isAssignee &&
         assigned &&
@@ -173,6 +174,9 @@ export function evaluateVehicleHandoverCardActions({
     } else if (!isVehicleAssignableFromPool(asset)) {
         assignDisabled = true;
         assignTitle = 'Vehicle must be unassigned or returned before a new assignment.';
+    } else if (isZeroValueAsset) {
+        assignDisabled = true;
+        assignTitle = ZERO_ASSET_VALUE_TRANSFER_MESSAGE;
     }
 
     let reassignDisabled = false;
@@ -208,6 +212,9 @@ export function evaluateVehicleHandoverCardActions({
     } else if (isAssigneeReassignPending) {
         reassignDisabled = true;
         reassignTitle = 'Your reassign request is awaiting HR approval.';
+    } else if (isZeroValueAsset) {
+        reassignDisabled = true;
+        reassignTitle = ZERO_ASSET_VALUE_TRANSFER_MESSAGE;
     }
 
     let returnDisabled = false;
@@ -398,6 +405,7 @@ export function evaluateVehicleFleetHeaderActions({
     const profileActive = isVehicleProfileActiveForAssignment(vehicleActPhase);
     const isDisposed =
         ['sold', 'total loss'].includes(String(asset.vehicleDispositionStatus || '').toLowerCase().trim());
+    const isZeroValueAsset = !hasPositiveAssetValue(asset);
 
     const actions = [];
 
@@ -414,7 +422,8 @@ export function evaluateVehicleFleetHeaderActions({
             key: 'assign',
             label: 'ASSIGN',
             displayLabel: 'ASSIGN',
-            disabled: false,
+            disabled: isZeroValueAsset,
+            title: isZeroValueAsset ? ZERO_ASSET_VALUE_TRANSFER_MESSAGE : '',
             onClick: onAssign,
         });
     }
@@ -438,7 +447,8 @@ export function evaluateVehicleFleetHeaderActions({
             key: 'reassign',
             label: 'REASSIGN ASSET',
             displayLabel: 'REASSIGN ASSET',
-            disabled: false,
+            disabled: isZeroValueAsset,
+            title: isZeroValueAsset ? ZERO_ASSET_VALUE_TRANSFER_MESSAGE : '',
             onClick: onReassign,
         });
     }

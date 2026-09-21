@@ -44,6 +44,7 @@ export default function AssetHeaderChoiceModal({
                                 key={opt.key || opt.label}
                                 type="button"
                                 disabled={opt.disabled}
+                                title={opt.title || undefined}
                                 onClick={() => {
                                     if (opt.disabled) return;
                                     opt.onClick?.();

@@ -16,6 +16,7 @@ const FINE_WORKFLOW_STEPS = [
     { id: 3, label: 'HR', role: 'HR' },
     { id: 4, label: 'Accounts', role: 'Accounts' },
     { id: 5, label: 'Management', role: 'Management' },
+    { id: 6, label: 'Make Payment', role: 'Accounts' },
 ];
 
 function isHrApprovalDone(fine, workflow = []) {
@@ -34,6 +35,10 @@ function isManagementApprovalDone(fine, workflow = []) {
     );
 }
 
+function isMakePaymentDone(fine) {
+    return Boolean(String(fine?.accountsPaymentPath || '').trim());
+}
+
 function isFineWorkflowStepApproved(step, fine, workflow = []) {
     const status = fine?.fineStatus;
     if (step.id === 1) return true;
@@ -41,6 +46,7 @@ function isFineWorkflowStepApproved(step, fine, workflow = []) {
     if (step.id === 3) return isHrApprovalDone(fine, workflow);
     if (step.id === 4) return isAccountsApprovalDone(fine, workflow);
     if (step.id === 5) return isManagementApprovalDone(fine, workflow);
+    if (step.id === 6) return isMakePaymentDone(fine);
     return false;
 }
 
@@ -50,6 +56,7 @@ function isFineWorkflowConnectorGreen(step, fine, workflow = []) {
     if (nextId === 3) return isHrApprovalDone(fine, workflow);
     if (nextId === 4) return isAccountsApprovalDone(fine, workflow);
     if (nextId === 5) return isManagementApprovalDone(fine, workflow);
+    if (nextId === 6) return isManagementApprovalDone(fine, workflow);
     return false;
 }
 
@@ -59,7 +66,8 @@ function getFineCurrentActiveStepId(fine) {
     if (status === 'Pending HR' || status === 'Pending Review' || status === 'Pending') return 3;
     if (status === 'Pending Accounts' || status === 'Pending Finance') return 4;
     if (status === 'Pending Authorization' || status === 'Pending Management') return 5;
-    if (['Approved', 'Active', 'Completed', 'Paid'].includes(status)) return 6;
+    if (['Approved', 'Active'].includes(status) && !isMakePaymentDone(fine)) return 6;
+    if (['Approved', 'Active', 'Completed', 'Paid'].includes(status)) return 7;
     return 2;
 }
 
@@ -130,6 +138,15 @@ function getFineStepActor(step, fine, workflow) {
         if (fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
         return 'CEO / Management';
     }
+    if (step.id === 6) {
+        const fromPayer = resolvePersonName(fine.accountsPaymentBy);
+        if (fromPayer) return fromPayer;
+        if (fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
+        const accStep = workflow.find((w) => w.role === 'Accounts');
+        const fromWf = resolvePersonName(accStep?.assignedTo);
+        if (fromWf) return fromWf;
+        return 'Accounts';
+    }
     return '';
 }
 
@@ -144,6 +161,9 @@ function getFineStepDateRaw(step, fine, workflow) {
             (w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved'
         );
         return fine.approvedDate || mgtStep?.actionedAt || null;
+    }
+    if (step.id === 6) {
+        return fine.accountsPaymentAt || null;
     }
     const wfStep = workflow.find((w) => w.role === step.role && w.status === 'Approved');
     return wfStep?.actionedAt || null;

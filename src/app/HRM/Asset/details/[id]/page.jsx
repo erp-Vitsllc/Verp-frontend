@@ -76,7 +76,9 @@ import {
     ASSET_ACTIONS,
     buildAssetActionUser,
     canPerformAssetAction,
+    hasPositiveAssetValue,
     resolveAdminInCompanyFlowchart,
+    ZERO_ASSET_VALUE_TRANSFER_MESSAGE,
 } from '../../utils/canPerformAssetAction';
 import HandoverFormModal from '../../components/HandoverFormModal';
 import HandoverFormView from '../../components/HandoverFormView';
@@ -3217,14 +3219,16 @@ function AssetDetailsPageContent() {
                                         isAssetAssignmentAcknowledgmentPending(asset)
                                         ? 'Reassign'
                                         : 'Assign',
-                                disabled: isServiceActive(asset),
+                                disabled: isServiceActive(asset) || !hasPositiveAssetValue(asset),
+                                title: !hasPositiveAssetValue(asset) ? ZERO_ASSET_VALUE_TRANSFER_MESSAGE : undefined,
                                 onClick: () => setShowAssignModal(true),
                             },
                             {
                                 key: 'bulk-reassign',
                                 label: 'Bulk Reassign',
                                 displayLabel: 'Bulk Reassign',
-                                disabled: !asset?.assignedTo,
+                                disabled: !asset?.assignedTo || !hasPositiveAssetValue(asset),
+                                title: !hasPositiveAssetValue(asset) ? ZERO_ASSET_VALUE_TRANSFER_MESSAGE : undefined,
                                 onClick: async () => {
                                     const holderId = asset?.assignedTo?._id ?? asset?.assignedTo;
                                     if (!holderId) {
@@ -3391,8 +3395,21 @@ function AssetDetailsPageContent() {
                                                             <>
                                                                 {asset.status === 'Returned' && (
                                                                     <button
-                                                                        onClick={() => setShowAssignModal(true)}
-                                                                        className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[11px] font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-200"
+                                                                        disabled={!hasPositiveAssetValue(asset)}
+                                                                        title={
+                                                                            !hasPositiveAssetValue(asset)
+                                                                                ? ZERO_ASSET_VALUE_TRANSFER_MESSAGE
+                                                                                : undefined
+                                                                        }
+                                                                        onClick={() => {
+                                                                            if (!hasPositiveAssetValue(asset)) return;
+                                                                            setShowAssignModal(true);
+                                                                        }}
+                                                                        className={`px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[11px] font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-200 ${
+                                                                            !hasPositiveAssetValue(asset)
+                                                                                ? 'opacity-50 cursor-not-allowed'
+                                                                                : ''
+                                                                        }`}
                                                                     >
                                                                         Reassign
                                                                     </button>

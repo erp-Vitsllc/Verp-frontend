@@ -52,6 +52,7 @@ export default function UserProfilePage() {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
     const [isUpdatingDevice, setIsUpdatingDevice] = useState(false);
+    const [isUpdatingWebDevice, setIsUpdatingWebDevice] = useState(false);
     const [isUpdatingLoginThrough, setIsUpdatingLoginThrough] = useState(false);
 
     useEffect(() => {
@@ -181,32 +182,8 @@ export default function UserProfilePage() {
         }
     };
 
-    const handleFixMobileDevice = async () => {
-        if (!window.confirm('Lock this user so they can only log in from the current mobile device?')) {
-            return;
-        }
-        try {
-            setIsUpdatingDevice(true);
-            const response = await axiosInstance.post(`/User/${userId}/mobile-device/fix`);
-            setUser((prev) => ({ ...prev, mobileDevice: response.data.mobileDevice }));
-            toast({
-                title: 'Device Fixed',
-                description: response.data.message || 'This user can only log in from this phone.',
-                variant: 'success',
-            });
-        } catch (err) {
-            toast({
-                title: 'Could not fix device',
-                description: err.response?.data?.message || 'Failed to lock this user to the current phone.',
-                variant: 'destructive',
-            });
-        } finally {
-            setIsUpdatingDevice(false);
-        }
-    };
-
     const handleChangeMobileDevice = async () => {
-        if (!window.confirm('Remove the current device? The next phone that logs in will become the new current device. Until you click Fix, they can log in from any phone.')) {
+        if (!window.confirm('Turn Fix off? The next login will send a WhatsApp OTP again.')) {
             return;
         }
         try {
@@ -229,12 +206,44 @@ export default function UserProfilePage() {
         }
     };
 
+    const handleChangeWebDevice = async () => {
+        if (!window.confirm('Clear this laptop and location? The next website login will send a company-email OTP.')) {
+            return;
+        }
+        try {
+            setIsUpdatingWebDevice(true);
+            const response = await axiosInstance.post(`/User/${userId}/web-device/change`);
+            setUser((prev) => ({ ...prev, webLogin: response.data.webLogin }));
+            toast({
+                title: 'Laptop unlocked',
+                description: response.data.message || 'Fixed laptop and location removed.',
+                variant: 'success',
+            });
+        } catch (err) {
+            toast({
+                title: 'Could not change device',
+                description: err.response?.data?.message || 'Failed to clear the fixed laptop.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsUpdatingWebDevice(false);
+        }
+    };
+
     const handleToggleLoginThrough = async (channel, checked) => {
         if (isUpdatingLoginThrough || user?.isSystemAdmin) return;
         if (!user?.employeeId || user.employeeId === 'System Users') {
             toast({
                 title: 'Link an employee first',
                 description: 'App and Web access belong to the linked employee profile.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        if (checked && !String(user.employee?.companyEmail || user.companyEmail || '').trim()) {
+            toast({
+                title: 'Company email required',
+                description: 'Add a company email address on the employee profile before enabling Portal App or Web access.',
                 variant: 'destructive',
             });
             return;
@@ -454,11 +463,16 @@ export default function UserProfilePage() {
                                             device={user.mobileDevice}
                                             lastLogin={user.lastLogin}
                                             busy={isUpdatingDevice}
-                                            onFix={handleFixMobileDevice}
                                             onChange={handleChangeMobileDevice}
                                         />
                                     )}
-                                    <WebLoginPanel webLogin={user.webLogin} lastLogin={user.lastLogin} />
+                                    <WebLoginPanel
+                                        webLogin={user.webLogin}
+                                        lastLogin={user.lastLogin}
+                                        busy={isUpdatingWebDevice}
+                                        onChange={handleChangeWebDevice}
+                                        hideActions={user.isSystemAdmin}
+                                    />
                                     {!user.isSystemAdmin ? (
                                         <AttendancePunchPanel attendance={user.todayAttendance} />
                                     ) : null}
@@ -568,7 +582,13 @@ function formatDeviceSeen(value) {
     if (!value) return '';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '';
-    return date.toLocaleString();
+    return date.toLocaleString(undefined, {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
 }
 
 function toFiniteNumber(value) {
@@ -657,11 +677,28 @@ function LoginLocationPin({ device, emptyDisplay = '-' }) {
     );
 }
 
-function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
-    const status = device?.status === 'fixed' ? 'fixed' : 'not_fixed';
-    const isFixed = status === 'fixed';
+function deviceTrustDisplay(device) {
+    const reported = Number(device?.daysLeft);
+    if (Number.isFinite(reported) && reported > 0) {
+        return { on: true, daysLeft: reported };
+    }
+    const until = device?.trustedUntil ? new Date(device.trustedUntil).getTime() : 0;
+    const daysLeft = until > Date.now() ? Math.ceil((until - Date.now()) / 86400000) : 0;
+    return { on: daysLeft > 0, daysLeft };
+}
+
+function appSentLocationLabel(location) {
+    const text = String(location || '').trim();
+    if (!text) return '';
+    if (/^(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)$/.test(text)) return '';
+    return text;
+}
+
+function CurrentDevicePanel({ device, lastLogin, busy, onChange }) {
+    const trust = deviceTrustDisplay(device);
+    const isFixed = trust.on;
     const deviceName = String(device?.deviceName || '').trim();
-    const location = String(device?.location || '').trim();
+    const location = appSentLocationLabel(device?.location);
     const ipAddress = String(device?.ipAddress || '').trim();
     const hasDevice = Boolean(
         device?.hasDevice ||
@@ -672,9 +709,11 @@ function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
             device?.latitude != null ||
             device?.longitude != null
     );
-    const canFix = Boolean(device?.canFix || String(device?.deviceId || '').trim());
     const lastSeen = formatDeviceSeen(device?.lastSeenAt || (hasDevice ? lastLogin : null));
-    const coords = punchCoords(device);
+    const coords = punchCoords({
+        ...device,
+        label: location,
+    });
 
     return (
         <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/80 p-5 sm:p-6">
@@ -692,8 +731,24 @@ function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
                             : 'bg-amber-100 text-amber-700 border-amber-200'
                     }`}
                 >
-                    {device?.statusLabel || (isFixed ? 'Fixed' : 'Not Fixed')}
+                    {isFixed ? 'On' : 'Off'}
                 </span>
+            </div>
+
+            <div className="mb-5 rounded-xl border border-blue-100 bg-white px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-gray-900">Fix this device</span>
+                    <span className={`text-sm font-bold ${isFixed ? 'text-green-700' : 'text-gray-600'}`}>
+                        {isFixed ? 'On' : 'Off'}
+                    </span>
+                </div>
+                {isFixed ? (
+                    <p className="text-sm font-bold text-blue-700 mt-1">{trust.daysLeft} days left</p>
+                ) : (
+                    <p className="text-xs text-gray-500 mt-1">
+                        Turns On for 30 days after WhatsApp OTP login. After 30 days this turns Off and WhatsApp OTP is required again.
+                    </p>
+                )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
@@ -708,11 +763,14 @@ function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
                         <MapPin size={18} className="text-blue-500" />
                         Location
                     </span>
+                    {location ? (
+                        <span className="text-base font-semibold text-gray-800">{location}</span>
+                    ) : null}
                     {coords ? (
                         <LocationMapPin coords={coords} kind="app" />
-                    ) : (
+                    ) : !location ? (
                         <LoginLocationPin device={device} emptyDisplay={hasDevice ? '-' : ''} />
-                    )}
+                    ) : null}
                 </div>
                 <DetailItem
                     icon={<Globe size={18} className="text-blue-500" />}
@@ -737,14 +795,6 @@ function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
             <div className="flex flex-wrap gap-2">
                 <button
                     type="button"
-                    onClick={onFix}
-                    disabled={busy || isFixed || !canFix}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs sm:text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    {busy ? 'Saving...' : 'Fix'}
-                </button>
-                <button
-                    type="button"
                     onClick={onChange}
                     disabled={busy || (!hasDevice && !isFixed)}
                     className="px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-xs sm:text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
@@ -756,27 +806,63 @@ function CurrentDevicePanel({ device, lastLogin, busy, onFix, onChange }) {
     );
 }
 
-function WebLoginPanel({ webLogin, lastLogin }) {
+function WebLoginPanel({ webLogin, lastLogin, busy, onChange, hideActions = false }) {
     const hasSession = Boolean(webLogin?.hasSession);
     const coords = punchCoords(webLogin);
     const ipAddress = String(webLogin?.ipAddress || '').trim();
     const deviceName = String(webLogin?.deviceName || '').trim();
+    const os = String(webLogin?.os || '').trim();
     const lastSeen = formatDeviceSeen(webLogin?.lastSeenAt || (hasSession ? lastLogin : null));
+    const trust = deviceTrustDisplay(webLogin);
+    const canChange = Boolean(webLogin?.canChange || hasSession || trust.on);
 
     return (
         <div className="mt-6 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-5 sm:p-6">
-            <div className="mb-4">
-                <h4 className="text-base font-bold text-gray-900">Web login (laptop)</h4>
-                <p className="text-xs text-gray-500 mt-1">
-                    Current location captured when this user signs in on the website from a laptop or browser.
-                </p>
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                <div>
+                    <h4 className="text-base font-bold text-gray-900">Web login (laptop)</h4>
+                    <p className="text-xs text-gray-500 mt-1">
+                        Current laptop/browser captured when this user signs in on the website.
+                    </p>
+                </div>
+                <span
+                    className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                        trust.on
+                            ? 'bg-green-100 text-green-700 border-green-200'
+                            : 'bg-amber-100 text-amber-700 border-amber-200'
+                    }`}
+                >
+                    {trust.on ? 'On' : 'Off'}
+                </span>
+            </div>
+
+            <div className="mb-5 rounded-xl border border-indigo-100 bg-white px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-gray-900">Fixed system</span>
+                    <span className={`text-sm font-bold ${trust.on ? 'text-green-700' : 'text-gray-600'}`}>
+                        {trust.on ? 'On' : 'Off'}
+                    </span>
+                </div>
+                {trust.on ? (
+                    <p className="text-sm font-bold text-indigo-700 mt-1">{trust.daysLeft} days left</p>
+                ) : (
+                    <p className="text-xs text-gray-500 mt-1">
+                        Turns On for 30 days after company-email OTP login. After 30 days this turns Off and a company-email OTP is required again.
+                    </p>
+                )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <DetailItem
                     icon={<Monitor size={18} className="text-indigo-500" />}
-                    label="Device"
+                    label="System"
                     value={deviceName}
+                    emptyDisplay={hasSession ? '-' : ''}
+                />
+                <DetailItem
+                    icon={<Monitor size={18} className="text-indigo-500" />}
+                    label="OS"
+                    value={os}
                     emptyDisplay={hasSession ? '-' : ''}
                 />
                 <div className="flex flex-col gap-1">
@@ -800,7 +886,7 @@ function WebLoginPanel({ webLogin, lastLogin }) {
                 />
                 <DetailItem
                     icon={<Clock size={18} className="text-indigo-500" />}
-                    label="Last Web Login"
+                    label="Login time"
                     value={lastSeen}
                     emptyDisplay={hasSession ? '-' : ''}
                 />
@@ -808,6 +894,19 @@ function WebLoginPanel({ webLogin, lastLogin }) {
 
             {!hasSession ? (
                 <p className="text-sm text-gray-600 mt-4">No website login location yet</p>
+            ) : null}
+
+            {!hideActions ? (
+            <div className="flex flex-wrap gap-2 mt-5">
+                <button
+                    type="button"
+                    onClick={onChange}
+                    disabled={busy || !canChange}
+                    className="px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-xs sm:text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {busy ? 'Saving...' : 'Change device'}
+                </button>
+            </div>
             ) : null}
         </div>
     );

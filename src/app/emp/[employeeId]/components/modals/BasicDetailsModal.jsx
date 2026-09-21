@@ -157,7 +157,7 @@ export default function BasicDetailsModal({
                                                     )}
                                                 </div>
                                                 {input.field === 'whatsappNumber' && checkingWhatsApp && (
-                                                    <p className="text-xs text-blue-600 mt-1">Sending welcome message. Fields stay locked until WhatsApp confirms delivery.</p>
+                                                    <p className="text-xs text-blue-600 mt-1">Sending welcome message to this number…</p>
                                                 )}
                                                 {input.field === 'whatsappNumber' && whatsappRegistered && !checkingWhatsApp && (
                                                     <p className="text-xs text-green-600 mt-1">Valid WhatsApp number</p>

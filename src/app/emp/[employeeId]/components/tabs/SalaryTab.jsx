@@ -41,6 +41,10 @@ import {
 } from '@/utils/assetStatusHelpers';
 import { saveListReturnState } from '@/utils/listReturnNavigation';
 import {
+    hasPositiveAssetValue,
+    ZERO_ASSET_VALUE_TRANSFER_MESSAGE,
+} from '@/app/HRM/Asset/utils/canPerformAssetAction';
+import {
     ensureAssetFlowchartRoleMeta,
     getCachedAssetFlowchartRoleMeta,
 } from '@/utils/assetFlowchartModuleAccess';
@@ -657,6 +661,13 @@ export default function SalaryTab({
         });
     }, [companyAssets, selectedCompanyTab]);
 
+    const selectedCompanyAssetsBlockTransfer = useMemo(() => {
+        const idSet = new Set((selectedCompanyAssets || []).map((id) => String(id)));
+        return (companyAssetsForActiveTab || [])
+            .filter((asset) => idSet.has(String(asset?._id || asset?.id)))
+            .some((asset) => !hasPositiveAssetValue(asset));
+    }, [companyAssetsForActiveTab, selectedCompanyAssets]);
+
     const yourAssetsLeaveBulkSummary = useMemo(
         () => categorizeAssetsForBulkLeave(yourAssetsAllRows, selectedYourAssets),
         [yourAssetsAllRows, selectedYourAssets],
@@ -671,6 +682,9 @@ export default function SalaryTab({
         const idSet = new Set((selectedYourAssets || []).map((id) => String(id)));
         return (yourAssetsAllRows || []).filter((a) => idSet.has(String(a?._id)));
     }, [yourAssetsAllRows, selectedYourAssets]);
+
+    const selectedYourAssetsBlockTransfer =
+        (selectedYourAssetRows || []).some((asset) => !hasPositiveAssetValue(asset));
 
     const selectedOnLeaveYourAssetIds = useMemo(
         () =>
@@ -804,6 +818,14 @@ export default function SalaryTab({
             });
             return;
         }
+        if (assigned.some((asset) => !hasPositiveAssetValue(asset))) {
+            toast({
+                variant: 'destructive',
+                title: 'Transfer disabled',
+                description: ZERO_ASSET_VALUE_TRANSFER_MESSAGE,
+            });
+            return;
+        }
         if (assigned.length === 1) {
             setSelectedAssignAsset(assigned[0]);
             setShowAssignModal(true);
@@ -823,6 +845,14 @@ export default function SalaryTab({
                 variant: 'destructive',
                 title: 'No assets',
                 description: 'Select at least one company asset to transfer.',
+            });
+            return;
+        }
+        if (selected.some((asset) => !hasPositiveAssetValue(asset))) {
+            toast({
+                variant: 'destructive',
+                title: 'Transfer disabled',
+                description: ZERO_ASSET_VALUE_TRANSFER_MESSAGE,
             });
             return;
         }
@@ -3183,7 +3213,13 @@ export default function SalaryTab({
                                             <button
                                                 type="button"
                                                 onClick={openProfileTransferAsset}
-                                                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black hover:bg-indigo-700 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                                disabled={selectedYourAssetsBlockTransfer}
+                                                title={
+                                                    selectedYourAssetsBlockTransfer
+                                                        ? ZERO_ASSET_VALUE_TRANSFER_MESSAGE
+                                                        : undefined
+                                                }
+                                                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black hover:bg-indigo-700 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                                 <ArrowRightLeft size={14} />
                                                 TRANSFER ASSET
@@ -3282,7 +3318,13 @@ export default function SalaryTab({
                                     <button
                                         type="button"
                                         onClick={openProfileCompanyTransferAsset}
-                                        className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black hover:bg-indigo-700 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                        disabled={selectedCompanyAssetsBlockTransfer}
+                                        title={
+                                            selectedCompanyAssetsBlockTransfer
+                                                ? ZERO_ASSET_VALUE_TRANSFER_MESSAGE
+                                                : undefined
+                                        }
+                                        className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black hover:bg-indigo-700 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         <ArrowRightLeft size={14} />
                                         TRANSFER ASSET
