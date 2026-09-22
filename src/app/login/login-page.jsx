@@ -23,10 +23,11 @@ export default function LoginPage() {
     const [errors, setErrors] = useState({});
     const [serverError, setServerError] = useState('');
     const [loading, setLoading] = useState(false);
-    const [otpToken, setOtpToken] = useState('');
-    const [otp, setOtp] = useState('');
-    const [maskedEmail, setMaskedEmail] = useState('');
-    const [otpMessage, setOtpMessage] = useState('');
+    // OTP paused. Login takes location, then opens the dashboard.
+    // const [otpToken, setOtpToken] = useState('');
+    // const [otp, setOtp] = useState('');
+    // const [maskedEmail, setMaskedEmail] = useState('');
+    // const [otpMessage, setOtpMessage] = useState('');
     const submittingRef = useRef(false);
 
     const persistSession = (data) => {
@@ -70,13 +71,13 @@ export default function LoginPage() {
         return true;
     };
 
-    const applyOtpChallenge = (data) => {
-        setOtpToken(data.otpToken || '');
-        setMaskedEmail(data.maskedEmail || '');
-        setOtpMessage(data.message || `OTP sent to company email ${data.maskedEmail || ''}`);
-        setOtp('');
-        setServerError('');
-    };
+    // const applyOtpChallenge = (data) => {
+    //     setOtpToken(data.otpToken || '');
+    //     setMaskedEmail(data.maskedEmail || '');
+    //     setOtpMessage(data.message || `OTP sent to company email ${data.maskedEmail || ''}`);
+    //     setOtp('');
+    //     setServerError('');
+    // };
 
     const postPasswordLogin = async (coords) => {
         const { data } = await axiosInstance.post(
@@ -90,60 +91,60 @@ export default function LoginPage() {
             },
             { skipActionDedupe: true },
         );
-        if (data?.needsOtp && data?.otpToken) {
-            applyOtpChallenge(data);
-            return;
-        }
+        // if (data?.needsOtp && data?.otpToken) {
+        //     applyOtpChallenge(data);
+        //     return;
+        // }
         if (!finishIfLoggedIn(data)) {
             throw new Error(data?.message || 'Login failed. Please try again.');
         }
     };
 
-    const postOtpLogin = async (coords) => {
-        const { data } = await axiosInstance.post(
-            '/Login/otp',
-            {
-                otpToken,
-                otp: String(otp || '').trim(),
-                source: 'web',
-                ...webDevicePayload(),
-                ...punchLocationPayload(coords),
-            },
-            { skipActionDedupe: true },
-        );
-        if (!finishIfLoggedIn(data)) {
-            throw new Error(data?.message || 'OTP check failed.');
-        }
-    };
+    // const postOtpLogin = async (coords) => {
+    //     const { data } = await axiosInstance.post(
+    //         '/Login/otp',
+    //         {
+    //             otpToken,
+    //             otp: String(otp || '').trim(),
+    //             source: 'web',
+    //             ...webDevicePayload(),
+    //             ...punchLocationPayload(coords),
+    //         },
+    //         { skipActionDedupe: true },
+    //     );
+    //     if (!finishIfLoggedIn(data)) {
+    //         throw new Error(data?.message || 'OTP check failed.');
+    //     }
+    // };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (submittingRef.current || loading) return;
 
-        if (otpToken) {
-            if (!String(otp || '').trim()) {
-                setServerError('Enter the OTP sent to your company email.');
-                return;
-            }
-            try {
-                submittingRef.current = true;
-                setLoading(true);
-                setServerError('');
-                const coords = await promptSystemLocation();
-                await postOtpLogin(coords);
-            } catch (err) {
-                if (err?.silent || err?.code === 'ACTION_DEDUPED') return;
-                setServerError(
-                    err.response?.data?.message ||
-                    err.message ||
-                    'OTP check failed. Please try again.',
-                );
-            } finally {
-                submittingRef.current = false;
-                setLoading(false);
-            }
-            return;
-        }
+        // if (otpToken) {
+        //     if (!String(otp || '').trim()) {
+        //         setServerError('Enter the OTP sent to your company email.');
+        //         return;
+        //     }
+        //     try {
+        //         submittingRef.current = true;
+        //         setLoading(true);
+        //         setServerError('');
+        //         const coords = await promptSystemLocation();
+        //         await postOtpLogin(coords);
+        //     } catch (err) {
+        //         if (err?.silent || err?.code === 'ACTION_DEDUPED') return;
+        //         setServerError(
+        //             err.response?.data?.message ||
+        //             err.message ||
+        //             'OTP check failed. Please try again.',
+        //         );
+        //     } finally {
+        //         submittingRef.current = false;
+        //         setLoading(false);
+        //     }
+        //     return;
+        // }
 
         const formErrors = {};
 
@@ -188,29 +189,29 @@ export default function LoginPage() {
         }
     };
 
-    const handleResendOtp = async () => {
-        if (!otpToken || loading) return;
-        try {
-            submittingRef.current = true;
-            setLoading(true);
-            setServerError('');
-            const { data } = await axiosInstance.post(
-                '/Login/otp/resend',
-                { otpToken },
-                { skipActionDedupe: true },
-            );
-            applyOtpChallenge(data);
-        } catch (err) {
-            setServerError(
-                err.response?.data?.message ||
-                err.message ||
-                'Could not resend OTP.',
-            );
-        } finally {
-            submittingRef.current = false;
-            setLoading(false);
-        }
-    };
+    // const handleResendOtp = async () => {
+    //     if (!otpToken || loading) return;
+    //     try {
+    //         submittingRef.current = true;
+    //         setLoading(true);
+    //         setServerError('');
+    //         const { data } = await axiosInstance.post(
+    //             '/Login/otp/resend',
+    //             { otpToken },
+    //             { skipActionDedupe: true },
+    //         );
+    //         applyOtpChallenge(data);
+    //     } catch (err) {
+    //         setServerError(
+    //             err.response?.data?.message ||
+    //             err.message ||
+    //             'Could not resend OTP.',
+    //         );
+    //     } finally {
+    //         submittingRef.current = false;
+    //         setLoading(false);
+    //     }
+    // };
 
     return (
         <div className="min-h-screen lg:h-screen flex bg-white overflow-y-auto lg:overflow-hidden relative">
@@ -320,6 +321,7 @@ export default function LoginPage() {
                             )}
                         </div>
 
+                        {/* OTP paused. Login takes location, then opens the dashboard.
                         {otpToken ? (
                             <div className="mb-4">
                                 <p className="text-sm text-gray-600 mb-2">
@@ -359,6 +361,7 @@ export default function LoginPage() {
                                 </div>
                             </div>
                         ) : null}
+                        */}
 
                         {/* Agree Checkbox */}
                         <div className="mb-6 flex items-start gap-3">
@@ -396,7 +399,7 @@ export default function LoginPage() {
                                 data-no-action-guard="true"
                                 className="bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed text-white px-8 py-3 rounded-full font-semibold shadow-md transition"
                             >
-                                {loading ? 'Logging in...' : otpToken ? 'Verify OTP →' : 'Login →'}
+                                {loading ? 'Logging in...' : 'Login →'}
                             </button>
                         </div>
 
