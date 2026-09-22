@@ -2,6 +2,7 @@ import {
     clearPendingInboxCache,
     FINE_PENDING_INBOX_ENDPOINT,
 } from '@/utils/pendingInboxFetch';
+import { isFineAccountsSettlementDone } from './fineListDisplay';
 
 export const FINE_PENDING_INBOX_CHANGED = 'fine-pending-inbox-changed';
 
@@ -22,7 +23,7 @@ export function isFinePendingInboxApprovalItem(item) {
     const status = String(item?.fine?.fineStatus || '').trim();
     if (!status) return true;
     if (FINE_PENDING_APPROVAL_STATUSES.has(status)) return true;
-    if (['Approved', 'Active'].includes(status) && !String(item?.fine?.accountsPaymentPath || '').trim()) {
+    if (['Approved', 'Active'].includes(status) && !isFineAccountsSettlementDone(item?.fine)) {
         return true;
     }
     return false;

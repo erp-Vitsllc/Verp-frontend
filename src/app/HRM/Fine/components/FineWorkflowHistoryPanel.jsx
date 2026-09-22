@@ -9,6 +9,7 @@ import {
     buildFinePostApprovalEvents,
     mergeWorkflowAndPostEvents,
 } from '../../shared/workflowHistory/buildWorkflowHistoryEvents';
+import { isFineAccountsSettlementDone } from '../utils/fineListDisplay';
 
 const FINE_WORKFLOW_STEPS = [
     { id: 1, label: 'Created', role: 'Creator' },
@@ -36,7 +37,7 @@ function isManagementApprovalDone(fine, workflow = []) {
 }
 
 function isMakePaymentDone(fine) {
-    return Boolean(String(fine?.accountsPaymentPath || '').trim());
+    return isFineAccountsSettlementDone(fine);
 }
 
 function isFineWorkflowStepApproved(step, fine, workflow = []) {
@@ -163,7 +164,7 @@ function getFineStepDateRaw(step, fine, workflow) {
         return fine.approvedDate || mgtStep?.actionedAt || null;
     }
     if (step.id === 6) {
-        return fine.accountsPaymentAt || null;
+        return fine.accountsPaymentAt || fine.zohoSyncedAt || fine.vendorBillPaidAt || null;
     }
     const wfStep = workflow.find((w) => w.role === step.role && w.status === 'Approved');
     return wfStep?.actionedAt || null;

@@ -207,7 +207,7 @@ export default function UserProfilePage() {
     };
 
     const handleChangeWebDevice = async () => {
-        if (!window.confirm('Clear this laptop and location? The next website login will send a company-email OTP.')) {
+        if (!window.confirm('Clear all remembered web devices? The next website login from any laptop will send a company-email OTP.')) {
             return;
         }
         try {
@@ -215,8 +215,8 @@ export default function UserProfilePage() {
             const response = await axiosInstance.post(`/User/${userId}/web-device/change`);
             setUser((prev) => ({ ...prev, webLogin: response.data.webLogin }));
             toast({
-                title: 'Laptop unlocked',
-                description: response.data.message || 'Fixed laptop and location removed.',
+                title: 'Web devices cleared',
+                description: response.data.message || 'Remembered web devices removed.',
                 variant: 'success',
             });
         } catch (err) {
@@ -240,10 +240,10 @@ export default function UserProfilePage() {
             });
             return;
         }
-        if (checked && !String(user.employee?.companyEmail || user.companyEmail || '').trim()) {
+        if (checked && channel === 'web' && !String(user.employee?.companyEmail || user.companyEmail || '').trim()) {
             toast({
                 title: 'Company email required',
-                description: 'Add a company email address on the employee profile before enabling Portal App or Web access.',
+                description: 'Add a company email address on the employee profile before enabling Web access.',
                 variant: 'destructive',
             });
             return;
@@ -822,7 +822,7 @@ function WebLoginPanel({ webLogin, lastLogin, busy, onChange, hideActions = fals
                 <div>
                     <h4 className="text-base font-bold text-gray-900">Web login (laptop)</h4>
                     <p className="text-xs text-gray-500 mt-1">
-                        Current laptop/browser captured when this user signs in on the website.
+                        Multiple laptops can sign in. A new laptop needs a company-email OTP once. Known laptops skip OTP.
                     </p>
                 </div>
                 <span
@@ -838,7 +838,7 @@ function WebLoginPanel({ webLogin, lastLogin, busy, onChange, hideActions = fals
 
             <div className="mb-5 rounded-xl border border-indigo-100 bg-white px-4 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-gray-900">Fixed system</span>
+                    <span className="text-sm font-semibold text-gray-900">Remembered devices</span>
                     <span className={`text-sm font-bold ${trust.on ? 'text-green-700' : 'text-gray-600'}`}>
                         {trust.on ? 'On' : 'Off'}
                     </span>
@@ -847,7 +847,7 @@ function WebLoginPanel({ webLogin, lastLogin, busy, onChange, hideActions = fals
                     <p className="text-sm font-bold text-indigo-700 mt-1">{trust.daysLeft} days left</p>
                 ) : (
                     <p className="text-xs text-gray-500 mt-1">
-                        Turns On for 30 days after company-email OTP login. After 30 days this turns Off and a company-email OTP is required again.
+                        On after a company-email OTP on this laptop. Other new laptops still need OTP once, then they are remembered too.
                     </p>
                 )}
             </div>

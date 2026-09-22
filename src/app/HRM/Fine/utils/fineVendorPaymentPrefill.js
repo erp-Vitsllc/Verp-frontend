@@ -66,7 +66,8 @@ export function isFineAccountsPaymentPending(fine) {
     const status = String(fine.fineStatus || '');
     if (status !== 'Approved' && status !== 'Active') return false;
     if (String(fine.accountsPaymentPath || '').trim()) return false;
-    if (String(fine.zohoBillId || '').trim()) return false;
+    if (String(fine.zohoBillId || '').trim() || String(fine.zohoBillNumber || '').trim()) return false;
+    if (String(fine.vendorBillStatus || '').toLowerCase() === 'paid') return false;
     return true;
 }
 

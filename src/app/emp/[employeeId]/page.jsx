@@ -7151,11 +7151,19 @@ function EmployeeProfilePageContent() {
 
     const handleToggleLoginThrough = async (channel, checked) => {
         if (togglingLoginThrough || !employee) return;
-        if (checked && !String(employee?.companyEmail || '').trim()) {
+        if (checked && channel === 'web' && !String(employee?.companyEmail || '').trim()) {
             toast({
                 variant: 'destructive',
                 title: 'Company email required',
-                description: 'Add a company email address on Work Details before enabling Portal App or Web access.',
+                description: 'Add a company email address on Work Details before enabling Web access.',
+            });
+            return;
+        }
+        if (checked && channel === 'portalApp' && !String(employee?.whatsappNumber || '').replace(/\D/g, '')) {
+            toast({
+                variant: 'destructive',
+                title: 'WhatsApp number required',
+                description: 'Add a WhatsApp number on the employee profile first.',
             });
             return;
         }

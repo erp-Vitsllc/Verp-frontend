@@ -391,10 +391,19 @@ function FleetDashboardDetailModal({ open, bucket, onClose, onRowClick }) {
                                             <th className={thClass}>Status</th>
                                         </>
                                     ) : null}
+                                    {modalKind === 'vehicleValue' ? (
+                                        <>
+                                            <th className={thClass}>Asset ID</th>
+                                            <th className={thClass}>Vehicle Number</th>
+                                            <th className={thClass}>Name</th>
+                                            <th className={`${thClass} text-right`}>Vehicle Value</th>
+                                        </>
+                                    ) : null}
                                     {modalKind !== 'assigned' &&
                                     modalKind !== 'unassigned' &&
                                     modalKind !== 'pendingService' &&
-                                    modalKind !== 'vehicleFines' ? (
+                                    modalKind !== 'vehicleFines' &&
+                                    modalKind !== 'vehicleValue' ? (
                                         <>
                                             <th className={thClass}>Card Name</th>
                                             <th className={thClass}>Vehicle No / Plate</th>
@@ -486,10 +495,21 @@ function FleetDashboardDetailModal({ open, bucket, onClose, onRowClick }) {
                                                     </td>
                                                 </>
                                             ) : null}
+                                            {modalKind === 'vehicleValue' ? (
+                                                <>
+                                                    <td className="px-4 py-4 text-sm font-semibold text-gray-700">{row.assetId || '—'}</td>
+                                                    <td className="px-4 py-4 font-bold text-gray-800">{row.plate || '—'}</td>
+                                                    <td className="px-4 py-4 text-sm text-gray-700">{row.vehicleName || '—'}</td>
+                                                    <td className="px-4 py-4 text-right text-sm font-black text-gray-700 tabular-nums">
+                                                        {formatFleetModalAmount(row.value)}
+                                                    </td>
+                                                </>
+                                            ) : null}
                                             {modalKind !== 'assigned' &&
                                             modalKind !== 'unassigned' &&
                                             modalKind !== 'pendingService' &&
-                                            modalKind !== 'vehicleFines' ? (
+                                            modalKind !== 'vehicleFines' &&
+                                            modalKind !== 'vehicleValue' ? (
                                                 <>
                                                     <td className="px-4 py-4">
                                                         <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-bold uppercase">
@@ -633,7 +653,7 @@ function DateRangeInputs({ from, to, onFrom, onTo }) {
 function ChartCard({ index, title, tabs, tab, onTab, children, height = 242, extra, rangePicker }) {
     return (
         <div
-            className="flex flex-col"
+            className="flex flex-col min-w-0"
             style={{
                 height: rangePicker ? height + 42 : height,
                 background: '#FFFFFF',
@@ -880,6 +900,35 @@ export default function VehicleFleetDashboard({
     const vehicles = useMemo(() => data?.vehicles || [], [data?.vehicles]);
 
     const vehicleIdSet = useMemo(() => new Set(vehicles.map((v) => String(v._id))), [vehicles]);
+
+    const vehicleValueRows = useMemo(
+        () =>
+            vehicles
+                .map((v) => ({
+                    vehicleId: v._id,
+                    assetId: v.assetId,
+                    vehicleName: fleetVehicleName(v),
+                    plate: fleetVehiclePlate(v),
+                    name: fleetVehiclePlate(v),
+                    value: Number(v.assetValue) || 0,
+                    deviceId: v.locatorDeviceId,
+                    tab: 'basic',
+                    modalKind: 'vehicleValue',
+                }))
+                .filter((row) => row.value > 0)
+                .sort((a, b) => b.value - a.value),
+        [vehicles],
+    );
+
+    const vehicleValueChart = useMemo(
+        () => uniqueChartNames(topRows(vehicleValueRows, 8)),
+        [vehicleValueRows],
+    );
+
+    const vehicleValueTotal = useMemo(
+        () => vehicles.reduce((sum, v) => sum + (Number(v.assetValue) || 0), 0),
+        [vehicles],
+    );
 
     const vs = data?.vehicleStatus || {};
 
@@ -1497,7 +1546,7 @@ export default function VehicleFleetDashboard({
             </div>
 
             <div
-                className="grid grid-cols-1 xl:grid-cols-[1.02fr_0.92fr_1.28fr_1.12fr]"
+                className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1.02fr_0.92fr_1.28fr_1.12fr] min-w-0"
                 style={{ gap: 10 }}
             >
                 <ChartCard index={1} title="Vehicle Model Year" height={252}>
@@ -1650,8 +1699,70 @@ export default function VehicleFleetDashboard({
                 </ChartCard>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-[1fr_1.42fr_1fr]" style={{ gap: 10 }}>
-                <ChartCard index={5} title="Current Odometer" height={245}>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.42fr_1fr] min-w-0" style={{ gap: 10 }}>
+                <ChartCard
+                    index={5}
+                    title="Vehicle Value"
+                    height={245}
+                    extra={
+                        <span style={{ fontSize: 10, fontWeight: 600, color: '#1769E8' }}>
+                            {formatAed(vehicleValueTotal)}
+                        </span>
+                    }
+                >
+                    {!vehicleValueChart.length ? (
+                        <EmptyChart message="No vehicle values in this fleet." />
+                    ) : (
+                        <RechartsBox height={175} minHeight={160} className="h-full" fillParent>
+                            <BarChart
+                                data={vehicleValueChart}
+                                margin={{ top: 16, right: 6, left: 0, bottom: 2 }}
+                                onClick={() =>
+                                    openDetailModal({
+                                        name: 'Vehicle value',
+                                        title: 'Vehicle value',
+                                        subtitle: `${vehicleValueRows.length} vehicle${vehicleValueRows.length === 1 ? '' : 's'} · ${formatAed(vehicleValueTotal)}`,
+                                        modalKind: 'vehicleValue',
+                                        docs: vehicleValueRows,
+                                    })
+                                }
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} vertical={false} />
+                                <XAxis dataKey="chartName" tick={AXIS_TICK} axisLine={false} tickLine={false} interval={0} />
+                                <YAxis
+                                    tick={AXIS_TICK}
+                                    axisLine={false}
+                                    tickLine={false}
+                                    width={34}
+                                    tickFormatter={formatAxisNumber}
+                                    label={{ value: 'AED', angle: -90, position: 'insideLeft', style: axisLabelStyle }}
+                                />
+                                <RechartsTooltip
+                                    formatter={(v) => [formatAed(v), 'Value']}
+                                    labelFormatter={(_l, payload) => payload?.[0]?.payload?.name || _l}
+                                    contentStyle={tooltipStyle}
+                                />
+                                <Bar
+                                    dataKey="value"
+                                    fill={PALETTE.blue}
+                                    radius={[3, 3, 0, 0]}
+                                    maxBarSize={28}
+                                    animationDuration={chartAnim}
+                                    className="cursor-pointer"
+                                >
+                                    <LabelList
+                                        dataKey="value"
+                                        position="top"
+                                        formatter={(v) => (Number(v) ? formatAxisNumber(v) : '')}
+                                        style={{ fontSize: 8.5, fill: '#374151', fontWeight: 500 }}
+                                    />
+                                </Bar>
+                            </BarChart>
+                        </RechartsBox>
+                    )}
+                </ChartCard>
+
+                <ChartCard index={6} title="Current Odometer" height={245}>
                     {!odometerChart.length ? (
                         <EmptyChart
                             message={
@@ -1701,7 +1812,7 @@ export default function VehicleFleetDashboard({
                 </ChartCard>
 
                 <ChartCard
-                    index={6}
+                    index={7}
                     title="Running Kilometers"
                     height={245}
                     tabs={[
@@ -1782,7 +1893,7 @@ export default function VehicleFleetDashboard({
                 </ChartCard>
 
                 <ChartCard
-                    index={7}
+                    index={8}
                     title="Idle Time by Vehicle"
                     height={245}
                     extra={

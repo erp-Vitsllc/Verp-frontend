@@ -79,10 +79,21 @@ export function formatFineListAssigneePayment(fine) {
     return isFineAssigneeEmployeePaid(fine) ? 'Employee paid' : 'Pending';
 }
 
+/** Zoho bill already linked, vendor bill paid in Zoho, or Accounts chose a settlement path. */
+export function fineHasZohoBill(fine) {
+    if (!fine) return false;
+    return Boolean(
+        String(fine.zohoBillId || '').trim() || String(fine.zohoBillNumber || '').trim(),
+    );
+}
+
 /** Completed after Accounts Make Payment (Zoho entry or paid by employee). */
 export function isFineAccountsSettlementDone(fine) {
-    const path = String(fine?.accountsPaymentPath || '').trim().toLowerCase();
-    return path === 'zoho' || path === 'employee';
+    if (!fine) return false;
+    const path = String(fine.accountsPaymentPath || '').trim().toLowerCase();
+    if (path === 'zoho' || path === 'employee') return true;
+    if (String(fine.vendorBillStatus || '').toLowerCase() === 'paid') return true;
+    return fineHasZohoBill(fine);
 }
 
 export function isFineListCompleted(fine) {

@@ -1340,6 +1340,9 @@ function FineManagementContent({
                                                                         label={formatFineListStatus({
                                                                             ...fine,
                                                                             ...member,
+                                                                            zohoBillId: member.zohoBillId || fine.zohoBillId,
+                                                                            zohoBillNumber:
+                                                                                member.zohoBillNumber || fine.zohoBillNumber,
                                                                             vendorBillStatus:
                                                                                 member.vendorBillStatus || fine.vendorBillStatus,
                                                                             accountsPaymentPath:
