@@ -7,10 +7,12 @@ import axiosInstance, { resetSessionExpiryHandled, resetSidebarPollingState } fr
 import { touchActivity } from '@/utils/authSession';
 import { validateEmailOrUsername, validatePassword } from '@/utils/validation';
 import {
+    isLocationRequiredError,
     promptSystemLocation,
     punchLocationPayload,
 } from '@/utils/dashboardPunchMeta';
 import { webDevicePayload } from '@/utils/webLoginDevice';
+import LocationTurnOnModal from '@/components/LocationTurnOnModal';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -27,6 +29,9 @@ export default function LoginPage() {
     const [otp, setOtp] = useState('');
     const [maskedEmail, setMaskedEmail] = useState('');
     const [otpMessage, setOtpMessage] = useState('');
+    const [locationModalOpen, setLocationModalOpen] = useState(false);
+    const [locationBusy, setLocationBusy] = useState(false);
+    const [locationError, setLocationError] = useState('');
     const submittingRef = useRef(false);
 
     const persistSession = (data) => {
@@ -125,11 +130,17 @@ export default function LoginPage() {
                 setServerError('Enter the OTP sent to your company email.');
                 return;
             }
+            const locationPromise = promptSystemLocation().catch(() => null);
             try {
                 submittingRef.current = true;
                 setLoading(true);
                 setServerError('');
-                const coords = await promptSystemLocation();
+                const coords = await locationPromise;
+                if (!coords) {
+                    setLocationError('');
+                    setLocationModalOpen(true);
+                    return;
+                }
                 await postOtpLogin(coords);
             } catch (err) {
                 if (err?.silent || err?.code === 'ACTION_DEDUPED') return;
@@ -167,6 +178,7 @@ export default function LoginPage() {
             return;
         }
 
+        const locationPromise = promptSystemLocation().catch(() => null);
         try {
             submittingRef.current = true;
             setLoading(true);
@@ -174,8 +186,13 @@ export default function LoginPage() {
             try {
                 await postPasswordLogin(null);
             } catch (err) {
-                if (err.response?.data?.code !== 'LOCATION_REQUIRED') throw err;
-                const coords = await promptSystemLocation();
+                if (!isLocationRequiredError(err)) throw err;
+                const coords = await locationPromise;
+                if (!coords) {
+                    setLocationError('');
+                    setLocationModalOpen(true);
+                    return;
+                }
                 await postPasswordLogin(coords);
             }
         } catch (err) {
@@ -190,6 +207,30 @@ export default function LoginPage() {
         } finally {
             submittingRef.current = false;
             setLoading(false);
+        }
+    };
+
+    const handleTurnOnLocation = async () => {
+        if (locationBusy) return;
+        setLocationBusy(true);
+        setLocationError('');
+        try {
+            const coords = await promptSystemLocation();
+            if (otpToken) {
+                await postOtpLogin(coords);
+            } else {
+                await postPasswordLogin(coords);
+            }
+            setLocationModalOpen(false);
+        } catch (err) {
+            if (isLocationRequiredError(err) || !err.response) {
+                setLocationError(err.message || 'Turn on location, allow access, then try again.');
+                return;
+            }
+            setLocationModalOpen(false);
+            setServerError(err.response?.data?.message || err.message || 'Login failed. Please try again.');
+        } finally {
+            setLocationBusy(false);
         }
     };
 
@@ -409,6 +450,16 @@ export default function LoginPage() {
                     {/* FORM END */}
                 </div>
             </div>
+            <LocationTurnOnModal
+                open={locationModalOpen}
+                busy={locationBusy}
+                error={locationError}
+                onTurnOn={handleTurnOnLocation}
+                onClose={() => {
+                    if (locationBusy) return;
+                    setLocationModalOpen(false);
+                }}
+            />
         </div>
     );
 }
