@@ -624,6 +624,7 @@ export default function DashboardRequestHub() {
                 <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                     <span className="hidden md:block text-slate-400 font-bold text-sm">
                         {new Date().toLocaleDateString('en-US', {
+                            timeZone: 'Asia/Dubai',
                             weekday: 'long',
                             year: 'numeric',
                             month: 'long',

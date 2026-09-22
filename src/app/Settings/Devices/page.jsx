@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Filter, Globe, MapPin, Monitor, Search, Smartphone, Users } from 'lucide-react';
+import { Filter, Globe, Monitor, Search, Smartphone, Users } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { LocationMapPin, punchCoords } from '@/app/HRM/Attendance/mark/components/MarkAttendancePunchCells';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -42,6 +43,28 @@ function timeAgo(value) {
 
 function deviceLabel(row) {
     return row.os || row.deviceName || (row.source === 'app' ? 'Mobile' : 'Web browser');
+}
+
+function sessionCoords(row) {
+    const fromFields = punchCoords({
+        latitude: row?.latitude,
+        longitude: row?.longitude,
+        label: row?.location,
+    });
+    if (fromFields) return fromFields;
+    const text = String(row?.location || '').trim();
+    const match = text.match(/^(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)$/);
+    if (!match) return null;
+    return punchCoords({ latitude: match[1], longitude: match[2] });
+}
+
+function SessionLocationPin({ row }) {
+    const coords = sessionCoords(row);
+    if (coords) {
+        return <LocationMapPin coords={coords} kind={row.source === 'app' ? 'app' : 'web'} />;
+    }
+    const place = String(row?.location || '').trim();
+    return <span className="text-gray-600">{place || '—'}</span>;
 }
 
 export default function DevicesPage() {
@@ -241,11 +264,8 @@ export default function DevicesPage() {
                                                             </span>
                                                         </td>
                                                         <td className="px-4 py-3 text-gray-600">{row.ipAddress || '—'}</td>
-                                                        <td className="px-4 py-3 text-gray-600">
-                                                            <span className="inline-flex items-center gap-1.5">
-                                                                <MapPin size={14} className="text-gray-400" />
-                                                                {row.location || '—'}
-                                                            </span>
+                                                        <td className="px-4 py-3">
+                                                            <SessionLocationPin row={row} />
                                                         </td>
                                                         <td className="px-4 py-3 text-gray-600">{timeAgo(row.lastSeenAt)}</td>
                                                         <td className="px-4 py-3">
