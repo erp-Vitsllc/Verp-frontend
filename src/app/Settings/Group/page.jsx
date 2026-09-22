@@ -11,6 +11,7 @@ import PermissionGuard from '@/components/PermissionGuard';
 import { hasAnyPermission, isAdmin, hasPermission } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
 import { navHrefProps } from '@/utils/linkContextMenu';
+import UserGroupDeviceTabs from '@/app/Settings/UserGroupDeviceTabs';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -120,6 +121,7 @@ export default function GroupPage() {
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
                     <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden">
+                        <UserGroupDeviceTabs />
                         {/* Header */}
                         <div className="mb-4 sm:mb-6">
                             <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">Groups</h1>

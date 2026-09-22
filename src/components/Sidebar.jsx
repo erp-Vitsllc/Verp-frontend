@@ -215,10 +215,6 @@ const menuItems = [
                 label: 'Users & Groups',
                 icon: Users,
                 permissionModule: 'settings_user_group',
-                children: [
-                    { label: 'User', icon: User, permissionModule: 'settings_user_group' },
-                    { label: 'Group', icon: Users2, permissionModule: 'settings_user_group' },
-                ],
             },
             { label: 'Flowchart', icon: GitBranch, permissionModule: 'settings' },
             { label: 'WhatsApp Messages', icon: MessageCircle, whatsappInbox: true },
@@ -304,8 +300,7 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'Company') return '/Company';
     }
     if (parentId === 'Settings') {
-        if (label === 'User') return '/Settings/User';
-        if (label === 'Group') return '/Settings/Group';
+        if (label === 'Users & Groups') return '/Settings/User';
         if (label === 'Flowchart') return '/Settings/FlowChart';
         if (label === 'Activity Logs') return '/Settings/ActivityLogs';
         if (label === 'WhatsApp Messages') return '/Settings/WhatsAppMessages';
@@ -635,11 +630,7 @@ export default function Sidebar() {
         // Settings Detection
         else if (pathname.startsWith('/Settings')) {
             setOpenMenu((prev) => (prev === 'Settings' ? prev : 'Settings'));
-            if (pathname.includes('/User') || pathname.includes('/Group')) {
-                setOpenSubmenu((prev) =>
-                    prev === 'Settings-Users & Groups' ? prev : 'Settings-Users & Groups',
-                );
-            } else if (pathname.includes('/FlowChart')) {
+            if (pathname.includes('/FlowChart')) {
                 setOpenSubmenu((prev) => (prev === 'Settings-Flowchart' ? prev : 'Settings-Flowchart'));
             }
         }
@@ -733,10 +724,8 @@ export default function Sidebar() {
             router.push('/HRM/Asset/UtilityBills');
         } else if (parentId === 'HRM' && isToolsAssetSidebarItem(subItem.label)) {
             router.push('/HRM/Asset');
-        } else if (parentId === 'Settings' && subItem.label === 'User') {
+        } else if (parentId === 'Settings' && subItem.label === 'Users & Groups') {
             router.push('/Settings/User');
-        } else if (parentId === 'Settings' && subItem.label === 'Group') {
-            router.push('/Settings/Group');
         } else if (parentId === 'Settings' && subItem.label === 'Logout') {
             performLogout({ reason: 'manual' });
         } else if (parentId === 'Settings' && subItem.label === 'Flowchart') {
@@ -802,10 +791,15 @@ export default function Sidebar() {
             );
         } else if (parentId === 'HRM' && isToolsAssetSidebarItem(subItem.label)) {
             return pathname === '/HRM/Asset' || pathname?.startsWith('/HRM/Asset/details');
-        } else if (parentId === 'Settings' && subItem.label === 'User') {
-            return pathname?.startsWith('/Settings/User');
-        } else if (parentId === 'Settings' && subItem.label === 'Group') {
-            return pathname?.startsWith('/Settings/Group');
+        } else if (parentId === 'Settings' && subItem.label === 'Users & Groups') {
+            return (
+                pathname === '/Settings/User' ||
+                pathname?.startsWith('/Settings/User/') ||
+                pathname === '/Settings/Group' ||
+                pathname?.startsWith('/Settings/Group/') ||
+                pathname === '/Settings/Devices' ||
+                pathname?.startsWith('/Settings/Devices/')
+            );
         } else if (parentId === 'Settings' && subItem.label === 'Flowchart') {
             return pathname?.startsWith('/Settings/FlowChart');
         } else if (parentId === 'Settings' && subItem.label === 'Activity Logs') {
