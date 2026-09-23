@@ -6,7 +6,7 @@ import {
     redirectToNotFound,
     shouldApiErrorRedirectToNotFound,
 } from '@/utils/notFoundRedirect';
-import { getWebDeviceId } from '@/utils/webLoginDevice';
+import { getWebDeviceId, refreshWebPublicIp } from '@/utils/webLoginDevice';
 
 const DEFAULT_API_URL = 'http://localhost:5000/api';
 const CONFIGURED_API_URL = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_URL;
@@ -118,6 +118,10 @@ axiosInstance.interceptors.request.use(
             const deviceId = getWebDeviceId();
             if (deviceId) {
                 config.headers['x-verp-device-id'] = deviceId;
+            }
+            const publicIp = await refreshWebPublicIp();
+            if (publicIp) {
+                config.headers['x-verp-public-ip'] = publicIp;
             }
         }
 

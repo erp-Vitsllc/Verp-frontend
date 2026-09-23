@@ -38,10 +38,37 @@ export function detectWebDeviceName() {
     return 'Web browser';
 }
 
+let publicIpCache = { at: 0, ip: '', pending: null };
+
+function rememberPublicIp(value) {
+    const ip = String(value || '').trim();
+    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip) && !ip.includes(':')) return publicIpCache.ip || '';
+    publicIpCache = { at: Date.now(), ip, pending: null };
+    return ip;
+}
+
+/** Public IP of this browser's network. Cached for one minute. */
+export function refreshWebPublicIp() {
+    if (typeof window === 'undefined') return Promise.resolve('');
+    if (publicIpCache.ip && Date.now() - publicIpCache.at < 60 * 1000) {
+        return Promise.resolve(publicIpCache.ip);
+    }
+    if (publicIpCache.pending) return publicIpCache.pending;
+    const lookup = fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(2500) })
+        .then((response) => response.json())
+        .then((payload) => rememberPublicIp(payload?.ip))
+        .catch(() => publicIpCache.ip || '');
+    publicIpCache.pending = lookup.finally(() => {
+        publicIpCache.pending = null;
+    });
+    return publicIpCache.pending;
+}
+
 export function webDevicePayload() {
     return {
         deviceId: getWebDeviceId(),
         os: detectWebOs(),
         deviceName: detectWebDeviceName(),
+        publicIp: publicIpCache.ip || '',
     };
 }

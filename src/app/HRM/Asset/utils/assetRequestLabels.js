@@ -33,6 +33,7 @@ const VEHICLE_INBOX_TYPES_WITHOUT_ASSET = new Set([
     'Vehicle Mortgage Close',
     'Vehicle Service Request',
     'Vehicle Disposition Request',
+    'Vehicle Value Missing',
 ]);
 
 export function isAcceptedAssignmentOutcomeInboxRow(row = {}) {

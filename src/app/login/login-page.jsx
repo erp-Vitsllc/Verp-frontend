@@ -11,7 +11,7 @@ import {
     promptSystemLocation,
     punchLocationPayload,
 } from '@/utils/dashboardPunchMeta';
-import { webDevicePayload } from '@/utils/webLoginDevice';
+import { refreshWebPublicIp, webDevicePayload } from '@/utils/webLoginDevice';
 import LocationTurnOnModal from '@/components/LocationTurnOnModal';
 
 export default function LoginPage() {
@@ -84,6 +84,7 @@ export default function LoginPage() {
     };
 
     const postPasswordLogin = async (coords) => {
+        await refreshWebPublicIp();
         const { data } = await axiosInstance.post(
             '/Login',
             {
@@ -105,6 +106,7 @@ export default function LoginPage() {
     };
 
     const postOtpLogin = async (coords) => {
+        await refreshWebPublicIp();
         const { data } = await axiosInstance.post(
             '/Login/otp',
             {
