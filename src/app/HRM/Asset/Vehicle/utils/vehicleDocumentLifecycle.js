@@ -1,5 +1,4 @@
 import {
-    isInsuranceInvoiceAttachmentLabel,
     normVehicleDocType,
     syncVehicleDocumentAttachmentBuckets,
 } from './vehicleDocumentCardRows';
@@ -93,9 +92,8 @@ function bucketizeDocumentList(list) {
     for (const d of list) {
         const t = normType(d.type);
         if (t === 'registration' || t === 'registration attachment') registration.push(d);
-        else if (t === 'insurance' || t === 'insurance attachment') {
-            if (!isInsuranceInvoiceAttachmentLabel(d)) insurance.push(d);
-        } else if (t === 'warranty' || t === 'warranty attachment') warranty.push(d);
+        else if (t === 'insurance' || t === 'insurance attachment') insurance.push(d);
+        else if (t === 'warranty' || t === 'warranty attachment') warranty.push(d);
         else if (t === 'permit' || t === 'permit attachment') permit.push(d);
         else if (t === 'mortgage') mortgage.push(d);
         else if (t === 'petrol' || t === 'petrol attachment') petrol.push(d);

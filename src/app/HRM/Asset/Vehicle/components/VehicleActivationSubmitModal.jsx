@@ -34,6 +34,27 @@ export function buildSectionRows(sectionId, asset) {
                     value: `${asset?.plateEmirate || ''} ${asset?.plateNumber || ''}`.trim() || '—',
                 },
                 { label: 'Model year', value: asset?.modelYear ?? '—' },
+                {
+                    label: 'Purchase value',
+                    value:
+                        asset?.assetValue != null && asset?.assetValue !== ''
+                            ? `AED ${Number(asset.assetValue).toLocaleString()}`
+                            : '—',
+                },
+                {
+                    label: 'Current KM',
+                    value:
+                        asset?.currentKilometer != null && asset?.currentKilometer !== ''
+                            ? Number(asset.currentKilometer).toLocaleString()
+                            : '—',
+                },
+                {
+                    label: 'Monthly limit',
+                    value:
+                        asset?.fuelMonthlyLimit != null && asset?.fuelMonthlyLimit !== ''
+                            ? `AED ${Number(asset.fuelMonthlyLimit).toLocaleString()}`
+                            : '—',
+                },
             ];
         case 'registration':
             return [
@@ -54,6 +75,20 @@ export function buildSectionRows(sectionId, asset) {
                 { label: 'Policy', value: insMeta.policy || '—' },
                 { label: 'Start', value: insuranceDoc?.issueDate ? String(insuranceDoc.issueDate).slice(0, 10) : '—' },
                 { label: 'End', value: insuranceDoc?.expiryDate ? String(insuranceDoc.expiryDate).slice(0, 10) : '—' },
+                {
+                    label: 'Premium amount',
+                    value:
+                        insMeta.premiumAmount != null && insMeta.premiumAmount !== ''
+                            ? `AED ${Number(insMeta.premiumAmount).toLocaleString()}`
+                            : '—',
+                },
+                {
+                    label: 'Excess charge',
+                    value:
+                        insMeta.excessCharge != null && insMeta.excessCharge !== ''
+                            ? `AED ${Number(insMeta.excessCharge).toLocaleString()}`
+                            : '—',
+                },
             ];
         case 'profile_picture':
             return [

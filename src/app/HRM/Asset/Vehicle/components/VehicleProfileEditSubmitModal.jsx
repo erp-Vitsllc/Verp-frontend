@@ -7,6 +7,7 @@ import {
     VEHICLE_ACTIVATION_SECTION_LABELS,
 } from './VehicleActivationSubmitModal';
 import { sendVehicleProfileEditForApproval } from '../lib/vehicleProfileEditOps';
+import { profileEditChangedPairs } from '../lib/vehicleProfileEditSnapshots';
 
 const actionLabel = (action) => {
     const a = String(action || 'edit').toLowerCase();
@@ -64,8 +65,8 @@ export default function VehicleProfileEditSubmitModal({
                     </h3>
                     <p className="text-sm text-gray-500 mt-1">
                         {readOnly
-                            ? 'Review the submitted changes before approving or rejecting.'
-                            : 'Compare current card data with your proposed changes. Live data stays unchanged until HR approves.'}
+                            ? 'Live data and the changes the user submitted.'
+                            : 'Only the fields you changed. Live data stays unchanged until HR approves.'}
                     </p>
                 </div>
                 <div className="p-6 space-y-5">
@@ -78,8 +79,9 @@ export default function VehicleProfileEditSubmitModal({
                                 VEHICLE_ACTIVATION_SECTION_LABELS[sectionId] ||
                                 sectionId ||
                                 'Section';
-                            const previousRows = Array.isArray(entry.previousRows) ? entry.previousRows : [];
-                            const proposedRows = Array.isArray(entry.proposedRows) ? entry.proposedRows : [];
+                            const changed = profileEditChangedPairs(entry);
+                            const previousRows = changed.map((row) => ({ label: row.label, value: row.live }));
+                            const proposedRows = changed.map((row) => ({ label: row.label, value: row.proposed }));
 
                             return (
                                 <div
@@ -92,20 +94,26 @@ export default function VehicleProfileEditSubmitModal({
                                             {actionLabel(entry.action)}
                                         </span>
                                     </div>
-                                    <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="space-y-1.5">
-                                            <div className="text-[10px] font-bold uppercase tracking-wide text-gray-600">
-                                                Current (live)
+                                    {changed.length === 0 ? (
+                                        <p className="px-4 py-3 text-sm text-slate-500">
+                                            No field changes were recorded for this section.
+                                        </p>
+                                    ) : (
+                                        <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-1.5">
+                                                <div className="text-[10px] font-bold uppercase tracking-wide text-gray-600">
+                                                    Current (live)
+                                                </div>
+                                                <RowTable rows={previousRows} />
                                             </div>
-                                            <RowTable rows={previousRows.length ? previousRows : [{ label: '—', value: '—' }]} />
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            <div className="text-[10px] font-bold uppercase tracking-wide text-blue-700">
-                                                Proposed
+                                            <div className="space-y-1.5">
+                                                <div className="text-[10px] font-bold uppercase tracking-wide text-blue-700">
+                                                    Proposed
+                                                </div>
+                                                <RowTable rows={proposedRows} />
                                             </div>
-                                            <RowTable rows={proposedRows.length ? proposedRows : [{ label: '—', value: '—' }]} />
                                         </div>
-                                    </div>
+                                    )}
                                 </div>
                             );
                         })

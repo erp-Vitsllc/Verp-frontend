@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { buildSectionRows, sectionGroups, RowTable, VEHICLE_ACTIVATION_SECTION_LABELS } from './VehicleActivationSubmitModal';
+import { profileEditChangedPairs } from '../lib/vehicleProfileEditSnapshots';
 
 const SECTION_LABEL = VEHICLE_ACTIVATION_SECTION_LABELS;
 
@@ -121,6 +122,11 @@ export default function VehicleProfileActivationReviewModal({
     };
 
     const reviewRows = reviewSection ? buildSectionRows(reviewSection, asset) : [];
+    const reviewChanges = reviewSection
+        ? (Array.isArray(asset?.vehiclePendingProfileEdits) ? asset.vehiclePendingProfileEdits : [])
+              .filter((entry) => String(entry?.sectionId || '') === reviewSection)
+              .flatMap((entry) => profileEditChangedPairs(entry))
+        : [];
 
     return (
         <>
@@ -267,7 +273,11 @@ export default function VehicleProfileActivationReviewModal({
                                 <h3 className="text-lg font-bold text-gray-800">
                                     {SECTION_LABEL[reviewSection] || reviewSection}
                                 </h3>
-                                <p className="text-xs text-gray-500 mt-1">On-file snapshot for this vehicle.</p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    {reviewChanges.length
+                                        ? 'Live data and the changes submitted for this section.'
+                                        : 'On-file snapshot for this vehicle.'}
+                                </p>
                             </div>
                             <button
                                 type="button"
@@ -278,7 +288,34 @@ export default function VehicleProfileActivationReviewModal({
                             </button>
                         </div>
                         <div className="p-6 overflow-y-auto">
-                            <RowTable rows={reviewRows} />
+                            {reviewChanges.length ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                        <div className="text-[10px] font-bold uppercase tracking-wide text-gray-600">
+                                            Current (live)
+                                        </div>
+                                        <RowTable
+                                            rows={reviewChanges.map((row) => ({
+                                                label: row.label,
+                                                value: row.live,
+                                            }))}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <div className="text-[10px] font-bold uppercase tracking-wide text-blue-700">
+                                            Proposed
+                                        </div>
+                                        <RowTable
+                                            rows={reviewChanges.map((row) => ({
+                                                label: row.label,
+                                                value: row.proposed,
+                                            }))}
+                                        />
+                                    </div>
+                                </div>
+                            ) : (
+                                <RowTable rows={reviewRows} />
+                            )}
                         </div>
                         <div className="px-6 py-3 border-t border-gray-100 bg-gray-50 flex justify-end">
                             <button

@@ -58,8 +58,9 @@ function fleetServiceAttachmentRows(srv) {
     if (!srv) return [];
     const out = [];
     const add = (url, label) => {
-        const u = url && String(url).trim();
-        if (u) out.push({ label, url: u });
+        if (url == null || url === '') return;
+        if (typeof url === 'string' && !url.trim()) return;
+        out.push({ label, url });
     };
     add(srv.attachment, 'Primary attachment');
     add(srv.invoice, 'Invoice');
@@ -91,16 +92,20 @@ function buildServiceTabRowsForType(asset, serviceType) {
 
 function AttachmentCell({ srv, onOpen }) {
     const rows = fleetServiceAttachmentRows(srv);
-    const primary = rows[0];
-    if (!primary) return <span className="text-slate-300">-</span>;
+    if (!rows.length) return <span className="text-slate-300">-</span>;
     return (
-        <button
-            type="button"
-            onClick={() => onOpen?.(primary.url, primary.label || 'Attachment')}
-            className="text-blue-600 hover:text-blue-700 font-semibold inline-flex items-center gap-1"
-        >
-            <Download size={14} /> {primary.label || 'View'}
-        </button>
+        <div className="flex flex-col items-start gap-1">
+            {rows.map((item, idx) => (
+                <button
+                    key={`${item.label}-${idx}`}
+                    type="button"
+                    onClick={() => onOpen?.(item.url, item.label || 'Attachment')}
+                    className="text-blue-600 hover:text-blue-700 font-semibold inline-flex items-center gap-1"
+                >
+                    <Download size={14} /> {item.label || 'View'}
+                </button>
+            ))}
+        </div>
     );
 }
 

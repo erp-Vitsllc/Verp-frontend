@@ -3159,6 +3159,7 @@ function VehicleDetailsPageContent() {
     }
 
     const mortgageAttachmentRows = [
+        { label: 'Bank Document', file: asset?.mortgageBankDocument || null },
         { label: 'Security Check Attachment', file: asset?.mortgageSecurityCheckAttachment || null },
         { label: 'Schedule List Attachment', file: asset?.mortgageScheduleListAttachment || null },
         ...(Array.isArray(asset?.mortgageExtraAttachments) ? asset.mortgageExtraAttachments : []),
@@ -4062,10 +4063,30 @@ function VehicleDetailsPageContent() {
                                                             );
                                                         })}
 
-                                                        {insuranceAttachments.length > 0 && (
+                                                        {(insuranceDoc?.attachment || insuranceAttachments.length > 0) && (
                                                             <div className={`mt-4 pt-4 ${isInsuranceExpired ? 'border-t border-rose-100' : 'border-t border-slate-50'}`}>
                                                                 <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Insurance Documents</h4>
                                                                 <div className="space-y-2">
+                                                                    {insuranceDoc?.attachment && (
+                                                                        <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                                <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                                                                    <FileText size={16} />
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">Insurance Policy</p>
+                                                                                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => openFilePreview(insuranceDoc.attachment, 'Insurance document')}
+                                                                                className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                            >
+                                                                                <Eye size={12} /> View
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
                                                                     {insuranceAttachments.map((att, idx) => (
                                                                         <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
                                                                             <div className="flex items-center gap-3 min-w-0">

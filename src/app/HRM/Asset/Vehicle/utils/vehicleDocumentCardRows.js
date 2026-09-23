@@ -2,9 +2,27 @@ export const normVehicleDocType = (t) => String(t || '').toLowerCase().trim();
 
 export const vehicleDocDateKey = (value) => {
     if (!value) return '';
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+        return value.trim();
+    }
     const t = new Date(value);
     if (Number.isNaN(t.getTime())) return String(value).trim().slice(0, 10);
-    return t.toISOString().slice(0, 10);
+    const month = String(t.getMonth() + 1).padStart(2, '0');
+    const day = String(t.getDate()).padStart(2, '0');
+    return `${t.getFullYear()}-${month}-${day}`;
+};
+
+/** Same issue day. Blank expiry still belongs; a different expiry is another period. */
+const sameDocPeriod = (doc, issueKey, expiryKey) => {
+    const issue = vehicleDocDateKey(doc?.issueDate);
+    const expiry = vehicleDocDateKey(doc?.expiryDate);
+    if (issueKey) {
+        if (issue !== issueKey) return false;
+    } else if (issue) {
+        return false;
+    }
+    if (expiryKey && expiry && expiry !== expiryKey) return false;
+    return true;
 };
 
 /** Prefer description.text when description is JSON metadata (e.g. after renew). */
@@ -51,7 +69,7 @@ export const registrationInvoiceAttachmentForDoc = (mainDoc, list) => {
     return (list || []).find((d) => {
         if (normVehicleDocType(d.type) !== 'registration attachment') return false;
         if (!isInvoiceDocumentLabel(d)) return false;
-        return vehicleDocDateKey(d.issueDate) === issueKey && vehicleDocDateKey(d.expiryDate) === expiryKey;
+        return sameDocPeriod(d, issueKey, expiryKey);
     }) || null;
 };
 
@@ -62,7 +80,7 @@ export const insuranceInvoiceAttachmentForDoc = (mainDoc, list) => {
     return (list || []).find((d) => {
         if (normVehicleDocType(d.type) !== 'insurance attachment') return false;
         if (!isInvoiceDocumentLabel(d)) return false;
-        return vehicleDocDateKey(d.issueDate) === issueKey && vehicleDocDateKey(d.expiryDate) === expiryKey;
+        return sameDocPeriod(d, issueKey, expiryKey);
     }) || null;
 };
 
@@ -72,7 +90,7 @@ export const registrationAttachmentsForDoc = (mainDoc, list) => {
     const expiryKey = vehicleDocDateKey(mainDoc.expiryDate);
     return (list || []).filter((d) => {
         if (normVehicleDocType(d.type) !== 'registration attachment') return false;
-        return vehicleDocDateKey(d.issueDate) === issueKey && vehicleDocDateKey(d.expiryDate) === expiryKey;
+        return sameDocPeriod(d, issueKey, expiryKey);
     });
 };
 
@@ -82,8 +100,7 @@ export const insuranceAttachmentsForDoc = (mainDoc, list) => {
     const expiryKey = vehicleDocDateKey(mainDoc.expiryDate);
     return (list || []).filter((d) => {
         if (normVehicleDocType(d.type) !== 'insurance attachment') return false;
-        if (isInsuranceInvoiceAttachmentLabel(d)) return false;
-        return vehicleDocDateKey(d.issueDate) === issueKey && vehicleDocDateKey(d.expiryDate) === expiryKey;
+        return sameDocPeriod(d, issueKey, expiryKey);
     });
 };
 
@@ -117,7 +134,7 @@ export const warrantyAttachmentsForDoc = (mainDoc, list) => {
         if (normVehicleDocType(d.type) !== 'warranty attachment') return false;
         const parentId = parseParentId(d);
         if (parentId && primaryId && parentId !== primaryId) return false;
-        return vehicleDocDateKey(d.issueDate) === issueKey && vehicleDocDateKey(d.expiryDate) === expiryKey;
+        return sameDocPeriod(d, issueKey, expiryKey);
     });
 };
 
@@ -230,33 +247,24 @@ export const resolveParentVehicleDocument = (doc, allDocs) => {
     if (!doc) return null;
     const t = normVehicleDocType(doc.type);
     if (t === 'insurance attachment') {
-        const issueKey = vehicleDocDateKey(doc.issueDate);
-        const expiryKey = vehicleDocDateKey(doc.expiryDate);
         return (allDocs || []).find(
             (d) =>
                 normVehicleDocType(d.type) === 'insurance' &&
-                vehicleDocDateKey(d.issueDate) === issueKey &&
-                vehicleDocDateKey(d.expiryDate) === expiryKey,
+                sameDocPeriod(doc, vehicleDocDateKey(d.issueDate), vehicleDocDateKey(d.expiryDate)),
         );
     }
     if (t === 'registration attachment') {
-        const issueKey = vehicleDocDateKey(doc.issueDate);
-        const expiryKey = vehicleDocDateKey(doc.expiryDate);
         return (allDocs || []).find(
             (d) =>
                 normVehicleDocType(d.type) === 'registration' &&
-                vehicleDocDateKey(d.issueDate) === issueKey &&
-                vehicleDocDateKey(d.expiryDate) === expiryKey,
+                sameDocPeriod(doc, vehicleDocDateKey(d.issueDate), vehicleDocDateKey(d.expiryDate)),
         );
     }
     if (t === 'warranty attachment') {
-        const issueKey = vehicleDocDateKey(doc.issueDate);
-        const expiryKey = vehicleDocDateKey(doc.expiryDate);
         return (allDocs || []).find(
             (d) =>
                 normVehicleDocType(d.type) === 'warranty' &&
-                vehicleDocDateKey(d.issueDate) === issueKey &&
-                vehicleDocDateKey(d.expiryDate) === expiryKey,
+                sameDocPeriod(doc, vehicleDocDateKey(d.issueDate), vehicleDocDateKey(d.expiryDate)),
         );
     }
     if (t === 'permit attachment') {
