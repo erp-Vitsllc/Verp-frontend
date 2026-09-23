@@ -6,6 +6,7 @@ import {
     redirectToNotFound,
     shouldApiErrorRedirectToNotFound,
 } from '@/utils/notFoundRedirect';
+import { getWebDeviceId } from '@/utils/webLoginDevice';
 
 const DEFAULT_API_URL = 'http://localhost:5000/api';
 const CONFIGURED_API_URL = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_URL;
@@ -114,6 +115,10 @@ axiosInstance.interceptors.request.use(
             if (token) {
                 config.headers.Authorization = `Bearer ${token}`;
             }
+            const deviceId = getWebDeviceId();
+            if (deviceId) {
+                config.headers['x-verp-device-id'] = deviceId;
+            }
         }
 
         // Preserve custom config flags (like skipToast) for response interceptor
@@ -177,6 +182,7 @@ axiosInstance.interceptors.response.use(
                     !isLoginRequest &&
                     (errorMessage.toLowerCase().includes('token expired') ||
                         errorMessage.toLowerCase().includes('expired'));
+                const isDeviceSignedOut = errorData.code === 'SESSION_TERMINATED';
 
                 const skipSessionExpiry = Boolean(error.config?.skipSessionExpiry);
                 if (
@@ -188,7 +194,13 @@ axiosInstance.interceptors.response.use(
                     sessionExpiryHandled = true;
                     blockSidebarPollingForAuth();
 
-                    if (isTokenExpired) {
+                    if (isDeviceSignedOut) {
+                        toast({
+                            title: 'Signed out',
+                            description: 'This device was removed from Active Session. Sign in again.',
+                            variant: 'destructive',
+                        });
+                    } else if (isTokenExpired) {
                         toast({
                             title: 'Session Expired',
                             description: 'Your session has expired. Please sign in again.',

@@ -234,6 +234,21 @@ function normalizeLossDamageStatusFilter(raw) {
     return LOSS_DAMAGE_STATUS_FILTERS.includes(mapped) ? mapped : 'All';
 }
 
+function toolsChartGroupLabel(asset) {
+    const type = String(asset?.type || '').trim();
+    const category = String(asset?.category || '').trim();
+    const usable = (value) => value && value !== '-' && value !== '—';
+    if (usable(type)) return type;
+    if (usable(category)) return category;
+    return 'Other';
+}
+
+function assetMatchesTypeCategory(asset, label) {
+    const needle = String(label || '').trim().toLowerCase();
+    if (!needle) return true;
+    return toolsChartGroupLabel(asset).toLowerCase() === needle;
+}
+
 function normalizeAssetListStatusFilter(raw) {
     if (!raw || raw === 'null' || raw === 'undefined') return 'MyAsset';
     const mapped = LEGACY_ASSET_LIST_STATUS[raw] ?? raw;
@@ -880,10 +895,17 @@ function AssetPageContent() {
 
     searchParamsRef.current = searchParams;
 
+    const typeCategoryFilter = (() => {
+        const val = searchParams.get('typeCategory');
+        if (!val || val === 'null' || val === 'undefined') return '';
+        return val.trim();
+    })();
+
     const listReturnParams = useMemo(() => ({
         search: searchQuery,
         status: statusFilter,
         ...(statusFilter === 'Assigned' && assignedToEmployeeFilter ? { assignedTo: assignedToEmployeeFilter } : {}),
+        ...(typeCategoryFilter ? { typeCategory: typeCategoryFilter } : {}),
         ...(activeTab !== 'asset' ? { tab: activeTab } : {}),
         ...(viewMode !== 'grid' ? { view: viewMode } : {}),
         ...(lossDamageStatusFilter !== 'All' ? { lossDamageStatus: lossDamageStatusFilter } : {}),
@@ -893,6 +915,7 @@ function AssetPageContent() {
         searchQuery,
         statusFilter,
         assignedToEmployeeFilter,
+        typeCategoryFilter,
         activeTab,
         viewMode,
         lossDamageStatusFilter,
@@ -1216,9 +1239,9 @@ function AssetPageContent() {
                 matchesStatus = matchesStatus && matchesAssignedToFilter(t, assignedToEmployeeFilter);
             }
 
-            return matchesSearch && matchesStatus;
+            return matchesSearch && matchesStatus && assetMatchesTypeCategory(t, typeCategoryFilter);
         });
-    }, [nonVehicleAssetRows, deferredSearchQuery, statusFilter, assignedToEmployeeFilter]);
+    }, [nonVehicleAssetRows, deferredSearchQuery, statusFilter, assignedToEmployeeFilter, typeCategoryFilter]);
 
     const sortedFilteredAssetTableRows = useMemo(() => {
         const rows = [...filteredAssetTableRows];
@@ -2020,6 +2043,25 @@ function AssetPageContent() {
                                     </button>
 
                                 )}
+
+                                {activeTab === 'asset' && typeCategoryFilter ? (
+                                    <span className="inline-flex items-center gap-1 max-w-[220px] px-2 py-1 rounded-lg bg-teal-50 text-teal-800 text-xs font-medium border border-teal-200 shrink-0">
+                                        <span className="truncate" title={typeCategoryFilter}>{typeCategoryFilter}</span>
+                                        <button
+                                            type="button"
+                                            aria-label="Clear type filter"
+                                            onClick={() => {
+                                                const params = new URLSearchParams(searchParams.toString());
+                                                params.delete('typeCategory');
+                                                const qs = params.toString();
+                                                router.replace(qs ? `/HRM/Asset?${qs}` : '/HRM/Asset');
+                                            }}
+                                            className="text-teal-700 hover:text-rose-500"
+                                        >
+                                            <X size={12} />
+                                        </button>
+                                    </span>
+                                ) : null}
 
                                 {/* Search */}
 

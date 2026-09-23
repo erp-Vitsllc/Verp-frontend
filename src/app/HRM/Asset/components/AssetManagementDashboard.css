@@ -422,10 +422,13 @@
 .tad-cat-list {
     flex: 1;
     min-width: 0;
+    min-height: 0;
+    align-self: stretch;
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 9px;
+    overflow-y: auto;
 }
 
 .tad-cat-row {
@@ -433,6 +436,21 @@
     grid-template-columns: 8px minmax(70px, 1.35fr) minmax(40px, 1fr) 28px 58px;
     align-items: center;
     column-gap: 8px;
+    flex-shrink: 0;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    text-align: left;
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+}
+
+.tad-cat-row:hover .tad-cat-name {
+    color: #0877f9;
+    text-decoration: underline;
 }
 
 .tad-cat-dot {

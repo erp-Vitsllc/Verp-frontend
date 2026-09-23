@@ -1,6 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import RechartsBox from '@/components/charts/RechartsBox';
 import {
     Bar,
@@ -149,6 +151,24 @@ function billInYear(billMonth, year) {
     return String(billMonth || '').startsWith(String(year));
 }
 
+function toolsChartGroupLabel(asset) {
+    const type = String(asset?.type || '').trim();
+    const category = String(asset?.category || '').trim();
+    const usable = (value) => value && value !== '-' && value !== '—';
+    if (usable(type)) return type;
+    if (usable(category)) return category;
+    return 'Other';
+}
+
+function toolsTypeCategoryHref(name) {
+    const label = String(name || '').trim();
+    if (!label) return '/HRM/Asset';
+    const params = new URLSearchParams();
+    params.set('status', 'All');
+    params.set('typeCategory', label);
+    return `/HRM/Asset?${params.toString()}`;
+}
+
 function isLiveToolsRow(row) {
     if (!String(row?.assetId || '').startsWith('VEGA-ASSET-')) return false;
     const status = String(row?.status || '').trim().toLowerCase().replace(/\s+/g, '');
@@ -222,6 +242,7 @@ export default function AssetManagementDashboard({
     onPeriodYearChange,
     onOpenInbox,
 }) {
+    const router = useRouter();
     const [finesTab, setFinesTab] = useState('vehicle');
     const [customerId, setCustomerId] = useState('all');
     const [usageMonth, setUsageMonth] = useState(() => String(new Date().getMonth() + 1).padStart(2, '0'));
@@ -294,9 +315,7 @@ export default function AssetManagementDashboard({
                     chartName: vehicleChartLabel(v),
                     value: Number(v.assetValue) || 0,
                 }))
-                .filter((row) => row.value > 0)
-                .sort((a, b) => b.value - a.value)
-                .slice(0, CHART_TOP_N),
+                .sort((a, b) => b.value - a.value || String(a.name).localeCompare(String(b.name))),
         [vehicles],
     );
 
@@ -409,16 +428,23 @@ export default function AssetManagementDashboard({
     const toolsByType = useMemo(() => {
         const map = new Map();
         for (const row of toolsRows) {
-            const name = String(row.type || row.category || 'Other').trim() || 'Other';
-            if (!map.has(name)) map.set(name, { name, count: 0, value: 0 });
+            const name = toolsChartGroupLabel(row);
+            if (!map.has(name)) map.set(name, { name, count: 0, value: 0, zeroCount: 0 });
             const entry = map.get(name);
             entry.count += 1;
+            const assetValue = Number(row?.assetValue) || 0;
             entry.value += Number(getToolsAssetTotalValue(row)) || 0;
+            if (!(assetValue > 0)) entry.zeroCount += 1;
         }
-        return [...map.values()].sort((a, b) => b.count - a.count);
+        return [...map.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
     }, [toolsRows]);
 
-    const toolsDonut = toolsByType.map((row) => ({ name: row.name, value: row.count }));
+    const toolsDonut = toolsByType.map((row) => ({
+        name: row.name,
+        value: row.count,
+        aed: row.value,
+        zeroCount: row.zeroCount,
+    }));
     const toolsTotalCount = toolsRows.length;
     const assignedDonut = [
         { name: 'Assigned', value: kpi.assigned, color: ASSIGN_COLORS.assigned },
@@ -567,12 +593,12 @@ export default function AssetManagementDashboard({
                             ) : (
                                 <div className="tad-plot">
                                     <RechartsBox fillParent minHeight={120} className="h-full">
-                                        <BarChart data={vehicleValueChart} margin={{ top: 8, right: 6, left: 0, bottom: 0 }}>
+                                        <BarChart data={vehicleValueChart} margin={{ top: 8, right: 6, left: 0, bottom: 0 }} barCategoryGap="30%">
                                             <CartesianGrid stroke={GRID_STROKE} vertical={false} />
                                             <XAxis dataKey="chartName" tick={AXIS_TICK} axisLine={false} tickLine={false} interval={0} />
                                             <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} width={32} tickFormatter={formatAxisAed} />
                                             <RechartsTooltip content={<ChartValueTooltip valueLabel="Value" />} />
-                                            <Bar dataKey="value" fill="#0877F9" radius={[3, 3, 0, 0]} maxBarSize={30} />
+                                            <Bar dataKey="value" fill="#0877F9" radius={[2, 2, 0, 0]} barSize={10} maxBarSize={10} />
                                         </BarChart>
                                     </RechartsBox>
                                 </div>
@@ -743,12 +769,27 @@ export default function AssetManagementDashboard({
                                                     label={renderDonutPct}
                                                     labelLine={false}
                                                     isAnimationActive={false}
+                                                    style={{ cursor: 'pointer' }}
+                                                    onClick={(slice) => {
+                                                        const name = slice?.name || slice?.payload?.name;
+                                                        if (name) router.push(toolsTypeCategoryHref(name));
+                                                    }}
                                                 >
                                                     {toolsDonut.map((row, i) => (
-                                                        <Cell key={row.name} fill={TOOL_COLORS[i % TOOL_COLORS.length]} />
+                                                        <Cell key={row.name} fill={TOOL_COLORS[i % TOOL_COLORS.length]} style={{ cursor: 'pointer' }} />
                                                     ))}
                                                 </Pie>
-                                                <RechartsTooltip formatter={(v, name) => [v, name]} contentStyle={tooltipStyle} />
+                                                <RechartsTooltip
+                                                    formatter={(v, _name, item) => {
+                                                        const row = item?.payload || {};
+                                                        const zero = Number(row.zeroCount) || 0;
+                                                        const detail = zero
+                                                            ? `${v} assets · ${formatCompactAed(row.aed)} · ${zero} with no value`
+                                                            : `${v} assets · ${formatCompactAed(row.aed)}`;
+                                                        return [detail, 'Assets'];
+                                                    }}
+                                                    contentStyle={tooltipStyle}
+                                                />
                                             </PieChart>
                                         </RechartsBox>
                                         <div className="tad-donut-center">
@@ -759,12 +800,20 @@ export default function AssetManagementDashboard({
                                         </div>
                                     </div>
                                     <div className="tad-cat-list">
-                                        {toolsByType.slice(0, 5).map((row, i) => {
+                                        {toolsByType.map((row, i) => {
                                             const max = Math.max(...toolsByType.map((item) => item.count), 1);
+                                            const zeroNote = row.zeroCount
+                                                ? `${row.zeroCount} with no value`
+                                                : '';
                                             return (
-                                                <div key={row.name} className="tad-cat-row">
+                                                <Link
+                                                    key={row.name}
+                                                    href={toolsTypeCategoryHref(row.name)}
+                                                    className="tad-cat-row"
+                                                    title={`Open ${row.name} on Tools Assets${zeroNote ? ` · ${zeroNote}` : ''}`}
+                                                >
                                                     <span className="tad-cat-dot" style={{ background: TOOL_COLORS[i % TOOL_COLORS.length] }} />
-                                                    <span className="tad-cat-name" title={row.name}>{row.name}</span>
+                                                    <span className="tad-cat-name">{row.name}</span>
                                                     <span className="tad-cat-track">
                                                         <span
                                                             className="tad-cat-fill"
@@ -776,7 +825,7 @@ export default function AssetManagementDashboard({
                                                     </span>
                                                     <span className="tad-cat-qty">{row.count}</span>
                                                     <span className="tad-cat-val">{formatCompactAed(row.value)}</span>
-                                                </div>
+                                                </Link>
                                             );
                                         })}
                                     </div>

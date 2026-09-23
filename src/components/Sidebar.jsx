@@ -36,7 +36,6 @@ import {
     Wallet,
     MessageCircle,
     Bell,
-    Shield,
 } from 'lucide-react';
 import { hasAnyPermission, isAdmin, getUserPermissions, canViewWhatsAppInbox } from '@/utils/permissions';
 import {
@@ -221,7 +220,6 @@ const menuItems = [
             { label: 'WhatsApp Permission', icon: Bell, notificationEmails: true },
             { label: 'Activity Logs', icon: Activity, restoreRecovery: true },
             { label: 'Deleted Records', icon: Trash2, restoreRecovery: true },
-            { label: 'Privacy Policy', icon: Shield },
         ],
     },
 ];
@@ -306,7 +304,6 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'WhatsApp Messages') return '/Settings/WhatsAppMessages';
         if (label === 'WhatsApp Permission') return '/Settings/NotificationEmails';
         if (label === 'Deleted Records') return '/Settings/DeletedRecords';
-        if (label === 'Privacy Policy') return '/Settings/PrivacyPolicy';
     }
     if (parentId === 'Accounts' && label === 'Vendors') return '/Accounts/Vendors';
     if (parentId === 'Accounts' && label === 'Expenses') return '/Accounts/Expenses';
@@ -738,8 +735,6 @@ export default function Sidebar() {
             router.push('/Settings/NotificationEmails');
         } else if (parentId === 'Settings' && subItem.label === 'Deleted Records') {
             router.push('/Settings/DeletedRecords');
-        } else if (parentId === 'Settings' && subItem.label === 'Privacy Policy') {
-            router.push('/Settings/PrivacyPolicy');
         } else if (parentId === 'HRM' && subItem.label === 'Company') {
             router.push('/Company');
         } else if (parentId === 'Accounts' && subItem.label === 'Vendors') {
@@ -810,8 +805,6 @@ export default function Sidebar() {
             return pathname?.startsWith('/Settings/NotificationEmails');
         } else if (parentId === 'Settings' && subItem.label === 'Deleted Records') {
             return pathname?.startsWith('/Settings/DeletedRecords');
-        } else if (parentId === 'Settings' && subItem.label === 'Privacy Policy') {
-            return pathname?.startsWith('/Settings/PrivacyPolicy');
         } else if (parentId === 'HRM' && subItem.label === 'Company') {
             return pathname?.startsWith('/Company');
         } else if (parentId === 'Accounts' && subItem.label === 'Vendors') {

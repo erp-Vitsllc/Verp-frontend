@@ -915,13 +915,12 @@ export default function VehicleFleetDashboard({
                     tab: 'basic',
                     modalKind: 'vehicleValue',
                 }))
-                .filter((row) => row.value > 0)
-                .sort((a, b) => b.value - a.value),
+                .sort((a, b) => b.value - a.value || String(a.name).localeCompare(String(b.name))),
         [vehicles],
     );
 
     const vehicleValueChart = useMemo(
-        () => uniqueChartNames(topRows(vehicleValueRows, 8)),
+        () => uniqueChartNames(vehicleValueRows),
         [vehicleValueRows],
     );
 
@@ -1716,7 +1715,8 @@ export default function VehicleFleetDashboard({
                         <RechartsBox height={175} minHeight={160} className="h-full" fillParent>
                             <BarChart
                                 data={vehicleValueChart}
-                                margin={{ top: 16, right: 6, left: 0, bottom: 2 }}
+                                margin={{ top: 14, right: 4, left: 0, bottom: vehicleValueChart.length > 8 ? 8 : 2 }}
+                                barCategoryGap="32%"
                                 onClick={() =>
                                     openDetailModal({
                                         name: 'Vehicle value',
@@ -1728,7 +1728,16 @@ export default function VehicleFleetDashboard({
                                 }
                             >
                                 <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} vertical={false} />
-                                <XAxis dataKey="chartName" tick={AXIS_TICK} axisLine={false} tickLine={false} interval={0} />
+                                <XAxis
+                                    dataKey="chartName"
+                                    tick={{ ...AXIS_TICK, fontSize: 8 }}
+                                    axisLine={false}
+                                    tickLine={false}
+                                    interval={0}
+                                    angle={vehicleValueChart.length > 8 ? -35 : 0}
+                                    textAnchor={vehicleValueChart.length > 8 ? 'end' : 'middle'}
+                                    height={vehicleValueChart.length > 8 ? 36 : 22}
+                                />
                                 <YAxis
                                     tick={AXIS_TICK}
                                     axisLine={false}
@@ -1745,16 +1754,17 @@ export default function VehicleFleetDashboard({
                                 <Bar
                                     dataKey="value"
                                     fill={PALETTE.blue}
-                                    radius={[3, 3, 0, 0]}
-                                    maxBarSize={28}
+                                    radius={[2, 2, 0, 0]}
+                                    barSize={10}
+                                    maxBarSize={10}
                                     animationDuration={chartAnim}
                                     className="cursor-pointer"
                                 >
                                     <LabelList
                                         dataKey="value"
                                         position="top"
-                                        formatter={(v) => (Number(v) ? formatAxisNumber(v) : '')}
-                                        style={{ fontSize: 8.5, fill: '#374151', fontWeight: 500 }}
+                                        formatter={(v) => formatAxisNumber(v)}
+                                        style={{ fontSize: 8, fill: '#374151', fontWeight: 500 }}
                                     />
                                 </Bar>
                             </BarChart>

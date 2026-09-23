@@ -218,6 +218,7 @@ const PhoneInputField = ({
                     countrySelectComponent={CustomCountrySelect}
                     labels={en}
                     disabled={disabled}
+                    numberInputProps={{ autoComplete: props.autoComplete || 'off' }}
                     {...props}
                 />
             </div>

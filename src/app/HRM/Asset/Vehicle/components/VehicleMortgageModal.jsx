@@ -44,7 +44,7 @@ export default function VehicleMortgageModal({
     });
     const [errors, setErrors] = useState({});
 
-    const fileToPayload = (file) => new Promise((resolve) => {
+    const fileToPayload = (file) => new Promise((resolve, reject) => {
         if (!file) {
             resolve(null);
             return;
@@ -58,8 +58,23 @@ export default function VehicleMortgageModal({
                 mimeType: file.type || 'application/octet-stream',
             });
         };
+        reader.onerror = () => reject(reader.error || new Error('Could not read the file.'));
         reader.readAsDataURL(file);
     });
+
+    const attachmentForSave = async (fileObj) => {
+        if (!fileObj) return null;
+        if (typeof File !== 'undefined' && fileObj instanceof File) {
+            return fileToPayload(fileObj);
+        }
+        if (typeof fileObj === 'string') return fileObj;
+        if (fileObj.data && !fileObj.publicId && !fileObj.url && !fileObj.href) {
+            return fileObj;
+        }
+        const ref = fileObj.publicId || fileObj.url || fileObj.href;
+        if (ref) return ref;
+        return fileToPayload(fileObj);
+    };
 
     const handleExtraAttachmentFile = (index, e) => {
         const file = e.target.files?.[0] || null;
@@ -263,11 +278,9 @@ export default function VehicleMortgageModal({
                 const docName = String(row?.docName || '').trim();
                 const fileObj = row?.file;
                 if (!docName && !fileObj) continue;
-                // If it's already a saved attachment (has data or url but is an object), or if it's a new File
-                const normalizedFile = fileObj?.data ? fileObj : await fileToPayload(fileObj);
                 extraAttachmentsPayload.push({
                     docName,
-                    file: normalizedFile,
+                    file: await attachmentForSave(fileObj),
                 });
             }
 

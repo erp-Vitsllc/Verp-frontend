@@ -114,10 +114,13 @@ export default function BasicDetailsModal({
                                                 <div className={input.field === 'whatsappNumber' ? 'flex flex-wrap items-start gap-2' : ''}>
                                                     <div className={input.field === 'whatsappNumber' ? 'flex-1 min-w-0' : 'w-full'}>
                                                         <PhoneInputField
+                                                            key={input.field}
                                                             defaultCountry={DEFAULT_PHONE_COUNTRY}
+                                                            name={input.field}
+                                                            autoComplete={input.field === 'whatsappNumber' ? 'section-whatsapp tel' : 'section-contact tel'}
                                                             value={editForm[input.field]}
                                                             onChange={(value, country) => onEditChange(input.field, value, country)}
-                                                            placeholder={input.placeholder || "Enter contact number"}
+                                                            placeholder={input.field === 'whatsappNumber' ? 'Enter WhatsApp number' : (input.placeholder || 'Enter contact number')}
                                                             disabled={busy}
                                                             error={input.field === 'whatsappNumber' ? '' : editFormErrors[input.field]}
                                                             showValidatedBadge={input.field !== 'whatsappNumber'}

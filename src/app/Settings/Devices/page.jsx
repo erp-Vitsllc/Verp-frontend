@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Filter, Globe, Monitor, Search, Smartphone, Users } from 'lucide-react';
+import { ChevronDown, ChevronUp, Globe, Monitor, Search, Smartphone, Users } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { LocationMapPin, punchCoords } from '@/app/HRM/Attendance/mark/components/MarkAttendancePunchCells';
 import Sidebar from '@/components/Sidebar';
@@ -10,6 +10,8 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import UserGroupDeviceTabs from '@/app/Settings/UserGroupDeviceTabs';
 import { hasAnyPermission, hasPermission, isAdmin } from '@/utils/permissions';
+import { clearAuthSession } from '@/utils/authSession';
+import { getWebDeviceId } from '@/utils/webLoginDevice';
 import { useToast } from '@/hooks/use-toast';
 import {
     AlertDialog,
@@ -45,6 +47,14 @@ function deviceLabel(row) {
     return row.os || row.deviceName || (row.source === 'app' ? 'Mobile' : 'Web browser');
 }
 
+function formatPersonName(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    return text
+        .toLowerCase()
+        .replace(/(^|[^a-z])([a-z])/g, (_, sep, letter) => sep + letter.toUpperCase());
+}
+
 function sessionCoords(row) {
     const fromFields = punchCoords({
         latitude: row?.latitude,
@@ -56,6 +66,26 @@ function sessionCoords(row) {
     const match = text.match(/^(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)$/);
     if (!match) return null;
     return punchCoords({ latitude: match[1], longitude: match[2] });
+}
+
+const SORT_COLUMNS = [
+    { key: 'user', label: 'User' },
+    { key: 'device', label: 'Device' },
+    { key: 'ip', label: 'IP Address' },
+    { key: 'location', label: 'Location' },
+    { key: 'lastActive', label: 'Last Active' },
+    { key: 'source', label: 'Source' },
+    { key: 'status', label: 'Status' },
+];
+
+function sortValue(row, key) {
+    if (key === 'user') return formatPersonName(row.name);
+    if (key === 'device') return deviceLabel(row);
+    if (key === 'ip') return String(row.ipAddress || '');
+    if (key === 'location') return String(row.location || '');
+    if (key === 'lastActive') return row.lastSeenAt ? new Date(row.lastSeenAt).getTime() : 0;
+    if (key === 'source') return row.source === 'app' ? 'App' : 'Web';
+    return 'Active';
 }
 
 function SessionLocationPin({ row }) {
@@ -75,7 +105,7 @@ export default function DevicesPage() {
     const [error, setError] = useState('');
     const [sessions, setSessions] = useState([]);
     const [search, setSearch] = useState('');
-    const [sourceFilter, setSourceFilter] = useState('all');
+    const [sort, setSort] = useState({ key: 'lastActive', dir: 'desc' });
     const [pending, setPending] = useState(null);
     const [busyKey, setBusyKey] = useState('');
 
@@ -114,8 +144,7 @@ export default function DevicesPage() {
 
     const filtered = useMemo(() => {
         const query = search.trim().toLowerCase();
-        return sessions.filter((row) => {
-            if (sourceFilter !== 'all' && row.source !== sourceFilter) return false;
+        const rows = sessions.filter((row) => {
             if (!query) return true;
             const haystack = [
                 row.name,
@@ -127,7 +156,25 @@ export default function DevicesPage() {
             ].join(' ').toLowerCase();
             return haystack.includes(query);
         });
-    }, [sessions, search, sourceFilter]);
+        const direction = sort.dir === 'asc' ? 1 : -1;
+        return rows.sort((a, b) => {
+            const left = sortValue(a, sort.key);
+            const right = sortValue(b, sort.key);
+            if (typeof left === 'number' && typeof right === 'number') {
+                return (left - right) * direction;
+            }
+            return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' }) * direction;
+        });
+    }, [sessions, search, sort]);
+
+    const toggleSort = (key) => {
+        setSort((current) => {
+            if (current.key === key) {
+                return { key, dir: current.dir === 'asc' ? 'desc' : 'asc' };
+            }
+            return { key, dir: key === 'lastActive' ? 'desc' : 'asc' };
+        });
+    };
 
     const canTerminate = mounted && (isAdmin() || hasPermission('settings_user_group', 'isEdit'));
 
@@ -137,6 +184,7 @@ export default function DevicesPage() {
         setBusyKey(key);
         setPending(null);
         try {
+            const removedSelf = pending.source === 'web' && pending.deviceId === getWebDeviceId();
             await axiosInstance.delete('/User/devices', {
                 data: {
                     userId: pending.userId,
@@ -144,6 +192,11 @@ export default function DevicesPage() {
                     deviceId: pending.deviceId,
                 },
             });
+            if (removedSelf) {
+                clearAuthSession();
+                window.location.href = '/login';
+                return;
+            }
             toast({
                 title: 'Device removed',
                 description: 'The next login from this device needs OTP.',
@@ -193,18 +246,6 @@ export default function DevicesPage() {
                                             className="w-full sm:w-72 pl-9 pr-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         />
                                     </label>
-                                    <label className="relative">
-                                        <Filter size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-                                        <select
-                                            value={sourceFilter}
-                                            onChange={(e) => setSourceFilter(e.target.value)}
-                                            className="pl-9 pr-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        >
-                                            <option value="all">Filter</option>
-                                            <option value="web">Web</option>
-                                            <option value="app">App</option>
-                                        </select>
-                                    </label>
                                     <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 text-green-700 text-sm font-semibold whitespace-nowrap">
                                         <span className="w-2 h-2 rounded-full bg-green-500" />
                                         {filtered.length} Active
@@ -221,11 +262,28 @@ export default function DevicesPage() {
                                     <table className="w-full min-w-[880px] text-sm">
                                         <thead className="bg-gray-50 text-gray-500">
                                             <tr>
-                                                {['User', 'Device', 'IP Address', 'Location', 'Last Active', 'Source', 'Status', 'Action'].map((heading) => (
-                                                    <th key={heading} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide">
-                                                        {heading}
-                                                    </th>
-                                                ))}
+                                                {SORT_COLUMNS.map((column) => {
+                                                    const active = sort.key === column.key;
+                                                    return (
+                                                        <th key={column.key} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => toggleSort(column.key)}
+                                                                className={`inline-flex items-center gap-1 uppercase tracking-wide ${active ? 'text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+                                                            >
+                                                                {column.label}
+                                                                {active ? (
+                                                                    sort.dir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                                                                ) : (
+                                                                    <ChevronDown size={14} className="opacity-30" />
+                                                                )}
+                                                            </button>
+                                                        </th>
+                                                    );
+                                                })}
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                                    Action
+                                                </th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
@@ -238,7 +296,8 @@ export default function DevicesPage() {
                                             ) : filtered.map((row) => {
                                                 const key = `${row.userId}:${row.source}:${row.deviceId}`;
                                                 const photo = pictureSrc(row.profilePicture);
-                                                const initial = String(row.name || '?').trim().charAt(0).toUpperCase();
+                                                const personName = formatPersonName(row.name) || 'User';
+                                                const initial = personName.charAt(0).toUpperCase();
                                                 return (
                                                     <tr key={key} className="hover:bg-gray-50">
                                                         <td className="px-4 py-3">
@@ -250,7 +309,7 @@ export default function DevicesPage() {
                                                                         {initial}
                                                                     </span>
                                                                 )}
-                                                                <span className="font-semibold text-gray-900">{row.name}</span>
+                                                                <span className="font-semibold text-gray-900">{personName}</span>
                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-3 text-gray-700">

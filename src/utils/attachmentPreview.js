@@ -105,21 +105,30 @@ export function looksLikeS3StorageKey(value) {
     return /^[\w.-]+\/.+\.(pdf|jpe?g|png)$/i.test(key);
 }
 
+function looksLikeRawBase64(value) {
+    const s = String(value || '').replace(/\s/g, '');
+    if (s.length < 80 || s.startsWith('/') || s.startsWith('http') || s.startsWith('data:')) return false;
+    if (s.includes('://') || storagePrefixInString(s)) return false;
+    return /^[A-Za-z0-9+/=]+$/.test(s);
+}
+
 function isAppRouteUrl(value) {
     if (typeof value !== 'string') return false;
-    const s = value.trim();
+    const s = ensureAbsoluteHttpUrl(value.trim());
     if (!s) return false;
-    if (looksLikeS3StorageKey(s) || storagePrefixInString(s)) return false;
+    if (looksLikeS3StorageKey(s) || storagePrefixInString(s) || looksLikeRawBase64(s)) return false;
     if (s.startsWith('/') || s.startsWith('./') || s.startsWith('../')) return true;
+    if (!isHttpUrl(s)) return false;
     try {
-        const parsed = new URL(s, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-        const path = parsed.pathname || '';
-        if (!isHttpUrl(s) && path.startsWith('/')) return true;
+        const parsed = new URL(s);
         if (typeof window !== 'undefined' && parsed.origin === window.location.origin) {
+            const path = parsed.pathname || '';
+            if (storagePrefixInString(path) || storagePrefixInString(parsed.search || '')) return false;
+            if (path.startsWith('/api/storage')) return false;
             if (!path.includes('.') || path.endsWith('.html')) return true;
         }
     } catch {
-        /* ignore */
+        return false;
     }
     return false;
 }
@@ -135,12 +144,6 @@ export function isLikelySignedStorageUrl(url) {
         return true;
     }
     return storagePrefixInString(s);
-}
-
-function looksLikeRawBase64(value) {
-    const s = String(value || '').trim();
-    if (!s || s.length < 80 || s.includes(' ') || s.includes('/')) return false;
-    return /^[A-Za-z0-9+/=]+$/.test(s);
 }
 
 function toDataUrlIfNeeded(raw, mimeType) {
