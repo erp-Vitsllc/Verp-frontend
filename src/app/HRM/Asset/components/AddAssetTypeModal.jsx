@@ -304,11 +304,12 @@ export default function AddAssetTypeModal({
                 });
                 return;
             }
-            if (!formData.assetValue) {
+            const assetValue = Number(formData.assetValue);
+            if (!Number.isFinite(assetValue) || assetValue <= 0) {
                 toast({
                     variant: "destructive",
                     title: "Error",
-                    description: "Value is required"
+                    description: "Value must be greater than 0"
                 });
                 return;
             }

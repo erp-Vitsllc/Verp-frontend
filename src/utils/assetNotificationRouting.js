@@ -474,6 +474,8 @@ export function buildAssetNotificationPath(rawItem) {
     if (typeRaw === 'Vehicle Access Fuel Reminder' || type.includes('vehicle access fuel')) {
         return '/HRM/Asset/Vehicle?access=fuel';
     }
+    if (typeRaw === 'Vehicle Value Missing') return '/HRM/Asset/Vehicle';
+    if (typeRaw === 'Asset Value Missing') return '/HRM/Asset';
 
     if (
         type.includes('utility bill') ||

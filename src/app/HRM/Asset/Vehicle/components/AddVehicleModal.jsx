@@ -189,6 +189,10 @@ export default function AddVehicleModal({
             e.plateDigits = 'Plate number required';
         }
         if (!formData.purchaseYearMonth) e.purchaseYearMonth = 'Required';
+        const purchaseValue = Number(formData.purchaseValue);
+        if (!Number.isFinite(purchaseValue) || purchaseValue <= 0) {
+            e.purchaseValue = 'Purchase value must be greater than 0';
+        }
         setErrors(e);
         return Object.keys(e).length === 0;
     };
@@ -487,15 +491,18 @@ export default function AddVehicleModal({
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-1.5">
-                                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Purchase Value</label>
+                                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                        Purchase Value <span className="text-red-500">*</span>
+                                    </label>
                                     <input
                                         type="number"
                                         min="0"
                                         value={formData.purchaseValue}
                                         onChange={(e) => setFormData({ ...formData, purchaseValue: e.target.value })}
                                         placeholder="0"
-                                        className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm"
+                                        className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm ${errors.purchaseValue ? 'border-red-300' : 'border-gray-200'}`}
                                     />
+                                    {errors.purchaseValue && <p className="text-xs text-red-500">{errors.purchaseValue}</p>}
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">

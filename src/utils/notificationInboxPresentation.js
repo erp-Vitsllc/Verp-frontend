@@ -406,6 +406,9 @@ export function buildUnderstandableNotificationTitle(item = {}) {
             const e1 = sanitizeNotificationText(item.extra1 || '');
             return e1 || 'Assigned vehicles have to add this month monthly limit';
         }
+        case 'Vehicle Value Missing':
+        case 'Asset Value Missing':
+            return sanitizeNotificationText(item.extra1 || '') || type;
         default:
             return expiryTitle || type || 'Request';
     }
@@ -548,5 +551,11 @@ export function mapAssetPendingInboxToRow(item = {}, index = 0) {
     row.category = buildUtilityCategoryLine(item) || row.category;
     if (item.asset?.name) row.entityName = String(item.asset.name).trim();
     if (item.asset?.assetId) row.entityId = String(item.asset.assetId).trim();
+    if (type === 'Vehicle Value Missing' || type === 'Asset Value Missing') {
+        row.source = '';
+        row.category = '';
+        row.entityName = '';
+        row.entityId = '';
+    }
     return row;
 }
