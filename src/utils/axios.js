@@ -87,7 +87,7 @@ export function isSessionAuthError(error) {
 
 // Request interceptor
 axiosInstance.interceptors.request.use(
-    (config) => {
+    async (config) => {
         if (typeof window !== 'undefined') {
             config.baseURL = resolveClientApiBaseUrl();
             try {
