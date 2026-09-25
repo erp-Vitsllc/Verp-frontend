@@ -592,11 +592,9 @@ export function storeDocumentViewerSessionPayload(payload) {
 
     purgeExpiredDocumentViewerPayloads();
 
-    // Drop file bytes from the tab handoff. Keep a normal http link so the viewer
-    // can still open the file when the storage request fails.
+    // Drop copied file bytes only. Never drop the file link.
     const data = typeof record.data === 'string' ? record.data : '';
-    const dataIsFileBytes = data.startsWith('data:') || data.length > 12000;
-    const persisted = dataIsFileBytes ? { ...record, data: null } : record;
+    const persisted = data.startsWith('data:') ? { ...record, data: null } : record;
 
     try {
         localStorage.setItem(key, JSON.stringify(persisted));
@@ -750,6 +748,29 @@ function openUrlForDocumentViewer(url, preOpenedWindow) {
 export function openDocumentViewerFromPayload(payload, { preOpenedWindow } = {}) {
     if (!payload || payload.loading || payload.error) {
         return { ok: false, error: payload?.error || 'Invalid document' };
+    }
+    const direct = typeof payload.data === 'string' ? payload.data.trim() : '';
+    if (direct.startsWith('http://') || direct.startsWith('https://')) {
+        openUrlForDocumentViewer(direct, preOpenedWindow);
+        return { ok: true };
+    }
+    if (payload.storageRef) {
+        const target = preOpenedWindow && !preOpenedWindow.closed ? preOpenedWindow : openBlankPreviewTab();
+        loadStorageFileBlob(payload.storageRef)
+            .then((blob) => {
+                const typed = blob?.type ? blob : new Blob([blob], { type: payload.mimeType || 'application/pdf' });
+                openUrlForDocumentViewer(URL.createObjectURL(typed), target);
+            })
+            .catch(() => {
+                if (target && !target.closed) {
+                    try {
+                        target.close();
+                    } catch {
+                        /* ignore */
+                    }
+                }
+            });
+        return { ok: true };
     }
     try {
         const id = storeDocumentViewerSessionPayload(payload);
