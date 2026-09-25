@@ -120,11 +120,29 @@ export default function DocumentViewerContent({
             setIsLoadingSrc(false);
         };
 
+        const docData = viewingDocument?.data;
+        const directHttp = typeof docData === 'string' && (docData.startsWith('http://') || docData.startsWith('https://'));
+
+        // A real file link opens immediately. Do not leave the spinner up while a storage call hangs.
+        if (directHttp) {
+            showDirectUrl(docData);
+            return () => {
+                cancelled = true;
+            };
+        }
+
         if (usesStorageProxy) {
             setIsLoadingSrc(true);
+            const stop = window.setTimeout(() => {
+                fail('Could not load document.');
+            }, 20000);
             loadStorageFileBlob(viewingDocument.storageRef)
-                .then((blob) => finishWithBlob(blob, viewingDocument.mimeType))
+                .then((blob) => {
+                    window.clearTimeout(stop);
+                    finishWithBlob(blob, viewingDocument.mimeType);
+                })
                 .catch((err) => {
+                    window.clearTimeout(stop);
                     fail(
                         err.response?.data?.message ||
                             err.message ||
@@ -133,11 +151,12 @@ export default function DocumentViewerContent({
                 });
             return () => {
                 cancelled = true;
+                window.clearTimeout(stop);
             };
         }
 
-        const docData = viewingDocument?.data;
         if (!docData) {
+            fail('Could not load document.');
             return undefined;
         }
 
@@ -153,22 +172,6 @@ export default function DocumentViewerContent({
             (docData.startsWith('http://') || docData.startsWith('https://'))
         ) {
             setIsLoadingSrc(true);
-
-            // Object-storage URLs must go through the API proxy (browser CORS/DNS often fail).
-            const proxyKey = resolveStorageProxyKey(docData);
-            const shortKey = proxyKey && !String(proxyKey).startsWith('http') ? proxyKey : '';
-            if (shortKey) {
-                loadStorageFileBlob(shortKey)
-                    .then((blob) => finishWithBlob(blob, viewingDocument.mimeType))
-                    .catch(() => {
-                        if (!showDirectUrl(docData)) {
-                            fail('Could not load file from storage.');
-                        }
-                    });
-                return () => {
-                    cancelled = true;
-                };
-            }
 
             fetch(docData, { mode: 'cors', credentials: 'omit' })
                 .then(async (response) => {

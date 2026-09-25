@@ -98,10 +98,27 @@ function storagePrefixInString(value) {
     );
 }
 
+/** Drop a signed-link query so it is never stored as part of the object name. */
+export function stripSignatureFromStorageKey(value) {
+    let s = String(value || '').trim();
+    if (!s) return '';
+    const encodedQuery = s.search(/%3[fF]/);
+    if (encodedQuery !== -1) s = s.slice(0, encodedQuery);
+    try {
+        if (s.includes('%')) s = decodeURIComponent(s);
+    } catch {
+        /* keep the cut value */
+    }
+    const cut = s.search(/[?#]|X-Amz-|AWSAccessKeyId=|Signature=/i);
+    if (cut !== -1) s = s.slice(0, cut);
+    return s.replace(/[/?&#]+$/g, '').replace(/^\/+/, '');
+}
+
 export function looksLikeS3StorageKey(value) {
     if (typeof value !== 'string') return false;
-    const key = value.trim().replace(/^\/+/, '');
+    const key = stripSignatureFromStorageKey(value);
     if (!key || key.startsWith('data:') || isHttpUrl(key)) return false;
+    if (/[?#]|X-Amz-|%3[fF]/i.test(key)) return false;
     if (S3_STORAGE_FOLDER_PREFIXES.some((prefix) => key === prefix || key.startsWith(`${prefix}/`))) {
         return true;
     }
@@ -185,21 +202,17 @@ export function extractStorageReference(attachment) {
     const toKey = (raw) => {
         const s = String(raw || '').trim();
         if (!s) return '';
-        const withoutQuery = s.split('?')[0].split('#')[0];
-        if (looksLikeS3StorageKey(withoutQuery)) return withoutQuery.replace(/^\/+/, '');
+        const stripped = stripSignatureFromStorageKey(s);
+        if (looksLikeS3StorageKey(stripped)) return stripped;
         if (isHttpUrl(s) || storagePrefixInString(s)) {
             for (const folder of S3_STORAGE_FOLDER_PREFIXES) {
                 const idx = s.indexOf(folder);
-                if (idx !== -1) {
-                    try {
-                        return decodeURIComponent(s.substring(idx).split('?')[0]);
-                    } catch {
-                        return s.substring(idx).split('?')[0];
-                    }
-                }
+                if (idx === -1) continue;
+                const fromFolder = stripSignatureFromStorageKey(s.substring(idx));
+                if (looksLikeS3StorageKey(fromFolder)) return fromFolder;
             }
         }
-        return s;
+        return '';
     };
 
     if (typeof input === 'object' && !Array.isArray(input)) {
@@ -207,8 +220,9 @@ export function extractStorageReference(attachment) {
         const url = input.url || input.href;
         const urlStr = url ? ensureAbsoluteHttpUrl(String(url).trim()) : '';
         if (publicId) {
-            const key = toKey(publicId) || publicId;
-            return { key, url: urlStr || publicId, name: input.name || input.fileName };
+            const key = toKey(publicId);
+            const url = urlStr || (isHttpUrl(publicId) ? ensureAbsoluteHttpUrl(publicId) : '');
+            return { key, url, name: input.name || input.fileName };
         }
         if (isInlineDocumentData(urlStr)) {
             return null;
@@ -233,14 +247,8 @@ export function extractStorageReference(attachment) {
  */
 export function resolveStorageProxyKey(attachment) {
     const ref = extractStorageReference(attachment);
-    if (!ref) return null;
-    if (ref.key && looksLikeS3StorageKey(ref.key)) return ref.key;
-    const candidate = ref.url || ref.key;
-    if (candidate && isLikelySignedStorageUrl(candidate)) return candidate;
-    if (candidate && storagePrefixInString(candidate)) {
-        return looksLikeS3StorageKey(ref.key) ? ref.key : candidate;
-    }
-    return null;
+    if (!ref?.key || !looksLikeS3StorageKey(ref.key)) return null;
+    return stripSignatureFromStorageKey(ref.key);
 }
 
 export function isAllowedAttachmentFile(file) {
@@ -381,9 +389,11 @@ async function messageFromAxiosBlobError(err) {
 function storageFileRequestKey(storageKey) {
     const raw = String(storageKey || '').trim();
     if (!raw) return '';
+    const cleaned = stripSignatureFromStorageKey(raw);
+    if (looksLikeS3StorageKey(cleaned)) return cleaned;
     const ref = extractStorageReference(raw);
-    if (ref?.key && looksLikeS3StorageKey(ref.key)) return ref.key;
-    return raw;
+    if (ref?.key && looksLikeS3StorageKey(ref.key)) return stripSignatureFromStorageKey(ref.key);
+    return '';
 }
 
 export async function loadStorageFileBlob(storageKey, { expectedMime } = {}) {
@@ -392,7 +402,7 @@ export async function loadStorageFileBlob(storageKey, { expectedMime } = {}) {
     const requestConfig = {
         responseType: 'blob',
         skipToast: true,
-        timeout: 120000,
+        timeout: 20000,
         headers: { 'x-no-compression': '1' },
     };
     try {
@@ -406,6 +416,12 @@ export async function loadStorageFileBlob(storageKey, { expectedMime } = {}) {
         const type = (blob?.type || '').toLowerCase();
         if (isNonDocumentResponseContentType(type)) {
             throw new Error('File not found in storage or access denied.');
+        }
+        if (blob && blob.size < 8192) {
+            const head = await blob.slice(0, 400).text();
+            if (/NoSuchKey|<Error|Specified key does not exist/i.test(head)) {
+                throw new Error('File not found in storage.');
+            }
         }
         if (expectedMime && blob && !blob.type) {
             return new Blob([blob], { type: expectedMime });
