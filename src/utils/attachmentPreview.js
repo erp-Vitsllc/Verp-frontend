@@ -126,6 +126,29 @@ export function looksLikeS3StorageKey(value) {
     return /^[\w.-]+\/.+\.(pdf|jpe?g|png)$/i.test(key);
 }
 
+/** File bytes saved as the object name itself, not a normal stored file. */
+export function extractInlineDocumentData(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('data:')) return raw;
+    let path = raw.split('?')[0];
+    try {
+        if (raw.startsWith('http://') || raw.startsWith('https://')) {
+            path = decodeURIComponent(new URL(raw).pathname);
+        } else if (path.includes('%')) {
+            path = decodeURIComponent(path);
+        }
+    } catch {
+        /* keep the path */
+    }
+    const marker = path.toLowerCase().indexOf('data:');
+    if (marker === -1) {
+        if (looksLikeRawBase64(raw)) return `data:application/pdf;base64,${raw.replace(/\s/g, '')}`;
+        return '';
+    }
+    return path.slice(marker);
+}
+
 function looksLikeRawBase64(value) {
     const s = String(value || '').replace(/\s/g, '');
     if (s.length < 80 || s.startsWith('/') || s.startsWith('http') || s.startsWith('data:')) return false;
@@ -512,6 +535,18 @@ export async function fetchVerifiedAttachmentBlob(url, { expectedMime = 'applica
  */
 export async function resolveAttachmentForViewer(attachment, { name = 'Document', mimeType } = {}) {
     const input = coalesceAttachmentInput(attachment);
+    const inlineSource = typeof input === 'string'
+        ? input
+        : [input?.data, input?.base64, input?.url, input?.href, input?.publicId].filter(Boolean).join(' ');
+    const inlineDataUrl = extractInlineDocumentData(inlineSource);
+    if (inlineDataUrl) {
+        return {
+            data: inlineDataUrl,
+            storageRef: null,
+            name,
+            mimeType: mimeType || pickMimeFromName(name),
+        };
+    }
     const ref = extractStorageReference(input);
     const proxyKey = resolveStorageProxyKey(input);
     const shortKey = proxyKey && looksLikeS3StorageKey(proxyKey) ? proxyKey : '';
@@ -750,18 +785,23 @@ export function openDocumentViewerFromPayload(payload, { preOpenedWindow } = {})
         return { ok: false, error: payload?.error || 'Invalid document' };
     }
     const direct = typeof payload.data === 'string' ? payload.data.trim() : '';
-    if (direct.startsWith('http://') || direct.startsWith('https://')) {
-        openUrlForDocumentViewer(direct, preOpenedWindow);
+    const inlineDataUrl = direct.startsWith('data:') ? direct : extractInlineDocumentData(direct);
+    if (inlineDataUrl && openInlineAttachmentInWindow({ ...payload, data: inlineDataUrl }, preOpenedWindow)) {
         return { ok: true };
     }
-    if (payload.storageRef) {
+    if (payload.storageRef && looksLikeS3StorageKey(payload.storageRef)) {
         const target = preOpenedWindow && !preOpenedWindow.closed ? preOpenedWindow : openBlankPreviewTab();
+        const fallbackUrl = (direct.startsWith('http://') || direct.startsWith('https://')) ? direct : '';
         loadStorageFileBlob(payload.storageRef)
             .then((blob) => {
                 const typed = blob?.type ? blob : new Blob([blob], { type: payload.mimeType || 'application/pdf' });
                 openUrlForDocumentViewer(URL.createObjectURL(typed), target);
             })
             .catch(() => {
+                if (fallbackUrl) {
+                    openUrlForDocumentViewer(fallbackUrl, target);
+                    return;
+                }
                 if (target && !target.closed) {
                     try {
                         target.close();
@@ -770,6 +810,10 @@ export function openDocumentViewerFromPayload(payload, { preOpenedWindow } = {})
                     }
                 }
             });
+        return { ok: true };
+    }
+    if (direct.startsWith('http://') || direct.startsWith('https://')) {
+        openUrlForDocumentViewer(direct, preOpenedWindow);
         return { ok: true };
     }
     try {
