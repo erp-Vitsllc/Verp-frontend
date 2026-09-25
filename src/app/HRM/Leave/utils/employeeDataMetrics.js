@@ -60,8 +60,35 @@ function annualGrantUnlocked(cycle = {}) {
     return n(cycle.completedCycles) > 0;
 }
 
+function yearCardMetrics(row, card) {
+    const used = n(card.used?.[row.key]);
+    if (row.key === 'on_leave') {
+        const pending = card.annualUnlocked ? n(card.annualGrant) : 0;
+        return pendingUsedRemaining(pending, used, Math.max(0, pending - used));
+    }
+    if (row.key === 'sick_leave') {
+        const pending = Math.max(0, n(card.sickAllowed) - used);
+        return pendingUsedRemaining(pending, used, pending);
+    }
+    if (row.key === 'authorized_leave' || row.key === 'unauthorized_leave' || row.key === 'compoff_leave') {
+        return pendingUsedRemaining(n(card.pending?.[row.key]), used, 0);
+    }
+    if (row.key === 'late_early') {
+        return pendingUsedRemaining(n(card.pending?.late_early), n(card.used?.late_early), 0);
+    }
+    if (row.key === 'mispunch') {
+        return pendingUsedRemaining(n(card.pending?.mispunch), n(card.used?.mispunch), n(card.mispunchPresent));
+    }
+    return [
+        { label: 'Office', value: n(card.office) },
+        { label: 'WFH', value: n(card.wfh) },
+        { label: 'Absent', value: n(card.absent) },
+    ];
+}
+
 /** Same leave metrics as the attendance profile Employee data rows. */
 export function employeeDataMetrics(row, ctx) {
+    if (ctx.yearCard) return yearCardMetrics(row, ctx.yearCard);
     const enroll = ctx.enrollAttendance || {};
     const balances = ctx.leaveBalances || {};
     const stats = requestBucket(ctx.requestStats, row.key);

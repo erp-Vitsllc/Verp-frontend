@@ -114,18 +114,19 @@ async function loadCompanyNotificationBundleImpl(
     let statsRes = { data: { items: [] } };
     let companiesList = Array.isArray(cachedCompanies) ? cachedCompanies : [];
 
-    try {
-        statsRes = await fetchEmployeeDashboardStats(axiosInstance, { force, skipToast: true });
-    } catch {
+    const statsPromise = fetchEmployeeDashboardStats(axiosInstance, { force, skipToast: true }).catch(() => {
         const cachedStats = getCachedEmployeeDashboardStats();
-        if (cachedStats) statsRes = cachedStats;
-    }
+        return cachedStats || { data: { items: [] } };
+    });
+    const companiesPromise =
+        skipCompanyFetch && companiesList.length > 0
+            ? Promise.resolve().then(() => {
+                  rememberCompanyList(companiesList);
+                  return companiesList;
+              })
+            : fetchCompanyList(axiosInstance, { fallback: companiesList, force });
 
-    if (skipCompanyFetch && companiesList.length > 0) {
-        rememberCompanyList(companiesList);
-    } else {
-        companiesList = await fetchCompanyList(axiosInstance, { fallback: companiesList, force });
-    }
+    [statsRes, companiesList] = await Promise.all([statsPromise, companiesPromise]);
 
     return { statsRes, companiesList };
 }

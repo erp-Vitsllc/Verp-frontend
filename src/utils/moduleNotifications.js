@@ -322,6 +322,42 @@ export function clearModuleNotificationFeedsCache() {
     cachedBundle = null;
 }
 
+function rollupModuleCounts(counts = {}) {
+    const next = { ...counts };
+    next.asset =
+        (Number(next.toolsAsset) || 0) +
+        (Number(next.vehicleAsset) || 0) +
+        (Number(next.utilityBill) || 0);
+    next.hrm =
+        (Number(next.company) || 0) +
+        (Number(next.employee) || 0) +
+        (Number(next.attendance) || 0) +
+        (Number(next.leave) || 0) +
+        (Number(next.salary) || 0) +
+        (Number(next.fine) || 0) +
+        (Number(next.reward) || 0) +
+        (Number(next.loan) || 0) +
+        (Number(next.toolsAsset) || 0) +
+        (Number(next.vehicleAsset) || 0) +
+        (Number(next.utilityBill) || 0);
+    return next;
+}
+
+/** Update badge numbers without waiting for every module. Keeps an existing full bundle. */
+function publishModuleNotificationCounts(counts) {
+    const next = rollupModuleCounts(counts);
+    if (cachedBundle) {
+        cachedBundle = { ...cachedBundle, counts: next };
+    }
+    persistModuleNotificationCounts(next);
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(
+        new CustomEvent(MODULE_NOTIFICATIONS_UPDATED, {
+            detail: { counts: next },
+        }),
+    );
+}
+
 function publishModuleNotificationBundle(feeds, bundle) {
     cachedBundle = bundle || null;
     if (bundle?.counts) persistModuleNotificationCounts(bundle.counts);
@@ -354,6 +390,7 @@ export async function loadModuleNotificationFeeds(
         force = false,
         /** When set, load Fine/Asset/Reward/Payment/Loan bells for that employee (team Command Center). */
         targetUserId = null,
+        onPartial = null,
     } = {},
 ) {
     const targetKey = targetUserId ? String(targetUserId) : 'self';
@@ -424,7 +461,84 @@ export async function loadModuleNotificationFeeds(
             );
         }
 
-        const settled = await Promise.allSettled(requests);
+        const countKeysByIndex = [
+            ['toolsAsset', 'utilityBill'],
+            ['vehicleAsset'],
+            ['fine'],
+            ['payment'],
+            ['reward'],
+            ['loan'],
+            ['attendance'],
+            ['leave'],
+            ['salary'],
+            ['company', 'employee', 'vehicleAsset'],
+            ['employee'],
+        ];
+        const partial = {
+            statsData: providedStats || { items: [] },
+            companiesList: [],
+            employeesList: [],
+            toolsItems: [],
+            vehicleItems: [],
+            fineItems: [],
+            paymentItems: [],
+            rewardItems: [],
+            loanItems: [],
+            attendanceItems: [],
+            leaveItems: [],
+            salaryItems: [],
+        };
+
+        const tracked = requests.map((request, index) =>
+            Promise.resolve(request).then((value) => {
+                if (index <= 8) {
+                    const field = [
+                        'toolsItems',
+                        'vehicleItems',
+                        'fineItems',
+                        'paymentItems',
+                        'rewardItems',
+                        'loanItems',
+                        'attendanceItems',
+                        'leaveItems',
+                        'salaryItems',
+                    ][index];
+                    partial[field] = Array.isArray(value) ? value : [];
+                } else if (index === 9) {
+                    partial.statsData = providedStats || value?.statsRes?.data || partial.statsData;
+                    partial.companiesList = Array.isArray(value?.companiesList) ? value.companiesList : [];
+                } else {
+                    const empPayload = value?.data?.employees ?? value?.data;
+                    partial.employeesList = Array.isArray(empPayload) ? empPayload : [];
+                }
+                if (!targetUserId && gen === feedsGen && typeof onPartial === 'function') {
+                    const hrFlags = resolveHrFlags(partial.statsData || {}, { asEmployeeObjectId });
+                    onPartial({
+                        keys: countKeysByIndex[index] || [],
+                        feeds: {
+                            _targetUserId: null,
+                            statsData: partial.statsData,
+                            userStatsItems: Array.isArray(partial.statsData?.items) ? partial.statsData.items : [],
+                            companiesList: partial.companiesList,
+                            employeesList: partial.employeesList,
+                            toolsItems: partial.toolsItems,
+                            vehicleItems: partial.vehicleItems,
+                            fineItems: partial.fineItems,
+                            paymentItems: partial.paymentItems,
+                            rewardItems: partial.rewardItems,
+                            loanItems: partial.loanItems,
+                            attendanceItems: partial.attendanceItems,
+                            leaveItems: partial.leaveItems,
+                            salaryItems: partial.salaryItems,
+                            ...hrFlags,
+                        },
+                    });
+                }
+                return value;
+            }),
+        );
+
+        const settled = await Promise.allSettled(tracked);
 
         const toolsItems = valueOr(settled, 0, []);
         const vehicleItems = valueOr(settled, 1, []);
@@ -702,9 +816,30 @@ export { invalidateNotificationChannelMap, loadNotificationChannelMap };
 /** Convenience: load feeds + build bundle (sidebar + dashboard). */
 export async function loadModuleNotificationBundle(axiosInstance, options = {}) {
     const gen = feedsGen;
+    let channelMap = null;
+    const mapPromise = loadNotificationChannelMap(axiosInstance).then((map) => {
+        channelMap = map;
+        return map;
+    });
+    const onPartial = ({ keys, feeds }) => {
+        if (options.targetUserId || gen !== feedsGen) return;
+        const raw = buildModuleNotificationBundle(feeds);
+        const bundle = channelMap ? filterBundleByNotificationPermission(raw, channelMap) : raw;
+        const previous =
+            peekCachedModuleNotificationBundle()?.counts ||
+            readPersistedModuleNotificationCounts() ||
+            {};
+        const counts = { ...previous };
+        for (const key of keys || []) {
+            if (bundle?.counts && Object.prototype.hasOwnProperty.call(bundle.counts, key)) {
+                counts[key] = bundle.counts[key];
+            }
+        }
+        publishModuleNotificationCounts(counts);
+    };
     const [feeds, byDashboardType] = await Promise.all([
-        loadModuleNotificationFeeds(axiosInstance, options),
-        loadNotificationChannelMap(axiosInstance),
+        loadModuleNotificationFeeds(axiosInstance, { ...options, onPartial }),
+        mapPromise,
     ]);
     const raw = buildModuleNotificationBundle(feeds);
     const bundle = filterBundleByNotificationPermission(raw, byDashboardType);

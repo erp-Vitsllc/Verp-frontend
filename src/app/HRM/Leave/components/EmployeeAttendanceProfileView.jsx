@@ -977,6 +977,7 @@ function downloadSummaryCsv(profile) {
         enrollAttendance: profile?.summary?.enrollAttendance || {},
         presentDays: n(profile?.summary?.presentDays),
         absentDays: n(profile?.summary?.enrollAttendance?.absent ?? profile?.summary?.absentDays),
+        yearCard: profile?.summary?.yearCard || null,
     };
     const rows = [
         ['Leave type', 'Metric 1', 'Value 1', 'Metric 2', 'Value 2', 'Metric 3', 'Value 3'],
@@ -1181,6 +1182,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         enrollAttendance: profile?.summary?.enrollAttendance || {},
         presentDays: n(profile?.summary?.presentDays),
         absentDays: n(profile?.summary?.enrollAttendance?.absent ?? profile?.summary?.absentDays),
+        yearCard: profile?.summary?.yearCard || null,
     };
     const loans = approvedFinancialRows(financial.loans);
     const advances = approvedFinancialRows(financial.advances);
