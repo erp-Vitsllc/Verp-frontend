@@ -791,22 +791,18 @@ export function openDocumentViewerFromPayload(payload, { preOpenedWindow } = {})
     }
     if (payload.storageRef && looksLikeS3StorageKey(payload.storageRef)) {
         const target = preOpenedWindow && !preOpenedWindow.closed ? preOpenedWindow : openBlankPreviewTab();
-        const fallbackUrl = (direct.startsWith('http://') || direct.startsWith('https://')) ? direct : '';
         loadStorageFileBlob(payload.storageRef)
             .then((blob) => {
                 const typed = blob?.type ? blob : new Blob([blob], { type: payload.mimeType || 'application/pdf' });
                 openUrlForDocumentViewer(URL.createObjectURL(typed), target);
             })
             .catch(() => {
-                if (fallbackUrl) {
-                    openUrlForDocumentViewer(fallbackUrl, target);
-                    return;
-                }
                 if (target && !target.closed) {
                     try {
-                        target.close();
+                        target.document.title = payload.name || 'Document';
+                        target.document.body.textContent = 'This file is not in storage.';
                     } catch {
-                        /* ignore */
+                        /* keep the tab open */
                     }
                 }
             });
@@ -833,9 +829,10 @@ export function openDocumentViewerFromPayload(payload, { preOpenedWindow } = {})
                 .catch(() => {
                     if (target && !target.closed) {
                         try {
-                            target.close();
+                            target.document.title = payload.name || 'Document';
+                            target.document.body.textContent = 'This file is not in storage.';
                         } catch {
-                            /* ignore */
+                            /* keep the tab open */
                         }
                     }
                 });
@@ -846,9 +843,10 @@ export function openDocumentViewerFromPayload(payload, { preOpenedWindow } = {})
         }
         if (preOpenedWindow && !preOpenedWindow.closed) {
             try {
-                preOpenedWindow.close();
+                preOpenedWindow.document.title = payload.name || 'Document';
+                preOpenedWindow.document.body.textContent = 'This file is not in storage.';
             } catch {
-                /* ignore */
+                /* keep the tab open */
             }
         }
         const message =
@@ -868,9 +866,10 @@ export async function openDocumentViewerInNewTab(
     if (!resolved || resolved.error) {
         if (preOpenedWindow && !preOpenedWindow.closed) {
             try {
-                preOpenedWindow.close();
+                preOpenedWindow.document.title = name || 'Document';
+                preOpenedWindow.document.body.textContent = resolved?.error || 'This file is not in storage.';
             } catch {
-                /* ignore */
+                /* keep the tab open */
             }
         }
         return { ok: false, error: resolved?.error || 'Cannot open attachment' };

@@ -55,7 +55,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { ASSET_FOCUS_PREFIX } from '@/utils/assetNotificationRouting';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
-import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
+import { openBlankPreviewTab, resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAdmin as checkIsAdmin, hasPermission, parseStoredSessionUser } from '@/utils/permissions';
 import {
     canAccessVehicleDetailsPage,
@@ -422,10 +422,22 @@ function VehicleDetailsPageContent() {
     const [loadingHandoverHistory, setLoadingHandoverHistory] = useState(false);
     const [isDownloadingHandoverHistoryPdf, setIsDownloadingHandoverHistoryPdf] = useState('');
     const [viewingDocument, setViewingDocument] = useState(null);
+    const previewTabRef = useRef(null);
     const openFilePreview = useCallback(async (attachment, label = 'Attachment') => {
+        const tab = openBlankPreviewTab();
+        previewTabRef.current = tab;
         setViewingDocument({ data: '', name: label, mimeType: 'application/pdf', loading: true });
         const resolved = await resolveAttachmentForViewer(attachment, { name: label });
         if (!resolved || resolved.error) {
+            if (tab && !tab.closed) {
+                try {
+                    tab.document.title = label;
+                    tab.document.body.textContent = resolved?.error || 'This file is not in storage.';
+                } catch {
+                    /* keep the tab open */
+                }
+            }
+            previewTabRef.current = null;
             setViewingDocument(null);
             if (resolved?.error) {
                 toast({ variant: 'destructive', title: 'Cannot open attachment', description: resolved.error });
@@ -6377,6 +6389,7 @@ function VehicleDetailsPageContent() {
                 isOpen={!!viewingDocument}
                 onClose={() => setViewingDocument(null)}
                 viewingDocument={viewingDocument}
+                previewWindow={previewTabRef.current}
             />
 
             <AlertDialog open={confirmDialog.isOpen} onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, isOpen: open }))}>

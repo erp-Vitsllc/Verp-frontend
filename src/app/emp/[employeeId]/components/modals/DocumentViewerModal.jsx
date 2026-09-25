@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
  * Legacy modal hook — opens documents in a new tab so the parent page is not blocked.
  * Existing call sites can keep using isOpen + viewingDocument without changes.
  */
-export default function DocumentViewerModal({ isOpen, onClose, viewingDocument }) {
+export default function DocumentViewerModal({ isOpen, onClose, viewingDocument, previewWindow = null }) {
     const { toast } = useToast();
     const openedRef = useRef(false);
 
@@ -21,7 +21,7 @@ export default function DocumentViewerModal({ isOpen, onClose, viewingDocument }
             return;
         }
         openedRef.current = true;
-        const result = openDocumentViewerFromPayload(viewingDocument);
+        const result = openDocumentViewerFromPayload(viewingDocument, { preOpenedWindow: previewWindow });
         if (!result.ok) {
             toast({
                 variant: 'destructive',
@@ -30,7 +30,7 @@ export default function DocumentViewerModal({ isOpen, onClose, viewingDocument }
             });
         }
         onClose?.();
-    }, [isOpen, viewingDocument, onClose, toast]);
+    }, [isOpen, viewingDocument, onClose, toast, previewWindow]);
 
     return null;
 }
