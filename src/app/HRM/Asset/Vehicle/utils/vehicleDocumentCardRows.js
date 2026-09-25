@@ -205,8 +205,30 @@ const groupRowsByPrimary = (list, primaryType, attachmentsForDoc) => {
     });
 
     const orphans = (list || []).filter((d) => !used.has(String(d._id)));
-    const orphanGroups = new Map();
+    const stillOrphan = [];
     for (const doc of orphans) {
+        const isAttachment = normVehicleDocType(doc.type) === `${primaryType} attachment`;
+        if (!isAttachment || !rows.length) {
+            stillOrphan.push(doc);
+            continue;
+        }
+        const issueKey = vehicleDocDateKey(doc.issueDate);
+        const expiryKey = vehicleDocDateKey(doc.expiryDate);
+        const target = rows.find((row) => sameDocPeriod(row.primary, issueKey, expiryKey));
+        if (!target) {
+            stillOrphan.push(doc);
+            continue;
+        }
+        if (!target.attachments.some((a) => String(a._id) === String(doc._id))) {
+            target.attachments = [...target.attachments, doc];
+            target.allDocs = [...target.allDocs, doc];
+            target.attachmentItems = buildDocumentAttachmentItems(target.primary, target.attachments);
+        }
+        used.add(String(doc._id));
+    }
+
+    const orphanGroups = new Map();
+    for (const doc of stillOrphan) {
         const issueKey = vehicleDocDateKey(doc.issueDate);
         const expiryKey = vehicleDocDateKey(doc.expiryDate);
         const groupKey = `${primaryType}|${issueKey}|${expiryKey}`;
@@ -228,8 +250,36 @@ const groupRowsByPrimary = (list, primaryType, attachmentsForDoc) => {
         });
     }
 
-    return rows;
+    return dedupeCopiedDocumentRows(rows);
 };
+
+function documentRowCopyKey(row) {
+    const doc = row?.primary || {};
+    const files = (row?.attachmentItems || [])
+        .map((item) => String(item?.url || ''))
+        .filter(Boolean)
+        .sort()
+        .join('|');
+    return [
+        normVehicleDocType(doc.type),
+        vehicleDocDateKey(doc.issueDate),
+        vehicleDocDateKey(doc.expiryDate),
+        files,
+    ].join('::');
+}
+
+/** Hide a repeated card that has the same type, dates, and files. Records stay stored. */
+function dedupeCopiedDocumentRows(rows) {
+    const seen = new Set();
+    const out = [];
+    for (const row of rows || []) {
+        const key = documentRowCopyKey(row);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(row);
+    }
+    return out;
+}
 
 export const groupRegistrationDocumentRows = (list) =>
     groupRowsByPrimary(list, 'registration', registrationAttachmentsForDoc);

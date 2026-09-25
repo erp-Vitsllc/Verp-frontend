@@ -74,6 +74,10 @@ const S3_STORAGE_FOLDER_PREFIXES = [
     'asset-services',
     'asset-history',
     'asset-accessories',
+    'asset-service-workflow-completion',
+    'asset-negotiation',
+    'asset-ld-company-approved-handover',
+    'asset-accessory-request-handover',
     'employee-documents',
     'employee-profiles',
     'employee-signatures',
@@ -181,7 +185,8 @@ export function extractStorageReference(attachment) {
     const toKey = (raw) => {
         const s = String(raw || '').trim();
         if (!s) return '';
-        if (looksLikeS3StorageKey(s)) return s.replace(/^\/+/, '');
+        const withoutQuery = s.split('?')[0].split('#')[0];
+        if (looksLikeS3StorageKey(withoutQuery)) return withoutQuery.replace(/^\/+/, '');
         if (isHttpUrl(s) || storagePrefixInString(s)) {
             for (const folder of S3_STORAGE_FOLDER_PREFIXES) {
                 const idx = s.indexOf(folder);
@@ -535,21 +540,61 @@ export function storeDocumentViewerSessionPayload(payload) {
 
     purgeExpiredDocumentViewerPayloads();
 
+    // Stored files are loaded from storage by key. Do not copy file bytes into the browser.
+    const persisted = record.storageRef ? { ...record, data: null } : record;
+
     try {
-        localStorage.setItem(key, JSON.stringify(record));
+        localStorage.setItem(key, JSON.stringify(persisted));
         return id;
     } catch {
         if (record.storageRef) {
-            localStorage.setItem(
-                key,
-                JSON.stringify({
-                    ...record,
-                    data: null,
-                }),
-            );
-            return id;
+            try {
+                localStorage.setItem(
+                    key,
+                    JSON.stringify({
+                        ...record,
+                        data: null,
+                    }),
+                );
+                return id;
+            } catch {
+                /* browser storage is full — open the stored file directly below */
+            }
         }
-        throw new Error('Document is too large to open in a new tab. Try downloading instead.');
+        const err = new Error('LOCAL_VIEWER_STORAGE_FULL');
+        err.inlinePayload = record;
+        throw err;
+    }
+}
+
+function openInlineAttachmentInWindow(payload, preOpenedWindow) {
+    const raw = payload?.data;
+    if (typeof raw !== 'string' || !raw) return false;
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+        openUrlForDocumentViewer(raw, preOpenedWindow);
+        return true;
+    }
+    try {
+        let mime = payload.mimeType || 'application/pdf';
+        let b64 = raw;
+        if (raw.startsWith('blob:')) {
+            openUrlForDocumentViewer(raw, preOpenedWindow);
+            return true;
+        }
+        if (raw.startsWith('data:')) {
+            const comma = raw.indexOf(',');
+            const header = comma >= 0 ? raw.slice(0, comma) : '';
+            b64 = comma >= 0 ? raw.slice(comma + 1) : '';
+            const found = header.match(/data:([^;,]+)/);
+            if (found?.[1]) mime = found[1];
+        }
+        if (!b64) return false;
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+        openUrlForDocumentViewer(url, preOpenedWindow);
+        return true;
+    } catch {
+        return false;
     }
 }
 
@@ -657,6 +702,28 @@ export function openDocumentViewerFromPayload(payload, { preOpenedWindow } = {})
         openUrlForDocumentViewer(path, preOpenedWindow);
         return { ok: true };
     } catch (err) {
+        const storageRef = payload.storageRef || err.inlinePayload?.storageRef;
+        if (storageRef) {
+            const target = preOpenedWindow && !preOpenedWindow.closed ? preOpenedWindow : openBlankPreviewTab();
+            loadStorageFileBlob(storageRef)
+                .then((blob) => {
+                    const url = URL.createObjectURL(blob);
+                    openUrlForDocumentViewer(url, target);
+                })
+                .catch(() => {
+                    if (target && !target.closed) {
+                        try {
+                            target.close();
+                        } catch {
+                            /* ignore */
+                        }
+                    }
+                });
+            return { ok: true };
+        }
+        if (openInlineAttachmentInWindow(err.inlinePayload || payload, preOpenedWindow)) {
+            return { ok: true };
+        }
         if (preOpenedWindow && !preOpenedWindow.closed) {
             try {
                 preOpenedWindow.close();
@@ -664,7 +731,11 @@ export function openDocumentViewerFromPayload(payload, { preOpenedWindow } = {})
                 /* ignore */
             }
         }
-        return { ok: false, error: err.message || 'Could not open document.' };
+        const message =
+            err?.message === 'LOCAL_VIEWER_STORAGE_FULL'
+                ? 'Could not open document.'
+                : err.message || 'Could not open document.';
+        return { ok: false, error: message };
     }
 }
 

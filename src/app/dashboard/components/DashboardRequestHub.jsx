@@ -51,6 +51,12 @@ function nextDateKey(dateKey) {
     return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
 }
 
+function firstOfProcessingMonth(value) {
+    const raw = String(value || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw) || /^\d{4}-\d{2}$/.test(raw)) return `${raw.slice(0, 7)}-01`;
+    return '';
+}
+
 function firstEligibleAdvanceRequestDate(todayKey, holidayDates, offWeekdays) {
     let cursor = todayKey;
     let workingSeen = 0;
@@ -64,6 +70,27 @@ function firstEligibleAdvanceRequestDate(todayKey, holidayDates, offWeekdays) {
         if (workingSeen >= 2) return cursor;
     }
     return null;
+}
+
+function earliestLeaveDate(todayKey, holidayDates, offWeekdays, processingStartDate) {
+    const working = firstEligibleAdvanceRequestDate(todayKey, holidayDates, offWeekdays) || '';
+    const floor = firstOfProcessingMonth(processingStartDate);
+    let cursor = working || floor;
+    if (working && floor && working < floor) cursor = floor;
+    if (!cursor) return '';
+    for (let i = 0; i < 90; i += 1) {
+        const [year, month, day] = cursor.split('-').map(Number);
+        const weekdayKey = WEEKDAY_KEYS[new Date(Date.UTC(year, month - 1, day, 12, 0, 0)).getUTCDay()];
+        const isOff = holidayDates.has(cursor) || offWeekdays.has(weekdayKey);
+        const allowed =
+            cursor > todayKey &&
+            (!floor || cursor >= floor) &&
+            (!working || cursor >= working) &&
+            !isOff;
+        if (allowed) return cursor;
+        cursor = nextDateKey(cursor);
+    }
+    return working;
 }
 
 const KIND_META = {
@@ -426,7 +453,12 @@ export default function DashboardRequestHub() {
                         .filter(Boolean),
                 );
                 const earliest =
-                    firstEligibleAdvanceRequestDate(todayKey, holidayDates, offWeekdays) || '';
+                    earliestLeaveDate(
+                        todayKey,
+                        holidayDates,
+                        offWeekdays,
+                        attendanceRes.data?.processingStartDate || attendanceRes.data?.processingStartMonth || '',
+                    ) || '';
                 setLeaveScheduleWeek(weekForStaffType(attendanceRes.data?.workingTime, staffType) || null);
                 setLeaveEarliestDate(earliest);
                 setLeaveDateKey(earliest);

@@ -5405,10 +5405,22 @@ function VehicleDetailsPageContent() {
                                             );
 
                                             const basicRows = [];
-                                            if (isLiveDocumentTab && asset?.invoiceFile) {
-                                                basicRows.push({ key: 'inv', doc: null, att: asset.invoiceFile, label: 'Invoice' });
+                                            const purchaseInvoice = isLiveDocumentTab ? asset?.invoiceFile : null;
+                                            if (purchaseInvoice) {
+                                                basicRows.push({ key: 'inv', doc: null, att: purchaseInvoice, label: 'Invoice' });
                                             }
                                             bucket.basic.forEach((doc, i) => {
+                                                const docType = normDocType(doc?.type);
+                                                if (
+                                                    docType === 'toll' ||
+                                                    docType === 'toll attachment' ||
+                                                    docType === 'petrol' ||
+                                                    docType === 'petrol attachment'
+                                                ) {
+                                                    return;
+                                                }
+                                                if (!doc?.attachment) return;
+                                                if (purchaseInvoice && String(doc.attachment) === String(purchaseInvoice)) return;
                                                 basicRows.push({
                                                     key: doc._id || `b-${i}`,
                                                     doc,
@@ -5419,7 +5431,7 @@ function VehicleDetailsPageContent() {
                                             if (basicRows.length === 0 && isLiveDocumentTab) {
                                                 basicRows.push({ key: 'blank', doc: null, att: null, label: null });
                                             }
-                                            const showBasicDetailsSection = isLiveDocumentTab || bucket.basic.length > 0;
+                                            const showBasicDetailsSection = basicRows.length > 0;
 
                                             const openRegistrationEdit = (doc) => {
                                                 if (normDocType(doc.type) === 'registration') {
@@ -5948,7 +5960,7 @@ function VehicleDetailsPageContent() {
                                                         </div>
                                                     )}
 
-                                                    {bucket.mortgage.length > 0 && (
+                                                    {(bucket.mortgage.length > 0 || (isLiveDocumentTab && hasMortgageData)) && (
                                                         <div>
                                                             {sectionTitle('Mortgage')}
                                                             <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
@@ -5966,6 +5978,32 @@ function VehicleDetailsPageContent() {
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody className="divide-y divide-gray-50">
+                                                                        {isLiveDocumentTab && hasMortgageData ? (
+                                                                            <tr className="hover:bg-blue-50/30 transition-colors">
+                                                                                <td className="px-6 py-4 text-sm font-semibold text-gray-700">
+                                                                                    {asset?.mortgageBankName || asset?.mortgageBank || '-'}
+                                                                                </td>
+                                                                                <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(asset?.mortgageStartDate)}</td>
+                                                                                <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(asset?.mortgageEndDate)}</td>
+                                                                                <td className="px-6 py-4 text-sm text-gray-600">
+                                                                                    {asset?.loanAmount != null && asset.loanAmount !== ''
+                                                                                        ? `AED ${Number(asset.loanAmount).toLocaleString()}`
+                                                                                        : asset?.mortgageAmount != null
+                                                                                            ? `AED ${Math.max(0, Number(asset.mortgageAmount || 0) - Number(asset.downPayment || 0)).toLocaleString()}`
+                                                                                            : '-'}
+                                                                                </td>
+                                                                                <td className="px-6 py-4 text-sm">
+                                                                                    {attachmentCell(
+                                                                                        mortgageAttachmentRows.map((row, i) => ({
+                                                                                            url: row?.file?.url || row?.file,
+                                                                                            label: row?.docName || row?.label || `Attachment ${i + 1}`,
+                                                                                            docId: `live-mortgage-${i}`,
+                                                                                        })),
+                                                                                    )}
+                                                                                </td>
+                                                                                {showVehicleCardDelete ? <td className="px-6 py-4" /> : null}
+                                                                            </tr>
+                                                                        ) : null}
                                                                         {bucket.mortgage.map((doc, idx) => {
                                                                             const snapshot = parseMortgageArchivedSnapshot(doc);
                                                                             const bank =
