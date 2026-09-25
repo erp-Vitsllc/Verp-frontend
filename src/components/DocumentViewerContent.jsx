@@ -102,8 +102,20 @@ export default function DocumentViewerContent({
             setIsLoadingSrc(false);
         };
 
+        const showDirectUrl = (url) => {
+            if (cancelled || typeof url !== 'string' || !url) return false;
+            if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('data:')) return false;
+            const asImage = looksLikeImageDocument(viewingDocument, url);
+            setTreatAsImage(asImage);
+            setDocumentSrc(viewerSrcForDocument(url, { asImage }));
+            setLoadError(null);
+            setIsLoadingSrc(false);
+            return true;
+        };
+
         const fail = (message) => {
             if (cancelled) return;
+            if (showDirectUrl(viewingDocument?.data)) return;
             setLoadError(message);
             setIsLoadingSrc(false);
         };
@@ -144,15 +156,14 @@ export default function DocumentViewerContent({
 
             // Object-storage URLs must go through the API proxy (browser CORS/DNS often fail).
             const proxyKey = resolveStorageProxyKey(docData);
-            if (proxyKey) {
-                loadStorageFileBlob(proxyKey)
+            const shortKey = proxyKey && !String(proxyKey).startsWith('http') ? proxyKey : '';
+            if (shortKey) {
+                loadStorageFileBlob(shortKey)
                     .then((blob) => finishWithBlob(blob, viewingDocument.mimeType))
-                    .catch((err) => {
-                        fail(
-                            err.response?.data?.message ||
-                                err.message ||
-                                'Could not load file from storage.',
-                        );
+                    .catch(() => {
+                        if (!showDirectUrl(docData)) {
+                            fail('Could not load file from storage.');
+                        }
                     });
                 return () => {
                     cancelled = true;

@@ -378,13 +378,30 @@ async function messageFromAxiosBlobError(err) {
  * Do not fall back to Wasabi signed URLs in the browser — many office networks
  * (Windows/ISP DNS) cannot resolve wasabisys.com even when the API can.
  */
+function storageFileRequestKey(storageKey) {
+    const raw = String(storageKey || '').trim();
+    if (!raw) return '';
+    const ref = extractStorageReference(raw);
+    if (ref?.key && looksLikeS3StorageKey(ref.key)) return ref.key;
+    return raw;
+}
+
 export async function loadStorageFileBlob(storageKey, { expectedMime } = {}) {
+    const key = storageFileRequestKey(storageKey);
+    if (!key) throw new Error('File not found in storage.');
+    const requestConfig = {
+        responseType: 'blob',
+        skipToast: true,
+        timeout: 120000,
+        headers: { 'x-no-compression': '1' },
+    };
     try {
-        const response = await axiosInstance.get('/storage/file', {
-            params: { key: storageKey },
-            responseType: 'blob',
-            skipToast: true,
-        });
+        const response = key.length > 1800
+            ? await axiosInstance.post('/storage/file', { key }, requestConfig)
+            : await axiosInstance.get('/storage/file', {
+                ...requestConfig,
+                params: { key },
+            });
         const blob = response.data;
         const type = (blob?.type || '').toLowerCase();
         if (isNonDocumentResponseContentType(type)) {
@@ -395,7 +412,7 @@ export async function loadStorageFileBlob(storageKey, { expectedMime } = {}) {
         }
         return blob;
     } catch (err) {
-        const status = err.response?.status;
+        const status = err.response?.status ?? err.originalError?.response?.status;
         const apiMsg = await messageFromAxiosBlobError(err);
         if (apiMsg) throw new Error(apiMsg);
         if (status === 404) {
@@ -479,22 +496,41 @@ export async function fetchVerifiedAttachmentBlob(url, { expectedMime = 'applica
  */
 export async function resolveAttachmentForViewer(attachment, { name = 'Document', mimeType } = {}) {
     const input = coalesceAttachmentInput(attachment);
-
-    // Prefer the authenticated storage proxy for Wasabi/S3 — browser fetch fails on CORS
-    // and on networks that cannot resolve object-storage hostnames.
+    const ref = extractStorageReference(input);
     const proxyKey = resolveStorageProxyKey(input);
-    if (proxyKey) {
-        const ref = extractStorageReference(input) || { key: proxyKey, url: proxyKey, name: null };
-        const { fileName, resolvedMime } = resolveStorageViewerMeta(input, ref, { name, mimeType });
+    const shortKey = proxyKey && looksLikeS3StorageKey(proxyKey) ? proxyKey : '';
+    const directUrl = ref?.url && isHttpUrl(ref.url) ? ensureAbsoluteHttpUrl(ref.url) : '';
+    const sync = normalizeAttachmentForViewer(input, { name, mimeType });
+    const inlineData = sync && !sync.error && typeof sync.data === 'string' && sync.data.startsWith('data:')
+        ? sync.data
+        : null;
+
+    // Keep the original link. A storage-only payload hides the file everywhere
+    // (company, employee, vehicle) when the storage request does not return.
+    if (shortKey) {
+        const { fileName, resolvedMime } = resolveStorageViewerMeta(
+            input,
+            ref || { key: shortKey, url: directUrl || shortKey, name: null },
+            { name, mimeType },
+        );
         return {
-            storageRef: proxyKey,
-            data: null,
+            storageRef: shortKey,
+            data: directUrl || inlineData || null,
             name: fileName,
             mimeType: resolvedMime,
         };
     }
 
-    const sync = normalizeAttachmentForViewer(input, { name, mimeType });
+    if (directUrl || (proxyKey && isHttpUrl(proxyKey))) {
+        const url = directUrl || ensureAbsoluteHttpUrl(proxyKey);
+        const { fileName, resolvedMime } = resolveStorageViewerMeta(
+            input,
+            ref || { key: url, url, name: null },
+            { name, mimeType },
+        );
+        return { data: url, name: fileName, mimeType: resolvedMime };
+    }
+
     if (sync && !sync.error) return sync;
 
     return sync || { error: 'Attachment file is missing or unavailable.' };
@@ -540,8 +576,11 @@ export function storeDocumentViewerSessionPayload(payload) {
 
     purgeExpiredDocumentViewerPayloads();
 
-    // Stored files are loaded from storage by key. Do not copy file bytes into the browser.
-    const persisted = record.storageRef ? { ...record, data: null } : record;
+    // Drop file bytes from the tab handoff. Keep a normal http link so the viewer
+    // can still open the file when the storage request fails.
+    const data = typeof record.data === 'string' ? record.data : '';
+    const dataIsFileBytes = data.startsWith('data:') || data.length > 12000;
+    const persisted = dataIsFileBytes ? { ...record, data: null } : record;
 
     try {
         localStorage.setItem(key, JSON.stringify(persisted));
