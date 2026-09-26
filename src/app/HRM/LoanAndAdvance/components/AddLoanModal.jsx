@@ -19,6 +19,12 @@ import {
     VISA_REPAYMENT_LIMIT_MSG,
 } from '../utils/loanEligibilityWarnings';
 
+function withHodContact(message) {
+    const text = String(message || '').trim();
+    if (!text || text.includes('contact your HOD')) return text;
+    return `${text} For more information, please contact your HOD.`;
+}
+
 export default function AddLoanModal({
     isOpen,
     onClose,
@@ -417,7 +423,7 @@ export default function AddLoanModal({
                 toast({
                     variant: 'destructive',
                     title: 'Invalid Dates',
-                    description: dateWarning,
+                    description: withHodContact(dateWarning),
                 });
                 return false;
             }
@@ -463,7 +469,7 @@ export default function AddLoanModal({
             toast({
                 variant: "destructive",
                 title: "Ineligible Request",
-                description: eligibilityWarning
+                description: withHodContact(eligibilityWarning)
             });
             return false;
         }
@@ -485,7 +491,7 @@ export default function AddLoanModal({
             toast({
                 variant: "destructive",
                 title: overrideWarnings.length ? "Ineligible Request" : "Invalid Dates",
-                description: overrideMessages[0],
+                description: withHodContact(overrideMessages[0]),
             });
             return false;
         }
@@ -569,7 +575,7 @@ export default function AddLoanModal({
             toast({
                 variant: "destructive",
                 title: "Error",
-                description: error.response?.data?.message || "Failed to submit application"
+                description: withHodContact(error.response?.data?.message || "Failed to submit application")
             });
         } finally {
             setSubmitting(false);
@@ -694,14 +700,14 @@ export default function AddLoanModal({
                             menuPosition="fixed"
                             classNamePrefix="loan-emp-select"
                         />
-                        {errors.employeeId && <p className="text-xs text-red-500">{errors.employeeId}</p>}
+                        {errors.employeeId && <p className="text-xs text-red-600">{withHodContact(errors.employeeId)}</p>}
                     </div>
 
                     {/* Eligibility Warning (hard blocks) */}
                     {eligibilityWarning && (
                         <div className="flex items-start gap-2 bg-red-50 text-red-600 p-3 rounded-xl text-sm border border-red-100">
                             <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                            <p className="whitespace-pre-line">{eligibilityWarning}</p>
+                            <p className="whitespace-pre-line">{withHodContact(eligibilityWarning)}</p>
                         </div>
                     )}
 
@@ -738,7 +744,7 @@ export default function AddLoanModal({
                             placeholder="Enter amount"
                             disabled={identityLocked}
                         />
-                        {errors.amount && <p className="text-xs text-red-500">{errors.amount}</p>}
+                        {errors.amount && <p className="text-xs text-red-600">{withHodContact(errors.amount)}</p>}
                         {selectedEmployee && (
                             <p className="text-xs text-gray-500">
                                 Max: {(formData.type === 'Advance' ? selectedEmployee.salary / 2 : selectedEmployee.salary * 3).toLocaleString()}
@@ -774,7 +780,7 @@ export default function AddLoanModal({
                                         );
                                     })}
                                 </select>
-                                {errors.duration && <p className="text-xs text-red-500">{errors.duration}</p>}
+                                {errors.duration && <p className="text-xs text-red-600">{withHodContact(errors.duration)}</p>}
                                 {maxDuration < 6 && (
                                     <p className="text-[10px] text-amber-600 mt-1">
                                         * Max duration limited to {maxDuration} months due to visa expiry.
@@ -805,8 +811,7 @@ export default function AddLoanModal({
                                 }`}>
                                     <AlertCircle size={10} className="shrink-0" />
                                     <p className="leading-tight">
-                                        {dateWarning}
-                                        {isFlowchartHr && !selfService ? ' Confirm on save to proceed.' : ''}
+                                        {isFlowchartHr && !selfService ? `${dateWarning} Confirm on save to proceed.` : withHodContact(dateWarning)}
                                     </p>
                                 </div>
                             )}
@@ -830,7 +835,7 @@ export default function AddLoanModal({
                         />
                         <div className="flex items-center justify-between gap-2">
                             {errors.reason ? (
-                                <p className="text-xs text-red-500">{errors.reason}</p>
+                                <p className="text-xs text-red-600">{withHodContact(errors.reason)}</p>
                             ) : (
                                 <p className="text-xs text-gray-400">Max 50 characters</p>
                             )}

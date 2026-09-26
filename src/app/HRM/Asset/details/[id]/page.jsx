@@ -1919,13 +1919,17 @@ function AssetDetailsPageContent() {
         }
     };
 
+    const assetFetchSeq = useRef(0);
     const fetchAssetDetails = async () => {
+        const seq = ++assetFetchSeq.current;
         try {
             if (!asset) setLoading(true);
             // Skip vehicle oil/service heals and bulk S3 signing so tools pages paint quickly.
             const response = await axiosInstance.get(`/AssetItem/detail/${assetId}`, {
-                params: { deferServiceSigning: '1' },
+                params: { deferServiceSigning: '1', _ts: Date.now() },
+                headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
             });
+            if (seq !== assetFetchSeq.current) return;
             const data = response.data;
             const typeLower = String(data?.type || data?.typeId?.name || '').toLowerCase();
             const catLower = String(data?.category || data?.categoryId?.name || '').toLowerCase();
@@ -1947,6 +1951,7 @@ function AssetDetailsPageContent() {
             setLoading(false);
             void loadOwnerOnDutyFlags();
         } catch (error) {
+            if (seq !== assetFetchSeq.current) return;
             toast({
                 variant: "destructive",
                 title: "Error",
@@ -4995,7 +5000,29 @@ function AssetDetailsPageContent() {
                         <AddAssetTypeModal
                             isOpen={showEditModal}
                             onClose={() => setShowEditModal(false)}
-                            onSuccess={fetchAssetDetails}
+                            onSuccess={(updated) => {
+                                if (updated?._id) {
+                                    setAsset((prev) => {
+                                        if (!prev) return updated;
+                                        return {
+                                            ...prev,
+                                            name: updated.name ?? prev.name,
+                                            assetValue: updated.assetValue ?? prev.assetValue,
+                                            purchaseDate: updated.purchaseDate ?? prev.purchaseDate,
+                                            quantity: updated.quantity ?? prev.quantity,
+                                            warranty: updated.warranty ?? prev.warranty,
+                                            warrantyYears: updated.warrantyYears ?? prev.warrantyYears,
+                                            invoiceNumber: updated.invoiceNumber ?? prev.invoiceNumber,
+                                            typeId: updated.typeId || prev.typeId,
+                                            categoryId: updated.categoryId || prev.categoryId,
+                                            accessories: Array.isArray(updated.accessories) ? updated.accessories : prev.accessories,
+                                            photo: updated.photo ?? prev.photo,
+                                            imagePreview: updated.imagePreview ?? prev.imagePreview,
+                                        };
+                                    });
+                                }
+                                fetchAssetDetails();
+                            }}
                             mode="asset"
                             initialData={asset}
                             canEditAssetValue={true}

@@ -32,6 +32,24 @@ function formatDisplayDate(dateKey) {
     });
 }
 
+function inclusiveLeaveDays(fromDate, toDate) {
+    if (!fromDate || !toDate || toDate < fromDate) return 0;
+    const [fromYear, fromMonth, fromDay] = String(fromDate).split('-').map(Number);
+    const [toYear, toMonth, toDay] = String(toDate).split('-').map(Number);
+    if (![fromYear, fromMonth, fromDay, toYear, toMonth, toDay].every(Number.isFinite)) return 0;
+    return Math.round((Date.UTC(toYear, toMonth - 1, toDay) - Date.UTC(fromYear, fromMonth - 1, fromDay)) / 86400000) + 1;
+}
+
+function authorizedSpanMessage(span, fromDate, toDate) {
+    if (!span || !fromDate || !toDate || toDate < fromDate) return '';
+    if (span === 'single' && fromDate !== toDate) return 'Single day leave uses the same start and end date.';
+    if (span === 'multiple' && fromDate === toDate) return 'Multiple days needs an end date after the start date.';
+    if (inclusiveLeaveDays(fromDate, toDate) > 3) {
+        return 'Maximum 3 days of authorized leave are allowed. For more information, please contact your HOD.';
+    }
+    return '';
+}
+
 function countLeaveDays(fromDate, toDate, holidayDates, offWeekdays) {
     if (!fromDate || !toDate || toDate < fromDate) return 0;
     let count = 0;
@@ -113,6 +131,7 @@ export default function AttendanceFutureRequestModal({
     const fileRef = useRef(null);
     const [fromDate, setFromDate] = useState(dateKey || '');
     const [toDate, setToDate] = useState(dateKey || '');
+    const [leaveDuration, setLeaveDuration] = useState('');
     const [dayPart, setDayPart] = useState('full');
     const [timeIn, setTimeIn] = useState('');
     const [timeOut, setTimeOut] = useState('');
@@ -137,6 +156,7 @@ export default function AttendanceFutureRequestModal({
         if (!isOpen) return;
         setFromDate(dateKey || '');
         setToDate(dateKey || '');
+        setLeaveDuration('');
         setDayPart('full');
         setReason('');
         setAttachment(null);
@@ -168,7 +188,8 @@ export default function AttendanceFutureRequestModal({
     if (!isOpen) return null;
 
     const timeInMinutes = clockToMinutes(timeIn);
-    const isHalfDay = !isAnnualLeave && !isMultiDay && dayPart === 'half';
+    const isHalfDay = !isAnnualLeave && leaveDuration === 'single' && dayPart === 'half';
+    const authorizedBlock = !isAnnualLeave ? authorizedSpanMessage(leaveDuration, fromDate, toDate) : '';
     const requestKind = isAnnualLeave ? 'annual_leave' : 'leave';
     const requestTypeLabel = isAnnualLeave
         ? 'Annual Leave'
@@ -190,8 +211,22 @@ export default function AttendanceFutureRequestModal({
     const handleFromDateChange = (value) => {
         setFromDate(value);
         setLocalError('');
+        if (!isAnnualLeave && leaveDuration === 'single') {
+            setToDate(value);
+            return;
+        }
         if (value && toDate && value > toDate) setToDate(value);
         if (value && toDate && value !== toDate) setDayPart('full');
+    };
+
+    const chooseLeaveDuration = (next) => {
+        setLeaveDuration(next);
+        setLocalError('');
+        if (next === 'single') {
+            setToDate(fromDate);
+            return;
+        }
+        setDayPart('full');
     };
 
     const handleTimeInChange = (value) => {
@@ -215,8 +250,16 @@ export default function AttendanceFutureRequestModal({
 
     const handleSubmit = (e) => {
         e.preventDefault();
+        if (!isAnnualLeave && !leaveDuration) {
+            setLocalError('Choose single day or multiple days.');
+            return;
+        }
+        if (authorizedBlock) {
+            setLocalError(authorizedBlock);
+            return;
+        }
         if (!fromDate || !toDate) {
-            setLocalError('Choose a from and to date.');
+            setLocalError('Choose a start date and an end date.');
             return;
         }
         if (toDate < fromDate) {
@@ -322,6 +365,37 @@ export default function AttendanceFutureRequestModal({
                         ) : null}
                     </div>
 
+                    {!isAnnualLeave ? (
+                        <div>
+                            <span className={labelClass}>Leave duration</span>
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { key: 'single', label: 'Single day' },
+                                    { key: 'multiple', label: 'Multiple days' },
+                                ].map((option) => {
+                                    const selected = leaveDuration === option.key;
+                                    return (
+                                        <button
+                                            key={option.key}
+                                            type="button"
+                                            disabled={submitting}
+                                            onClick={() => chooseLeaveDuration(option.key)}
+                                            className={`h-11 rounded-xl border text-sm font-semibold transition-colors ${
+                                                selected
+                                                    ? 'border-slate-900 bg-slate-900 text-white'
+                                                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ) : null}
+
+                    {isAnnualLeave || leaveDuration ? (
+                    <>
                     {durationLabel ? (
                         <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-3.5 py-2.5">
                             <p className="text-sm font-semibold text-sky-900">{durationLabel}</p>
@@ -335,7 +409,7 @@ export default function AttendanceFutureRequestModal({
 
                     <div className="grid grid-cols-2 gap-3">
                         <label className="block">
-                            <span className={labelClass}>From date</span>
+                            <span className={labelClass}>Start date</span>
                             <input
                                 type="date"
                                 value={fromDate}
@@ -346,15 +420,20 @@ export default function AttendanceFutureRequestModal({
                             />
                         </label>
                         <label className="block">
-                            <span className={labelClass}>To date</span>
+                            <span className={labelClass}>End date</span>
                             <input
                                 type="date"
                                 value={toDate}
-                                min={fromDate || earliestDate || undefined}
+                                min={leaveDuration === 'multiple' ? fromDate || earliestDate || undefined : earliestDate || undefined}
                                 onChange={(e) => {
                                     const value = e.target.value;
-                                    setToDate(value);
                                     setLocalError('');
+                                    if (!isAnnualLeave && leaveDuration === 'single') {
+                                        setFromDate(value);
+                                        setToDate(value);
+                                        return;
+                                    }
+                                    setToDate(value);
                                     if (fromDate && value && fromDate !== value) setDayPart('full');
                                 }}
                                 disabled={submitting}
@@ -363,7 +442,11 @@ export default function AttendanceFutureRequestModal({
                         </label>
                     </div>
 
-                    {!isAnnualLeave && !isMultiDay ? (
+                    {authorizedBlock ? (
+                        <p className="text-sm font-medium text-rose-600">{authorizedBlock}</p>
+                    ) : null}
+
+                    {!isAnnualLeave && leaveDuration === 'single' ? (
                         <label className="block">
                             <span className={labelClass}>Time</span>
                             <select
@@ -470,6 +553,8 @@ export default function AttendanceFutureRequestModal({
                             </span>
                         </button>
                     </div>
+                    </>
+                    ) : null}
 
                     {localError || error ? (
                         <p className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
@@ -488,7 +573,7 @@ export default function AttendanceFutureRequestModal({
                         </button>
                         <button
                             type="submit"
-                            disabled={submitting}
+                            disabled={submitting || Boolean(authorizedBlock)}
                             className="flex-1 h-11 rounded-xl text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50"
                         >
                             {submitting ? 'Sending…' : 'Send to reportee'}

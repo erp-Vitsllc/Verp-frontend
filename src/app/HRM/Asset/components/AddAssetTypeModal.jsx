@@ -403,7 +403,7 @@ export default function AddAssetTypeModal({
             // Conditional payload based on mode
             if (isAssetMode) {
                 // Add Asset Mode Fields
-                payload.assetValue = formData.assetValue;
+                payload.assetValue = Number(formData.assetValue);
                 payload.warranty = formData.hasWarranty === 'yes' ? formData.warranty : 'No Warranty';
                 payload.total = 1;
                 payload.assigned = 0;
@@ -504,8 +504,10 @@ export default function AddAssetTypeModal({
                 payload.photo = '';
             }
 
+            let savedAsset = null;
             if (initialData && initialData._id) {
-                await axiosInstance.put(`/AssetType/${initialData._id}`, payload);
+                const updateRes = await axiosInstance.put(`/AssetType/${initialData._id}`, payload);
+                savedAsset = updateRes?.data || null;
                 toast({
                     title: "Success",
                     description: "Updated successfully"
@@ -558,7 +560,7 @@ export default function AddAssetTypeModal({
             setShowCropper(false);
             setAccessories([{ name: '', description: '', price: '' }]);
 
-            onSuccess();
+            onSuccess?.(savedAsset);
             onClose();
         } catch (error) {
             toast({
