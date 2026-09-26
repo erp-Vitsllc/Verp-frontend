@@ -16,6 +16,8 @@ import {
     insuranceInvoiceAttachmentForDoc,
 } from '../utils/vehicleDocumentCardRows';
 import { validateErpPdfFile } from '@/utils/uploadFileTypes';
+import { attachmentUrlFromDoc } from '@/utils/storedAttachmentFileName';
+import VehicleEditAttachmentField from './VehicleEditAttachmentField';
 
 const emptyInvoiceRow = () => ({
     rowDocId: null,
@@ -23,15 +25,35 @@ const emptyInvoiceRow = () => ({
     fileBase64: '',
     fileName: '',
     fileMime: '',
+    existingUrl: '',
     hasExisting: false,
+});
+
+const emptyPolicyFile = () => ({
+    file: null,
+    fileBase64: '',
+    fileName: '',
+    fileMime: '',
+    existingUrl: '',
+    hasExisting: false,
+});
+
+const mapPolicyFile = (doc) => ({
+    file: null,
+    fileBase64: '',
+    fileName: '',
+    fileMime: '',
+    existingUrl: attachmentUrlFromDoc(doc),
+    hasExisting: !!attachmentUrlFromDoc(doc),
 });
 
 const mapInvoiceAttachmentToRow = (doc) => ({
     rowDocId: doc?._id || null,
     file: null,
     fileBase64: '',
-    fileName: doc?.attachment ? 'Existing invoice — click to replace' : '',
+    fileName: '',
     fileMime: '',
+    existingUrl: attachmentUrlFromDoc(doc),
     hasExisting: !!doc?.attachment,
 });
 
@@ -59,6 +81,7 @@ export default function VehicleInsuranceModal({
         expiryDate: '',
         documents: [],
         invoice: emptyInvoiceRow(),
+        policyFile: emptyPolicyFile(),
     });
 
     const [errors, setErrors] = useState({});
@@ -76,6 +99,7 @@ export default function VehicleInsuranceModal({
                 expiryDate: '',
                 documents: [],
                 invoice: emptyInvoiceRow(),
+                policyFile: emptyPolicyFile(),
             });
             setDeletedDocIds([]);
             setErrors({});
@@ -100,8 +124,9 @@ export default function VehicleInsuranceModal({
                     name: String(r.description || '').trim(),
                     file: null,
                     fileBase64: '',
-                    fileName: 'Existing file — click to replace',
+                    fileName: '',
                     fileMime: '',
+                    existingUrl: attachmentUrlFromDoc(r),
                     hasExisting: true,
                 }));
 
@@ -121,6 +146,7 @@ export default function VehicleInsuranceModal({
                 expiryDate: existingDoc.expiryDate ? String(existingDoc.expiryDate).substring(0, 10) : '',
                 documents: filteredOtherDocs,
                 invoice: invoiceDoc ? mapInvoiceAttachmentToRow(invoiceDoc) : emptyInvoiceRow(),
+                policyFile: mapPolicyFile(existingDoc),
             });
             setDeletedDocIds([]);
             setErrors({});
@@ -136,6 +162,7 @@ export default function VehicleInsuranceModal({
             expiryDate: '',
             documents: [],
             invoice: emptyInvoiceRow(),
+            policyFile: emptyPolicyFile(),
         });
         setDeletedDocIds([]);
         setErrors({});
@@ -212,6 +239,36 @@ export default function VehicleInsuranceModal({
         reader.readAsDataURL(file);
     };
 
+    const handlePolicyFileChange = (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: check.message,
+            });
+            return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64 = String(reader.result || '').split(',')[1] || '';
+            setFormData((prev) => ({
+                ...prev,
+                policyFile: {
+                    ...prev.policyFile,
+                    file,
+                    fileBase64: base64,
+                    fileName: file.name,
+                    fileMime: file.type || 'application/pdf',
+                },
+            }));
+        };
+        reader.readAsDataURL(file);
+    };
+
     const addDoc = () => {
         setFormData((prev) => ({
             ...prev,
@@ -224,6 +281,7 @@ export default function VehicleInsuranceModal({
                     fileBase64: '',
                     fileName: '',
                     fileMime: '',
+                    existingUrl: '',
                     hasExisting: false,
                 },
             ],
@@ -279,6 +337,13 @@ export default function VehicleInsuranceModal({
                 expiryDate: formData.expiryDate,
                 description: JSON.stringify(descriptionMeta),
             };
+            if (formData.policyFile?.fileBase64) {
+                mainPayload.document = {
+                    name: formData.policyFile.fileName || 'insurance.pdf',
+                    data: formData.policyFile.fileBase64,
+                    mimeType: formData.policyFile.fileMime || 'application/pdf',
+                };
+            }
 
             const steps = [];
             for (const id of deletedDocIds) {
@@ -522,20 +587,35 @@ export default function VehicleInsuranceModal({
                         <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
                             Invoice Upload
                         </label>
-                        <div className="relative h-11 flex items-center rounded-xl border border-slate-200 bg-slate-50 px-4 cursor-pointer hover:bg-blue-50/50 transition-colors">
-                            <input
-                                type="file"
-                                onChange={handleInvoiceFileChange}
-                                accept={PDF_FILE_ACCEPT}
-                                disabled={loading}
-                                className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                            />
-                            <span className="text-[12px] font-bold text-slate-600 truncate">
-                                {formData.invoice?.fileName || 'Click to upload PDF invoice'}
-                            </span>
-                        </div>
+                        <VehicleEditAttachmentField
+                            fileName={formData.invoice?.fileName}
+                            existingUrl={formData.invoice?.existingUrl}
+                            localFile={formData.invoice?.file}
+                            hasNewFile={!!formData.invoice?.fileBase64}
+                            accept={PDF_FILE_ACCEPT}
+                            disabled={loading}
+                            emptyLabel="Click to upload PDF invoice"
+                            onFileChange={handleInvoiceFileChange}
+                        />
                         <p className="text-[10px] font-medium text-slate-400 px-1">PDF only</p>
                     </div>
+
+                    {(formData.policyFile?.existingUrl || formData.policyFile?.fileBase64) ? (
+                        <div className="space-y-1.5">
+                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                Insurance file
+                            </label>
+                            <VehicleEditAttachmentField
+                                fileName={formData.policyFile?.fileName}
+                                existingUrl={formData.policyFile?.existingUrl}
+                                localFile={formData.policyFile?.file}
+                                hasNewFile={!!formData.policyFile?.fileBase64}
+                                accept={PDF_FILE_ACCEPT}
+                                disabled={loading}
+                                onFileChange={handlePolicyFileChange}
+                            />
+                        </div>
+                    ) : null}
 
                     {/* Documents Section */}
                     <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
@@ -571,22 +651,16 @@ export default function VehicleInsuranceModal({
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
                                             Attachment
                                         </label>
-                                        <div className={`relative h-9 flex items-center rounded-lg border ${errors[`doc_${idx}`] ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-slate-50'} px-3 cursor-pointer hover:bg-blue-50/50 transition-colors`}>
-                                            <input
-                                                type="file"
-                                                onChange={(e) => handleDocFileChange(idx, e)}
-                                                accept={PDF_FILE_ACCEPT}
-                                                disabled={loading}
-                                                className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                                            />
-                                            <span className="text-[11px] font-bold text-slate-600 truncate">
-                                                {doc.fileBase64
-                                                    ? doc.fileName
-                                                    : doc.hasExisting
-                                                      ? doc.fileName || 'Existing file — click to replace'
-                                                      : 'Click to upload'}
-                                            </span>
-                                        </div>
+                                        <VehicleEditAttachmentField
+                                            fileName={doc.fileName}
+                                            existingUrl={doc.existingUrl}
+                                            localFile={doc.file}
+                                            hasNewFile={!!doc.fileBase64}
+                                            accept={PDF_FILE_ACCEPT}
+                                            disabled={loading}
+                                            error={!!errors[`doc_${idx}`]}
+                                            onFileChange={(e) => handleDocFileChange(idx, e)}
+                                        />
                                         {errors[`doc_${idx}`] && <p className="text-[10px] font-medium text-red-500 mt-1">{errors[`doc_${idx}`]}</p>}
                                     </div>
                                     <div className="flex items-end pb-0.5">

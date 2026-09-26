@@ -5,6 +5,8 @@ import { Plus, Trash2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { PDF_FILE_ACCEPT } from '../utils/vehicleDocumentCardRows';
 import { validateErpPdfFile } from '@/utils/uploadFileTypes';
+import { attachmentUrlFromDoc } from '@/utils/storedAttachmentFileName';
+import VehicleEditAttachmentField from './VehicleEditAttachmentField';
 import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
 export default function VehicleTollModal({
@@ -27,6 +29,7 @@ export default function VehicleTollModal({
         pinNo: '',
         limit: '',
         rows: [],
+        primaryFile: { file: null, fileBase64: '', fileName: '', fileMime: '', existingUrl: '' },
     });
 
     const [errors, setErrors] = useState({});
@@ -64,10 +67,18 @@ export default function VehicleTollModal({
                     description: r.description || '',
                     file: null,
                     fileBase64: '',
-                    fileName: r.attachment ? 'Click to upload' : '',
+                    fileName: '',
                     fileMime: '',
+                    existingUrl: attachmentUrlFromDoc(r),
                     hasExisting: !!r.attachment
                 })),
+                primaryFile: {
+                    file: null,
+                    fileBase64: '',
+                    fileName: '',
+                    fileMime: '',
+                    existingUrl: attachmentUrlFromDoc(existingDoc),
+                },
             });
         } else {
             setFormData({
@@ -76,6 +87,7 @@ export default function VehicleTollModal({
                 pinNo: '',
                 limit: '',
                 rows: [],
+                primaryFile: { file: null, fileBase64: '', fileName: '', fileMime: '', existingUrl: '' },
             });
         }
         setDeletedDocIds([]);
@@ -169,6 +181,13 @@ export default function VehicleTollModal({
                     limit: formData.limit,
                 }),
             };
+            if (formData.primaryFile?.fileBase64) {
+                mainPayload.document = {
+                    name: formData.primaryFile.fileName || 'toll-card.pdf',
+                    data: formData.primaryFile.fileBase64,
+                    mimeType: formData.primaryFile.fileMime || 'application/pdf',
+                };
+            }
 
             if (existingDoc?._id) {
                 steps.push({ op: 'put_document', docId: existingDoc._id, body: mainPayload });
@@ -320,6 +339,47 @@ export default function VehicleTollModal({
                     </div>
                     </div>
 
+                    {(formData.primaryFile?.existingUrl || formData.primaryFile?.fileBase64) ? (
+                        <div className="space-y-1.5 pt-2">
+                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                Toll card file
+                            </label>
+                            <VehicleEditAttachmentField
+                                fileName={formData.primaryFile?.fileName}
+                                existingUrl={formData.primaryFile?.existingUrl}
+                                localFile={formData.primaryFile?.file}
+                                hasNewFile={!!formData.primaryFile?.fileBase64}
+                                accept={PDF_FILE_ACCEPT}
+                                disabled={loading}
+                                onFileChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    e.target.value = '';
+                                    if (!file) return;
+                                    const check = validateErpPdfFile(file);
+                                    if (!check.ok) {
+                                        toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+                                        return;
+                                    }
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {
+                                        const base64 = String(reader.result || '').split(',')[1] || '';
+                                        setFormData((prev) => ({
+                                            ...prev,
+                                            primaryFile: {
+                                                ...prev.primaryFile,
+                                                file,
+                                                fileBase64: base64,
+                                                fileName: file.name,
+                                                fileMime: file.type || 'application/pdf',
+                                            },
+                                        }));
+                                    };
+                                    reader.readAsDataURL(file);
+                                }}
+                            />
+                        </div>
+                    ) : null}
+
                     {/* Documents Section */}
                     <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
                         <div className="flex items-center justify-between">
@@ -350,18 +410,15 @@ export default function VehicleTollModal({
                                     </div>
                                     <div className="flex-1 space-y-1.5">
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Attachment</label>
-                                        <div className="relative h-9 flex items-center rounded-lg border border-slate-200 bg-slate-50 px-3 cursor-pointer hover:bg-blue-50/50 transition-colors">
-                                            <input
-                                                type="file"
-                                                onChange={(e) => handleRowFileChange(idx, e)}
-                                                accept={PDF_FILE_ACCEPT}
-                                                disabled={loading}
-                                                className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                                            />
-                                            <span className="text-[11px] font-bold text-slate-600 truncate">
-                                                {row.fileName || 'Click to upload'}
-                                            </span>
-                                        </div>
+                                        <VehicleEditAttachmentField
+                                            fileName={row.fileName}
+                                            existingUrl={row.existingUrl}
+                                            localFile={row.file}
+                                            hasNewFile={!!row.fileBase64}
+                                            accept={PDF_FILE_ACCEPT}
+                                            disabled={loading}
+                                            onFileChange={(e) => handleRowFileChange(idx, e)}
+                                        />
                                     </div>
                                     <div className="flex items-end pb-0.5">
                                         <button

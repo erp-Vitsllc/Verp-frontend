@@ -3,6 +3,8 @@
 import { Upload, FileText, X } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
 import { ERP_PDF_ACCEPT } from '@/utils/uploadFileTypes';
+import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
+import { resolveAttachmentDisplayName } from '@/utils/storedAttachmentFileName';
 
 function FieldRow({ label, children, error }) {
     return (
@@ -83,8 +85,19 @@ export default function DocumentModal({
     const isLabour = modalMode === 'labour';
     const hasExpiry = documentForm.hasExpiry !== false;
     const hasValue = !!documentForm.hasValue;
-    const attachmentName =
+    const storedAttachmentUrl = String(documentForm.existingAttachmentUrl || '').trim();
+    const pickedAttachmentName =
         documentForm.file?.name ||
+        (documentForm.fileBase64 ? documentForm.fileName : '');
+    const attachmentName =
+        pickedAttachmentName ||
+        (storedAttachmentUrl
+            ? resolveAttachmentDisplayName({
+                  fileName: documentForm.fileName,
+                  existingUrl: storedAttachmentUrl,
+                  fallback: 'Attachment',
+              })
+            : '') ||
         documentForm.fileName ||
         (editingDocumentIndex !== null && documentForm.fileBase64 ? 'Current file attached' : '');
 
@@ -387,22 +400,59 @@ export default function DocumentModal({
                         error={documentErrors.file}
                     >
                         {attachmentName ? (
-                            <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50 p-3">
+                            <div className="flex items-center justify-between gap-2 rounded-xl border border-blue-100 bg-blue-50 p-3">
                                 <div className="flex min-w-0 items-center gap-2">
                                     <FileText size={16} className="shrink-0 text-blue-500" />
-                                    <span className="truncate text-sm font-semibold text-blue-700">
+                                    <span className="truncate text-sm font-semibold text-blue-700" title={attachmentName}>
                                         {attachmentName}
                                     </span>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={clearAttachment}
+                                <div className="flex shrink-0 items-center gap-1">
+                                    {(storedAttachmentUrl || documentForm.file instanceof File) ? (
+                                        <button
+                                            type="button"
+                                            disabled={savingDocument}
+                                            onClick={() => {
+                                                if (documentForm.file instanceof File) {
+                                                    const url = URL.createObjectURL(documentForm.file);
+                                                    window.open(url, '_blank', 'noopener,noreferrer');
+                                                    return;
+                                                }
+                                                void openAttachmentInNewTab(storedAttachmentUrl, {
+                                                    name: attachmentName || 'Attachment',
+                                                });
+                                            }}
+                                            className="rounded-lg px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-100"
+                                        >
+                                            Open
+                                        </button>
+                                    ) : null}
+                                    <button
+                                        type="button"
+                                        disabled={savingDocument}
+                                        onClick={() => documentFileRef.current?.click()}
+                                        className="rounded-lg px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                                    >
+                                        Edit
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={clearAttachment}
+                                        disabled={savingDocument}
+                                        className="rounded-lg p-1 text-blue-500 transition-all hover:bg-blue-100"
+                                        title="Remove attachment"
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                                <input
+                                    ref={documentFileRef}
+                                    type="file"
+                                    accept={ERP_PDF_ACCEPT}
+                                    onChange={onDocumentFileChange}
+                                    className="hidden"
                                     disabled={savingDocument}
-                                    className="rounded-lg p-1 text-blue-500 transition-all hover:bg-blue-100"
-                                    title="Remove attachment"
-                                >
-                                    <X size={16} />
-                                </button>
+                                />
                             </div>
                         ) : (
                             <button

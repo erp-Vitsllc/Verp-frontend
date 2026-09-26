@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, X, Upload } from 'lucide-react';
+import { Plus, Trash2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { PDF_FILE_ACCEPT } from '../utils/vehicleDocumentCardRows';
 import { validateErpPdfFile } from '@/utils/uploadFileTypes';
+import { attachmentUrlFromDoc } from '@/utils/storedAttachmentFileName';
+import VehicleEditAttachmentField from './VehicleEditAttachmentField';
 import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
 const CERTIFICATE_LABEL = 'Warranty Certificate';
@@ -17,6 +19,7 @@ const emptyCertificate = () => ({
     fileBase64: '',
     fileName: '',
     fileMime: '',
+    existingUrl: '',
     hasExisting: false,
 });
 
@@ -73,8 +76,9 @@ export default function VehicleWarrantyModal({
         description: r.description || '',
         file: null,
         fileBase64: '',
-        fileName: r.attachment ? 'Existing file — click to replace' : '',
+        fileName: '',
         fileMime: '',
+        existingUrl: attachmentUrlFromDoc(r),
         hasExisting: !!r.attachment,
     });
 
@@ -84,8 +88,9 @@ export default function VehicleWarrantyModal({
                   rowDocId: r._id,
                   file: null,
                   fileBase64: '',
-                  fileName: r.attachment ? 'Existing file — click to replace' : '',
+                  fileName: '',
                   fileMime: '',
+                  existingUrl: attachmentUrlFromDoc(r),
                   hasExisting: !!r.attachment,
               }
             : emptyCertificate();
@@ -112,8 +117,9 @@ export default function VehicleWarrantyModal({
                   rowDocId: null,
                   file: null,
                   fileBase64: '',
-                  fileName: 'Existing file — click to replace',
+                  fileName: '',
                   fileMime: '',
+                  existingUrl: attachmentUrlFromDoc(existing),
                   hasExisting: true,
               }
             : null;
@@ -569,22 +575,17 @@ export default function VehicleWarrantyModal({
                             <span className="text-slate-400 font-semibold normal-case">(Optional)</span>
                         </label>
                         <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                            <div className="relative flex-1 h-11 flex items-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 cursor-pointer hover:bg-blue-50/40 transition-colors">
-                                <input
-                                    type="file"
-                                    onChange={handleCertificateFile}
+                            <div className="flex-1">
+                                <VehicleEditAttachmentField
+                                    fileName={formData.certificate.fileName}
+                                    existingUrl={formData.certificate.existingUrl}
+                                    localFile={formData.certificate.file}
+                                    hasNewFile={!!formData.certificate.fileBase64}
                                     accept={PDF_FILE_ACCEPT}
                                     disabled={loading}
-                                    className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                                    emptyLabel="Optional — click to upload"
+                                    onFileChange={handleCertificateFile}
                                 />
-                                <Upload size={16} className="text-slate-400 mr-2 shrink-0" />
-                                <span className="text-[12px] font-bold text-slate-600 truncate">
-                                    {formData.certificate.fileBase64
-                                        ? formData.certificate.fileName
-                                        : formData.certificate.hasExisting
-                                          ? formData.certificate.fileName
-                                          : 'Optional — click to upload'}
-                                </span>
                             </div>
                             {(formData.certificate.hasExisting || formData.certificate.fileBase64) && (
                                 <button
@@ -632,22 +633,15 @@ export default function VehicleWarrantyModal({
                                 </div>
                                 <div className="flex-1 space-y-1">
                                     <span className={fieldLabel}>Attachment</span>
-                                    <div className="relative h-9 flex items-center rounded-lg border border-slate-200 bg-slate-50 px-3 cursor-pointer">
-                                        <input
-                                            type="file"
-                                            onChange={(e) => handleExtraFile(idx, e)}
-                                            accept={PDF_FILE_ACCEPT}
-                                            disabled={loading}
-                                            className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                                        />
-                                        <span className="text-[11px] font-bold text-slate-600 truncate">
-                                            {row.fileBase64
-                                                ? row.fileName
-                                                : row.hasExisting
-                                                  ? row.fileName
-                                                  : 'Click to upload'}
-                                        </span>
-                                    </div>
+                                    <VehicleEditAttachmentField
+                                        fileName={row.fileName}
+                                        existingUrl={row.existingUrl}
+                                        localFile={row.file}
+                                        hasNewFile={!!row.fileBase64}
+                                        accept={PDF_FILE_ACCEPT}
+                                        disabled={loading}
+                                        onFileChange={(e) => handleExtraFile(idx, e)}
+                                    />
                                 </div>
                                 <div className="flex items-end">
                                     <button

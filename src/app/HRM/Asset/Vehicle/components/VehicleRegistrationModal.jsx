@@ -15,6 +15,8 @@ import {
     registrationInvoiceAttachmentForDoc,
 } from '../utils/vehicleDocumentCardRows';
 import { validateErpPdfFile } from '@/utils/uploadFileTypes';
+import { attachmentUrlFromDoc } from '@/utils/storedAttachmentFileName';
+import VehicleEditAttachmentField from './VehicleEditAttachmentField';
 
 const emptyInvoiceRow = () => ({
     rowDocId: null,
@@ -22,6 +24,7 @@ const emptyInvoiceRow = () => ({
     fileBase64: '',
     fileName: '',
     fileMime: '',
+    existingUrl: '',
     hasExisting: false,
 });
 
@@ -29,8 +32,9 @@ const mapInvoiceAttachmentToRow = (doc) => ({
     rowDocId: doc?._id || null,
     file: null,
     fileBase64: '',
-    fileName: doc?.attachment ? 'Existing invoice — click to replace' : '',
+    fileName: '',
     fileMime: '',
+    existingUrl: attachmentUrlFromDoc(doc),
     hasExisting: !!doc?.attachment,
 });
 
@@ -87,8 +91,9 @@ export default function VehicleRegistrationModal({
                 description: 'Registration Card',
                 file: null,
                 fileBase64: '',
-                fileName: existingDoc.attachment ? 'Click to upload' : '',
+                fileName: '',
                 fileMime: '',
+                existingUrl: attachmentUrlFromDoc(existingDoc),
                 hasExisting: !!existingDoc.attachment
             };
 
@@ -98,8 +103,9 @@ export default function VehicleRegistrationModal({
                     description: r.description || '',
                     file: null,
                     fileBase64: '',
-                    fileName: r.attachment ? 'Click to upload' : '',
+                    fileName: '',
                     fileMime: '',
+                    existingUrl: attachmentUrlFromDoc(r),
                     hasExisting: !!r.attachment
                 }))
                 : [];
@@ -110,10 +116,7 @@ export default function VehicleRegistrationModal({
             const invoiceRow = invoiceDoc
                 ? mapInvoiceAttachmentToRow(invoiceDoc)
                 : attachmentRows.find((r) => isInvoiceDocumentLabel(r.description))
-                    ? {
-                        ...attachmentRows.find((r) => isInvoiceDocumentLabel(r.description)),
-                        fileName: 'Existing invoice — click to replace',
-                    }
+                    ? attachmentRows.find((r) => isInvoiceDocumentLabel(r.description))
                     : emptyInvoiceRow();
             const otherRows = attachmentRows.filter((r) => !isInvoiceDocumentLabel(r.description));
 
@@ -493,18 +496,16 @@ export default function VehicleRegistrationModal({
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
                                             {idx === 0 ? 'Attachment' : 'Attachment'} {idx === 0 && <span className="text-red-500">*</span>}
                                         </label>
-                                        <div className={`relative h-9 flex items-center rounded-lg border bg-slate-50 px-3 cursor-pointer hover:bg-blue-50/50 transition-colors ${idx === 0 && errors.cardFile ? 'border-red-400 bg-red-50/30' : 'border-slate-200'}`}>
-                                            <input
-                                                type="file"
-                                                onChange={(e) => handleRowFileChange(idx, e)}
-                                                accept={PDF_FILE_ACCEPT}
-                                                disabled={loading}
-                                                className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                                            />
-                                            <span className={`text-[11px] font-bold truncate max-w-full ${idx === 0 && errors.cardFile ? 'text-red-500' : 'text-slate-600'}`}>
-                                                {row.fileName || 'Click to upload'}
-                                            </span>
-                                        </div>
+                                        <VehicleEditAttachmentField
+                                            fileName={row.fileName}
+                                            existingUrl={row.existingUrl}
+                                            localFile={row.file}
+                                            hasNewFile={!!row.fileBase64}
+                                            accept={PDF_FILE_ACCEPT}
+                                            disabled={loading}
+                                            error={idx === 0 && !!errors.cardFile}
+                                            onFileChange={(e) => handleRowFileChange(idx, e)}
+                                        />
                                     </div>
                                     <div className="flex items-end pb-0.5">
                                         {idx > 0 && (
@@ -549,18 +550,16 @@ export default function VehicleRegistrationModal({
                         <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
                             Invoice Upload
                         </label>
-                        <div className="relative h-11 flex items-center rounded-xl border border-slate-200 bg-slate-50 px-4 cursor-pointer hover:bg-blue-50/50 transition-colors">
-                            <input
-                                type="file"
-                                onChange={handleInvoiceFileChange}
-                                accept={PDF_FILE_ACCEPT}
-                                disabled={loading}
-                                className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                            />
-                            <span className="text-[12px] font-bold text-slate-600 truncate">
-                                {formData.invoice?.fileName || 'Click to upload PDF invoice'}
-                            </span>
-                        </div>
+                        <VehicleEditAttachmentField
+                            fileName={formData.invoice?.fileName}
+                            existingUrl={formData.invoice?.existingUrl}
+                            localFile={formData.invoice?.file}
+                            hasNewFile={!!formData.invoice?.fileBase64}
+                            accept={PDF_FILE_ACCEPT}
+                            disabled={loading}
+                            emptyLabel="Click to upload PDF invoice"
+                            onFileChange={handleInvoiceFileChange}
+                        />
                         <p className="text-[10px] font-medium text-slate-400 px-1">PDF only</p>
                     </div>
 

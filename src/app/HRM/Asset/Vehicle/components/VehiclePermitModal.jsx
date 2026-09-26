@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, X, FileText, Eye } from 'lucide-react';
+import { Plus, Trash2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from "@/components/ui/date-picker";
 import { PDF_FILE_ACCEPT } from '../utils/vehicleDocumentCardRows';
 import { validateErpPdfFile } from '@/utils/uploadFileTypes';
+import { attachmentUrlFromDoc } from '@/utils/storedAttachmentFileName';
+import VehicleEditAttachmentField from './VehicleEditAttachmentField';
 import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
 export default function VehiclePermitModal({
@@ -49,8 +51,9 @@ export default function VehiclePermitModal({
                 description: r.description || '',
                 file: null,
                 fileBase64: '',
-                fileName: r.attachment?.name || '',
-                fileMime: r.attachment?.mimeType || '',
+                fileName: '',
+                fileMime: '',
+                existingUrl: attachmentUrlFromDoc(r),
                 hasExisting: !!r.attachment,
                 isMainPermitSlot: false,
             }));
@@ -62,8 +65,9 @@ export default function VehiclePermitModal({
                           description: 'Permit Certificate',
                           file: null,
                           fileBase64: '',
-                          fileName: existingDoc.attachment?.name || 'Permit Certificate',
-                          fileMime: existingDoc.attachment?.mimeType || '',
+                          fileName: '',
+                          fileMime: '',
+                          existingUrl: attachmentUrlFromDoc(existingDoc),
                           hasExisting: true,
                           isMainPermitSlot: true,
                       },
@@ -394,18 +398,15 @@ export default function VehiclePermitModal({
                                     </div>
                                     <div className="flex-1 space-y-1.5">
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Attachment</label>
-                                        <div className="relative h-9 flex items-center rounded-lg border border-slate-200 bg-slate-50 px-3 cursor-pointer hover:bg-blue-50/50 transition-colors">
-                                            <input
-                                                type="file"
-                                                onChange={(e) => handleRowFileChange(idx, e)}
-                                                accept={PDF_FILE_ACCEPT}
-                                                disabled={loading}
-                                                className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                                            />
-                                            <span className="text-[11px] font-bold text-slate-600 truncate">
-                                                {row.fileName || 'Click to upload'}
-                                            </span>
-                                        </div>
+                                        <VehicleEditAttachmentField
+                                            fileName={row.fileName}
+                                            existingUrl={row.existingUrl}
+                                            localFile={row.file}
+                                            hasNewFile={!!row.fileBase64}
+                                            accept={PDF_FILE_ACCEPT}
+                                            disabled={loading}
+                                            onFileChange={(e) => handleRowFileChange(idx, e)}
+                                        />
                                     </div>
                                     <div className="flex items-end pb-0.5">
                                         <button

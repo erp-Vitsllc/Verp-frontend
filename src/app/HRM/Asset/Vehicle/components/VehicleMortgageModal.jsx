@@ -7,6 +7,8 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { resolveMortgageLoanAmount } from '../lib/vehicleDispositionFinancialDefaults';
 import { PDF_FILE_ACCEPT } from '../utils/vehicleDocumentCardRows';
 import { validateErpPdfFile } from '@/utils/uploadFileTypes';
+import { fileNameFromStoredAttachment } from '@/utils/storedAttachmentFileName';
+import VehicleEditAttachmentField from './VehicleEditAttachmentField';
 import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
 /** Allow empty string or partial decimal input while typing / backspacing. */
@@ -531,15 +533,26 @@ export default function VehicleMortgageModal({
                                         placeholder="Document name"
                                         className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 outline-none"
                                     />
-                                    <div>
-                                        <input
-                                            type="file"
-                                            accept={PDF_FILE_ACCEPT}
-                                            onChange={(e) => handleExtraAttachmentFile(idx, e)}
-                                            className="w-full h-11 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 outline-none"
-                                        />
-                                        {row.file?.name ? <p className="text-[11px] text-slate-500 mt-1">{row.file.name}</p> : null}
-                                    </div>
+                                    <VehicleEditAttachmentField
+                                        fileName={
+                                            row.file instanceof File
+                                                ? row.file.name
+                                                : fileNameFromStoredAttachment(
+                                                      typeof row.file === 'string' ? row.file : row.file?.url || row.file?.name,
+                                                  )
+                                        }
+                                        existingUrl={
+                                            row.file instanceof File
+                                                ? ''
+                                                : typeof row.file === 'string'
+                                                  ? row.file
+                                                  : row.file?.url || row.file?.publicId || ''
+                                        }
+                                        localFile={row.file instanceof File ? row.file : null}
+                                        hasNewFile={row.file instanceof File}
+                                        accept={PDF_FILE_ACCEPT}
+                                        onFileChange={(e) => handleExtraAttachmentFile(idx, e)}
+                                    />
                                     <button
                                         type="button"
                                         onClick={() =>

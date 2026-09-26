@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, Plus, Trash2, Eye } from 'lucide-react';
+import { X, Plus, Trash2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -23,6 +23,8 @@ import {
     registrationExpenseFromCard,
 } from '../lib/vehicleDispositionFinancialDefaults';
 import { PDF_FILE_ACCEPT } from '../utils/vehicleDocumentCardRows';
+import { fileNameFromStoredAttachment } from '@/utils/storedAttachmentFileName';
+import VehicleEditAttachmentField from './VehicleEditAttachmentField';
 import { validateErpPdfFile } from '@/utils/uploadFileTypes';
 
 const BASIC_DETAIL_DOC_TYPE = 'Basic Detail Attachment';
@@ -104,8 +106,9 @@ export default function EditVehicleBasicDetailsModal({
             description: d.description || '',
             isExisting: true,
             attachmentUrl: typeof d.attachment === 'string' ? d.attachment : '',
+            file: null,
             fileBase64: '',
-            fileName: '',
+            fileName: fileNameFromStoredAttachment(d.attachment),
             fileMime: '',
         }));
         setForm({
@@ -247,6 +250,7 @@ export default function EditVehicleBasicDetailsModal({
         reader.onloadend = () => {
             const base64 = String(reader.result || '').split(',')[1] || '';
             updateBasicDocRow(localId, {
+                file,
                 fileBase64: base64,
                 fileName: file.name,
                 fileMime: file.type || 'application/pdf',
@@ -273,6 +277,7 @@ export default function EditVehicleBasicDetailsModal({
             const base64 = String(reader.result || '').split(',')[1] || '';
             setForm((p) => ({
                 ...p,
+                accidentReportFile: file,
                 accidentReportBase64: base64,
                 accidentReportFileName: file.name,
                 accidentReportMime: file.type || 'application/pdf',
@@ -344,20 +349,22 @@ export default function EditVehicleBasicDetailsModal({
 
             const steps = [{ op: 'put_asset_type', body: payload }];
             for (const row of form.basicDocRows) {
-                if (row.isExisting || !row.fileBase64) continue;
+                if (!row.fileBase64) continue;
                 const desc = (row.description || '').trim() || row.fileName || 'Attachment';
-                steps.push({
-                    op: 'post_document',
-                    body: {
-                        type: BASIC_DETAIL_DOC_TYPE,
-                        description: desc,
-                        document: {
-                            name: row.fileName || 'document',
-                            data: row.fileBase64,
-                            mimeType: row.fileMime || 'application/pdf',
-                        },
+                const body = {
+                    type: BASIC_DETAIL_DOC_TYPE,
+                    description: desc,
+                    document: {
+                        name: row.fileName || 'document',
+                        data: row.fileBase64,
+                        mimeType: row.fileMime || 'application/pdf',
                     },
-                });
+                };
+                if (row.isExisting && row._id) {
+                    steps.push({ op: 'put_document', docId: row._id, body });
+                } else if (!row.isExisting) {
+                    steps.push({ op: 'post_document', body });
+                }
             }
 
             const { previousRows, proposedRows } = buildVehicleProfileEditSnapshots({
@@ -446,36 +453,15 @@ export default function EditVehicleBasicDetailsModal({
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
                                 Attachment
                             </label>
-                            {row.isExisting ? (
-                                <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-slate-200 bg-slate-50">
-                                    <span className="text-[11px] font-bold text-slate-600 truncate flex-1">
-                                        {row.description || 'File'}
-                                    </span>
-                                    {row.attachmentUrl ? (
-                                        <a
-                                            href={row.attachmentUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-600 shrink-0 flex items-center gap-1 text-[11px] font-bold"
-                                        >
-                                            <Eye size={14} /> View
-                                        </a>
-                                    ) : null}
-                                </div>
-                            ) : (
-                                <div className="relative h-9 flex items-center rounded-lg border border-slate-200 bg-slate-50 px-3">
-                                    <input
-                                        type="file"
-                                        onChange={(e) => handleBasicDocFile(row.localId, e)}
-                                        accept={PDF_FILE_ACCEPT}
-                                        disabled={loading}
-                                        className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                                    />
-                                    <span className="text-[11px] font-bold text-slate-600 truncate">
-                                        {row.fileName || 'Click to upload'}
-                                    </span>
-                                </div>
-                            )}
+                            <VehicleEditAttachmentField
+                                fileName={row.fileName}
+                                existingUrl={row.attachmentUrl}
+                                localFile={row.file}
+                                hasNewFile={!!row.fileBase64}
+                                accept={PDF_FILE_ACCEPT}
+                                disabled={loading}
+                                onFileChange={(e) => handleBasicDocFile(row.localId, e)}
+                            />
                         </div>
                         <div className="flex items-end">
                             {!row.isExisting ? (
@@ -933,31 +919,15 @@ export default function EditVehicleBasicDetailsModal({
                                         <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
                                             Accident report
                                         </label>
-                                        <div className="flex flex-wrap items-center gap-3 min-h-[2.75rem]">
-                                            <div className="relative h-11 flex items-center rounded-xl border border-slate-200 bg-white px-4 min-w-[200px] flex-1">
-                                                <input
-                                                    type="file"
-                                                    onChange={handleAccidentReportFile}
-                                                    accept={PDF_FILE_ACCEPT}
-                                                    disabled={loading}
-                                                    className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                                                />
-                                                <span className="text-[12px] font-bold text-slate-600 truncate">
-                                                    {form.accidentReportFileName ||
-                                                        (form.accidentReportUrl ? 'Replace file…' : 'Click to upload')}
-                                                </span>
-                                            </div>
-                                            {form.accidentReportUrl && !form.accidentReportBase64 ? (
-                                                <a
-                                                    href={form.accidentReportUrl}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="text-blue-600 text-[12px] font-bold flex items-center gap-1 shrink-0"
-                                                >
-                                                    <Eye size={16} /> View current
-                                                </a>
-                                            ) : null}
-                                        </div>
+                                        <VehicleEditAttachmentField
+                                            fileName={form.accidentReportFileName}
+                                            existingUrl={form.accidentReportUrl}
+                                            localFile={form.accidentReportFile}
+                                            hasNewFile={!!form.accidentReportBase64}
+                                            accept={PDF_FILE_ACCEPT}
+                                            disabled={loading}
+                                            onFileChange={handleAccidentReportFile}
+                                        />
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="space-y-1.5">

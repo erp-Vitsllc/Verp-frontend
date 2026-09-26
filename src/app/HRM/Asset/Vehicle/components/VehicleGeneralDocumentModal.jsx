@@ -8,6 +8,7 @@ import {
     validateEmployeeDocumentPdfFile,
 } from '@/utils/employeeDocumentValidation';
 import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
+import { attachmentUrlFromDoc } from '@/utils/storedAttachmentFileName';
 
 const RESERVED_TYPES = new Set([
     'registration',
@@ -110,7 +111,8 @@ function formFromExistingDoc(doc, isRenew) {
         hasExpiry: !!doc.expiryDate,
         hasValue,
         value: hasValue ? String(meta.value) : '',
-        fileName: doc.attachment ? 'Current file attached' : '',
+        fileName: '',
+        existingAttachmentUrl: attachmentUrlFromDoc(doc),
         isRenewMode: false,
     };
 }
