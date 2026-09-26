@@ -425,7 +425,7 @@ export async function loadStorageFileBlob(storageKey, { expectedMime } = {}) {
     const requestConfig = {
         responseType: 'blob',
         skipToast: true,
-        timeout: 20000,
+        timeout: 120000,
         headers: { 'x-no-compression': '1' },
     };
     try {

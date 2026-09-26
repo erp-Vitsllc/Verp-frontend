@@ -135,7 +135,7 @@ export default function DocumentViewerContent({
             setIsLoadingSrc(true);
             const stop = window.setTimeout(() => {
                 fail('Could not load document.');
-            }, 20000);
+            }, 120000);
             loadStorageFileBlob(viewingDocument.storageRef)
                 .then((blob) => {
                     window.clearTimeout(stop);

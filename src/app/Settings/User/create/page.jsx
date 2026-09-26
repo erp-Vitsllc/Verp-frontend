@@ -28,11 +28,11 @@ export default function CreateUserPage() {
     const [alertDialog, setAlertDialog] = useState({
         open: false,
         title: '',
-        description: ''
+        description: '',
+        redirect: false,
     });
 
-    // Form state
-    const [formData, setFormData] = useState({
+    const emptyForm = {
         employeeId: '',
         username: '',
         email: '',
@@ -41,10 +41,14 @@ export default function CreateUserPage() {
         confirmPassword: '',
         status: 'Active',
         group: '',
-    });
+        sendCredentialsViaWhatsApp: false,
+    };
+
+    // Form state
+    const [formData, setFormData] = useState(emptyForm);
 
     const eligibleEmployees = useMemo(
-        () => employees.filter((emp) => String(emp?.companyEmail || '').trim()),
+        () => employees.filter((emp) => String(emp?.employeeId || '').trim()),
         [employees],
     );
 
@@ -162,9 +166,10 @@ export default function CreateUserPage() {
             const employee = eligibleEmployees.find((emp) => emp.employeeId === selectedEmployeeId);
             if (employee) {
                 const companyEmail = String(employee.companyEmail || '').trim();
+                const employeeCode = String(employee.employeeId || '').replace(/[^a-zA-Z0-9_]/g, '');
                 setFormData(prev => ({
                     ...prev,
-                    username: companyEmail.split('@')[0] || employee.employeeId || '',
+                    username: companyEmail.split('@')[0] || employeeCode,
                     email: companyEmail,
                     name: `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || ''
                 }));
@@ -227,11 +232,6 @@ export default function CreateUserPage() {
         if (creationMode === 'employee') {
             if (!formData.employeeId) {
                 newErrors.employeeId = 'Employee is required';
-            } else {
-                const employee = eligibleEmployees.find((emp) => emp.employeeId === formData.employeeId);
-                if (employee && !String(employee.companyEmail || '').trim()) {
-                    newErrors.employeeId = 'Selected employee does not have a company email';
-                }
             }
         } else {
             const nameError = validateName(formData.name);
@@ -267,13 +267,32 @@ export default function CreateUserPage() {
             newErrors.group = 'Group is required';
         }
 
+        if (creationMode === 'employee' && formData.sendCredentialsViaWhatsApp) {
+            const employee = eligibleEmployees.find((emp) => emp.employeeId === formData.employeeId);
+            const whatsappDigits = String(employee?.whatsappNumber || '').replace(/\D/g, '');
+            if (!formData.employeeId) {
+                newErrors.sendCredentialsViaWhatsApp = 'Select an employee before sending WhatsApp';
+            } else if (whatsappDigits.length < 8) {
+                newErrors.sendCredentialsViaWhatsApp = 'This employee has no WhatsApp number. Add one on their profile first.';
+            }
+        }
+
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
 
     // Check if form is valid for button disable state
+    const selectedEmployee = creationMode === 'employee'
+        ? eligibleEmployees.find((emp) => emp.employeeId === formData.employeeId)
+        : null;
+    const selectedWhatsApp = String(selectedEmployee?.whatsappNumber || '').trim();
+    const selectedWhatsAppReady = selectedWhatsApp.replace(/\D/g, '').length >= 8;
+
     const isFormValid = () => {
         if (creationMode === 'employee') {
+            const whatsappOk = !formData.sendCredentialsViaWhatsApp || (
+                formData.employeeId && selectedWhatsAppReady
+            );
             return formData.employeeId &&
                 formData.username &&
                 !validateUsername(formData.username) &&
@@ -281,7 +300,8 @@ export default function CreateUserPage() {
                 !validatePassword(formData.password) &&
                 formData.confirmPassword &&
                 formData.password === formData.confirmPassword &&
-                formData.group;
+                formData.group &&
+                whatsappOk;
         } else {
             return formData.name &&
                 !validateName(formData.name) &&
@@ -323,12 +343,27 @@ export default function CreateUserPage() {
                     payload.email = companyEmail || `${formData.username}@example.com`;
                     payload.companyEmail = companyEmail;
                 }
+                if (formData.sendCredentialsViaWhatsApp) {
+                    payload.sendCredentialsViaWhatsApp = true;
+                }
             } else {
                 payload.name = formData.name.trim();
                 payload.email = formData.email.trim().toLowerCase();
             }
 
-            await axiosInstance.post('/User', payload);
+            const response = await axiosInstance.post('/User', payload);
+            const whatsapp = response.data?.whatsapp;
+            if (whatsapp?.requested) {
+                setAlertDialog({
+                    open: true,
+                    title: 'User created',
+                    description: whatsapp.sent
+                        ? 'Username and password were sent to this user on WhatsApp.'
+                        : (whatsapp.error || 'The user was created, but the WhatsApp message could not be sent.'),
+                    redirect: true,
+                });
+                return;
+            }
             router.push('/Settings/User');
         } catch (err) {
             console.error('Error creating user:', err);
@@ -336,7 +371,8 @@ export default function CreateUserPage() {
             setAlertDialog({
                 open: true,
                 title: 'Error',
-                description: errorMessage
+                description: errorMessage,
+                redirect: false,
             });
         } finally {
             setSubmitting(false);
@@ -363,16 +399,7 @@ export default function CreateUserPage() {
                                     type="button"
                                     onClick={() => {
                                         setCreationMode('employee');
-                                        setFormData({
-                                            employeeId: '',
-                                            username: '',
-                                            email: '',
-                                            name: '',
-                                            password: '',
-                                            confirmPassword: '',
-                                            status: 'Active',
-                                            group: '',
-                                        });
+                                        setFormData(emptyForm);
                                         setErrors({});
                                     }}
                                     className={`w-full px-4 py-3 rounded-lg border text-sm font-semibold ${creationMode === 'employee'
@@ -386,16 +413,7 @@ export default function CreateUserPage() {
                                     type="button"
                                     onClick={() => {
                                         setCreationMode('new');
-                                        setFormData({
-                                            employeeId: '',
-                                            username: '',
-                                            email: '',
-                                            name: '',
-                                            password: '',
-                                            confirmPassword: '',
-                                            status: 'Active',
-                                            group: '',
-                                        });
+                                        setFormData(emptyForm);
                                         setErrors({});
                                     }}
                                     className={`w-full px-4 py-3 rounded-lg border text-sm font-semibold ${creationMode === 'new'
@@ -598,12 +616,49 @@ export default function CreateUserPage() {
 
                                 </div>
 
-                                {/* Submit Button */}
-                                <div className="mt-6 flex justify-end">
+                                <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
+                                    {creationMode === 'employee' ? (
+                                        <div className="min-w-0 flex-1 pt-1">
+                                            <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={formData.sendCredentialsViaWhatsApp}
+                                                    onChange={(e) => {
+                                                        const checked = e.target.checked;
+                                                        setFormData((prev) => ({
+                                                            ...prev,
+                                                            sendCredentialsViaWhatsApp: checked,
+                                                        }));
+                                                        if (errors.sendCredentialsViaWhatsApp) {
+                                                            setErrors((prev) => {
+                                                                const next = { ...prev };
+                                                                delete next.sendCredentialsViaWhatsApp;
+                                                                return next;
+                                                            });
+                                                        }
+                                                    }}
+                                                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                />
+                                                <span>Send username and password to this user via WhatsApp</span>
+                                            </label>
+                                            {formData.sendCredentialsViaWhatsApp && selectedWhatsAppReady && (
+                                                <p className="mt-1 text-xs text-gray-500">Sends to {selectedWhatsApp}</p>
+                                            )}
+                                            {formData.sendCredentialsViaWhatsApp && !selectedWhatsAppReady && (
+                                                <p className="mt-1 text-sm text-red-600">
+                                                    {formData.employeeId
+                                                        ? 'This employee has no WhatsApp number. Add one on their profile first.'
+                                                        : 'Select an employee before sending WhatsApp.'}
+                                                </p>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div />
+                                    )}
                                     <button
                                         type="submit"
                                         disabled={submitting || !isFormValid()}
-                                        className="px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                        className="shrink-0 px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {submitting ? 'Creating...' : 'Create'}
                                     </button>
@@ -615,8 +670,14 @@ export default function CreateUserPage() {
             </div >
 
             {/* Alert Dialog */}
-            < AlertDialog open={alertDialog.open} onOpenChange={(open) => setAlertDialog((prev) => ({ ...prev, open }))
-            }>
+            < AlertDialog open={alertDialog.open} onOpenChange={(open) => {
+                if (!open && alertDialog.redirect) {
+                    setAlertDialog({ open: false, title: '', description: '', redirect: false });
+                    router.push('/Settings/User');
+                    return;
+                }
+                setAlertDialog((prev) => ({ ...prev, open }));
+            }}>
                 <AlertDialogContent className="sm:max-w-[425px] rounded-[22px] border-gray-200">
                     <AlertDialogHeader>
                         <AlertDialogTitle>{alertDialog.title}</AlertDialogTitle>
@@ -625,7 +686,11 @@ export default function CreateUserPage() {
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogAction onClick={() => setAlertDialog({ open: false, title: '', description: '' })}>
+                        <AlertDialogAction onClick={() => {
+                            const shouldRedirect = alertDialog.redirect;
+                            setAlertDialog({ open: false, title: '', description: '', redirect: false });
+                            if (shouldRedirect) router.push('/Settings/User');
+                        }}>
                             OK
                         </AlertDialogAction>
                     </AlertDialogFooter>

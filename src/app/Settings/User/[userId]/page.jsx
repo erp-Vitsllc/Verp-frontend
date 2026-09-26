@@ -48,6 +48,7 @@ export default function UserProfilePage() {
 
     // Password change states
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+    const [sendPasswordViaWhatsApp, setSendPasswordViaWhatsApp] = useState(false);
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
@@ -163,13 +164,37 @@ export default function UserProfilePage() {
             return;
         }
 
+        const whatsappDigits = String(user?.employee?.whatsappNumber || '').replace(/\D/g, '');
+        if (sendPasswordViaWhatsApp && (!user?.employeeId || user.employeeId === 'System Users' || whatsappDigits.length < 8)) {
+            toast({
+                title: "WhatsApp number required",
+                description: user?.employeeId && user.employeeId !== 'System Users'
+                    ? "This employee has no WhatsApp number. Add one on their profile, or save without sending WhatsApp."
+                    : "Link this user to an employee with a WhatsApp number before sending the login details.",
+                variant: "destructive",
+            });
+            return;
+        }
+
         try {
             setIsUpdatingPassword(true);
-            await axiosInstance.patch(`/User/${userId}`, { password: newPassword });
-            toast({ title: "Success", description: "Password updated successfully", variant: "success" });
+            const payload = { password: newPassword };
+            if (sendPasswordViaWhatsApp) payload.sendCredentialsViaWhatsApp = true;
+            const response = await axiosInstance.patch(`/User/${userId}`, payload);
+            const whatsapp = response.data?.whatsapp;
+            toast({
+                title: whatsapp?.requested && !whatsapp?.sent ? "Password updated" : "Success",
+                description: whatsapp?.requested
+                    ? (whatsapp.sent
+                        ? "Password updated. Username and password were sent on WhatsApp."
+                        : (whatsapp.error || "Password updated, but the WhatsApp message could not be sent."))
+                    : "Password updated successfully",
+                variant: whatsapp?.requested && !whatsapp?.sent ? "destructive" : "success",
+            });
             setIsPasswordModalOpen(false);
             setNewPassword('');
             setConfirmPassword('');
+            setSendPasswordViaWhatsApp(false);
         } catch (err) {
             console.error('Error changing password:', err);
             toast({
@@ -515,12 +540,35 @@ export default function UserProfilePage() {
                                 </div>
                             </div>
 
-                            <div className="flex justify-end gap-3 mt-8">
+                            <div className="flex flex-wrap items-start justify-between gap-4 mt-8">
+                                <div className="min-w-0 flex-1 pt-1">
+                                    <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                                        <input
+                                            type="checkbox"
+                                            checked={sendPasswordViaWhatsApp}
+                                            onChange={(e) => setSendPasswordViaWhatsApp(e.target.checked)}
+                                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                        />
+                                        <span>Send username and password via WhatsApp</span>
+                                    </label>
+                                    {sendPasswordViaWhatsApp && String(user.employee?.whatsappNumber || '').replace(/\D/g, '').length >= 8 && (
+                                        <p className="mt-1 text-xs text-gray-500">Sends to {user.employee.whatsappNumber}</p>
+                                    )}
+                                    {sendPasswordViaWhatsApp && String(user.employee?.whatsappNumber || '').replace(/\D/g, '').length < 8 && (
+                                        <p className="mt-1 text-sm text-red-600">
+                                            {user.employeeId && user.employeeId !== 'System Users'
+                                                ? 'This employee has no WhatsApp number. Add one on their profile first.'
+                                                : 'Link this user to an employee with a WhatsApp number first.'}
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="flex shrink-0 gap-3">
                                 <button
                                     onClick={() => {
                                         setIsPasswordModalOpen(false);
                                         setNewPassword('');
                                         setConfirmPassword('');
+                                        setSendPasswordViaWhatsApp(false);
                                     }}
                                     className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors"
                                 >
@@ -533,6 +581,7 @@ export default function UserProfilePage() {
                                 >
                                     {isUpdatingPassword ? 'Updating...' : 'Save Password'}
                                 </button>
+                                </div>
                             </div>
                         </div>
                     </div>
