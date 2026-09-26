@@ -795,6 +795,7 @@ export default function AddLoanModal({
                             <label className="text-sm font-medium text-gray-700">Deduction Start <span className="text-red-500">*</span></label>
                             <MonthYearPicker
                                 value={formData.monthStart ? `${formData.monthStart}-01` : undefined}
+                                minMonth={`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`}
                                 onChange={(dateStr) => {
                                     if (dateStr) {
                                         const yyyyMM = dateStr.slice(0, 7);
