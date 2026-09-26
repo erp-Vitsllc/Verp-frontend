@@ -91,7 +91,16 @@ export default function PendingAssetRequestsModal({
                 moduleRows = [];
             }
         }
-        return dedupeAssetPendingInboxItems([...(apiRows || []), ...moduleRows]);
+        const expiryKey = (row) =>
+            `${row?.requestObjectId || row?.primaryAssetId || ''}|${String(row?.extra1 || '').trim()}`;
+        const isWarrantyExpiryRow = (row) =>
+            String(row?.requestType || '') === 'Vehicle Document Expiry Reminder' &&
+            /^Expiry follow-up required:\s*Warranty\b/i.test(String(row?.extra1 || '').trim());
+        const liveWarrantyKeys = new Set((apiRows || []).filter(isWarrantyExpiryRow).map(expiryKey));
+        const moduleKept = moduleRows.filter(
+            (row) => !isWarrantyExpiryRow(row) || liveWarrantyKeys.has(expiryKey(row)),
+        );
+        return dedupeAssetPendingInboxItems([...(apiRows || []), ...moduleKept]);
     }, [inboxScope]);
 
     const load = useCallback(async ({ force = false } = {}) => {
