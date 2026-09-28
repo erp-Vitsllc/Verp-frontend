@@ -79,14 +79,15 @@ export default function AttendanceLeaveDecideModal({
               ? 'Full day'
               : '';
     const isYellow = kindKey === 'yellow';
+    const isPastLate = kindKey === 'past_late';
     const isFutureKind = kindKey.startsWith('future_');
-    const skipStatusPicker = isYellow || isFutureKind;
+    const skipStatusPicker = isYellow || isFutureKind || isPastLate;
     const needsPayType = kindKey === 'future_leave' || chosenKey === 'authorized_leave';
 
     const title =
         kindKey === 'future_annual'
             ? 'Annual leave request'
-            : kindKey === 'future_late'
+            : isPastLate || kindKey === 'future_late'
             ? 'Late arrival request'
             : kindKey === 'future_early'
               ? 'Early go request'
@@ -104,7 +105,13 @@ export default function AttendanceLeaveDecideModal({
           ? dayPart === 'half'
               ? `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Half day Authorized Leave (Paid or Unpaid). Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
               : `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Authorized Leave (Paid or Unpaid). Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
-          : kindKey === 'future_late'
+          : isPastLate
+            ? `Approve marks this day as Late Arrival${
+                  requestTimeIn || requestTimeOut
+                      ? ` (check in ${requestTimeIn || '—'}, check out ${requestTimeOut || '—'})`
+                      : ''
+              }. Reject keeps the unauthorized leave.`
+            : kindKey === 'future_late'
             ? `Approve shows ${isMultiDay ? 'every working day in this range' : 'this future day'} green as Late arrival approved${
                   dayPart === 'half' && requestTimeIn && requestTimeOut
                       ? ` (${requestTimeIn} – ${requestTimeOut})`
@@ -167,6 +174,18 @@ export default function AttendanceLeaveDecideModal({
                         <p className="font-semibold text-slate-800">
                             {requestedLabel || (isYellow ? 'Present' : '—')}
                         </p>
+                        {isPastLate ? (
+                            <>
+                                <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">
+                                    Check in
+                                </p>
+                                <p className="text-slate-700 text-sm">{requestTimeIn || '—'}</p>
+                                <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">
+                                    Check out
+                                </p>
+                                <p className="text-slate-700 text-sm">{requestTimeOut || '—'}</p>
+                            </>
+                        ) : null}
                         {rangeLabel || dayPartLabel ? (
                             <>
                                 <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">
