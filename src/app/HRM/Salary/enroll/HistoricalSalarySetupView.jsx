@@ -2216,15 +2216,20 @@ function splitLeavePayload(rows) {
     const leaveRecords = list.filter((row) => String(row?.leaveType || '').toLowerCase() !== 'annual');
     const annualLeaveRecords = list
         .filter((row) => String(row?.leaveType || '').toLowerCase() === 'annual')
-        .map((row) => ({
-            ...row,
-            leaveType: 'annual',
-            startDate: row.startDate || row.fromDate,
-            endDate: row.endDate || row.toDate,
-            fromDate: row.fromDate || row.startDate,
-            toDate: row.toDate || row.endDate,
-            returnToWorkDate: row.returnToWorkDate || addDays(row.toDate || row.endDate, 1),
-        }));
+        .map((row) => {
+            // Edited dates live on from/to. Old start/end must not win on save.
+            const fromDate = row.fromDate || row.startDate || '';
+            const toDate = row.toDate || row.endDate || fromDate;
+            return {
+                ...row,
+                leaveType: 'annual',
+                startDate: fromDate,
+                endDate: toDate,
+                fromDate,
+                toDate,
+                returnToWorkDate: toDate ? addDays(toDate, 1) : row.returnToWorkDate || '',
+            };
+        });
     return { leaveRecords, annualLeaveRecords };
 }
 
@@ -2498,6 +2503,9 @@ function AddLeaveModal({
                             leaveType,
                             fromDate: showDates ? fromDate : '',
                             toDate: showDates ? toDate : '',
+                            startDate: showDates ? fromDate : '',
+                            endDate: showDates ? toDate : '',
+                            returnToWorkDate: showDates && toDate ? addDays(toDate, 1) : '',
                             calendarDays: showDates ? autoDays || countNum : countNum,
                             actualDays: countNum,
                             eligibleWorkingDays: countNum,
