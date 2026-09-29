@@ -110,6 +110,24 @@ export function formatSalaryMonthYear(dateInput) {
     return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+function salaryMonthIndex(value, now = null) {
+    if (now) return now.getFullYear() * 12 + (now.getMonth() + 1);
+    const cal = parseCalendarDate(value);
+    if (cal) return cal.year * 12 + cal.month;
+    const d = parseDate(value);
+    if (!d) return null;
+    return d.getFullYear() * 12 + (d.getMonth() + 1);
+}
+
+/** Open salary rows show Present only after the from-month has started. */
+export function salaryHistoryToDateLabel(entry, now = new Date()) {
+    if (entry?.toDate) return formatSalaryMonthYear(entry.toDate) || '—';
+    const fromIndex = salaryMonthIndex(entry?.fromDate);
+    const nowIndex = salaryMonthIndex(null, now);
+    if (fromIndex != null && fromIndex > nowIndex) return '—';
+    return 'Present';
+}
+
 export function formatSalaryHistoryPeriodLabel(entry) {
     const fromLabel = formatSalaryMonthYear(entry?.fromDate);
     const toLabel = entry?.toDate ? formatSalaryMonthYear(entry.toDate) : '';

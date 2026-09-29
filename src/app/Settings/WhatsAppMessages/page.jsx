@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
     Check,
     CheckCheck,
+    FileText,
     Loader2,
     MessageCircle,
     Search,
@@ -45,6 +46,28 @@ function initials(name, phone) {
     if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     if (parts[0]) return parts[0].slice(0, 2).toUpperCase();
     return String(phone || '?').slice(-2);
+}
+
+function isDocumentBubble(message) {
+    if (!message) return false;
+    if (message.messageType === 'document' || message.mediaFileName) return true;
+    return /please find the pdf attached/i.test(String(message.body || ''));
+}
+
+function collapseDuplicateDocuments(messages) {
+    const list = Array.isArray(messages) ? messages : [];
+    const seen = new Set();
+    const kept = [];
+    for (let index = list.length - 1; index >= 0; index -= 1) {
+        const message = list[index];
+        const key = isDocumentBubble(message) && message.direction === 'out'
+            ? `out-doc:${String(message.body || '').trim()}`
+            : (message.id || String(index));
+        if (seen.has(key)) continue;
+        seen.add(key);
+        kept.push(message);
+    }
+    return kept.reverse();
 }
 
 function sourceLabel(message) {
@@ -356,7 +379,8 @@ export default function WhatsAppMessagesPage() {
                                                     </span>
                                                     <span className="mt-0.5 block truncate text-xs text-slate-500">
                                                         {last.direction === 'out' ? 'You: ' : 'Received: '}
-                                                        {last.body || last.templateName || '—'}
+                                                        {isDocumentBubble(last) ? 'PDF · ' : ''}
+                                                        {last.body || last.mediaFileName || last.templateName || '—'}
                                                     </span>
                                                     <span className="mt-1 flex flex-wrap gap-1">
                                                         {row.inboundCount > 0 ? (
@@ -401,7 +425,7 @@ export default function WhatsAppMessagesPage() {
                                                 <Loader2 className="h-6 w-6 animate-spin text-emerald-700" />
                                             </div>
                                         ) : (
-                                            (thread?.messages || []).map((message) => {
+                                            collapseDuplicateDocuments(thread?.messages).map((message) => {
                                                 const outgoing = message.direction === 'out';
                                                 return (
                                                     <div
@@ -439,6 +463,28 @@ export default function WhatsAppMessagesPage() {
                                                                           .filter(Boolean)
                                                                           .join(' · ')}
                                                             </p>
+                                                            {isDocumentBubble(message) ? (
+                                                                message.mediaUrl ? (
+                                                                    <a
+                                                                        href={message.mediaUrl}
+                                                                        target="_blank"
+                                                                        rel="noreferrer"
+                                                                        className="mt-2 flex items-center gap-2 rounded-md bg-white/80 px-2 py-2 text-sm font-medium text-slate-800"
+                                                                    >
+                                                                        <FileText size={16} className="shrink-0 text-emerald-700" />
+                                                                        <span className="truncate">
+                                                                            {message.mediaFileName || 'PDF document'}
+                                                                        </span>
+                                                                    </a>
+                                                                ) : (
+                                                                    <div className="mt-2 flex items-center gap-2 rounded-md bg-white/80 px-2 py-2 text-sm font-medium text-slate-800">
+                                                                        <FileText size={16} className="shrink-0 text-emerald-700" />
+                                                                        <span className="truncate">
+                                                                            {message.mediaFileName || 'PDF document'}
+                                                                        </span>
+                                                                    </div>
+                                                                )
+                                                            ) : null}
                                                             <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed">
                                                                 {message.body || message.templateName || '—'}
                                                             </p>

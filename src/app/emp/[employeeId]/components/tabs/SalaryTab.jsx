@@ -8,7 +8,7 @@ import { isAdmin, crudAccess, crudAccessUnion } from '@/utils/permissions';
 import { employeeProfileCardCrudAccess } from '@/utils/employeeProfileCardAccess';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { isOldestSalaryHistoryEntry } from '@/utils/employeeSalaryValidation';
-import { formatSalaryMonthYear, sortSalaryHistoryDesc } from '@/utils/salaryHistoryUtils';
+import { formatSalaryMonthYear, salaryHistoryToDateLabel, sortSalaryHistoryDesc } from '@/utils/salaryHistoryUtils';
 import { monthKeyFromDate } from '@/utils/employeeSalaryValidation';
 import { getActiveSalaryOfferLetter } from '../../utils/salaryDisplay';
 import Select from 'react-select';
@@ -3744,7 +3744,7 @@ export default function SalaryTab({
                                                         {formatSalaryMonthYear(entry.fromDate) || '—'}
                                                     </td>
                                                     <td className="py-3 px-4 text-sm text-gray-500">
-                                                        {entry.toDate ? formatSalaryMonthYear(entry.toDate) : 'Present'}
+                                                        {salaryHistoryToDateLabel(entry)}
                                                     </td>
                                                     <td className="py-3 px-4 text-sm text-gray-500">AED {entry.basic?.toFixed(2) || '0.00'}</td>
                                                     <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>

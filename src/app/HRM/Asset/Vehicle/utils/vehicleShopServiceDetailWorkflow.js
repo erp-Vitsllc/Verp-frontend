@@ -311,7 +311,6 @@ export function buildShopServiceDetailWorkflowEvents(
     const scheduleDone = isGarageDone(remark, wf);
     const hrDone = isHrDone(remark, stage, history);
     const accountsDone = isAccountsApproveDone(remark, stage, history);
-    const onServiceDone = live || ready || stage === 'pending_admin_return';
     const completeDone =
         Boolean(String(remark.vehicleServiceCompletedAt || '').trim()) ||
         String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live' ||
@@ -322,6 +321,9 @@ export function buildShopServiceDetailWorkflowEvents(
         stage === 'billed' ||
         String(remark.billingStatus || '').toLowerCase() === 'billed' ||
         Boolean(String(remark.zohoBillId || '').trim());
+    // Once Complete or Make Payment is done, On Service already happened — do not leave it Scheduled.
+    const onServiceDone =
+        live || ready || stage === 'pending_admin_return' || completeDone || paymentDone;
 
     const currentActiveStepId = resolveActiveStepId({
         stage,
