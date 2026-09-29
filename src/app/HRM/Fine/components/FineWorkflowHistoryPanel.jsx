@@ -130,12 +130,13 @@ function getFineStepActor(step, fine, workflow) {
     }
     if (step.id === 5) {
         const mgtStep = workflow.find((w) => w.role === 'Management' || w.role === 'CEO');
-        const fromWf = resolvePersonName(mgtStep?.assignedTo);
-        if (fromWf) return fromWf;
+        const managementReached = mgtStep && (mgtStep.status === 'Pending' || mgtStep.status === 'Approved');
+        if (managementReached) {
+            const fromWf = resolvePersonName(mgtStep?.assignedTo);
+            if (fromWf) return fromWf;
+        }
         const fromApprover = resolvePersonName(fine.approvedBy);
         if (fromApprover) return fromApprover;
-        const fromSubmitted = resolvePersonName(fine.submittedTo);
-        if (fromSubmitted) return fromSubmitted;
         if (fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
         return 'CEO / Management';
     }

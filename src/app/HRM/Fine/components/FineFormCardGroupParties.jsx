@@ -133,6 +133,8 @@ export default function FineFormCardGroupParties({
     const [localConfirmed, setLocalConfirmed] = useState({});
     const [localVendor, setLocalVendor] = useState('');
     const dirtyPayableKeysRef = useRef(new Set());
+    const localPayablesRef = useRef({});
+    const localConfirmedRef = useRef({});
 
     const parties = useMemo(() => {
         if (!fine) return [];
@@ -205,46 +207,41 @@ export default function FineFormCardGroupParties({
     useEffect(() => {
         if (!parties.length) return;
 
+        const prev = localPayablesRef.current || {};
+        const prevConfirmed = localConfirmedRef.current || {};
         const nextPayables = {};
         const nextConfirmed = {};
 
-        setLocalPayables((prev) => {
-            parties.forEach((p, idx) => {
-                const key = partyRowKey(p, idx);
-                const serverId = String(p.expenseAccountId || '').trim();
-                const serverName = String(p.expenseAccountName || '').trim();
-                const localId = String(prev[key]?.expenseAccountId || '').trim();
-                const keepLocal =
-                    dirtyPayableKeysRef.current.has(key) && localId && localId !== serverId;
+        parties.forEach((p, idx) => {
+            const key = partyRowKey(p, idx);
+            const serverId = String(p.expenseAccountId || '').trim();
+            const serverName = String(p.expenseAccountName || '').trim();
+            const localId = String(prev[key]?.expenseAccountId || '').trim();
+            const keepLocal =
+                dirtyPayableKeysRef.current.has(key) && localId && localId !== serverId;
 
-                if (keepLocal) {
-                    nextPayables[key] = prev[key];
-                } else {
-                    nextPayables[key] = {
-                        expenseAccountId: serverId,
-                        expenseAccountName: serverName,
-                    };
-                    if (serverId && localId === serverId) {
-                        dirtyPayableKeysRef.current.delete(key);
-                    }
+            if (keepLocal) {
+                nextPayables[key] = prev[key];
+            } else {
+                nextPayables[key] = {
+                    expenseAccountId: serverId,
+                    expenseAccountName: serverName,
+                };
+                if (serverId && localId === serverId) {
+                    dirtyPayableKeysRef.current.delete(key);
                 }
-            });
-            return nextPayables;
+            }
+
+            const resolvedId = String(nextPayables[key]?.expenseAccountId || '').trim();
+            nextConfirmed[key] = keepLocal
+                ? Boolean(prevConfirmed[key] || resolvedId)
+                : Boolean(serverId || p.payableConfirmed);
         });
 
-        setLocalConfirmed((prev) => {
-            parties.forEach((p, idx) => {
-                const key = partyRowKey(p, idx);
-                const serverId = String(p.expenseAccountId || '').trim();
-                const localId = String(nextPayables[key]?.expenseAccountId || '').trim();
-                const keepLocal =
-                    dirtyPayableKeysRef.current.has(key) && localId && localId !== serverId;
-                nextConfirmed[key] = keepLocal
-                    ? Boolean(prev[key] || localId)
-                    : Boolean(serverId || p.payableConfirmed);
-            });
-            return nextConfirmed;
-        });
+        localPayablesRef.current = nextPayables;
+        localConfirmedRef.current = nextConfirmed;
+        setLocalPayables(nextPayables);
+        setLocalConfirmed(nextConfirmed);
 
         onPartyPayablesChange?.(
             parties.map((p, idx) => {
@@ -445,6 +442,8 @@ export default function FineFormCardGroupParties({
         };
         const nextConfirmed = { ...localConfirmed, [key]: confirmed };
         dirtyPayableKeysRef.current.add(key);
+        localPayablesRef.current = nextMap;
+        localConfirmedRef.current = nextConfirmed;
         setLocalPayables(nextMap);
         setLocalConfirmed(nextConfirmed);
         emitPayables(nextMap, nextConfirmed);
