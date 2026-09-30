@@ -175,33 +175,25 @@ export const getAssetWaitingForMeta = (asset) => {
         if (asset.assignedToType === 'Company' || (asset.assignedCompany && !asset.assignedTo)) {
             return { name: arName || 'Company coordinator', kind: 'other' };
         }
-        if (
-            isWaitingOnPrimaryReportee({
-                arId,
-                assigneeId,
-                reporteeId,
-                delegatedToReportee: false,
-                assigneeHasNoPortal,
-                ackSaysNoSelf,
-                pendingAction: '',
-            })
-        ) {
-            const ackName = String(asset.assignmentAck?.waitingForName || '').trim();
+        // Accept sits on whoever actionRequiredBy / assignmentAck names.
+        // A missing loginThrough on the payload must not relabel that as the primary reportee.
+        const ackWaitingId = asset.assignmentAck?.waitingForId
+            ? assetPersonRefId(asset.assignmentAck.waitingForId)
+            : '';
+        const ackName = String(asset.assignmentAck?.waitingForName || '').trim();
+        const acceptId = ackWaitingId || arId;
+        const acceptIsAssignee = !!(assigneeId && acceptId && acceptId === assigneeId);
+        const acceptIsReportee =
+            !acceptIsAssignee && !!(reporteeId && acceptId && acceptId === reporteeId);
+
+        if (acceptIsReportee) {
             return { name: reporteeName || ackName || arName, kind: 'reportee' };
         }
-        const ackName = String(asset.assignmentAck?.waitingForName || '').trim();
-        if (arId && assigneeId && arId === assigneeId && (assigneeName || ackName)) {
-            return { name: assigneeName || ackName, kind: 'employee' };
+        if (acceptIsAssignee && (assigneeName || ackName || arName)) {
+            return { name: assigneeName || ackName || arName, kind: 'employee' };
         }
         if (ackName) {
-            const kind =
-                reporteeId &&
-                (assetPersonRefId(asset.assignmentAck?.waitingForId) === reporteeId ||
-                    ackSaysNoSelf ||
-                    assigneeHasNoPortal)
-                    ? 'reportee'
-                    : 'employee';
-            return { name: ackName, kind };
+            return { name: ackName, kind: ackSaysNoSelf ? 'reportee' : 'employee' };
         }
         if (arName) {
             const kind = arId && assigneeId && arId === assigneeId ? 'employee' : 'other';

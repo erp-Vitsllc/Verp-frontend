@@ -214,7 +214,7 @@ export default function VehicleFuelGpsPage() {
                                 </div>
                                 <p className="text-gray-500 text-xs sm:text-sm">
                                     GPS vehicle number, idle time, current KM, and running KM from Locator GPS
-                                    snapshots — not ERP odometer. Idle is engine-on idling of 10 minutes or more
+                                    snapshots — not ERP odometer. Idle is each engine-on idling session longer than 5 minutes
                                     {applied.from && applied.to ? ` · ${formatRangeLabel(applied.from, applied.to)}` : ''}
                                 </p>
                             </div>
