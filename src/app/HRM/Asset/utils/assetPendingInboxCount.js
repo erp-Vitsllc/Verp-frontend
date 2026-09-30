@@ -38,6 +38,21 @@ export function dedupeAssetPendingInboxItems(items) {
             continue;
         }
         const prevMeta = parseInboxExtra3(prev.extra3);
+        const accountsBilling = (candidate) => {
+            const candidateMeta = candidate === row ? meta : prevMeta;
+            if (candidateMeta?.adminOfficerServiceTrack) return false;
+            const stage = String(candidateMeta?.oilStage || candidateMeta?.accountsStage || '').toLowerCase();
+            if (['accounts_payment', 'accounts_quote', 'pending_accounts', 'pending_billing', 'zoho_expense'].includes(stage)) {
+                return true;
+            }
+            const blob = `${candidate?.extra1 || ''} ${candidate?.extra2 || ''}`.toLowerCase();
+            return /\bmake payment\b/.test(blob) || /zoho expense/.test(blob) || /zoho bill/.test(blob);
+        };
+        if (accountsBilling(row) && !accountsBilling(prev)) {
+            vehicleServiceBest.set(key, row);
+            continue;
+        }
+        if (accountsBilling(prev) && !accountsBilling(row)) continue;
         const prevTrack = Boolean(prevMeta?.adminOfficerServiceTrack);
         const curTrack = Boolean(meta?.adminOfficerServiceTrack);
         if (curTrack && !prevTrack) {

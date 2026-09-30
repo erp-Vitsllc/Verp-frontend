@@ -325,16 +325,18 @@ export default function LoginPage() {
                     </h2>
 
                     {/* FORM START */}
-                    <form onSubmit={handleSubmit}>
+                    <form onSubmit={handleSubmit} dir="ltr">
 
                         {/* Email */}
                         <div className="mb-2">
                             <input
                                 type="text"
+                                dir="ltr"
+                                autoComplete="username"
                                 placeholder="Email or Username"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                className={`w-full px-5 py-3.5 rounded-lg text-sm transition focus:outline-none focus:ring-2 ${errors.email
+                                className={`w-full px-5 py-3.5 rounded-lg text-sm text-left transition focus:outline-none focus:ring-2 [direction:ltr] [unicode-bidi:isolate] ${errors.email
                                     ? "bg-red-50 ring-red-400"
                                     : "bg-gray-100 focus:ring-blue-500"
                                     }`}
@@ -348,10 +350,12 @@ export default function LoginPage() {
                         <div className="mb-2 relative">
                             <input
                                 type={showPassword ? 'text' : 'password'}
+                                dir="ltr"
+                                autoComplete="current-password"
                                 placeholder="Password@123"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className={`w-full px-5 py-3.5 rounded-lg text-sm transition focus:outline-none focus:ring-2 ${errors.password
+                                className={`w-full px-5 py-3.5 rounded-lg text-sm text-left transition focus:outline-none focus:ring-2 [direction:ltr] [unicode-bidi:isolate] ${errors.password
                                     ? "bg-red-50 ring-red-400"
                                     : "bg-gray-100 focus:ring-blue-500"
                                     }`}
@@ -375,12 +379,13 @@ export default function LoginPage() {
                                 </p>
                                 <input
                                     type="text"
+                                    dir="ltr"
                                     inputMode="numeric"
                                     autoComplete="one-time-code"
                                     placeholder="Enter 6-digit OTP"
                                     value={otp}
                                     onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                                    className="w-full px-5 py-3.5 rounded-lg text-sm bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    className="w-full px-5 py-3.5 rounded-lg text-sm text-left bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 [direction:ltr] [unicode-bidi:isolate]"
                                 />
                                 <div className="mt-2 flex items-center justify-between gap-3">
                                     <button
