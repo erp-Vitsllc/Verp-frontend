@@ -15,6 +15,51 @@ export function parseServiceRemark(remark) {
     }
 }
 
+function requestPhotoIdentity(img) {
+    const raw = typeof img === 'string' ? img : String(img?.url || img?.publicId || img?.key || '');
+    const value = raw.trim();
+    if (!value) return '';
+    const marker = 'asset-service-attachments/';
+    const idx = value.indexOf(marker);
+    if (idx >= 0) {
+        const rest = value.slice(idx);
+        const query = rest.indexOf('?');
+        return query >= 0 ? rest.slice(0, query) : rest;
+    }
+    return value;
+}
+
+/**
+ * Photos the employee attached in the app, plus ERP rectification photos.
+ * App requests store them on `photos`; the detail form reads `bodyWorkImages`.
+ */
+export function collectVehicleServiceRequestPhotos(service, remark = null) {
+    const meta =
+        remark && typeof remark === 'object'
+            ? remark
+            : parseServiceRemark(service?.remark);
+    const lists = [meta.bodyWorkImages, meta.photos, service?.photos];
+    const seen = new Set();
+    const photos = [];
+    for (const list of lists) {
+        if (!Array.isArray(list)) continue;
+        for (const img of list) {
+            const id = requestPhotoIdentity(img);
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            if (typeof img === 'string') {
+                photos.push({ url: id, name: '' });
+            } else {
+                photos.push({
+                    ...img,
+                    url: String(img?.url || img?.publicId || id).trim(),
+                });
+            }
+        }
+    }
+    return photos;
+}
+
 const ASSET_CONTROLLER_VALUE = '__asset_controller__';
 
 export function mapServiceRecordToFormData(service, assignedEmployee) {
@@ -181,7 +226,7 @@ export function mapServiceRecordToFormData(service, assignedEmployee) {
         quotation3Mime: '',
         existingQuotation3Url: service.quotation3 ? String(service.quotation3) : '',
         bodyWorkImages: [],
-        existingBodyWorkImages: Array.isArray(r.bodyWorkImages) ? r.bodyWorkImages : [],
+        existingBodyWorkImages: collectVehicleServiceRequestPhotos(service, r),
         expectedDurationDays: r.expectedDurationDays != null ? String(r.expectedDurationDays) : '',
         approvedQuotationChoice: r.approvedQuotationChoice || '',
         vendorName: r.vendorName || '',

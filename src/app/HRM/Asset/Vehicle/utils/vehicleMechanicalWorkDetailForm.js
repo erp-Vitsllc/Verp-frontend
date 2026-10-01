@@ -2,6 +2,7 @@ import {
     mapServiceRecordToFormData,
     validateVehicleServiceForm,
     buildAddServiceBody,
+    collectVehicleServiceRequestPhotos,
 } from '../components/vehicleServicePayload';
 import {
     normalizeMongoId,
@@ -268,7 +269,7 @@ export function buildMechanicalWorkDetailFormState(service, asset, { flowchartRo
         quotation2Amount: remark.quotation2Amount != null ? String(remark.quotation2Amount) : base.quotation2Amount || '',
         quotation3Amount: remark.quotation3Amount != null ? String(remark.quotation3Amount) : base.quotation3Amount || '',
         value: base.value != null && base.value !== '' ? String(base.value) : '',
-        existingBodyWorkImages: Array.isArray(remark.bodyWorkImages) ? remark.bodyWorkImages : base.existingBodyWorkImages || [],
+        existingBodyWorkImages: collectVehicleServiceRequestPhotos(service, remark),
         bodyWorkImages: [],
     };
 

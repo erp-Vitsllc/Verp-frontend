@@ -21,9 +21,15 @@ import {
 } from '../utils/leavePendingInboxCount';
 import { fetchLeavePendingInbox } from '@/utils/pendingInboxFetch';
 import {
+    ALL_LEAVE_MONTH,
     ALL_LEAVE_YEAR,
+    currentLeaveMonthKey,
+    formatLeaveMonthLabel,
+    isAllLeaveMonth,
     isAllLeaveYear,
+    leaveDashboardMonthOptions,
     leaveDashboardYearOptions,
+    leaveMonthBounds,
     useLeaveSalaryVisibility,
 } from '../utils/leaveSalaryVisibility';
 import useWorkLocations from '@/hooks/useWorkLocations';
@@ -126,8 +132,13 @@ function AnnualLeavePageContent() {
     const sourceTo = String(searchParams.get('sourceTo') || '').trim();
 
     const [filterYear, setFilterYear] = useState(ALL_LEAVE_YEAR);
+    const [filterMonth, setFilterMonth] = useState(() => currentLeaveMonthKey());
     const yearOptions = useMemo(
         () => leaveDashboardYearOptions(salaryVisibility),
+        [salaryVisibility],
+    );
+    const monthOptions = useMemo(
+        () => leaveDashboardMonthOptions(salaryVisibility),
         [salaryVisibility],
     );
     const yearMin = yearOptions.length ? yearOptions[yearOptions.length - 1] : new Date().getFullYear();
@@ -236,8 +247,11 @@ function AnnualLeavePageContent() {
 
     const fetchEmployees = useCallback(async () => {
         try {
+            const monthBounds = isAllLeaveMonth(filterMonth) ? null : leaveMonthBounds(filterMonth);
             const response = await axiosInstance.get('/Leave/employees', {
-                params: { year: isAllLeaveYear(filterYear) ? ALL_LEAVE_YEAR : filterYear },
+                params: monthBounds
+                    ? { from: monthBounds.from, to: monthBounds.to }
+                    : { year: isAllLeaveYear(filterYear) ? ALL_LEAVE_YEAR : filterYear },
                 skipToast: true,
             });
             const list = Array.isArray(response.data?.employees) ? response.data.employees : [];
@@ -245,7 +259,7 @@ function AnnualLeavePageContent() {
         } catch {
             setEmployees([]);
         }
-    }, [filterYear]);
+    }, [filterMonth, filterYear]);
 
     useEffect(() => {
         fetchEmployees();
@@ -296,7 +310,6 @@ function AnnualLeavePageContent() {
                     employeeId: nextEmployeeId,
                     from: startDate,
                     to: endDate,
-                    leavePayType: 'paid',
                     leaveType: attendanceId
                         ? normalizeLeaveMode(leaveMode)
                         : applyLeaveMode(leaveMode),
@@ -676,7 +689,13 @@ function AnnualLeavePageContent() {
                                     value={isAllLeaveYear(filterYear) ? ALL_LEAVE_YEAR : String(filterYear)}
                                     onChange={(event) => {
                                         const next = event.target.value;
-                                        setFilterYear(next === ALL_LEAVE_YEAR ? ALL_LEAVE_YEAR : Number(next));
+                                        const nextYear = next === ALL_LEAVE_YEAR ? ALL_LEAVE_YEAR : Number(next);
+                                        setFilterYear(nextYear);
+                                        setFilterMonth((current) => {
+                                            if (isAllLeaveMonth(current) || isAllLeaveYear(nextYear)) return current;
+                                            if (!String(current).startsWith(`${nextYear}-`)) return ALL_LEAVE_MONTH;
+                                            return current;
+                                        });
                                     }}
                                     className="min-w-[108px] rounded-lg border border-[#DDE3EA] bg-white px-3 py-2 text-sm font-medium text-[#344054] shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20"
                                     aria-label="Filter leave dashboard by year"
@@ -685,6 +704,28 @@ function AnnualLeavePageContent() {
                                     {yearOptions.map((year) => (
                                         <option key={year} value={year}>
                                             {year}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                            <label className="inline-flex items-center gap-2 text-sm text-[#555B65]">
+                                <span className="font-medium">Month</span>
+                                <select
+                                    value={isAllLeaveMonth(filterMonth) ? ALL_LEAVE_MONTH : filterMonth}
+                                    onChange={(event) => {
+                                        const next = event.target.value;
+                                        setFilterMonth(next);
+                                        if (!isAllLeaveMonth(next)) {
+                                            setFilterYear(Number(String(next).slice(0, 4)));
+                                        }
+                                    }}
+                                    className="min-w-[160px] rounded-lg border border-[#DDE3EA] bg-white px-3 py-2 text-sm font-medium text-[#344054] shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20"
+                                    aria-label="Filter leave dashboard by month"
+                                >
+                                    <option value={ALL_LEAVE_MONTH}>ALL</option>
+                                    {monthOptions.map((monthKey) => (
+                                        <option key={monthKey} value={monthKey}>
+                                            {formatLeaveMonthLabel(monthKey)}
                                         </option>
                                     ))}
                                 </select>
@@ -736,6 +777,7 @@ function AnnualLeavePageContent() {
                             sourceFrom={sourceFrom}
                             sourceTo={sourceTo}
                             year={filterYear}
+                            month={filterMonth}
                             yearMin={yearMin}
                             yearMax={yearMax}
                             onYearChange={setFilterYear}
@@ -762,6 +804,7 @@ function AnnualLeavePageContent() {
                             approvalId={approvalId}
                             employeeName={employeeName}
                             year={filterYear}
+                            focusMonth={isAllLeaveMonth(filterMonth) ? '' : filterMonth}
                             yearMin={yearMin}
                             yearMax={yearMax}
                             onYearChange={setFilterYear}

@@ -7,6 +7,8 @@ import { Check, Loader2, X, PauseCircle, UserCheck, Layers, CalendarRange, Clipb
 import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModal';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { parseVehicleServiceRemark } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
+import { collectVehicleServiceRequestPhotos } from '@/app/HRM/Asset/Vehicle/components/vehicleServicePayload';
+import { extractStorageReference, loadStorageFileBlob } from '@/utils/attachmentPreview';
 import {
     resolveCarDrivenByLabel,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleCarDrivenBySelect';
@@ -29,6 +31,77 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+
+function directRequestPhotoSrc(img) {
+    const url = String(img?.url || img?.data || '').trim();
+    if (!url) return '';
+    if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+    return '';
+}
+
+function RequestPhotoStrip({ service }) {
+    const photos = useMemo(() => collectVehicleServiceRequestPhotos(service), [service]);
+    const [srcs, setSrcs] = useState(null);
+
+    useEffect(() => {
+        if (!photos.length) {
+            setSrcs([]);
+            return undefined;
+        }
+        let cancelled = false;
+        const objectUrls = [];
+        (async () => {
+            const next = [];
+            for (let idx = 0; idx < photos.length; idx += 1) {
+                const img = photos[idx];
+                const direct = directRequestPhotoSrc(img);
+                if (direct) {
+                    next.push(direct);
+                    continue;
+                }
+                const storageKey = extractStorageReference(img)?.key;
+                if (!storageKey) continue;
+                try {
+                    const blob = await loadStorageFileBlob(storageKey);
+                    const objectUrl = URL.createObjectURL(blob);
+                    objectUrls.push(objectUrl);
+                    next.push(objectUrl);
+                } catch {
+                    /* storage key could not be loaded */
+                }
+            }
+            if (!cancelled) setSrcs(next);
+            else objectUrls.forEach((url) => URL.revokeObjectURL(url));
+        })();
+        return () => {
+            cancelled = true;
+            objectUrls.forEach((url) => URL.revokeObjectURL(url));
+        };
+    }, [photos]);
+
+    if (srcs === null) return null;
+    if (!srcs.length) {
+        return <p className="text-[11px] text-gray-400">No photos uploaded.</p>;
+    }
+    return (
+        <>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {srcs.map((src, idx) => (
+                    <a
+                        key={`${src}-${idx}`}
+                        href={src}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block w-24 h-14 rounded-lg overflow-hidden border border-slate-300 bg-white shadow-sm shrink-0"
+                    >
+                        <img src={src} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                    </a>
+                ))}
+            </div>
+            <p className="mt-2 text-[10px] text-slate-500">Use horizontal scroll to view all photos.</p>
+        </>
+    );
+}
 
 const PIPELINE = [
     { key: 'created', title: 'CREATED', subDefault: 'System' },
@@ -2417,36 +2490,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                 <div className="space-y-3">
                                     <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                                         <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 mb-2">Photos</p>
-                                        <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                                            {(() => {
-                                                const imgs = [];
-                                                const raw = parseVehicleServiceRemark(workflowServiceRecord) || {};
-                                                const push = (x) => { if (x) imgs.push(x); };
-                                                (raw.photos || raw.images || raw.accidentImages || []).forEach(push);
-                                                if (imgs.length === 0) return <p className="text-[11px] text-gray-400">No photos uploaded.</p>;
-                                                return imgs.map((img, idx) => {
-                                                    const imgUrl = typeof img === 'string' ? img : (img?.url || img?.publicId || '');
-                                                    return (
-                                                        <a
-                                                            key={`${imgUrl || idx}-${idx}`}
-                                                            href={imgUrl || '#'}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            className={`block w-24 h-14 rounded-lg overflow-hidden border border-slate-300 bg-white shadow-sm shrink-0 ${imgUrl ? '' : 'pointer-events-none opacity-50'}`}
-                                                        >
-                                                            <img src={imgUrl || ''} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
-                                                        </a>
-                                                    );
-                                                });
-                                            })()}
-                                        </div>
-                                        {(() => {
-                                            const raw = parseVehicleServiceRemark(workflowServiceRecord) || {};
-                                            const imgs = [...(raw.photos || []), ...(raw.images || []), ...(raw.accidentImages || [])].filter(Boolean);
-                                            return imgs.length > 0 ? (
-                                                <p className="mt-2 text-[10px] text-slate-500">Use horizontal scroll to view all photos.</p>
-                                            ) : null;
-                                        })()}
+                                        <RequestPhotoStrip service={workflowServiceRecord} />
                                     </div>
                                     <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                                         <div className="flex items-center justify-between mb-2">

@@ -77,16 +77,6 @@ export default function AttendanceDayDetailPanel({ day, stats = null, totalStaff
 
             <div className="px-4 py-1 flex-1 overflow-y-auto">
                 <StatRow label="Total staff" value={resolved.totalStaff ?? totalStaff} />
-                <StatRow
-                    label="Office staff"
-                    value={`${resolved.officePresent} / ${resolved.officeTotal}`}
-                    subValue="Present / total office staff"
-                />
-                <StatRow
-                    label="Site staff"
-                    value={`${resolved.sitePresent} / ${resolved.siteTotal}`}
-                    subValue="Present / total site staff"
-                />
                 <StatRow label="Total present" value={resolved.totalPresent} />
                 {resolved.isWeeklyOff || (resolved.weeklyOff || 0) > 0 ? (
                     <StatRow

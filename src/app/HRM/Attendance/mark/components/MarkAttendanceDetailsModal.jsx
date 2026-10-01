@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Paperclip, X } from 'lucide-react';
+import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
 import { weekForStaffType, normalizeWorkLocationKey } from '@/utils/workLocations';
 
@@ -100,24 +101,50 @@ async function loadDefaultPunchTimes({ dateKey, staffType }) {
     }
 }
 
+const mapSelectStyles = {
+    control: (base, state) => ({
+        ...base,
+        minHeight: 40,
+        borderRadius: 10,
+        borderColor: state.isFocused ? '#EA3D2F' : '#e5e7eb',
+        boxShadow: state.isFocused ? '0 0 0 2px rgba(234, 61, 47, 0.2)' : 'none',
+        '&:hover': { borderColor: '#d1d5db' },
+    }),
+    menu: (base) => ({ ...base, borderRadius: 10, zIndex: 10060 }),
+    menuPortal: (base) => ({ ...base, zIndex: 10060 }),
+    option: (base, state) => ({
+        ...base,
+        fontSize: 13,
+        backgroundColor: state.isSelected ? '#EA3D2F' : state.isFocused ? '#fff1f0' : 'white',
+        color: state.isSelected ? 'white' : '#111827',
+    }),
+    singleValue: (base) => ({ ...base, fontSize: 13 }),
+    placeholder: (base) => ({ ...base, fontSize: 13, color: '#9ca3af' }),
+};
+
 export default function MarkAttendanceDetailsModal({
     open,
     employee,
     employeeIds = null,
+    employees = [],
     markKey,
     markLabel,
     dateKey = '',
     staffType = 'office',
     onClose,
     onSave,
+    onMapped,
 }) {
     const config = getMarkFormConfig(markKey);
     const [timeIn, setTimeIn] = useState('');
     const [timeOut, setTimeOut] = useState('');
     const [reason, setReason] = useState('');
     const [attachment, setAttachment] = useState(null);
-    const [leavePayType, setLeavePayType] = useState('');
     const [error, setError] = useState('');
+    const [mapOpen, setMapOpen] = useState(false);
+    const [mapEmployeeId, setMapEmployeeId] = useState('');
+    const [mapError, setMapError] = useState('');
+    const [mapSaving, setMapSaving] = useState(false);
     const fileRef = useRef(null);
     const bulkCount = Array.isArray(employeeIds) ? employeeIds.length : 0;
     const isBulk = bulkCount > 1;
@@ -129,8 +156,11 @@ export default function MarkAttendanceDetailsModal({
 
         setReason('');
         setAttachment(null);
-        setLeavePayType('');
         setError('');
+        setMapOpen(false);
+        setMapEmployeeId('');
+        setMapError('');
+        setMapSaving(false);
         if (fileRef.current) fileRef.current.value = '';
 
         const needsDefaults = Boolean(config?.useWorkingTimeDefaults);
@@ -177,6 +207,44 @@ export default function MarkAttendanceDetailsModal({
         return () => document.removeEventListener('keydown', onKey);
     }, [open, onClose]);
 
+    const mapOptions = useMemo(
+        () =>
+            (Array.isArray(employees) ? employees : [])
+                .filter((row) => row?.id && String(row.id) !== String(employee?.id || ''))
+                .map((row) => ({
+                    value: row.id,
+                    label: `${row.name || 'Employee'}${row.empNo ? ` (${row.empNo})` : ''}`,
+                })),
+        [employees, employee?.id],
+    );
+    const selectedMapOption = mapOptions.find((option) => option.value === mapEmployeeId) || null;
+
+    const handleMap = async () => {
+        if (!employee?.id || !mapEmployeeId || !dateKey) {
+            setMapError('Select an employee.');
+            return;
+        }
+        setMapSaving(true);
+        setMapError('');
+        try {
+            await axiosInstance.post(
+                '/Attendance/map-punch',
+                {
+                    date: dateKey,
+                    targetEmployeeMongoId: employee.id,
+                    sourceEmployeeMongoId: mapEmployeeId,
+                },
+                { skipToast: true },
+            );
+            setMapOpen(false);
+            onMapped?.();
+        } catch (err) {
+            setMapError(err?.response?.data?.message || 'Could not map this employee.');
+        } finally {
+            setMapSaving(false);
+        }
+    };
+
     if (!open || !config || typeof document === 'undefined') return null;
 
     const handleSubmit = (e) => {
@@ -187,26 +255,15 @@ export default function MarkAttendanceDetailsModal({
                 return;
             }
         }
-        if (markKey === 'authorized_leave' && leavePayType !== 'paid' && leavePayType !== 'unpaid') {
-            setError('Choose Paid or Unpaid for authorized leave.');
-            return;
-        }
-        const payType = markKey === 'authorized_leave' ? leavePayType : '';
-        const payLabel =
-            payType === 'paid'
-                ? 'Authorized Leave (Paid)'
-                : payType === 'unpaid'
-                  ? 'Authorized Leave (Unpaid)'
-                  : markLabel;
         onSave?.({
             markKey,
-            markLabel: payLabel,
+            markLabel,
             timeIn: config.showTimes ? timeIn : null,
             timeOut: config.showTimes ? timeOut : null,
             reason: config.showReason ? reason.trim() : '',
             attachmentName: attachment?.name || '',
             attachmentFile: attachment || null,
-            leavePayType: payType,
+            leavePayType: '',
         });
     };
 
@@ -243,40 +300,6 @@ export default function MarkAttendanceDetailsModal({
                 </div>
 
                 <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
-                    {markKey === 'authorized_leave' ? (
-                        <div>
-                            <span className="block text-xs font-semibold text-gray-600 mb-1.5">
-                                Leave pay
-                            </span>
-                            <div className="grid grid-cols-2 gap-2">
-                                {[
-                                    { key: 'paid', label: 'Paid' },
-                                    { key: 'unpaid', label: 'Unpaid' },
-                                ].map((opt) => {
-                                    const active = leavePayType === opt.key;
-                                    return (
-                                        <button
-                                            key={opt.key}
-                                            type="button"
-                                            onClick={() => {
-                                                setLeavePayType(opt.key);
-                                                setError('');
-                                            }}
-                                            className={`h-10 rounded-lg border text-sm font-semibold transition-all ${
-                                                active
-                                                    ? opt.key === 'paid'
-                                                        ? 'border-[#2563EB] bg-blue-50 text-blue-800'
-                                                        : 'border-[#4F46E5] bg-indigo-50 text-indigo-800'
-                                                    : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'
-                                            }`}
-                                        >
-                                            {opt.label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    ) : null}
                     {config.showTimes ? (
                         <div className="grid grid-cols-2 gap-3">
                             <label className="block">
@@ -365,6 +388,18 @@ export default function MarkAttendanceDetailsModal({
                     {error ? <p className="text-sm text-red-500">{error}</p> : null}
 
                     <div className="flex items-center justify-end gap-2 pt-1">
+                        {markKey === 'on_office' && !isBulk ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setMapError('');
+                                    setMapOpen(true);
+                                }}
+                                className="h-9 px-4 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                            >
+                                Map with other user
+                            </button>
+                        ) : null}
                         <button
                             type="button"
                             onClick={onClose}
@@ -381,6 +416,84 @@ export default function MarkAttendanceDetailsModal({
                     </div>
                 </form>
             </div>
+            {mapOpen ? (
+                <div className="fixed inset-0 z-[10050] flex items-center justify-center p-4">
+                    <button
+                        type="button"
+                        className="absolute inset-0 bg-black/40"
+                        aria-label="Close"
+                        onClick={() => {
+                            if (!mapSaving) setMapOpen(false);
+                        }}
+                    />
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        className="relative w-full max-w-md rounded-xl bg-white shadow-xl border border-gray-200"
+                    >
+                        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100">
+                            <div className="min-w-0">
+                                <h2 className="text-base font-semibold text-gray-900">Map with other user</h2>
+                                <p className="text-sm text-gray-500 mt-0.5">
+                                    Copy this day’s check-in, check-out, and location onto{' '}
+                                    {employee?.name || 'this employee'}. A later check-out on the
+                                    selected employee is copied here for this day only.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (!mapSaving) setMapOpen(false);
+                                }}
+                                className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100"
+                                aria-label="Close"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="px-5 py-4 space-y-4">
+                            <label className="block">
+                                <span className="block text-xs font-semibold text-gray-600 mb-1.5">
+                                    Employee
+                                </span>
+                                <Select
+                                    instanceId="mark-attendance-map-employee"
+                                    options={mapOptions}
+                                    value={selectedMapOption}
+                                    onChange={(option) => {
+                                        setMapEmployeeId(option?.value || '');
+                                        setMapError('');
+                                    }}
+                                    placeholder="Select employee"
+                                    isSearchable
+                                    styles={mapSelectStyles}
+                                    menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+                                    menuPosition="fixed"
+                                />
+                            </label>
+                            {mapError ? <p className="text-sm text-red-500">{mapError}</p> : null}
+                            <div className="flex items-center justify-end gap-2">
+                                <button
+                                    type="button"
+                                    disabled={mapSaving}
+                                    onClick={() => setMapOpen(false)}
+                                    className="h-9 px-4 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={mapSaving || !mapEmployeeId}
+                                    onClick={handleMap}
+                                    className="h-9 px-4 rounded-lg bg-[#EA3D2F] hover:bg-[#d43528] text-white text-sm font-semibold disabled:opacity-50"
+                                >
+                                    {mapSaving ? 'Mapping…' : 'Map'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </div>,
         document.body,
     );

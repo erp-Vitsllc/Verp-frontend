@@ -33,6 +33,7 @@ import { buildVehicleDetailPath } from '@/utils/assetNotificationRouting';
 import { navigateFromList } from '@/utils/listReturnNavigation';
 import { navHrefProps } from '@/utils/linkContextMenu';
 import { isVehicleAccessFineVisible } from '@/app/HRM/Asset/Vehicle/utils/vehicleAccessNav';
+import axiosInstance from '@/utils/axios';
 
 const FLEET_DASHBOARD_LIST_RETURN = '/HRM/Asset/Vehicle/dashboard';
 
@@ -876,6 +877,8 @@ export default function VehicleFleetDashboard({
     const [serviceRange, setServiceRange] = useState(() => defaultCustomRange(periodYear));
     const [runningRange, setRunningRange] = useState(() => defaultCustomRange(periodYear));
     const [idleRange, setIdleRange] = useState(() => defaultCustomRange(periodYear));
+    const [customIdleRows, setCustomIdleRows] = useState(null);
+    const [customIdleLoading, setCustomIdleLoading] = useState(false);
 
     useEffect(() => {
         const next = defaultCustomRange(Number(periodYear) || new Date().getFullYear());
@@ -1260,6 +1263,29 @@ export default function VehicleFleetDashboard({
             }));
     }, [locatorData, runningTab, runningRange, vehicles, selectedYear]);
 
+    useEffect(() => {
+        if (idleTab !== 'custom' || !idleRange.from || !idleRange.to) return undefined;
+        let cancel = false;
+        setCustomIdleLoading(true);
+        axiosInstance
+            .get('/VehicleFuel/gps-stats', {
+                params: { from: idleRange.from, to: idleRange.to },
+                skipToast: true,
+            })
+            .then((res) => {
+                if (!cancel) setCustomIdleRows(Array.isArray(res.data?.rows) ? res.data.rows : []);
+            })
+            .catch(() => {
+                if (!cancel) setCustomIdleRows([]);
+            })
+            .finally(() => {
+                if (!cancel) setCustomIdleLoading(false);
+            });
+        return () => {
+            cancel = true;
+        };
+    }, [idleTab, idleRange.from, idleRange.to]);
+
     const idleChart = useMemo(() => {
         const toHoursRows = (rows) =>
             uniqueChartNames(
@@ -1267,6 +1293,7 @@ export default function VehicleFleetDashboard({
                     filterLocatorRows(rows, vehicles).map((row) => ({
                         name: locatorRowLabel(row),
                         value: idleMinutesToHours(row.value),
+                        idleTimeLabel: row.idleTimeLabel || '',
                         deviceId: row.deviceId,
                     })),
                 ),
@@ -1274,6 +1301,20 @@ export default function VehicleFleetDashboard({
 
         if (idleTab === 'custom') {
             if (!idleRange.from || !idleRange.to) return [];
+            if (Array.isArray(customIdleRows)) {
+                return uniqueChartNames(
+                    topRows(
+                        customIdleRows
+                            .filter((row) => Number(row.idleTimeMinutes) > 0)
+                            .map((row) => ({
+                                name: row.vehicleNumber || row.vehicleName || '—',
+                                value: idleMinutesToHours(row.idleTimeMinutes),
+                                idleTimeLabel: row.idleTimeLabel || '',
+                                deviceId: row.deviceId,
+                            })),
+                    ),
+                );
+            }
             const bucket = locatorData?.idleTimeByVehicle?.day;
             const options = (bucket?.options || []).filter((opt) => {
                 const key = parseLocatorDayKey(opt) || String(opt?.key || '');
@@ -1335,7 +1376,7 @@ export default function VehicleFleetDashboard({
         const todayKey = toDateInputValue(new Date());
         const key = bucket?.byKey?.[todayKey] ? todayKey : bucket?.defaultKey;
         return toHoursRows(bucket?.byKey?.[key] || []);
-    }, [locatorData?.idleTimeByVehicle, idleTab, idleRange, vehicles, selectedYear]);
+    }, [locatorData?.idleTimeByVehicle, idleTab, idleRange, vehicles, selectedYear, customIdleRows]);
 
     const openDetailModal = (bucket) => {
         setDetailModalBucket(bucket);
@@ -1935,7 +1976,7 @@ export default function VehicleFleetDashboard({
                     ) : !idleChart.length || idleChart.every((r) => !r.value) ? (
                         <EmptyChart
                             message={
-                                locatorLoading
+                                locatorLoading || customIdleLoading
                                     ? 'Loading idle time…'
                                     : locatorError || locatorData?.connected === false
                                       ? locatorError || locatorData?.message || 'Locator GPS is not connected.'
@@ -1962,15 +2003,18 @@ export default function VehicleFleetDashboard({
                                     width={72}
                                 />
                                 <RechartsTooltip
-                                    formatter={(v) => [`${Number(v).toLocaleString()} hours`, 'Idle time']}
+                                    formatter={(v, _name, item) => [
+                                        item?.payload?.idleTimeLabel || `${Number(v).toLocaleString()} hours`,
+                                        'Idle time',
+                                    ]}
                                     labelFormatter={(_l, payload) => payload?.[0]?.payload?.name || _l}
                                     contentStyle={tooltipStyle}
                                 />
                                 <Bar dataKey="value" fill="#FF9900" radius={[0, 3, 3, 0]} maxBarSize={14} animationDuration={chartAnim}>
                                     <LabelList
-                                        dataKey="value"
+                                        dataKey="idleTimeLabel"
                                         position="right"
-                                        formatter={(v) => Number(v).toLocaleString()}
+                                        formatter={(v) => v || ''}
                                         style={{ fontSize: 9, fill: '#374151', fontWeight: 500 }}
                                     />
                                 </Bar>

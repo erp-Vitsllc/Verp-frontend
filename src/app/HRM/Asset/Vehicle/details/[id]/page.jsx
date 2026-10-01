@@ -1960,6 +1960,7 @@ function VehicleDetailsPageContent() {
         if (loc.livestatus) rows.push({ label: 'Live Status', value: loc.livestatus });
         const km = formatVehicleCurrentKm(a);
         if (km) rows.push({ label: 'Current KM', value: km });
+        if (loc.monthIdleLabel) rows.push({ label: 'Idle time (month)', value: loc.monthIdleLabel });
         if (loc.speedKmh != null && loc.speedKmh !== '') {
             rows.push({ label: 'Speed', value: `${Number(loc.speedKmh).toLocaleString()} km/h` });
         }
@@ -2752,12 +2753,13 @@ function VehicleDetailsPageContent() {
                 setAsset((prev) => (prev ? { ...prev, ...updated } : updated));
             }
             toast({
-                title: 'Success',
-                description: response?.data?.message || 'Return request processed.',
+                title: 'Return started',
+                description: response?.data?.message || 'Return handover is pending. Open the row to add photos, then approve.',
             });
             setShowReturnModal(false);
+            setVehicleTabSilent('handover');
             void fetchAssetDetails({ silent: true });
-            void fetchAssetHistory();
+            void fetchAssetHistory({ forHandover: true });
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -6351,9 +6353,7 @@ function VehicleDetailsPageContent() {
                         </div>
                         <div className="p-8 space-y-4">
                             <p className="text-sm text-slate-600 leading-relaxed">
-                                {canManageFleetHandoverAssignment
-                                    ? 'Confirm to return this vehicle to the unassigned pool.'
-                                    : 'A return request will be sent to HR for approval. The vehicle stays assigned until HR approves.'}
+                                This starts a return handover, the same way assign does. The new row stays Pending so photos can be added, then it is approved. The vehicle stays assigned until that approval is finished.
                             </p>
                         </div>
                         <div className="p-8 bg-slate-50/50 border-t border-slate-100 flex gap-4">

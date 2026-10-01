@@ -388,6 +388,7 @@ function VehicleAssetPageContent() {
     // Session cache is applied in useEffect after mount (avoids 0 vs N mismatch).
     const [vehicles, setVehicles] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [gpsRefreshing, setGpsRefreshing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
     const [modelYearFilter, setModelYearFilter] = useState('');
@@ -639,17 +640,17 @@ function VehicleAssetPageContent() {
     const vehiclesRef = useRef(vehicles);
     vehiclesRef.current = vehicles;
 
-    const fetchVehicles = useCallback(async ({ silent = false } = {}) => {
+    const fetchVehicles = useCallback(async ({ silent = false, fresh = false } = {}) => {
         const hasRowsOnScreen = (vehiclesRef.current?.length || 0) > 0;
         const hasCachedRows = hasRowsOnScreen || (readVehicleListCache()?.length || 0) > 0;
         try {
             // Keep cached rows visible — only show spinner when there is nothing to paint.
             if (!silent && !hasCachedRows) setLoading(true);
 
-            // Fast path: ERP list only — GPS lives on AssetItem from the 30-min Locator sync.
+            // Fast path: ERP list only — GPS lives on AssetItem from the hourly Locator sync.
             // Do NOT call live Locator here; that was freezing Vehicle Asset pages.
             const fleetRes = await axiosInstance.get('/AssetItem/vehicle-fleet-dashboard', {
-                params: { scope: 'list' },
+                params: { scope: 'list', ...(fresh ? { fresh: '1' } : {}) },
                 timeout: 20000,
                 skipToast: true,
             });
@@ -723,6 +724,45 @@ function VehicleAssetPageContent() {
         }
         fetchVehicles();
     }, [fetchVehicles]);
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            fetchVehicles({ silent: true });
+        }, 60 * 60 * 1000);
+        return () => clearInterval(timer);
+    }, [fetchVehicles]);
+
+    const refreshGps = useCallback(async () => {
+        if (gpsRefreshing) return;
+        setGpsRefreshing(true);
+        try {
+            const res = await axiosInstance.post('/locator/refresh-gps', null, {
+                timeout: 120000,
+                skipToast: true,
+            });
+            if (res.data?.success === false) {
+                toast({
+                    variant: 'destructive',
+                    title: 'GPS refresh failed',
+                    description: res.data?.message || 'Current values were kept.',
+                });
+                return;
+            }
+            await fetchVehicles({ silent: true, fresh: true });
+            toast({
+                title: 'GPS updated',
+                description: 'Current KM and GPS status now show the latest Locator values.',
+            });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'GPS refresh failed',
+                description: error?.response?.data?.message || 'Current values were kept.',
+            });
+        } finally {
+            setGpsRefreshing(false);
+        }
+    }, [fetchVehicles, gpsRefreshing, toast]);
 
     useEffect(() => {
         if (!mounted) return;
@@ -1071,6 +1111,16 @@ function VehicleAssetPageContent() {
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                                <button
+                                    type="button"
+                                    onClick={refreshGps}
+                                    disabled={gpsRefreshing}
+                                    className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-white border border-gray-200 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-gray-50 shadow-sm transition-colors whitespace-nowrap disabled:opacity-60 disabled:pointer-events-none"
+                                    title="Pull the latest GPS and current KM from Locator"
+                                >
+                                    <RotateCcw size={16} className={gpsRefreshing ? 'animate-spin' : ''} />
+                                    {gpsRefreshing ? 'Refreshing GPS…' : 'Refresh GPS'}
+                                </button>
                                 <button
                                     type="button"
                                     onClick={() => setVehicleInboxOpen(true)}

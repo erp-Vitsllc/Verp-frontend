@@ -315,22 +315,18 @@ const FINANCIAL_MODAL_META = {
 
 function deductionTypeLabel(event) {
     const key = String(event?.statusKey || '').trim();
-    if (key === 'authorized_leave') {
-        const pay = String(event?.leavePayType || '').toLowerCase();
-        if (pay === 'paid') return 'Authorized leave (paid)';
-        if (pay === 'unpaid') return 'Authorized leave (unpaid)';
-        return 'Authorized leave';
-    }
+    if (key === 'sick_leave') return 'Sick leave (paid)';
+    if (key === 'authorized_leave') return 'Authorized leave';
+    if (key === 'unauthorized_leave') return 'Unauthorized leave';
     return DATA_ROW_LABEL[key] || event?.statusLabel || key || 'Deduction';
 }
 
 function deductionAmountDays(event, leaveBalances) {
     const key = String(event?.statusKey || '').trim();
-    if (key === 'authorized_leave' && String(event?.leavePayType || '').toLowerCase() === 'paid') {
-        return 0;
-    }
-    const multiplier = n(leaveBalances?.[key]?.multiplier);
-    return multiplier > 0 ? multiplier : 1;
+    if (key === 'sick_leave') return 0;
+    const raw = leaveBalances?.[key]?.multiplier;
+    if (raw == null || raw === '') return 1;
+    return n(raw);
 }
 
 function formatDeductionAmount(days, monthlySalary) {

@@ -556,6 +556,7 @@ export default function LeaveCalendarView({
     to,
     employeeName,
     year,
+    focusMonth = '',
     yearMin,
     yearMax,
     onYearChange,
@@ -690,12 +691,20 @@ export default function LeaveCalendarView({
     }, [from, to, approvalId, dragEdge]);
 
     useEffect(() => {
-        if (isAllYear) return;
+        if (!/^\d{4}-\d{2}$/.test(String(focusMonth || ''))) return;
+        const [yearValue, monthValue] = String(focusMonth).split('-').map(Number);
+        if (!yearValue || monthValue < 1 || monthValue > 12) return;
+        setMonthDate(new Date(yearValue, monthValue - 1, 1));
+        setViewMode('month');
+    }, [focusMonth]);
+
+    useEffect(() => {
+        if (focusMonth || isAllYear) return;
         setMonthDate((current) => {
             if (current.getFullYear() === selectedYear) return current;
             return new Date(selectedYear, current.getMonth(), 1);
         });
-    }, [isAllYear, selectedYear]);
+    }, [focusMonth, isAllYear, selectedYear]);
 
     const handleViewModeChange = useCallback(
         (nextMode) => {

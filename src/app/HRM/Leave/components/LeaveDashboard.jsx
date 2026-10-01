@@ -22,8 +22,12 @@ import { notifyLeavePendingInboxChanged } from '../utils/leavePendingInboxCount'
 import {
     ALL_LEAVE_YEAR,
     filterLeaveEntriesBySalary,
+    formatLeaveMonthLabel,
+    isAllLeaveMonth,
     isAllLeaveYear,
     isLeaveRangeSalaryVisible,
+    leaveMonthBounds,
+    leaveRangeOverlapsMonth,
     processingStartForEmployee,
     useLeaveSalaryVisibility,
 } from '../utils/leaveSalaryVisibility';
@@ -396,6 +400,7 @@ export default function LeaveDashboard({
     sourceFrom = '',
     sourceTo = '',
     year,
+    month = 'all',
     yearMin,
     yearMax,
     onYearChange,
@@ -420,6 +425,9 @@ export default function LeaveDashboard({
 
     const salaryVisibility = useLeaveSalaryVisibility();
     const isAllYear = isAllLeaveYear(year);
+    const isAllMonth = isAllLeaveMonth(month);
+    const monthBounds = isAllMonth ? null : leaveMonthBounds(month);
+    const monthLabel = monthBounds ? formatLeaveMonthLabel(month) : '';
     const currentYear = new Date().getFullYear();
     const selectedYear = isAllYear
         ? currentYear
@@ -428,7 +436,7 @@ export default function LeaveDashboard({
           : currentYear;
     const trackMinYear = Number.isInteger(Number(yearMin)) ? Number(yearMin) : selectedYear;
     const trackMaxYear = Number.isInteger(Number(yearMax)) ? Number(yearMax) : currentYear;
-    const yearLabel = isAllYear ? 'ALL' : String(selectedYear);
+    const yearLabel = monthLabel || (isAllYear ? 'ALL' : String(selectedYear));
 
     const displayEmployeeName =
         employeeName || selectedEmployee?.employeeName || '';
@@ -447,6 +455,7 @@ export default function LeaveDashboard({
         );
 
     const availabilityRange = useMemo(() => {
+        if (monthBounds) return monthBounds;
         if (isAllYear) {
             const empStart = processingStartForEmployee(
                 salaryVisibility,
@@ -467,6 +476,7 @@ export default function LeaveDashboard({
         currentYear,
         employeeId,
         isAllYear,
+        month,
         salaryVisibility,
         selectedEmployee?.employeeId,
         selectedYear,
@@ -561,8 +571,13 @@ export default function LeaveDashboard({
         setPendingLoading(true);
         setPendingError('');
         try {
+            const requestYear = monthBounds
+                ? Number(String(month).slice(0, 4))
+                : isAllYear
+                  ? ALL_LEAVE_YEAR
+                  : selectedYear;
             const response = await axiosInstance.get('/Leave/pending-requests', {
-                params: { year: isAllYear ? ALL_LEAVE_YEAR : selectedYear },
+                params: { year: requestYear },
                 skipToast: true,
             });
             setPendingItems(Array.isArray(response.data?.items) ? response.data.items : []);
@@ -572,7 +587,7 @@ export default function LeaveDashboard({
         } finally {
             setPendingLoading(false);
         }
-    }, [isAllYear, selectedYear]);
+    }, [isAllYear, month, selectedYear]);
 
     const fetchTeamTrack = useCallback(async (yearArg) => {
         const yearParam = isAllLeaveYear(yearArg) ? ALL_LEAVE_YEAR : yearArg;
@@ -604,8 +619,13 @@ export default function LeaveDashboard({
     }, [fetchPendingRequests, refreshKey]);
 
     useEffect(() => {
-        fetchTeamTrack(isAllYear ? ALL_LEAVE_YEAR : selectedYear);
-    }, [fetchTeamTrack, isAllYear, refreshKey, selectedYear]);
+        const trackYearArg = monthBounds
+            ? Number(String(month).slice(0, 4))
+            : isAllYear
+              ? ALL_LEAVE_YEAR
+              : selectedYear;
+        fetchTeamTrack(trackYearArg);
+    }, [fetchTeamTrack, isAllYear, month, refreshKey, selectedYear]);
 
     useEffect(() => {
         setTrackYear(isAllYear ? ALL_LEAVE_YEAR : selectedYear);
@@ -638,7 +658,6 @@ export default function LeaveDashboard({
                         attendanceId: row.id,
                         decision,
                         approvedStatusKey: row.requestedStatusKey || '',
-                        leavePayType: 'paid',
                     },
                     { skipToast: true },
                 );
@@ -658,7 +677,13 @@ export default function LeaveDashboard({
     const yearPendingItems = useMemo(
         () =>
             pendingItems.filter((row) => {
-                if (!isAllYear && !String(row.startDateKey || '').startsWith(`${selectedYear}-`)) {
+                if (
+                    monthBounds &&
+                    !leaveRangeOverlapsMonth(row.startDateKey, row.endDateKey, month)
+                ) {
+                    return false;
+                }
+                if (!monthBounds && !isAllYear && !String(row.startDateKey || '').startsWith(`${selectedYear}-`)) {
                     return false;
                 }
                 if (groupEmployeeIds && !groupEmployeeIds.has(String(row.employeeMongoId || ''))) {
@@ -673,7 +698,7 @@ export default function LeaveDashboard({
                 }
                 return isLeaveRangeSalaryVisible(row, salaryVisibility);
             }),
-        [groupEmployeeIds, isAllYear, pendingItems, salaryVisibility, selectedYear, statusFilter],
+        [groupEmployeeIds, isAllYear, month, pendingItems, salaryVisibility, selectedYear, statusFilter],
     );
 
     const pendingCount = useMemo(
@@ -730,10 +755,11 @@ export default function LeaveDashboard({
         );
     }, [approvalCategory, categoryApprovalItems, pinnedApprovalRow, selectedApprovalId]);
 
+    const periodLabel = monthLabel || (isAllYear ? '' : String(selectedYear));
     const approvalEmptyLabel =
         approvalCategory === APPROVAL_CATEGORY_PENDING
-            ? `No pending leave requests${isAllYear ? '' : ` for ${selectedYear}`}.`
-            : `No approved leave requests${isAllYear ? '' : ` for ${selectedYear}`}.`;
+            ? `No pending leave requests${periodLabel ? ` for ${periodLabel}` : ''}.`
+            : `No approved leave requests${periodLabel ? ` for ${periodLabel}` : ''}.`;
 
     const isRowSelected = useCallback(
         (row) => {
@@ -886,9 +912,14 @@ export default function LeaveDashboard({
         return list;
     }, [groupKey, trackMonths]);
 
+    const visibleTrackMonths = useMemo(() => {
+        if (isAllMonth) return trackMonths;
+        return trackMonths.filter((item) => String(item.monthKey || '') === String(month));
+    }, [isAllMonth, month, trackMonths]);
+
     const chartData = useMemo(
         () =>
-            trackMonths.map((item) => {
+            visibleTrackMonths.map((item) => {
                 const row = { month: item.month };
                 if (chartGroups.length) {
                     for (const group of chartGroups) {
@@ -902,19 +933,19 @@ export default function LeaveDashboard({
                 }
                 return row;
             }),
-        [chartGroups, trackMonths],
+        [chartGroups, visibleTrackMonths],
     );
 
     const shiftTrackYear = useCallback(
         (direction) => {
-            if (isAllYear) return;
+            if (!isAllMonth || isAllYear) return;
             const nextYear = Number(trackYear) + direction;
             if (nextYear < trackMinYear || nextYear > trackMaxYear) return;
             setTrackYear(nextYear);
             onYearChange?.(nextYear);
             fetchTeamTrack(nextYear);
         },
-        [fetchTeamTrack, isAllYear, onYearChange, trackMaxYear, trackMinYear, trackYear],
+        [fetchTeamTrack, isAllMonth, isAllYear, onYearChange, trackMaxYear, trackMinYear, trackYear],
     );
 
     return (
@@ -1091,21 +1122,22 @@ export default function LeaveDashboard({
                             <button
                                 type="button"
                                 onClick={() => shiftTrackYear(-1)}
-                                disabled={isAllYear || Number(trackYear) <= trackMinYear}
+                                disabled={Boolean(monthBounds) || isAllYear || Number(trackYear) <= trackMinYear}
                                 className="rounded p-0.5 hover:bg-[#F3F4F6] disabled:cursor-default disabled:opacity-40"
                                 aria-label="Previous year"
                             >
                                 <ChevronLeft size={16} />
                             </button>
                             <span>
-                                {isAllLeaveYear(trackYear)
-                                    ? trackRangeLabel || 'Last 12 months'
-                                    : trackYear}
+                                {monthLabel ||
+                                    (isAllLeaveYear(trackYear)
+                                        ? trackRangeLabel || 'Last 12 months'
+                                        : trackYear)}
                             </span>
                             <button
                                 type="button"
                                 onClick={() => shiftTrackYear(1)}
-                                disabled={isAllYear || Number(trackYear) >= trackMaxYear}
+                                disabled={Boolean(monthBounds) || isAllYear || Number(trackYear) >= trackMaxYear}
                                 className="rounded p-0.5 hover:bg-[#F3F4F6] disabled:cursor-default disabled:opacity-40"
                                 aria-label="Next year"
                             >

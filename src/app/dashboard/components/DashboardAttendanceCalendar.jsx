@@ -361,6 +361,36 @@ function dayTone({
             label: record.statusLabel || 'On Leave',
         };
     }
+    // A punch means the person is here. not_marked used to win and show Absent.
+    if (record?.timeIn && !record?.timeOut) {
+        if (record.statusKey === 'late_arrived') {
+            const detail = record.reason ? ` — ${record.reason}` : '';
+            return {
+                cell: TONE.yellow,
+                label: `Late Arrival${detail}`,
+            };
+        }
+        if (!isToday) {
+            return {
+                cell: TONE.yellow,
+                label: 'Mispunched',
+            };
+        }
+        return {
+            cell: TONE.present,
+            label: 'Present',
+        };
+    }
+    if (
+        record?.timeIn &&
+        record?.timeOut &&
+        ABSENT_KEYS.has(record.statusKey)
+    ) {
+        return {
+            cell: TONE.present,
+            label: 'Present',
+        };
+    }
     if (record && ABSENT_KEYS.has(record.statusKey)) {
         return {
             cell: TONE.absent,
@@ -382,25 +412,6 @@ function dayTone({
         return {
             cell: TONE.present,
             label: record.statusLabel || 'Present',
-        };
-    }
-    if (record?.timeIn && !record?.timeOut) {
-        if (record.statusKey === 'late_arrived') {
-            const detail = record.reason ? ` — ${record.reason}` : '';
-            return {
-                cell: TONE.yellow,
-                label: `Late Arrival${detail}`,
-            };
-        }
-        if (!isToday) {
-            return {
-                cell: TONE.yellow,
-                label: 'Mispunched',
-            };
-        }
-        return {
-            cell: TONE.present,
-            label: record.statusLabel || 'On time',
         };
     }
     if (!isFuture && !isToday) {

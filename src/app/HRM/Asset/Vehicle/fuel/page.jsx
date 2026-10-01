@@ -42,7 +42,7 @@ function shiftDayKey(key, days) {
 function formatKm(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return '—';
-    return `${n.toLocaleString(undefined, { maximumFractionDigits: 1 })} km`;
+    return `${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} km`;
 }
 
 function formatRangeLabel(from, to) {
@@ -213,8 +213,8 @@ export default function VehicleFuelGpsPage() {
                                     </span>
                                 </div>
                                 <p className="text-gray-500 text-xs sm:text-sm">
-                                    GPS vehicle number, idle time, current KM, and running KM from Locator GPS
-                                    snapshots — not ERP odometer. Idle is each engine-on idling session longer than 5 minutes
+                                    Current KM is the live Locator total distance. Idle time for the selected
+                                    dates is the Locator Excessive Idling Report, for sessions longer than 5 minutes.
                                     {applied.from && applied.to ? ` · ${formatRangeLabel(applied.from, applied.to)}` : ''}
                                 </p>
                             </div>
@@ -236,8 +236,8 @@ export default function VehicleFuelGpsPage() {
                                         GPS fuel readings
                                     </h2>
                                     <p className="text-xs text-slate-500 mt-1">
-                                        Idle time and running KM cover the From date at 12:00 AM through the end of the
-                                        To date. Current KM is the latest GPS odometer.
+                                        Idle time and running KM use the Locator summary for the From date at 12:00 AM
+                                        through the end of the To date. Current KM is the live total distance.
                                     </p>
                                 </div>
                                 <div className="flex flex-col sm:flex-row sm:items-end gap-3 shrink-0">

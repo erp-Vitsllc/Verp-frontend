@@ -32,10 +32,47 @@ function isAdvanceType(type) {
         .includes('advance');
 }
 
+const OPEN_APPLICATION_STATUSES = new Set([
+    'pending',
+    'pending hr',
+    'pending accounts',
+    'pending authorization',
+]);
+
+function loanStatus(loan) {
+    return String(loan?.applicationStatus || loan?.approvalStatus || loan?.status || '')
+        .trim()
+        .toLowerCase();
+}
+
+function isFullyRepaidByEmployee(loan) {
+    const amount = Number(loan?.amount) || 0;
+    const repaid = Number(loan?.repaidAmount) || 0;
+    return amount > 0.01 && repaid >= amount - 0.01;
+}
+
+function blocksAnotherRequest(loan) {
+    const status = loanStatus(loan);
+    if (!status || status === 'draft' || status === 'rejected' || status === 'cancelled') {
+        return false;
+    }
+    if (OPEN_APPLICATION_STATUSES.has(status)) return true;
+    if (
+        status === 'approved' ||
+        status === 'paid' ||
+        status === 'pending payment to employee'
+    ) {
+        return !isFullyRepaidByEmployee(loan);
+    }
+    if (status.includes('pending')) return true;
+    return !isFullyRepaidByEmployee(loan);
+}
+
 /**
  * Employee eligibility for Add Loan / Advance.
- * Duplicate active records stay hard-blocked. Visa / status issues are
- * overrideable by the flowchart HR assigned user after confirmation.
+ * An open application, or any loan/advance the employee has not fully repaid,
+ * stays hard-blocked. Visa / status issues are overrideable by the flowchart
+ * HR assigned user after confirmation.
  */
 export function collectLoanEligibilityIssues(
     employee,
@@ -52,16 +89,30 @@ export function collectLoanEligibilityIssues(
     }
 
     if (existingLoans.length > 0) {
-        const hasActiveOfType = existingLoans.some(
-            (l) =>
-                l.employeeId === employee.employeeId &&
-                l.type === type &&
-                l.activeStatus !== 'Closed' &&
-                l.applicationStatus !== 'Rejected' &&
-                (!initialData || (l.id !== initialData.id && l._id !== initialData._id)),
-        );
-        if (hasActiveOfType) {
-            hardBlocks.push(`Employee already has an active or pending ${type}.`);
+        const blocking = existingLoans
+            .filter(
+                (l) =>
+                    l.employeeId === employee.employeeId &&
+                    (!initialData || (l.id !== initialData.id && l._id !== initialData._id)) &&
+                    blocksAnotherRequest(l),
+            )
+            .sort((a, b) => {
+                const aOpen = OPEN_APPLICATION_STATUSES.has(loanStatus(a)) ? 0 : 1;
+                const bOpen = OPEN_APPLICATION_STATUSES.has(loanStatus(b)) ? 0 : 1;
+                return aOpen - bOpen;
+            })[0];
+        if (blocking) {
+            const ref = blocking.loanId ? ` (${blocking.loanId})` : '';
+            const kind = blocking.type || type || 'loan';
+            if (OPEN_APPLICATION_STATUSES.has(loanStatus(blocking))) {
+                hardBlocks.push(
+                    `This employee already has a ${kind} application in progress${ref}.`,
+                );
+            } else {
+                hardBlocks.push(
+                    `This employee still has an unpaid ${kind}${ref}. A new loan or advance can be added only after every previous loan and advance is fully repaid.`,
+                );
+            }
         }
     }
 

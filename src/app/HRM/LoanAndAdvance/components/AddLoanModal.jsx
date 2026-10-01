@@ -361,7 +361,12 @@ export default function AddLoanModal({
         setHrEligibilityOverride(false);
         setErrors(prev => {
             const newErrs = { ...prev };
-            if (newErrs.employeeId && newErrs.employeeId.includes('active or pending')) {
+            if (
+                newErrs.employeeId &&
+                (newErrs.employeeId.includes('active or pending') ||
+                    newErrs.employeeId.includes('fully repaid') ||
+                    newErrs.employeeId.includes('application in progress'))
+            ) {
                 delete newErrs.employeeId;
             }
             return newErrs;

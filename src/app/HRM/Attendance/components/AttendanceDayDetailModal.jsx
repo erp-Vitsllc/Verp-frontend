@@ -60,16 +60,6 @@ export default function AttendanceDayDetailModal({ isOpen, onClose, day, stats =
 
                 <div className="px-5 py-2 max-h-[70vh] overflow-y-auto">
                     <StatRow label="Total staff" value={resolved.totalStaff ?? totalStaff} />
-                    <StatRow
-                        label="Office staff"
-                        value={`${resolved.officePresent} / ${resolved.officeTotal}`}
-                        subValue="Present / total office staff"
-                    />
-                    <StatRow
-                        label="Site staff"
-                        value={`${resolved.sitePresent} / ${resolved.siteTotal}`}
-                        subValue="Present / total site staff"
-                    />
                     <StatRow label="Total present" value={resolved.totalPresent} />
                     <StatRow
                         label="Absent"

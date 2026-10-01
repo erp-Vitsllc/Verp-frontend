@@ -21,9 +21,73 @@ function processingStartFromEnrollment(row) {
 }
 
 export const ALL_LEAVE_YEAR = 'all';
+export const ALL_LEAVE_MONTH = 'all';
 
 export function isAllLeaveYear(year) {
     return String(year || '').trim().toLowerCase() === ALL_LEAVE_YEAR;
+}
+
+export function isAllLeaveMonth(month) {
+    return String(month || '').trim().toLowerCase() === ALL_LEAVE_MONTH;
+}
+
+export function currentLeaveMonthKey(now = new Date()) {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Dubai',
+        year: 'numeric',
+        month: '2-digit',
+    })
+        .format(now)
+        .slice(0, 7);
+}
+
+function shiftMonthKey(monthKey, delta) {
+    const [year, month] = String(monthKey || '').split('-').map(Number);
+    if (!year || !month) return monthKey;
+    const date = new Date(Date.UTC(year, month - 1 + delta, 1));
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+export function leaveDashboardMonthOptions(visibility, now = new Date()) {
+    const current = currentLeaveMonthKey(now);
+    const startRaw = String(visibility?.earliestProcessingStartDate || '').slice(0, 7);
+    const start = YEAR_MONTH.test(startRaw) && startRaw <= current ? startRaw : current;
+    const months = [];
+    for (let cursor = current; cursor >= start; cursor = shiftMonthKey(cursor, -1)) {
+        months.push(cursor);
+        if (months.length > 240) break;
+    }
+    return months;
+}
+
+export function formatLeaveMonthLabel(monthKey) {
+    const [year, month] = String(monthKey || '').split('-').map(Number);
+    if (!year || !month) return String(monthKey || '');
+    return new Intl.DateTimeFormat('en-US', {
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'UTC',
+    }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
+export function leaveMonthBounds(monthKey) {
+    const [year, month] = String(monthKey || '').split('-').map(Number);
+    if (!year || month < 1 || month > 12) return null;
+    const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const mm = String(month).padStart(2, '0');
+    return {
+        from: `${year}-${mm}-01`,
+        to: `${year}-${mm}-${String(last).padStart(2, '0')}`,
+    };
+}
+
+export function leaveRangeOverlapsMonth(startKey, endKey, monthKey) {
+    const bounds = leaveMonthBounds(monthKey);
+    if (!bounds) return true;
+    const start = String(startKey || endKey || '').trim();
+    const end = String(endKey || startKey || '').trim();
+    if (!start) return false;
+    return start <= bounds.to && end >= bounds.from;
 }
 
 export function emptyLeaveSalaryVisibility() {

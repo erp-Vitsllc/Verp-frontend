@@ -220,8 +220,8 @@ export default function NotificationEmailsPage() {
                             WhatsApp Permission
                         </h1>
                         <p className="text-sm sm:text-base text-gray-600">
-                            Turn WhatsApp on or off for tools handover report and tools monthly report. Click a topic
-                            for the full description. Notification and email always go; they are not gated here.
+                            If the employee has a company email, the PDF is emailed there. WhatsApp is used only when
+                            there is no company email. These checkboxes turn that WhatsApp send on or off.
                         </p>
                     </div>
 

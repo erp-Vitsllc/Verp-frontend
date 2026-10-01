@@ -11,7 +11,6 @@ import MarkAttendanceDetailsModal, {
 import { PunchLocationPinCell, PunchTypeCell } from './MarkAttendancePunchCells';
 
 const MARK_OPTIONS = [
-    { key: 'work_from_home', label: 'Work from home' },
     { key: 'on_office', label: 'On work' },
     {
         key: 'on_leave',
@@ -19,7 +18,6 @@ const MARK_OPTIONS = [
         children: [
             { key: 'sick_leave', label: 'Sick leave' },
             { key: 'authorized_leave', label: 'Authorized leave' },
-            { key: 'unauthorized_leave', label: 'Unauthorized leave' },
             { key: 'compoff_leave', label: 'Comp off leave' },
         ],
     },
@@ -32,20 +30,129 @@ function formatDisplayTime(value) {
     return value;
 }
 
-function formatStatusLabel(mark) {
-    if (!mark?.label && !mark?.key) return '';
-    if (mark.key === 'on_office' || String(mark.label).trim().toLowerCase() === 'on office') {
-        return 'On work';
+function dubaiDateKey(date = new Date()) {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Dubai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(date);
+}
+
+function shiftDateKey(dateKey, deltaDays) {
+    const [year, month, day] = String(dateKey).split('-').map(Number);
+    const dt = new Date(Date.UTC(year, month - 1, day + deltaDays, 12, 0, 0));
+    const y = dt.getUTCFullYear();
+    const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(dt.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+const HR_ONLY_MARK_TITLE =
+    'Only the flowchart HR assignee can mark attendance more than 2 days ago.';
+const HR_ONLY_CLEAR_TITLE = 'Only the flowchart HR assignee can clear attendance.';
+const ABSENT_ONLY_MARK_TITLE =
+    'Only absent attendance from the last 2 days can be changed to Authorized leave or marked present.';
+
+const NON_HR_RECENT_ABSENT_OPTIONS = [
+    { key: 'on_office', label: 'On work' },
+    { key: 'authorized_leave', label: 'Authorized leave' },
+];
+
+function isAbsentMark(mark, timeIn) {
+    const key = String(mark?.key || '').trim();
+    const punched = Boolean(timeIn && timeIn !== '—');
+    if (key === 'unauthorized_leave') return true;
+    if (!key || key === 'not_marked' || key === 'absent') return !punched;
+    return false;
+}
+
+function storedViewerUser() {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = localStorage.getItem('user') || localStorage.getItem('employeeUser');
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
     }
-    if (mark.key === 'late_arrived') return mark.label || 'Late Arrival';
-    if (mark.key === 'early_go') return mark.label || 'Early Go';
-    if (mark.key === 'mispunch') return mark.label || 'Mispunched';
-    if (mark.key === 'unauthorized_leave') return mark.label || 'Unauthorized Leave';
-    if (mark.key === 'authorized_leave') return mark.label || 'Authorized Leave';
-    if (mark.key === 'compoff_leave') return mark.label || 'Comp Off Leave';
-    if (mark.key === 'weekly_off') return 'Off Day';
-    if (mark.key === 'holiday') return mark.label || 'Holiday';
-    return mark.label || '';
+}
+
+function viewerIsDesignatedFlowchartHr(user, holder) {
+    if (!user || !holder?.ok) return false;
+    const holderId = String(holder.empObjectId || '').trim();
+    const myIds = [user.employeeObjectId, user.empObjectId, user._id, user.id]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+    if (holderId && myIds.includes(holderId)) return true;
+    const myEid = String(user.employeeId || '').trim().toLowerCase().replace(/\s+/g, '');
+    const hrEid = String(holder.employeeId || '').trim().toLowerCase().replace(/\s+/g, '');
+    return Boolean(myEid && hrEid && myEid === hrEid);
+}
+
+const APPROVED_LEAVE_KEYS = new Set([
+    'on_leave',
+    'authorized_leave',
+    'sick_leave',
+    'compoff_leave',
+]);
+
+function isApprovedLeaveMark(mark) {
+    if (!mark) return false;
+    if (String(mark.leaveRequestStatus || '').trim() !== 'approved') return false;
+    return APPROVED_LEAVE_KEYS.has(String(mark.key || '').trim());
+}
+
+function formatStatusLabel(mark, timeIn, pastDay = false) {
+    const key = String(mark?.key || '').trim();
+    const raw = String(mark?.label || '').trim();
+    const kind = String(mark?.leaveRequestKind || '').trim();
+    const punchedIn = Boolean(timeIn && timeIn !== '—');
+    const missedDay = pastDay ? 'Unauthorized Leave' : 'Absent';
+
+    if (key === 'late_arrived' || /late arrival/i.test(raw)) return 'Present (Late Arrival)';
+    if (key === 'early_go' || /early go/i.test(raw)) return 'Present (Early Go)';
+    if (key === 'mispunch') return raw || 'Mispunched';
+    if (key === 'unauthorized_leave') return raw || 'Unauthorized Leave';
+    if (key === 'authorized_leave') return raw || 'Authorized Leave';
+    if (key === 'sick_leave') return raw || 'Sick Leave';
+    if (key === 'compoff_leave') return raw || 'Comp Off Leave';
+    if (key === 'on_leave' || kind === 'future_annual') {
+        if (!raw || /^on leave$/i.test(raw) || /annual/i.test(raw)) return 'Annual Leave';
+        return raw;
+    }
+    if (key === 'work_from_home') return raw || 'Work from home';
+    if (key === 'weekly_off') return 'Off Day';
+    if (key === 'holiday') return raw || 'Holiday';
+    if (!punchedIn && (key === '' || key === 'not_marked' || key === 'absent')) return missedDay;
+    if (
+        key === 'on_office' ||
+        key === 'not_marked' ||
+        /^(on time|present|on work|on office)$/i.test(raw)
+    ) {
+        return 'Present (On time)';
+    }
+    return raw || missedDay;
+}
+
+function statusChipClass(mark, label) {
+    const key = String(mark?.key || '').trim();
+    if (
+        label === 'Absent' ||
+        label === 'Unauthorized Leave' ||
+        key === 'absent' ||
+        key === 'unauthorized_leave'
+    ) {
+        return 'text-rose-700 bg-rose-50';
+    }
+    if (key === 'on_leave' || /annual leave/i.test(label)) return 'text-indigo-700 bg-indigo-50';
+    if (key === 'authorized_leave') return 'text-orange-700 bg-orange-50';
+    if (key === 'compoff_leave') return 'text-violet-700 bg-violet-50';
+    if (key === 'weekly_off' || key === 'holiday') return 'text-[#9B59B6] bg-purple-50';
+    if (key === 'late_arrived' || key === 'early_go' || key === 'mispunch' || label.startsWith('Present (')) {
+        if (label === 'Present (On time)') return 'text-emerald-700 bg-emerald-50';
+        return 'text-amber-800 bg-amber-50';
+    }
+    return 'text-emerald-700 bg-emerald-50';
 }
 
 function applyDayRecordsToState(employees, records) {
@@ -67,6 +174,9 @@ function applyDayRecordsToState(employees, records) {
             checkOutSource: rec.checkOutSource || '',
             checkInLocation: rec.checkInLocation || null,
             checkOutLocation: rec.checkOutLocation || null,
+            leaveRequestStatus: rec.leaveRequestStatus || '',
+            leaveRequestKind: rec.leaveRequestKind || '',
+            approvalStatus: rec.approvalStatus || '',
         };
         return {
             ...e,
@@ -115,7 +225,7 @@ function matchesStaffType(emp, staffType) {
     return actual === wanted;
 }
 
-function MarkAttendanceMenu({ anchorRect, onSelect, onClose }) {
+function MarkAttendanceMenu({ anchorRect, onSelect, onClose, options = MARK_OPTIONS }) {
     const [openLeave, setOpenLeave] = useState(false);
     const menuRef = useRef(null);
     const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -157,7 +267,7 @@ function MarkAttendanceMenu({ anchorRect, onSelect, onClose }) {
             style={{ top: pos.top, left: pos.left }}
             role="menu"
         >
-            {MARK_OPTIONS.map((opt) => {
+            {options.map((opt) => {
                 if (opt.children?.length) {
                     return (
                         <div
@@ -193,17 +303,27 @@ function MarkAttendanceMenu({ anchorRect, onSelect, onClose }) {
                     );
                 }
 
+                const itemDisabled = Boolean(opt.disabled);
                 return (
                     <button
                         key={opt.key}
                         type="button"
                         role="menuitem"
-                        onClick={() => onSelect(opt.key, opt.label)}
-                        className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 ${
+                        disabled={itemDisabled}
+                        title={itemDisabled ? opt.disabledTitle || undefined : undefined}
+                        onClick={() => {
+                            if (itemDisabled) return;
+                            onSelect(opt.key, opt.label);
+                        }}
+                        className={`w-full px-3 py-2 text-left text-sm ${
+                            itemDisabled
+                                ? 'cursor-not-allowed text-gray-300'
+                                : 'hover:bg-gray-50'
+                        } ${
                             opt.key === 'clear_attendance'
-                                ? 'text-gray-500 border-t border-gray-100 mt-0.5'
-                                : 'text-gray-700'
-                        }`}
+                                ? 'border-t border-gray-100 mt-0.5'
+                                : ''
+                        } ${itemDisabled ? '' : opt.key === 'clear_attendance' ? 'text-gray-500' : 'text-gray-700'}`}
                     >
                         {opt.label}
                     </button>
@@ -214,7 +334,18 @@ function MarkAttendanceMenu({ anchorRect, onSelect, onClose }) {
     );
 }
 
-function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }) {
+function EmployeeRow({
+    index,
+    employee,
+    checked,
+    onToggle,
+    mark,
+    onRequestMark,
+    pastDay = false,
+    actionLocked = false,
+    actionTitle = '',
+    menuOptions = MARK_OPTIONS,
+}) {
     const [menuOpen, setMenuOpen] = useState(false);
     const [anchorRect, setAnchorRect] = useState(null);
     const buttonRef = useRef(null);
@@ -232,6 +363,14 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
 
     const timeIn = employee.timeIn || '—';
     const timeOut = employee.timeOut || '—';
+    const statusText = formatStatusLabel(mark, timeIn, pastDay);
+    const leaveLocked = isApprovedLeaveMark(mark);
+    const rowLocked = leaveLocked || actionLocked;
+    const lockTitle = leaveLocked
+        ? `${statusText} is approved for this day`
+        : actionLocked
+          ? actionTitle
+          : undefined;
 
     return (
         <tr className="border-b border-gray-100 hover:bg-slate-50/80 transition-colors">
@@ -239,8 +378,11 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
                 <input
                     type="checkbox"
                     checked={checked}
-                    onChange={() => onToggle(employee.id)}
-                    className="h-4 w-4 rounded border-gray-300 text-[#EA3D2F] focus:ring-[#EA3D2F]/30 cursor-pointer"
+                    disabled={rowLocked}
+                    onChange={() => {
+                        if (!rowLocked) onToggle(employee.id);
+                    }}
+                    className="h-4 w-4 rounded border-gray-300 text-[#EA3D2F] focus:ring-[#EA3D2F]/30 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label={`Select ${employee.name}`}
                 />
             </td>
@@ -250,41 +392,19 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{timeIn}</td>
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{timeOut}</td>
             <td className="px-3 py-3 align-middle min-w-[140px]">
-                {mark?.label || mark?.key ? (
-                    <div className="flex flex-col gap-0.5 min-w-0">
-                        <span
-                            className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${
-                                mark.key === 'weekly_off' || mark.key === 'holiday'
-                                    ? 'text-[#9B59B6] bg-purple-50'
-                                    : mark.key === 'on_leave'
-                                      ? 'text-rose-700 bg-rose-50'
-                                    : mark.key === 'unauthorized_leave'
-                                      ? 'text-rose-700 bg-rose-50'
-                                      : mark.key === 'authorized_leave'
-                                        ? 'text-orange-700 bg-orange-50'
-                                      : mark.key === 'sick_leave'
-                                        ? 'text-emerald-700 bg-emerald-50'
-                                      : mark.key === 'compoff_leave'
-                                        ? 'text-violet-700 bg-violet-50'
-                                      : mark.key === 'late_arrived' ||
-                                          mark.key === 'early_go' ||
-                                          mark.key === 'mispunch'
-                                        ? 'text-amber-800 bg-amber-50'
-                                        : 'text-emerald-700 bg-emerald-50'
-                            }`}
-                            title={[formatStatusLabel(mark), mark.reason].filter(Boolean).join(' — ')}
-                        >
-                            {formatStatusLabel(mark)}
+                <div className="flex flex-col gap-0.5 min-w-0">
+                    <span
+                        className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${statusChipClass(mark, statusText)}`}
+                        title={[statusText, mark?.reason].filter(Boolean).join(' — ')}
+                    >
+                        {statusText}
+                    </span>
+                    {mark?.reason ? (
+                        <span className="text-[10px] text-gray-500 max-w-[180px] truncate" title={mark.reason}>
+                            {mark.reason}
                         </span>
-                        {mark?.reason ? (
-                            <span className="text-[10px] text-gray-500 max-w-[180px] truncate" title={mark.reason}>
-                                {mark.reason}
-                            </span>
-                        ) : null}
-                    </div>
-                ) : (
-                    <span className="text-sm text-gray-400">—</span>
-                )}
+                    ) : null}
+                </div>
             </td>
             <td className="px-3 py-3 align-middle text-center min-w-[88px]">
                 <PunchLocationPinCell location={mark?.checkInLocation} time={timeIn} kind="in" />
@@ -304,14 +424,21 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
                     <button
                         ref={buttonRef}
                         type="button"
-                        onClick={() => (menuOpen ? closeMenu() : openMenu())}
-                        className="h-8 px-3 rounded-lg bg-[#EA3D2F] hover:bg-[#d43528] text-white text-xs font-semibold whitespace-nowrap transition-colors"
+                        disabled={rowLocked}
+                        title={lockTitle}
+                        onClick={() => {
+                            if (rowLocked) return;
+                            if (menuOpen) closeMenu();
+                            else openMenu();
+                        }}
+                        className="h-8 px-3 rounded-lg bg-[#EA3D2F] text-white text-xs font-semibold whitespace-nowrap transition-colors hover:bg-[#d43528] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-[#EA3D2F]"
                     >
                         Mark Attendance
                     </button>
                     {menuOpen && anchorRect ? (
                         <MarkAttendanceMenu
                             anchorRect={anchorRect}
+                            options={menuOptions}
                             onClose={closeMenu}
                             onSelect={(key, label) => {
                                 closeMenu();
@@ -335,6 +462,9 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
     const [selectedIds, setSelectedIds] = useState(() => new Set());
     const [marks, setMarks] = useState({});
     const [formState, setFormState] = useState(null);
+    const [isFlowchartHr, setIsFlowchartHr] = useState(false);
+    const [hrReady, setHrReady] = useState(false);
+    const [dayReload, setDayReload] = useState(0);
     const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
     const [bulkAnchorRect, setBulkAnchorRect] = useState(null);
     const bulkButtonRef = useRef(null);
@@ -348,12 +478,33 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
     useEffect(() => {
         let cancelled = false;
         (async () => {
+            try {
+                const { data } = await axiosInstance.get('/Flowchart/active-holder/hr', {
+                    skipToast: true,
+                });
+                if (!cancelled) {
+                    setIsFlowchartHr(viewerIsDesignatedFlowchartHr(storedViewerUser(), data));
+                }
+            } catch {
+                if (!cancelled) setIsFlowchartHr(false);
+            } finally {
+                if (!cancelled) setHrReady(true);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
             setLoading(true);
             setLoadError('');
             try {
                 // Lean roster — avoids heavy /Employee aggregation that timed out / lagged.
                 const res = await axiosInstance.get('/Attendance/mark-roster', {
-                    params: { staffType },
+                    params: { staffType, date: dateKey },
                     skipToast: true,
                 });
                 const rows = extractEmployeeRows(res.data)
@@ -376,7 +527,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
         return () => {
             cancelled = true;
         };
-    }, [staffType]);
+    }, [staffType, dateKey]);
 
     // Load stored attendance for the selected day
     useEffect(() => {
@@ -416,7 +567,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
         return () => {
             cancelled = true;
         };
-    }, [dateKey, loading, allEmployees]);
+    }, [dateKey, loading, allEmployees, dayReload]);
 
     useEffect(() => {
         if (selectedIds.size <= 1) {
@@ -425,8 +576,45 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
         }
     }, [selectedIds.size]);
 
-    const allChecked = employees.length > 0 && selectedIds.size === employees.length;
-    const someChecked = selectedIds.size > 0 && selectedIds.size < employees.length;
+    const todayKey = dubaiDateKey();
+    const earliestMarkKey = shiftDateKey(todayKey, -2);
+    const pastDay = Boolean(dateKey) && dateKey < todayKey;
+    const dayMode = isFlowchartHr
+        ? 'full'
+        : !hrReady && dateKey < earliestMarkKey
+          ? 'locked'
+          : dateKey === todayKey
+            ? 'full'
+            : dateKey >= earliestMarkKey && dateKey < todayKey
+              ? 'absent-only'
+              : 'locked';
+    const baseMenuOptions =
+        dayMode === 'absent-only' ? NON_HR_RECENT_ABSENT_OPTIONS : MARK_OPTIONS;
+    const menuOptions = (
+        baseMenuOptions.some((option) => option.key === 'clear_attendance')
+            ? baseMenuOptions
+            : [...baseMenuOptions, MARK_OPTIONS.find((option) => option.key === 'clear_attendance')]
+    ).map((option) =>
+        option.key === 'clear_attendance'
+            ? {
+                  ...option,
+                  disabled: !isFlowchartHr,
+                  disabledTitle: HR_ONLY_CLEAR_TITLE,
+              }
+            : option,
+    );
+    const rowIsActionLocked = (employee) => {
+        if (dayMode === 'locked') return true;
+        if (dayMode === 'absent-only') {
+            return !isAbsentMark(marks[employee.id], employee.timeIn);
+        }
+        return false;
+    };
+    const markableEmployees = employees.filter(
+        (employee) => !isApprovedLeaveMark(marks[employee.id]) && !rowIsActionLocked(employee),
+    );
+    const allChecked = markableEmployees.length > 0 && selectedIds.size === markableEmployees.length;
+    const someChecked = selectedIds.size > 0 && selectedIds.size < markableEmployees.length;
     const showBulkMark = selectedIds.size > 1;
 
     const toggleAll = () => {
@@ -434,7 +622,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
             setSelectedIds(new Set());
             return;
         }
-        setSelectedIds(new Set(employees.map((e) => e.id)));
+        setSelectedIds(new Set(markableEmployees.map((e) => e.id)));
     };
 
     const toggleOne = (id) => {
@@ -447,7 +635,20 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
     };
 
     const applyMarkToIds = async (ids, payload) => {
-        const idSet = new Set(ids);
+        if (dayMode === 'locked') return;
+        if (payload?.markKey === 'clear_attendance' && !isFlowchartHr) return;
+        const allowedRecentKey =
+            payload?.markKey === 'on_office' || payload?.markKey === 'authorized_leave';
+        const idSet = new Set(
+            ids.filter((id) => {
+                if (isApprovedLeaveMark(marks[id])) return false;
+                if (dayMode !== 'absent-only') return true;
+                if (!allowedRecentKey) return false;
+                const employee = employeesRef.current.find((row) => row.id === id);
+                return isAbsentMark(marks[id], employee?.timeIn);
+            }),
+        );
+        if (idSet.size === 0) return;
         const { markKey, markLabel, timeIn, timeOut, reason, attachmentName, leavePayType } = payload;
         const isClear = markKey === 'clear_attendance';
 
@@ -558,7 +759,15 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
     };
 
     const handleRequestMark = (employee, key, label) => {
-        if (saving) return;
+        if (saving || isApprovedLeaveMark(marks[employee.id]) || rowIsActionLocked(employee)) return;
+        if (key === 'clear_attendance' && !isFlowchartHr) return;
+        if (
+            dayMode === 'absent-only' &&
+            key !== 'on_office' &&
+            key !== 'authorized_leave'
+        ) {
+            return;
+        }
         const config = getMarkFormConfig(key);
         if (!config) {
             applyMarkToIds([employee.id], {
@@ -581,8 +790,21 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
     };
 
     const handleBulkRequestMark = (key, label) => {
-        if (saving) return;
-        const ids = Array.from(selectedIds);
+        if (saving || dayMode === 'locked') return;
+        if (key === 'clear_attendance' && !isFlowchartHr) return;
+        if (
+            dayMode === 'absent-only' &&
+            key !== 'on_office' &&
+            key !== 'authorized_leave'
+        ) {
+            return;
+        }
+        const ids = Array.from(selectedIds).filter((id) => {
+            if (isApprovedLeaveMark(marks[id])) return false;
+            if (dayMode !== 'absent-only') return true;
+            const employee = employees.find((row) => row.id === id);
+            return isAbsentMark(marks[id], employee?.timeIn);
+        });
         if (ids.length === 0) return;
         const config = getMarkFormConfig(key);
         if (!config) {
@@ -627,7 +849,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
     if (employees.length === 0) {
         return (
             <div className="py-12 text-center text-sm text-gray-400">
-                No active {String(staffType || 'office')} staff found.
+                No enrolled staff for this date.
             </div>
         );
     }
@@ -640,6 +862,14 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
             {saving ? (
                 <div className="px-1 pb-2 text-xs text-gray-400">Saving attendance…</div>
             ) : null}
+            {dayMode === 'locked' ? (
+                <div className="px-1 pb-2 text-xs text-amber-700">{HR_ONLY_MARK_TITLE}</div>
+            ) : null}
+            {dayMode === 'absent-only' ? (
+                <div className="px-1 pb-2 text-xs text-slate-500">
+                    Absent attendance from the last 2 days can be set to Authorized leave or marked present.
+                </div>
+            ) : null}
 
             {showBulkMark ? (
                 <div className="flex items-center justify-between gap-3 px-1 pb-3">
@@ -651,8 +881,12 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                         <button
                             ref={bulkButtonRef}
                             type="button"
-                            disabled={saving}
-                            onClick={() => (bulkMenuOpen ? closeBulkMenu() : openBulkMenu())}
+                            disabled={saving || dayMode === 'locked'}
+                            onClick={() => {
+                                if (dayMode === 'locked') return;
+                                if (bulkMenuOpen) closeBulkMenu();
+                                else openBulkMenu();
+                            }}
                             className="h-9 px-4 rounded-lg bg-[#EA3D2F] hover:bg-[#d43528] text-white text-sm font-semibold whitespace-nowrap transition-colors disabled:opacity-60"
                         >
                             Mark Attendance All
@@ -660,6 +894,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                         {bulkMenuOpen && bulkAnchorRect ? (
                             <MarkAttendanceMenu
                                 anchorRect={bulkAnchorRect}
+                                options={menuOptions}
                                 onClose={closeBulkMenu}
                                 onSelect={(key, label) => {
                                     closeBulkMenu();
@@ -683,7 +918,8 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                                         if (el) el.indeterminate = someChecked;
                                     }}
                                     onChange={toggleAll}
-                                    className="h-4 w-4 rounded border-gray-300 text-[#EA3D2F] focus:ring-[#EA3D2F]/30 cursor-pointer"
+                                    disabled={dayMode === 'locked' || markableEmployees.length === 0}
+                                    className="h-4 w-4 rounded border-gray-300 text-[#EA3D2F] focus:ring-[#EA3D2F]/30 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                                     aria-label="Select all employees"
                                     title={allChecked ? 'Uncheck all' : 'Check all'}
                                 />
@@ -734,6 +970,12 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                                 checked={selectedIds.has(employee.id)}
                                 onToggle={toggleOne}
                                 mark={marks[employee.id] || null}
+                                pastDay={pastDay}
+                                actionLocked={rowIsActionLocked(employee)}
+                                actionTitle={
+                                    dayMode === 'locked' ? HR_ONLY_MARK_TITLE : ABSENT_ONLY_MARK_TITLE
+                                }
+                                menuOptions={menuOptions}
                                 onRequestMark={handleRequestMark}
                             />
                         ))}
@@ -745,11 +987,13 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                 open={Boolean(formState)}
                 employee={formState?.employee}
                 employeeIds={formState?.employeeIds}
+                employees={employees}
                 markKey={formState?.markKey}
                 markLabel={formState?.markLabel}
                 dateKey={dateKey}
                 staffType={staffType}
                 onClose={() => setFormState(null)}
+                onMapped={() => setDayReload((value) => value + 1)}
                 onSave={(payload) => {
                     const ids = formState?.employeeIds?.length
                         ? formState.employeeIds

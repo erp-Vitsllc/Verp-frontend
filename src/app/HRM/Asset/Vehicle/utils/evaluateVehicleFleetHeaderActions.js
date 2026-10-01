@@ -247,10 +247,11 @@ export function evaluateVehicleHandoverCardActions({
         returnDisabled = true;
         returnTitle = 'Your return request is awaiting HR approval.';
     } else if (!returnDisabled && isAssignee && !adminMayManage) {
-        returnTitle = 'Request goes to HR for approval (email and dashboard task).';
+        returnTitle =
+            'Starts a pending return handover. Photos are added, then it is approved. The vehicle stays assigned until then.';
     } else if (!returnDisabled) {
         returnTitle =
-            'Return vehicle to Admin Officer. Handover By = current owner, Handover To = Admin Officer.';
+            'Starts a pending return handover. Add photos on the new row, then approve. The vehicle stays assigned until approval finishes.';
     }
 
     let createInspectionDisabled = true;

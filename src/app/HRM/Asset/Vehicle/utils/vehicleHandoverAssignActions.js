@@ -529,6 +529,18 @@ export function canEditHandoverReports({
 
     if (isHandoverReportsLocked(vehicle, historyEntry)) return false;
 
+    const returnFlow = vehicle?.pendingActionDetails?.vehicleHandoverFlow;
+    const isReturnHandover =
+        String(historyEntry?.details?.handoverKind || '').trim() === 'vehicle_return' ||
+        (returnFlow?.isReturn === true &&
+            historyEntry?._id &&
+            String(returnFlow.historyId || '') === String(historyEntry._id));
+    if (isReturnHandover) {
+        if (isFlowchartAdminOfficerUser(currentUser, flowchartAdminRow)) return true;
+        const returnAssignee = resolveHandoverAssigneeRef(vehicle, historyEntry);
+        return Boolean(returnAssignee) && userMatchesEmployeeRef(currentUser, returnAssignee);
+    }
+
     const isAdmin = isFlowchartAdminOfficerUser(currentUser, flowchartAdminRow);
     const assigneeRef = resolveHandoverAssigneeRef(vehicle, historyEntry);
     const hasAssignee = handoverHasTargetEmployee(vehicle, historyEntry);
