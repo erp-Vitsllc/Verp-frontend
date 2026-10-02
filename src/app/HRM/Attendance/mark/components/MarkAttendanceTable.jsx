@@ -113,7 +113,11 @@ function formatStatusLabel(mark, timeIn, pastDay = false) {
     if (key === 'early_go' || /early go/i.test(raw)) return 'Present (Early Go)';
     if (key === 'mispunch') return raw || 'Mispunched';
     if (key === 'unauthorized_leave') return raw || 'Unauthorized Leave';
-    if (key === 'authorized_leave') return raw || 'Authorized Leave';
+    if (key === 'authorized_leave') {
+        const halfAt = raw.indexOf('·');
+        if (halfAt >= 0) return `Authorized Leave ${raw.slice(halfAt).trim()}`;
+        return 'Authorized Leave';
+    }
     if (key === 'sick_leave') return raw || 'Sick Leave';
     if (key === 'compoff_leave') return raw || 'Comp Off Leave';
     if (key === 'on_leave' || kind === 'future_annual') {

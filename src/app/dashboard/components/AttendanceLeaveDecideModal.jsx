@@ -95,8 +95,8 @@ export default function AttendanceLeaveDecideModal({
           ? `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Annual Leave. Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
         : kindKey === 'future_leave'
           ? dayPart === 'half'
-              ? `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Half day Authorized Leave. Pay follows the salary group policy. Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
-              : `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Authorized Leave. Pay follows the salary group policy. Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
+              ? `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Half day Authorized Leave. Authorized leave is unpaid. Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
+              : `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Authorized Leave. Authorized leave is unpaid. Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
           : isPastLate
             ? `Approve marks this day as Late Arrival${
                   requestTimeIn || requestTimeOut

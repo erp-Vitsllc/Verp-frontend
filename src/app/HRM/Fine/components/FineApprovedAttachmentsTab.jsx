@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, ExternalLink, FileText, Loader2, Paperclip } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { loadPdfJs } from '@/app/emp/[employeeId]/utils/lazyLibraries';
 import { format } from 'date-fns';
 import LoanPaymentReceiptsExpandPanel from '@/app/HRM/LoanAndAdvance/components/LoanPaymentReceiptsDropdown';
 import { getFinePaymentsForDocuments } from '@/app/HRM/LoanAndAdvance/utils/loanPaymentReceipts';
@@ -63,30 +62,25 @@ function collectCorrespondingAttachments(fine, reportName) {
     return list;
 }
 
-async function renderPdfPageImages(blob) {
-    const pdfjs = await loadPdfJs();
+function storedReportKey(fine) {
+    const list = Array.isArray(fine?.approvalAttachments) ? fine.approvalAttachments : [];
+    const matches = list.filter(
+        (item) =>
+            item?.publicId &&
+            (item.source === 'approved-form' || item.source === 'asset-loss-report'),
+    );
+    return matches.length ? String(matches[matches.length - 1].publicId) : '';
+}
 
-    const data = await blob.arrayBuffer();
-    const pdf = await pdfjs.getDocument({ data }).promise;
-    const images = [];
-
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
-        const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: 1.35 });
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        if (!context) continue;
-
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        context.fillStyle = '#ffffff';
-        context.fillRect(0, 0, canvas.width, canvas.height);
-
-        await page.render({ canvasContext: context, viewport }).promise;
-        images.push(canvas.toDataURL('image/png'));
+async function fetchPdfBlob(url, config) {
+    const response = await axiosInstance.get(url, { responseType: 'blob', ...config });
+    const contentType = String(response.headers?.['content-type'] || '');
+    if (contentType.includes('application/json') || contentType.includes('text/html')) {
+        throw new Error('Server returned an error instead of a PDF');
     }
-
-    return images;
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    if (blob.size < 500) throw new Error('Approved PDF was empty');
+    return blob;
 }
 
 export default function FineApprovedAttachmentsTab({
@@ -95,12 +89,13 @@ export default function FineApprovedAttachmentsTab({
     employeeId,
 }) {
     const { toast } = useToast();
-    const [pageImages, setPageImages] = useState([]);
+    const [pdfUrl, setPdfUrl] = useState('');
     const [loading, setLoading] = useState(true);
     const [downloading, setDownloading] = useState(false);
     const [error, setError] = useState('');
     const [invoicePayments, setInvoicePayments] = useState([]);
     const pdfBlobRef = useRef(null);
+    const objectUrlRef = useRef('');
 
     const reportTitle = reportTitleForFine(fine);
     const downloadFileName = reportPdfFileName(fine, fineRouteId);
@@ -112,6 +107,7 @@ export default function FineApprovedAttachmentsTab({
         () => getFinePaymentsForDocuments(fine, invoicePayments),
         [fine, invoicePayments],
     );
+    const storedKey = useMemo(() => storedReportKey(fine), [fine?.approvalAttachments]);
 
     useEffect(() => {
         let cancelled = false;
@@ -151,36 +147,44 @@ export default function FineApprovedAttachmentsTab({
         const loadApprovedForm = async () => {
             setLoading(true);
             setError('');
-            setPageImages([]);
             pdfBlobRef.current = null;
+            if (objectUrlRef.current) {
+                URL.revokeObjectURL(objectUrlRef.current);
+                objectUrlRef.current = '';
+            }
+            setPdfUrl('');
 
             try {
                 const targetId = fine?._id || fineRouteId || fine?.fineId;
-                const params = {
-                    ...(employeeId ? { employeeId } : {}),
-                    fresh: 1,
-                    t: fine?.updatedAt || fine?.awardedDate || '',
-                };
-                const response = await axiosInstance.get(
-                    `/Fine/${encodeURIComponent(String(targetId))}/approved-report-pdf`,
-                    { responseType: 'blob', params },
-                );
+                let blob = null;
+
+                if (storedKey) {
+                    try {
+                        blob = await fetchPdfBlob('/storage/file', { params: { key: storedKey } });
+                    } catch (storageErr) {
+                        console.warn('Stored fine report unavailable, loading PDF endpoint:', storageErr);
+                    }
+                }
+
+                if (!blob) {
+                    const params = {
+                        ...(employeeId ? { employeeId } : {}),
+                    };
+                    blob = await fetchPdfBlob(
+                        `/Fine/${encodeURIComponent(String(targetId))}/approved-report-pdf`,
+                        { params },
+                    );
+                }
                 if (cancelled) return;
 
-                const contentType = String(response.headers?.['content-type'] || '');
-                if (contentType.includes('application/json')) {
-                    throw new Error('Server returned an error instead of a PDF');
-                }
-
-                const blob = new Blob([response.data], { type: 'application/pdf' });
-                if (blob.size < 500) {
-                    throw new Error('Approved PDF was empty');
-                }
                 pdfBlobRef.current = blob;
-                const images = await renderPdfPageImages(blob);
-                if (cancelled) return;
-
-                setPageImages(images);
+                const objectUrl = URL.createObjectURL(blob);
+                if (cancelled) {
+                    URL.revokeObjectURL(objectUrl);
+                    return;
+                }
+                objectUrlRef.current = objectUrl;
+                setPdfUrl(objectUrl);
             } catch (err) {
                 if (cancelled) return;
                 console.error('Failed to load approved fine form:', err);
@@ -208,7 +212,12 @@ export default function FineApprovedAttachmentsTab({
         fine?.fineAmount,
         fineRouteId,
         employeeId,
+        storedKey,
     ]);
+
+    useEffect(() => () => {
+        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    }, []);
 
     const handleDownload = async () => {
         try {
@@ -219,8 +228,6 @@ export default function FineApprovedAttachmentsTab({
                 const targetId = fine?._id || fineRouteId || fine?.fineId;
                 const params = {
                     ...(employeeId ? { employeeId } : {}),
-                    fresh: 1,
-                    t: fine?.updatedAt || fine?.awardedDate || '',
                 };
                 const response = await axiosInstance.get(
                     `/Fine/${encodeURIComponent(String(targetId))}/approved-report-pdf`,
@@ -358,16 +365,11 @@ export default function FineApprovedAttachmentsTab({
                         </div>
                     ) : (
                         <div className="flex justify-center">
-                            <div className="w-full max-w-[210mm] flex flex-col items-center">
-                                {pageImages.map((src, index) => (
-                                    <img
-                                        key={`page-${index}`}
-                                        src={src}
-                                        alt={`${reportTitle} page ${index + 1}`}
-                                        className="w-full h-auto bg-white block"
-                                    />
-                                ))}
-                            </div>
+                            <iframe
+                                title={reportTitle}
+                                src={pdfUrl}
+                                className="w-full max-w-[210mm] h-[680px] bg-white border-0"
+                            />
                         </div>
                     )}
                 </div>

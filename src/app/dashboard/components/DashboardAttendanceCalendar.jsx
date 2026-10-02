@@ -130,6 +130,7 @@ function isMispunchReason(reason) {
 }
 
 function authorizedPayType(record) {
+    if (AUTHORIZED_LEAVE_KEYS.has(String(record?.statusKey || '').trim())) return 'unpaid';
     const pay = String(record?.leavePayType || '').toLowerCase();
     if (pay === 'paid' || pay === 'unpaid') return pay;
     const label = String(record?.statusLabel || '').toLowerCase();

@@ -691,8 +691,8 @@ export function sortHandoverHistoryEntries(entries = []) {
 }
 
 /**
- * Admin may only delete the oldest remaining row (top of list).
- * Newer rows can be deleted only after all past (older) rows are removed.
+ * Admin may only delete the latest remaining row (bottom of the list).
+ * Older rows stay until every newer row is removed.
  */
 export function getHandoverListDeleteBlockReason(rows = [], rowIndex) {
     const list = Array.isArray(rows) ? rows : [];
@@ -702,8 +702,8 @@ export function getHandoverListDeleteBlockReason(rows = [], rowIndex) {
     if (rowIndex < 0 || rowIndex >= list.length) {
         return 'This handover row is not in the list.';
     }
-    if (rowIndex === 0) return null;
-    return 'Cannot delete this handover yet. Delete the past (older) rows first, starting from the top of the list.';
+    if (rowIndex === list.length - 1) return null;
+    return 'Cannot delete this handover yet. Delete the latest row first.';
 }
 
 export function canDeleteHandoverHistoryListRow(rows = [], rowIndex) {

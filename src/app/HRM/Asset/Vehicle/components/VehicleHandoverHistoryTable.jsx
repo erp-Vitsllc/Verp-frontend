@@ -181,7 +181,7 @@ export default function VehicleHandoverHistoryTable({
                                 asset,
                                 assetHistory,
                             );
-                            const isOldestRow = canDeleteHandoverHistoryListRow(rows, index);
+                            const isLatestRow = canDeleteHandoverHistoryListRow(rows, index);
                             const deleteBlockReason = getHandoverListDeleteBlockReason(rows, index);
                             const isDeleting =
                                 deletingId === String(entry._id) ||
@@ -234,19 +234,19 @@ export default function VehicleHandoverHistoryTable({
                                                     }
                                                     disabled={isDeleting}
                                                     className={`inline-flex items-center justify-center rounded-lg p-2 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                                                        isOldestRow
+                                                        isLatestRow
                                                             ? 'text-slate-400 hover:bg-rose-50 hover:text-rose-600'
                                                             : 'text-slate-300 hover:bg-amber-50 hover:text-amber-700'
                                                     }`}
                                                     title={
-                                                        isOldestRow
+                                                        isLatestRow
                                                             ? 'Delete handover record'
                                                             : deleteBlockReason
                                                     }
                                                     aria-label={
-                                                        isOldestRow
+                                                        isLatestRow
                                                             ? 'Delete handover record'
-                                                            : 'Delete past handover rows first'
+                                                            : 'Delete the latest handover row first'
                                                     }
                                                 >
                                                     {isDeleting ? (
