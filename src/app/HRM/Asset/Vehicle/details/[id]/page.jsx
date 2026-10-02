@@ -149,7 +149,11 @@ import VehicleDocumentTabServiceSections, {
     documentTabHasServiceRows,
 } from '../../components/VehicleDocumentTabServiceSections';
 import VehicleHandoverHistoryTable from '../../components/VehicleHandoverHistoryTable';
-import { isSameHandoverAssignee, isVehicleInspectionHandoverEntry } from '../../utils/vehicleHandoverHistory';
+import {
+    isSameHandoverAssignee,
+    isVehicleInspectionHandoverEntry,
+    isVehicleReturnHandoverEntry,
+} from '../../utils/vehicleHandoverHistory';
 import VehicleAccessoriesListTab from '../../components/VehicleAccessoriesListTab';
 import {
     VEHICLE_SERVICE_TYPES,
@@ -5147,13 +5151,41 @@ function VehicleDetailsPageContent() {
                                                         String(prev.acceptanceStatus || '') ===
                                                         'Pending' &&
                                                         isSameHandoverAssignee(prev, entry);
+                                                    const deletedAction = String(entry?.action || '').trim();
+                                                    const deletedReturn =
+                                                        isVehicleReturnHandoverEntry(entry, prev) ||
+                                                        deletedAction === 'Returned' ||
+                                                        deletedAction === 'Unassigned';
 
                                                     if (
                                                         !matchesFlow &&
                                                         !clearInspection &&
-                                                        !isPendingAssigned
+                                                        !isPendingAssigned &&
+                                                        !deletedReturn
                                                     ) {
                                                         return prev;
+                                                    }
+
+                                                    if (deletedReturn) {
+                                                        const nextDetails = {
+                                                            ...(prev.pendingActionDetails || {}),
+                                                        };
+                                                        delete nextDetails.vehicleHandoverFlow;
+                                                        delete nextDetails.returnHandoverContext;
+                                                        return {
+                                                            ...prev,
+                                                            status: 'Assigned',
+                                                            assignedTo: entry?.assignedTo || prev.assignedTo,
+                                                            assignedToType:
+                                                                entry?.assignedToType ||
+                                                                prev.assignedToType ||
+                                                                'Employee',
+                                                            pendingAction: null,
+                                                            actionRequiredBy: null,
+                                                            pendingActionDetails: Object.keys(nextDetails).length
+                                                                ? nextDetails
+                                                                : null,
+                                                        };
                                                     }
 
                                                     const nextDetails = {
