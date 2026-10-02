@@ -18,10 +18,21 @@ function StatRow({ label, value, subValue = null }) {
     );
 }
 
-export default function AttendanceDayDetailModal({ isOpen, onClose, day, stats = null, totalStaff = 0 }) {
+export default function AttendanceDayDetailModal({
+    isOpen,
+    onClose,
+    day,
+    stats = null,
+    totalStaff = 0,
+    groupLabel = '',
+    groupCount = null,
+}) {
     if (!isOpen || !day) return null;
 
-    const resolved = stats || emptyDayDetailStats(totalStaff);
+    const companyTotal = Number(totalStaff) || 0;
+    const resolved = stats || emptyDayDetailStats(groupCount ?? companyTotal);
+    const selectedGroupCount =
+        groupCount == null ? Number(resolved.totalStaff) || 0 : Number(groupCount) || 0;
     const dateLabel = format(day, 'EEEE, d MMMM yyyy');
     const notMarkedOrUnauthorized = Number(resolved.notMarked) || 0;
 
@@ -59,7 +70,8 @@ export default function AttendanceDayDetailModal({ isOpen, onClose, day, stats =
                 </div>
 
                 <div className="px-5 py-2 max-h-[70vh] overflow-y-auto">
-                    <StatRow label="Total staff" value={resolved.totalStaff ?? totalStaff} />
+                    <StatRow label="Total staff" value={companyTotal} />
+                    {groupLabel ? <StatRow label={groupLabel} value={selectedGroupCount} /> : null}
                     <StatRow label="Total present" value={resolved.totalPresent} />
                     <StatRow
                         label="Absent"

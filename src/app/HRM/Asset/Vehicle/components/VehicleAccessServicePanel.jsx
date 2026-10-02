@@ -59,6 +59,66 @@ function emptyVehiclesByType() {
 }
 
 const VEHICLE_LIST_RETURN = '/HRM/Asset/Vehicle';
+const ALL_FILTER = 'all';
+
+function rowVehicleId(row) {
+    return String(row?.vehicleId || '').trim();
+}
+
+function rowVehicleLabel(row) {
+    const plate = String(row?.vehicleNo || '').trim();
+    const assetNo = String(row?.vehicleAssetNo || '').trim();
+    if (plate && plate !== '—') return plate;
+    if (assetNo && assetNo !== '—') return assetNo;
+    return 'Vehicle';
+}
+
+function rowServiceType(row) {
+    const type = String(row?.serviceType || '').trim();
+    if (!type || type === '—') return '';
+    return type;
+}
+
+function uniqueVehicleOptions(rows) {
+    const map = new Map();
+    for (const row of rows) {
+        const id = rowVehicleId(row);
+        if (!id || map.has(id)) continue;
+        map.set(id, rowVehicleLabel(row));
+    }
+    return [...map.entries()]
+        .map(([id, label]) => ({ id, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+}
+
+function uniqueServiceOptions(rows) {
+    const present = new Set();
+    for (const row of rows) {
+        const type = rowServiceType(row);
+        if (type) present.add(type);
+    }
+    const ordered = VEHICLE_ACCESS_SERVICE_TYPES.filter((type) => present.has(type));
+    for (const type of present) {
+        if (!ordered.includes(type)) ordered.push(type);
+    }
+    return ordered;
+}
+
+function formatAccessMoney(value) {
+    const n = Number(value);
+    const amount = Number.isFinite(n) ? n : 0;
+    return `AED ${amount.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })}`;
+}
+
+function sumAccessAmounts(rows) {
+    return rows.reduce((sum, row) => {
+        const n = Number(row?.amount);
+        return Number.isFinite(n) && n > 0 ? sum + n : sum;
+    }, 0);
+}
 
 export default function VehicleAccessServicePanel({
     selectedType = 'All',
@@ -76,6 +136,8 @@ export default function VehicleAccessServicePanel({
     const [vehiclesByType, setVehiclesByType] = useState(emptyVehiclesByType);
     const [notYetAssets, setNotYetAssets] = useState([]);
     const [listLoading, setListLoading] = useState(false);
+    const [vehicleFilter, setVehicleFilter] = useState(ALL_FILTER);
+    const [serviceFilter, setServiceFilter] = useState(ALL_FILTER);
 
     const statusFilter = VEHICLE_ACCESS_SERVICE_STATUS_FILTERS.some((tab) => tab.key === selectedType)
         ? selectedType
@@ -165,6 +227,46 @@ export default function VehicleAccessServicePanel({
         return allRows;
     }, [allRows, statusFilter]);
 
+    const serviceScopedRows = useMemo(() => {
+        if (serviceFilter === ALL_FILTER) return visibleRows;
+        return visibleRows.filter((row) => rowServiceType(row) === serviceFilter);
+    }, [serviceFilter, visibleRows]);
+
+    const vehicleScopedRows = useMemo(() => {
+        if (vehicleFilter === ALL_FILTER) return visibleRows;
+        return visibleRows.filter((row) => rowVehicleId(row) === vehicleFilter);
+    }, [vehicleFilter, visibleRows]);
+
+    const vehicleOptions = useMemo(() => {
+        const options = uniqueVehicleOptions(serviceScopedRows);
+        if (vehicleFilter === ALL_FILTER || options.some((option) => option.id === vehicleFilter)) {
+            return options;
+        }
+        const current = visibleRows.find((row) => rowVehicleId(row) === vehicleFilter);
+        return [
+            { id: vehicleFilter, label: current ? rowVehicleLabel(current) : 'Selected vehicle' },
+            ...options,
+        ];
+    }, [serviceScopedRows, vehicleFilter, visibleRows]);
+
+    const serviceOptions = useMemo(() => {
+        const options = uniqueServiceOptions(vehicleScopedRows);
+        if (serviceFilter === ALL_FILTER || options.includes(serviceFilter)) return options;
+        return [serviceFilter, ...options];
+    }, [serviceFilter, vehicleScopedRows]);
+
+    const displayedRows = useMemo(
+        () =>
+            visibleRows.filter((row) => {
+                if (vehicleFilter !== ALL_FILTER && rowVehicleId(row) !== vehicleFilter) return false;
+                if (serviceFilter !== ALL_FILTER && rowServiceType(row) !== serviceFilter) return false;
+                return true;
+            }),
+        [serviceFilter, vehicleFilter, visibleRows],
+    );
+
+    const filteredTotalAmount = useMemo(() => sumAccessAmounts(displayedRows), [displayedRows]);
+
     const serviceRecordRows = useMemo(() => allRows.filter((row) => !row?.isNotYet), [allRows]);
 
     const pendingCount = useMemo(
@@ -207,14 +309,16 @@ export default function VehicleAccessServicePanel({
         VEHICLE_ACCESS_SERVICE_STATUS_FILTERS.find((tab) => tab.key === statusFilter)?.label ||
         'All service records';
 
-    const emptyMessage =
-        statusFilter === VEHICLE_ACCESS_SERVICE_PENDING
-            ? 'No pending services found.'
-            : statusFilter === VEHICLE_ACCESS_SERVICE_COMPLETED
-              ? 'No completed services found.'
-              : statusFilter === VEHICLE_ACCESS_SERVICE_NOT_YET
-                ? 'All vehicles have at least one completed service.'
-                : 'No service records found.';
+    const filtersNarrowed = vehicleFilter !== ALL_FILTER || serviceFilter !== ALL_FILTER;
+    const emptyMessage = filtersNarrowed
+        ? 'No services match the selected filters.'
+        : statusFilter === VEHICLE_ACCESS_SERVICE_PENDING
+          ? 'No pending services found.'
+          : statusFilter === VEHICLE_ACCESS_SERVICE_COMPLETED
+            ? 'No completed services found.'
+            : statusFilter === VEHICLE_ACCESS_SERVICE_NOT_YET
+              ? 'All vehicles have at least one completed service.'
+              : 'No service records found.';
 
     return (
         <div className="bg-white rounded-2xl border border-teal-200 shadow-sm mb-4 sm:mb-6 overflow-hidden">
@@ -273,12 +377,19 @@ export default function VehicleAccessServicePanel({
 
             <div className="border-t border-slate-100">
                 <div className="px-4 sm:px-6 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-600">
-                        {filterTitle}
+                    <div className="min-w-0">
+                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-600">
+                            {filterTitle}
+                            {!listLoading ? (
+                                <span className="ml-2 text-teal-700 tabular-nums">({displayedRows.length})</span>
+                            ) : null}
+                        </h3>
                         {!listLoading ? (
-                            <span className="ml-2 text-teal-700 tabular-nums">({visibleRows.length})</span>
+                            <p className="mt-1 text-xs font-semibold text-slate-700 tabular-nums">
+                                Total {formatAccessMoney(filteredTotalAmount)}
+                            </p>
                         ) : null}
-                    </h3>
+                    </div>
                     <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 flex-wrap">
                         {VEHICLE_ACCESS_SERVICE_STATUS_FILTERS.map((tab) => {
                             const isActive = statusFilter === tab.key;
@@ -299,12 +410,50 @@ export default function VehicleAccessServicePanel({
                         })}
                     </div>
                 </div>
+                <div className="px-4 sm:px-6 py-3 border-b border-slate-100 flex flex-wrap items-end gap-3">
+                    <label className="block min-w-[11rem] flex-1 sm:flex-none sm:w-56">
+                        <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Vehicle
+                        </span>
+                        <select
+                            value={vehicleFilter}
+                            onChange={(event) => setVehicleFilter(event.target.value)}
+                            aria-label="Filter by vehicle"
+                            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15"
+                        >
+                            <option value={ALL_FILTER}>All</option>
+                            {vehicleOptions.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="block min-w-[11rem] flex-1 sm:flex-none sm:w-56">
+                        <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Service
+                        </span>
+                        <select
+                            value={serviceFilter}
+                            onChange={(event) => setServiceFilter(event.target.value)}
+                            aria-label="Filter by service"
+                            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15"
+                        >
+                            <option value={ALL_FILTER}>All</option>
+                            {serviceOptions.map((type) => (
+                                <option key={type} value={type}>
+                                    {type}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                </div>
                 <div className="overflow-hidden">
                     {listLoading ? (
                         <div className="py-16 text-center text-sm text-slate-500">Loading service lists…</div>
                     ) : (
                         <VehicleAccessServiceListTable
-                            rows={visibleRows}
+                            rows={displayedRows}
                             onRowClick={openRow}
                             getRowHref={(row) => buildVehicleServiceListRowHref(row)}
                             router={router}

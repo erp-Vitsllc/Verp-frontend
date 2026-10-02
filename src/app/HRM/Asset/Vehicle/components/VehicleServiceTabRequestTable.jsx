@@ -20,6 +20,7 @@ const SERVICE_TAB_COLUMNS = [
     { key: 'vehicleNo', label: 'Vehicle no', type: 'text' },
     { key: 'requestDate', label: 'Request date', type: 'date' },
     { key: 'currentKm', label: 'Current km', type: 'number' },
+    { key: 'amount', label: 'Amount', type: 'number' },
     { key: 'amountType', label: 'Amount type', type: 'text' },
     { key: 'amountStatus', label: 'Amount status', type: 'text' },
     { key: 'status', label: 'Status', type: 'text' },
@@ -29,6 +30,7 @@ function serviceTabSortValue(row, key) {
     switch (key) {
         case 'slNo':
         case 'currentKm':
+        case 'amount':
             return numberSortValue(row?.[key]);
         case 'requestDate':
             return dateSortValue(row?.requestDate || row?.sortDate || row?.createdAt);
@@ -52,6 +54,14 @@ function formatDate(value) {
     } catch {
         return '—';
     }
+}
+
+function formatAmount(value) {
+    if (value == null || !Number.isFinite(Number(value)) || Number(value) <= 0) return '—';
+    return `AED ${Number(value).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })}`;
 }
 
 function formatKm(value) {
@@ -116,7 +126,7 @@ export default function VehicleServiceTabRequestTable({
 
     return (
         <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse min-w-[920px]">
+            <table className="w-full text-sm border-collapse min-w-[1040px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
                         {SERVICE_TAB_COLUMNS.map((column) => (
@@ -180,6 +190,9 @@ export default function VehicleServiceTabRequestTable({
                                 </td>
                                 <td className="px-4 py-2.5 text-slate-700 tabular-nums">
                                     {formatKm(entry.currentKm)}
+                                </td>
+                                <td className="px-4 py-2.5 text-slate-700 tabular-nums whitespace-nowrap">
+                                    {formatAmount(entry.amount)}
                                 </td>
                                 <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-xs">
                                     {entry.amountType || '—'}

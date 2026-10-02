@@ -681,7 +681,7 @@ function VehicleAssetPageContent() {
         const profileActive = isVehicleProfileActivationActive(vehicle);
         try {
             if (profileActive) {
-                const res = await axiosInstance.post(`/AssetItem/${vehicle._id}/request-vehicle-delete`, null, {
+                const res = await axiosInstance.post(`/AssetItem/${vehicle._id}/request-vehicle-delete`, {}, {
                     skipToast: true,
                 });
                 if (res.data?.deleted) {
@@ -736,7 +736,7 @@ function VehicleAssetPageContent() {
         if (gpsRefreshing) return;
         setGpsRefreshing(true);
         try {
-            const res = await axiosInstance.post('/locator/refresh-gps', null, {
+            const res = await axiosInstance.post('/locator/refresh-gps', {}, {
                 timeout: 120000,
                 skipToast: true,
             });

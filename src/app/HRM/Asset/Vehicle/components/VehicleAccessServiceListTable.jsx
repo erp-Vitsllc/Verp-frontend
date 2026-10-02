@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronRight, ClipboardList } from 'lucide-react';
+import ErpListPagination from '@/components/ErpListPagination';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { buildVehicleServiceListRowHref, serviceBillStatusBadgeClass, vehicleServiceStatusBadgeClass } from './vehicleServiceUtils';
 import VehicleServiceRequestSortHeader from './VehicleServiceRequestSortHeader';
@@ -12,6 +13,8 @@ import {
     textSortValue,
 } from './vehicleServiceRequestTableSort';
 
+const ACCESS_SERVICE_PAGE_SIZES = [10, 30, 50, 100];
+
 const ACCESS_SERVICE_COLUMNS = [
     { key: 'slNo', label: 'SL', type: 'number' },
     { key: 'serviceReqNo', label: 'VSRNO', type: 'text' },
@@ -19,6 +22,7 @@ const ACCESS_SERVICE_COLUMNS = [
     { key: 'currentKm', label: 'Current KM', type: 'number' },
     { key: 'amountType', label: 'Amount Type', type: 'text' },
     { key: 'serviceType', label: 'Service Type', type: 'text' },
+    { key: 'amount', label: 'Amount', type: 'number' },
     { key: 'serviceStatus', label: 'Service Status', type: 'text' },
     { key: 'billStatus', label: 'Bill Status', type: 'text' },
 ];
@@ -27,6 +31,7 @@ function accessServiceSortValue(row, key) {
     switch (key) {
         case 'slNo':
         case 'currentKm':
+        case 'amount':
             return numberSortValue(row?.[key]);
         case 'serviceReqNo':
         case 'vehicleNo':
@@ -34,6 +39,14 @@ function accessServiceSortValue(row, key) {
         default:
             return textSortValue(row?.[key]);
     }
+}
+
+function formatAmount(value) {
+    if (value == null || !Number.isFinite(Number(value)) || Number(value) <= 0) return '—';
+    return `AED ${Number(value).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })}`;
 }
 
 function formatKm(value) {
@@ -54,6 +67,8 @@ export default function VehicleAccessServiceListTable({
 }) {
     const [sortKey, setSortKey] = useState('serviceReqNo');
     const [sortDirection, setSortDirection] = useState('desc');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
     const showActions = Boolean(onRowClick || router);
 
     const handleSort = useCallback(
@@ -75,6 +90,17 @@ export default function VehicleAccessServiceListTable({
         return sortServiceTableRows(rows, accessServiceSortValue, sortKey, sortDirection, column.type);
     }, [rows, sortKey, sortDirection]);
 
+    const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize) || 1);
+    const safePage = Math.min(Math.max(1, page), totalPages);
+    const pageRows = useMemo(() => {
+        const start = (safePage - 1) * pageSize;
+        return sortedRows.slice(start, start + pageSize);
+    }, [sortedRows, safePage, pageSize]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [rows, sortKey, sortDirection, pageSize]);
+
     if (!rows.length) {
         return (
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
@@ -86,8 +112,9 @@ export default function VehicleAccessServiceListTable({
     }
 
     return (
+        <>
         <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse min-w-[880px]">
+            <table className="w-full text-sm border-collapse min-w-[1000px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
                         {ACCESS_SERVICE_COLUMNS.map((column) => (
@@ -106,7 +133,7 @@ export default function VehicleAccessServiceListTable({
                     </tr>
                 </thead>
                 <tbody>
-                    {sortedRows.map((entry) => {
+                    {pageRows.map((entry) => {
                         const rowHref =
                             (typeof getRowHref === 'function' ? getRowHref(entry) : '') ||
                             (onRowClick || router ? buildVehicleServiceListRowHref(entry) : '');
@@ -156,6 +183,9 @@ export default function VehicleAccessServiceListTable({
                                 <td className="px-4 py-2.5 text-slate-800 font-semibold whitespace-nowrap">
                                     {entry.serviceType || '—'}
                                 </td>
+                                <td className="px-4 py-2.5 text-slate-700 tabular-nums whitespace-nowrap">
+                                    {formatAmount(entry.amount)}
+                                </td>
                                 <td className="px-4 py-2.5">
                                     <span
                                         className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${vehicleServiceStatusBadgeClass(entry.serviceStatusTone || entry.statusTone)}`}
@@ -202,5 +232,15 @@ export default function VehicleAccessServiceListTable({
                 </tbody>
             </table>
         </div>
+        <ErpListPagination
+            currentPage={safePage}
+            pageSize={pageSize}
+            totalItems={sortedRows.length}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            pageSizes={ACCESS_SERVICE_PAGE_SIZES}
+            itemLabel="services"
+        />
+        </>
     );
 }

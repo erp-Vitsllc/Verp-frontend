@@ -7,7 +7,10 @@ import { useToast } from '@/hooks/use-toast';
 import {
     VEHICLE_SERVICE_TYPES,
     buildFleetListServicePendingRequestBody,
+    canAddNextSameTypeVehicleService,
     normalizeMongoId,
+    sameTypeVehicleServiceRequestBlockMessage,
+    vehicleServiceRequestRowsForType,
 } from './vehicleServiceUtils';
 
 function vehicleOptionLabel(vehicle) {
@@ -82,6 +85,18 @@ export default function VehicleCreateServiceModal({
                 if (detailRes?.data) asset = detailRes.data;
             } catch {
                 // Fall back to list row fields when detail is unavailable.
+            }
+
+            if (
+                asset?.services &&
+                !canAddNextSameTypeVehicleService(vehicleServiceRequestRowsForType(asset, serviceType))
+            ) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Request not allowed',
+                    description: sameTypeVehicleServiceRequestBlockMessage(serviceType),
+                });
+                return;
             }
 
             const payload = buildFleetListServicePendingRequestBody(asset || { _id: vehicleId }, serviceType, {

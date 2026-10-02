@@ -9,6 +9,7 @@ export default function ErpListPagination({
     onPageChange,
     onPageSizeChange,
     itemLabel = 'records',
+    pageSizes = ERP_LIST_PAGE_SIZES,
 }) {
     const totalPages = Math.max(1, Math.ceil(totalItems / pageSize) || 1);
     const safePage = Math.min(Math.max(1, currentPage), totalPages);
@@ -29,7 +30,7 @@ export default function ErpListPagination({
                         className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs sm:text-sm text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15"
                         aria-label="Rows per page"
                     >
-                        {ERP_LIST_PAGE_SIZES.map((size) => (
+                        {pageSizes.map((size) => (
                             <option key={size} value={size}>
                                 {size}
                             </option>

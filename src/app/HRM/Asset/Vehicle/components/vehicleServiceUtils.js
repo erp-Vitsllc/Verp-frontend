@@ -690,6 +690,7 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
             service?.date || service?.createdAt || asset?.oilChangeDate || latestCompleted?.date || null,
         nextOilServiceKm,
         nextOilServiceDate,
+        amount: service?.value != null && service.value !== '' ? Number(service.value) : null,
         amountType: amountInfo.amountType,
         amountStatus: amountInfo.amountStatus,
         amountStatusTone: amountInfo.amountStatusTone,
@@ -903,6 +904,7 @@ export function buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { 
         vehicleNo,
         requestDate: service?.date || service?.createdAt || null,
         currentKm: remark?.currentKm ?? service?.currentKm ?? asset?.currentKilometer ?? '—',
+        amount: service?.value != null && service.value !== '' ? Number(service.value) : null,
         amountType: amountInfo.amountType,
         amountStatus: amountInfo.amountStatus,
         amountStatusTone: amountInfo.amountStatusTone,
@@ -928,6 +930,31 @@ export function buildVehicleServiceTabRequestRowsFromAsset(asset, serviceType) {
             .filter((s) => isVehicleServiceTabRequestTableRow(s, asset))
             .map((s) => buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { service: s })),
     );
+}
+
+/** Service-tab rows for one type, newest first — same list the Request button uses. */
+export function vehicleServiceRequestRowsForType(asset, serviceType) {
+    const type = String(serviceType || '').trim();
+    if (type === 'Oil Service') return buildOilServiceRequestRowsFromAsset(asset);
+    if (type === 'Car Wash') return buildCarWashRequestRowsFromAsset(asset);
+    if (isVehicleServiceTabRequestType(type)) return buildVehicleServiceTabRequestRowsFromAsset(asset, type);
+    return [];
+}
+
+/**
+ * Another request of the same type is allowed only when this vehicle has no
+ * request of that type yet, or the latest one is Completed.
+ * `rows` must be newest-first (Service tab SL order).
+ */
+export function canAddNextSameTypeVehicleService(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return true;
+    return String(list[0]?.status || '').trim().toLowerCase() === 'completed';
+}
+
+export function sameTypeVehicleServiceRequestBlockMessage(serviceType) {
+    const type = String(serviceType || 'service').trim() || 'service';
+    return `The latest ${type} for this vehicle is still pending. Request another ${type} only after it is completed.`;
 }
 
 /** Every record of a service type for a vehicle — same row shape as the details Service tab. */
@@ -984,6 +1011,7 @@ export function buildVehicleAccessNotYetRowsFromAssets(assets = []) {
             vehicleNo,
             serviceReqNo: '—',
             currentKm: asset?.currentKilometer ?? '—',
+            amount: null,
             amountType: '—',
             amountStatus: '—',
             amountStatusTone: 'na',

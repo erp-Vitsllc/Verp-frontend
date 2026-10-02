@@ -186,7 +186,7 @@ function TypeSubSection({ title, children }) {
 function OilServiceDocTable({ rows, mode, onOpenAttachment, onAdd }) {
     return (
         <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse min-w-[980px]">
+            <table className="w-full text-sm border-collapse min-w-[1080px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
                         <th className={thClass}>SL</th>
@@ -197,6 +197,7 @@ function OilServiceDocTable({ rows, mode, onOpenAttachment, onAdd }) {
                         <th className={thClass}>Last oil service date</th>
                         <th className={thClass}>Next oil service km</th>
                         <th className={thClass}>Next oil service date</th>
+                        <th className={thClass}>Amount</th>
                         <th className={thClass}>Status</th>
                         <th className={thClass}>Attachment</th>
                         {mode === 'live' ? <th className={thClass}>Add</th> : null}
@@ -213,6 +214,7 @@ function OilServiceDocTable({ rows, mode, onOpenAttachment, onAdd }) {
                             <td className={tdClass}>{formatDate(row.lastOilServiceDate)}</td>
                             <td className={`${tdClass} tabular-nums`}>{formatKm(row.nextOilServiceKm)}</td>
                             <td className={tdClass}>{formatDate(row.nextOilServiceDate)}</td>
+                            <td className={`${tdClass} tabular-nums whitespace-nowrap`}>{formatAmount(row.amount)}</td>
                             <td className={tdClass}>
                                 <StatusBadge label={row.status} tone={row.statusTone} />
                             </td>
@@ -298,7 +300,7 @@ function CarWashDocTable({ rows, mode, onOpenAttachment, onAdd }) {
 function GenericServiceDocTable({ serviceType, rows, mode, onOpenAttachment, onAdd }) {
     return (
         <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse min-w-[820px]">
+            <table className="w-full text-sm border-collapse min-w-[920px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
                         <th className={thClass}>SL</th>
@@ -307,6 +309,7 @@ function GenericServiceDocTable({ serviceType, rows, mode, onOpenAttachment, onA
                         <th className={thClass}>Vehicle no</th>
                         <th className={thClass}>Request date</th>
                         <th className={thClass}>Current km</th>
+                        <th className={thClass}>Amount</th>
                         <th className={thClass}>Status</th>
                         <th className={thClass}>Attachment</th>
                         {mode === 'live' ? <th className={thClass}>Add</th> : null}
@@ -323,6 +326,7 @@ function GenericServiceDocTable({ serviceType, rows, mode, onOpenAttachment, onA
                                 {formatDate(row.requestDate)}
                             </td>
                             <td className={`${tdClass} tabular-nums`}>{formatKm(row.currentKm)}</td>
+                            <td className={`${tdClass} tabular-nums whitespace-nowrap`}>{formatAmount(row.amount)}</td>
                             <td className={tdClass}>
                                 <StatusBadge label={row.status} tone={row.statusTone} />
                             </td>

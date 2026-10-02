@@ -163,6 +163,8 @@ import {
     buildCarWashRequestRowsFromAsset,
     buildVehicleServiceTabPendingRequestBody,
     buildVehicleServiceTabRequestRowsFromAsset,
+    canAddNextSameTypeVehicleService,
+    sameTypeVehicleServiceRequestBlockMessage,
     isVehicleServiceTabRequestType,
     fleetServicesForTypeSortedDesc,
     serviceCountByType,
@@ -1221,7 +1223,7 @@ function VehicleDetailsPageContent() {
                         return;
                     }
                     if (profileActive && (isFlowchartHr || checkIsAdmin()) && vehicleDeletePendingHr) {
-                        await axiosInstance.post(`/AssetItem/${assetId}/approve-vehicle-delete`, null, {
+                        await axiosInstance.post(`/AssetItem/${assetId}/approve-vehicle-delete`, {}, {
                             skipToast: true,
                         });
                     } else {
@@ -4876,7 +4878,23 @@ function VehicleDetailsPageContent() {
                                 const isCarWashTab = serviceInnerTab === 'Car Wash';
                                 const isVehicleServiceTabRequest = isVehicleServiceTabRequestType(serviceInnerTab);
                                 const canManageServiceTabRequest = canCreateOrInitiateService;
+                                const currentServiceRows = isOilServiceTab
+                                    ? oilServiceRequestRows
+                                    : isCarWashTab
+                                        ? carWashRequestRows
+                                        : isVehicleServiceTabRequest
+                                            ? vehicleServiceTabRequestRows
+                                            : [];
+                                const canRequestNextSameType = canAddNextSameTypeVehicleService(currentServiceRows);
                                 const openServiceTypeRequest = () => {
+                                    if (!canRequestNextSameType) {
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'Request not allowed',
+                                            description: sameTypeVehicleServiceRequestBlockMessage(serviceInnerTab),
+                                        });
+                                        return;
+                                    }
                                     if (isCarWashTab) {
                                         if (!canCreateOrInitiateService) {
                                             toast({
@@ -5006,6 +5024,7 @@ function VehicleDetailsPageContent() {
                                                 type="button"
                                                 onClick={openServiceTypeRequest}
                                                 disabled={
+                                                    !canRequestNextSameType ||
                                                     (isOilServiceTab &&
                                                         (creatingOilServiceRequest || !canCreateOrInitiateService)) ||
                                                     (isVehicleServiceTabRequest &&
@@ -5015,7 +5034,9 @@ function VehicleDetailsPageContent() {
                                                 title={
                                                     !canCreateOrInitiateService
                                                         ? 'Sign in to raise a service request'
-                                                        : undefined
+                                                        : !canRequestNextSameType
+                                                            ? sameTypeVehicleServiceRequestBlockMessage(serviceInnerTab)
+                                                            : undefined
                                                 }
                                                 className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 sm:px-5 py-2.5 text-white text-[10px] font-black uppercase tracking-widest shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors shrink-0 w-full sm:w-auto disabled:opacity-60 disabled:cursor-not-allowed"
                                             >

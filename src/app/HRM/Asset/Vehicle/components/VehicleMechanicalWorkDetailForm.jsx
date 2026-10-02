@@ -21,6 +21,7 @@ import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPho
 import { numberInputNoScrollProps } from '../utils/vehicleNumberInput';
 import { getInitiatePayValidationMessage, companyPayPartyLabel } from '../utils/vehicleInitiatePayValidation';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
+import { isAdmin } from '@/utils/permissions';
 import {
     isOilServiceAssignmentPending,
 } from '../utils/vehicleOilServiceAccess';
@@ -119,12 +120,38 @@ export default function VehicleMechanicalWorkDetailForm({
     const [formData, setFormData] = useState(() =>
         buildMechanicalWorkDetailFormState(service, asset, { flowchartRows }),
     );
+    const [mounted, setMounted] = useState(false);
+    const [serviceTypes, setServiceTypes] = useState([]);
+    const [showAddType, setShowAddType] = useState(false);
+    const [newTypeName, setNewTypeName] = useState('');
+    const [addingType, setAddingType] = useState(false);
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
     // Page gates HR-after-submit; Initiate stays editable until Zoho bill is accepted.
     const canEditInitiateFields = Boolean(canEditAssignment);
     const fieldsDisabled = !canEditInitiateFields || saving;
+    const canManageTypes = mounted && isAdmin();
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    useEffect(() => {
+        let active = true;
+        axiosInstance
+            .get('/AssetItem/mechanical-service-types')
+            .then(({ data }) => {
+                if (!active) return;
+                setServiceTypes(Array.isArray(data) ? data.filter(Boolean) : []);
+            })
+            .catch(() => {
+                if (active) setServiceTypes([]);
+            });
+        return () => {
+            active = false;
+        };
+    }, []);
 
     useEffect(() => {
         setFormData(buildMechanicalWorkDetailFormState(service, asset, { flowchartRows }));
@@ -217,6 +244,36 @@ export default function VehicleMechanicalWorkDetailForm({
     const set = useCallback((key, value) => {
         setFormData((prev) => ({ ...prev, [key]: value }));
     }, []);
+
+    const serviceTypeOptions = useMemo(() => {
+        const names = new Set(serviceTypes);
+        const current = String(formData.mechanicalServiceKind || '').trim();
+        if (current) names.add(current);
+        return [...names].sort((a, b) => a.localeCompare(b));
+    }, [formData.mechanicalServiceKind, serviceTypes]);
+
+    const handleAddServiceType = async () => {
+        const name = String(newTypeName || '').trim();
+        if (!name) return;
+        setAddingType(true);
+        try {
+            const { data } = await axiosInstance.post('/AssetItem/mechanical-service-types', { name });
+            const added = data?.name || name;
+            setServiceTypes((prev) => [...new Set([...prev, added])].sort((a, b) => a.localeCompare(b)));
+            set('mechanicalServiceKind', added);
+            setNewTypeName('');
+            setShowAddType(false);
+            toast({ title: 'Type of service added', description: `"${added}" is now available.` });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not add type of service',
+                description: error.response?.data?.message || 'Try again.',
+            });
+        } finally {
+            setAddingType(false);
+        }
+    };
 
     const setPaymentByMode = (mode) => {
         setFormData((prev) => {
@@ -851,17 +908,65 @@ export default function VehicleMechanicalWorkDetailForm({
                         </VehicleMechanicalWorkFormFieldCell>
                         </div>
 
-                        <>
-                                <div className="sm:col-span-2 lg:col-span-3">
-                                    <VehicleMechanicalWorkFormFieldCell
-                                        label="Quotes (required)"
-                                        accentClass={accent(1)}
-                                        minHeightPx={fieldMinHeightPx}
-                                    >
-                                        <QuotesUpload />
-                                    </VehicleMechanicalWorkFormFieldCell>
-                                </div>
-                        </>
+                        <div className={`sm:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
+                            <VehicleMechanicalWorkFormFieldCell
+                                label="Quotes (required)"
+                                accentClass={accent(1)}
+                                minHeightPx={fieldMinHeightPx}
+                            >
+                                <QuotesUpload />
+                            </VehicleMechanicalWorkFormFieldCell>
+                            <VehicleMechanicalWorkFormFieldCell
+                                label="Type of service"
+                                accentClass={accent(0)}
+                                minHeightPx={fieldMinHeightPx}
+                            >
+                                <select
+                                    className={tireFieldSelect}
+                                    value={formData.mechanicalServiceKind || ''}
+                                    onChange={(e) => set('mechanicalServiceKind', e.target.value)}
+                                    disabled={fieldsDisabled}
+                                >
+                                    <option value="">Select type of service</option>
+                                    {serviceTypeOptions.map((option) => (
+                                        <option key={option} value={option}>
+                                            {option}
+                                        </option>
+                                    ))}
+                                </select>
+                                {canManageTypes && !fieldsDisabled ? (
+                                    showAddType ? (
+                                        <div className="mt-2 flex gap-1.5">
+                                            <input
+                                                className={tireFieldInput}
+                                                type="text"
+                                                value={newTypeName}
+                                                onChange={(e) => setNewTypeName(e.target.value)}
+                                                placeholder="New type of service"
+                                                disabled={addingType}
+                                            />
+                                            <button
+                                                type="button"
+                                                className={`${tireBtnPrimary} shrink-0 px-2.5`}
+                                                disabled={addingType || !String(newTypeName || '').trim()}
+                                                onClick={() => void handleAddServiceType()}
+                                            >
+                                                {addingType ? <Loader2 size={12} className="animate-spin" /> : 'Save'}
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-800"
+                                            onClick={() => setShowAddType(true)}
+                                        >
+                                            <Plus size={12} />
+                                            Add type
+                                        </button>
+                                    )
+                                ) : null}
+                            </VehicleMechanicalWorkFormFieldCell>
+                        </div>
                     </div>
 
                     <div className="mt-4 border-t border-gray-100 pt-4">

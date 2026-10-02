@@ -191,7 +191,10 @@ export default function AttendancePage() {
                             ))}
                         </div>
 
-                        <AttendanceMonthCalendar staffType={staffTab} />
+                        <AttendanceMonthCalendar
+                            staffType={staffTab}
+                            staffLabel={staffTabs.find((tab) => tab.key === staffTab)?.label || 'Staff'}
+                        />
                     </div>
                 </div>
             </div>

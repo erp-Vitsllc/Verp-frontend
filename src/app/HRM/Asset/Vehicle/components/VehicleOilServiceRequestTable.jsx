@@ -25,6 +25,7 @@ const OIL_SERVICE_COLUMNS = [
     { key: 'lastOilServiceDate', label: 'Last oil service date', type: 'date' },
     { key: 'nextOilServiceKm', label: 'Next oil service km', type: 'number' },
     { key: 'nextOilServiceDate', label: 'Next oil service date', type: 'date' },
+    { key: 'amount', label: 'Amount', type: 'number' },
     { key: 'amountType', label: 'Amount type', type: 'text' },
     { key: 'amountStatus', label: 'Amount status', type: 'text' },
     { key: 'status', label: 'Status', type: 'text' },
@@ -33,7 +34,8 @@ const OIL_SERVICE_COLUMNS = [
 function oilServiceSortValue(row, key) {
     switch (key) {
         case 'slNo':
-            return numberSortValue(row?.slNo);
+        case 'amount':
+            return numberSortValue(row?.[key]);
         case 'lastOilServiceKm':
         case 'nextOilServiceKm':
             return numberSortValue(row?.[key]);
@@ -60,6 +62,14 @@ function formatDate(value) {
     } catch {
         return '—';
     }
+}
+
+function formatAmount(value) {
+    if (value == null || !Number.isFinite(Number(value)) || Number(value) <= 0) return '—';
+    return `AED ${Number(value).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })}`;
 }
 
 function formatKm(value) {
@@ -123,7 +133,7 @@ export default function VehicleOilServiceRequestTable({
 
     return (
         <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse min-w-[1080px]">
+            <table className="w-full text-sm border-collapse min-w-[1180px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
                         {OIL_SERVICE_COLUMNS.map((column) => (
@@ -195,6 +205,9 @@ export default function VehicleOilServiceRequestTable({
                             </td>
                             <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap text-xs">
                                 {formatDate(entry.nextOilServiceDate)}
+                            </td>
+                            <td className="px-4 py-2.5 text-slate-700 tabular-nums whitespace-nowrap">
+                                {formatAmount(entry.amount)}
                             </td>
                             <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-xs">
                                 {entry.amountType || '—'}

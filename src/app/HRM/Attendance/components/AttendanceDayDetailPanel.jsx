@@ -39,7 +39,14 @@ function StatRow({ label, value, subValue = null }) {
 /**
  * Side panel (1/4 width) — shows day attendance list inline, not a popup modal.
  */
-export default function AttendanceDayDetailPanel({ day, stats = null, totalStaff = 0, onClose }) {
+export default function AttendanceDayDetailPanel({
+    day,
+    stats = null,
+    totalStaff = 0,
+    groupLabel = '',
+    groupCount = null,
+    onClose,
+}) {
     if (!day) {
         return (
             <div className="h-full min-h-[320px] bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center p-5 text-center">
@@ -51,10 +58,13 @@ export default function AttendanceDayDetailPanel({ day, stats = null, totalStaff
         );
     }
 
-    const resolved = stats || emptyDayDetailStats(totalStaff);
+    const companyTotal = Number(totalStaff) || 0;
+    const resolved = stats || emptyDayDetailStats(groupCount ?? companyTotal);
     const dateLabel = format(day, 'EEEE, d MMMM yyyy');
     // Unauthorized and not marked are the same count.
     const notMarkedOrUnauthorized = Number(resolved.notMarked) || 0;
+    const selectedGroupCount =
+        groupCount == null ? Number(resolved.totalStaff) || 0 : Number(groupCount) || 0;
 
     return (
         <div className="h-full min-h-[320px] bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
@@ -76,12 +86,13 @@ export default function AttendanceDayDetailPanel({ day, stats = null, totalStaff
             </div>
 
             <div className="px-4 py-1 flex-1 overflow-y-auto">
-                <StatRow label="Total staff" value={resolved.totalStaff ?? totalStaff} />
+                <StatRow label="Total staff" value={companyTotal} />
+                {groupLabel ? <StatRow label={groupLabel} value={selectedGroupCount} /> : null}
                 <StatRow label="Total present" value={resolved.totalPresent} />
                 {resolved.isWeeklyOff || (resolved.weeklyOff || 0) > 0 ? (
                     <StatRow
                         label="Off Day (weekly)"
-                        value={resolved.weeklyOff || resolved.totalStaff || totalStaff}
+                        value={resolved.weeklyOff || selectedGroupCount}
                         subValue="From Working Time schedule for this staff group"
                     />
                 ) : null}

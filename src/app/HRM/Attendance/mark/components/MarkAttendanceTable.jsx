@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Search, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import MarkAttendanceDetailsModal, {
@@ -100,6 +100,13 @@ function isApprovedLeaveMark(mark) {
     if (!mark) return false;
     if (String(mark.leaveRequestStatus || '').trim() !== 'approved') return false;
     return APPROVED_LEAVE_KEYS.has(String(mark.key || '').trim());
+}
+
+/** Flowchart HR may clear an approved authorized leave on a past or future day. */
+function hrCanClearAuthorizedLeave(mark, isHr, dateKey, todayKey) {
+    if (!isHr || !dateKey || !todayKey || dateKey === todayKey) return false;
+    if (String(mark?.key || '').trim() !== 'authorized_leave') return false;
+    return isApprovedLeaveMark(mark);
 }
 
 function formatStatusLabel(mark, timeIn, pastDay = false) {
@@ -229,6 +236,14 @@ function matchesStaffType(emp, staffType) {
     return actual === wanted;
 }
 
+function employeeMatchesSearch(employee, query) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return true;
+    const name = String(employee?.name || '').toLowerCase();
+    const empNo = String(employee?.empNo || '').toLowerCase();
+    return name.includes(q) || empNo.includes(q);
+}
+
 function MarkAttendanceMenu({ anchorRect, onSelect, onClose, options = MARK_OPTIONS }) {
     const [openLeave, setOpenLeave] = useState(false);
     const menuRef = useRef(null);
@@ -349,6 +364,7 @@ function EmployeeRow({
     actionLocked = false,
     actionTitle = '',
     menuOptions = MARK_OPTIONS,
+    allowHrClear = false,
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const [anchorRect, setAnchorRect] = useState(null);
@@ -368,7 +384,7 @@ function EmployeeRow({
     const timeIn = employee.timeIn || '—';
     const timeOut = employee.timeOut || '—';
     const statusText = formatStatusLabel(mark, timeIn, pastDay);
-    const leaveLocked = isApprovedLeaveMark(mark);
+    const leaveLocked = isApprovedLeaveMark(mark) && !allowHrClear;
     const rowLocked = leaveLocked || actionLocked;
     const lockTitle = leaveLocked
         ? `${statusText} is approved for this day`
@@ -471,6 +487,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
     const [dayReload, setDayReload] = useState(0);
     const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
     const [bulkAnchorRect, setBulkAnchorRect] = useState(null);
+    const [searchQuery, setSearchQuery] = useState('');
     const bulkButtonRef = useRef(null);
     const employeesRef = useRef([]);
     const dayRecordsRef = useRef([]);
@@ -574,6 +591,10 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
     }, [dateKey, loading, allEmployees, dayReload]);
 
     useEffect(() => {
+        setSearchQuery('');
+    }, [dateKey, staffType]);
+
+    useEffect(() => {
         if (selectedIds.size <= 1) {
             setBulkMenuOpen(false);
             setBulkAnchorRect(null);
@@ -614,19 +635,38 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
         }
         return false;
     };
-    const markableEmployees = employees.filter(
-        (employee) => !isApprovedLeaveMark(marks[employee.id]) && !rowIsActionLocked(employee),
+    const canHrClearRow = (mark) =>
+        hrCanClearAuthorizedLeave(mark, isFlowchartHr, dateKey, todayKey);
+    const filteredEmployees = useMemo(
+        () => employees.filter((employee) => employeeMatchesSearch(employee, searchQuery)),
+        [employees, searchQuery],
     );
-    const allChecked = markableEmployees.length > 0 && selectedIds.size === markableEmployees.length;
-    const someChecked = selectedIds.size > 0 && selectedIds.size < markableEmployees.length;
-    const showBulkMark = selectedIds.size > 1;
+    const filteredIdSet = useMemo(
+        () => new Set(filteredEmployees.map((employee) => employee.id)),
+        [filteredEmployees],
+    );
+    const markableEmployees = filteredEmployees.filter((employee) => {
+        const mark = marks[employee.id];
+        if (isApprovedLeaveMark(mark) && !canHrClearRow(mark)) return false;
+        return !rowIsActionLocked(employee);
+    });
+    const allChecked =
+        markableEmployees.length > 0 && markableEmployees.every((employee) => selectedIds.has(employee.id));
+    const someChecked =
+        markableEmployees.some((employee) => selectedIds.has(employee.id)) && !allChecked;
+    const visibleSelectedCount = filteredEmployees.filter((employee) => selectedIds.has(employee.id)).length;
+    const showBulkMark = visibleSelectedCount > 1;
 
     const toggleAll = () => {
-        if (allChecked) {
-            setSelectedIds(new Set());
-            return;
-        }
-        setSelectedIds(new Set(markableEmployees.map((e) => e.id)));
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (allChecked) {
+                markableEmployees.forEach((employee) => next.delete(employee.id));
+                return next;
+            }
+            markableEmployees.forEach((employee) => next.add(employee.id));
+            return next;
+        });
     };
 
     const toggleOne = (id) => {
@@ -645,7 +685,10 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
             payload?.markKey === 'on_office' || payload?.markKey === 'authorized_leave';
         const idSet = new Set(
             ids.filter((id) => {
-                if (isApprovedLeaveMark(marks[id])) return false;
+                const mark = marks[id];
+                if (isApprovedLeaveMark(mark)) {
+                    return payload?.markKey === 'clear_attendance' && canHrClearRow(mark);
+                }
                 if (dayMode !== 'absent-only') return true;
                 if (!allowedRecentKey) return false;
                 const employee = employeesRef.current.find((row) => row.id === id);
@@ -763,7 +806,10 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
     };
 
     const handleRequestMark = (employee, key, label) => {
-        if (saving || isApprovedLeaveMark(marks[employee.id]) || rowIsActionLocked(employee)) return;
+        const mark = marks[employee.id];
+        const hrClear = canHrClearRow(mark);
+        if (saving || (isApprovedLeaveMark(mark) && !hrClear) || rowIsActionLocked(employee)) return;
+        if (hrClear && key !== 'clear_attendance') return;
         if (key === 'clear_attendance' && !isFlowchartHr) return;
         if (
             dayMode === 'absent-only' &&
@@ -804,7 +850,11 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
             return;
         }
         const ids = Array.from(selectedIds).filter((id) => {
-            if (isApprovedLeaveMark(marks[id])) return false;
+            if (!filteredIdSet.has(id)) return false;
+            const mark = marks[id];
+            if (isApprovedLeaveMark(mark)) {
+                return key === 'clear_attendance' && canHrClearRow(mark);
+            }
             if (dayMode !== 'absent-only') return true;
             const employee = employees.find((row) => row.id === id);
             return isAbsentMark(marks[id], employee?.timeIn);
@@ -875,10 +925,42 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                 </div>
             ) : null}
 
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1 pb-3">
+                <div className="relative w-full sm:max-w-xs">
+                    <Search
+                        size={16}
+                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search name or emp no"
+                        aria-label="Search employees by name or employee number"
+                        className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-9 text-sm text-gray-800 placeholder:text-gray-400 focus:border-[#EA3D2F]/40 focus:outline-none focus:ring-2 focus:ring-[#EA3D2F]/20"
+                    />
+                    {searchQuery ? (
+                        <button
+                            type="button"
+                            onClick={() => setSearchQuery('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                            aria-label="Clear search"
+                        >
+                            <X size={14} />
+                        </button>
+                    ) : null}
+                </div>
+                {searchQuery.trim() ? (
+                    <p className="text-xs text-gray-500 tabular-nums">
+                        {filteredEmployees.length} of {employees.length}
+                    </p>
+                ) : null}
+            </div>
+
             {showBulkMark ? (
                 <div className="flex items-center justify-between gap-3 px-1 pb-3">
                     <p className="text-sm text-gray-600">
-                        <span className="font-semibold text-gray-900">{selectedIds.size}</span> employees
+                        <span className="font-semibold text-gray-900">{visibleSelectedCount}</span> employees
                         selected
                     </p>
                     <div className="relative">
@@ -966,7 +1048,14 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                         </tr>
                     </thead>
                     <tbody>
-                        {employees.map((employee, index) => (
+                        {filteredEmployees.length === 0 ? (
+                            <tr>
+                                <td colSpan={11} className="px-3 py-12 text-center text-sm text-gray-400">
+                                    No employees match “{searchQuery.trim()}”.
+                                </td>
+                            </tr>
+                        ) : null}
+                        {filteredEmployees.map((employee, index) => (
                             <EmployeeRow
                                 key={employee.id}
                                 index={index + 1}
@@ -979,7 +1068,12 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                                 actionTitle={
                                     dayMode === 'locked' ? HR_ONLY_MARK_TITLE : ABSENT_ONLY_MARK_TITLE
                                 }
-                                menuOptions={menuOptions}
+                                menuOptions={
+                                    canHrClearRow(marks[employee.id])
+                                        ? menuOptions.filter((option) => option.key === 'clear_attendance')
+                                        : menuOptions
+                                }
+                                allowHrClear={canHrClearRow(marks[employee.id])}
                                 onRequestMark={handleRequestMark}
                             />
                         ))}

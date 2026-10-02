@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
-import { Check, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Pencil, Trash2, X } from 'lucide-react';
 import {
     Bar,
     BarChart,
@@ -192,6 +192,7 @@ function LeaveApprovalTable({
     onDecide,
     onAccept,
     onEdit,
+    onDelete,
     emptyLabel,
 }) {
     if (!rows.length) {
@@ -210,6 +211,7 @@ function LeaveApprovalTable({
         const statusKey = rowStatusKey(row);
         const canDecide = statusKey === 'pending' && row.canDecide !== false;
         const canEdit = row.canEdit === true;
+        const canDelete = canEdit && statusKey === 'approved';
         const blinking = String(blinkRowId || '') === String(row.id);
 
         return (
@@ -306,6 +308,22 @@ function LeaveApprovalTable({
                                     title="Edit leave"
                                 >
                                     <Pencil size={13} />
+                                </button>
+                            ) : null}
+                            {canDelete ? (
+                                <button
+                                    type="button"
+                                    disabled={decidingId === row.id}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        onDelete?.(row);
+                                    }}
+                                    onDoubleClick={(event) => event.stopPropagation()}
+                                    className="flex h-7 w-7 items-center justify-center rounded-md border border-[#FECACA] bg-white text-[#EF4444] hover:bg-[#FEF2F2] disabled:opacity-50"
+                                    aria-label="Remove leave"
+                                    title="Remove leave from this day"
+                                >
+                                    <Trash2 size={13} />
                                 </button>
                             ) : null}
                         </div>
@@ -562,6 +580,8 @@ export default function LeaveDashboard({
     const [pinnedApprovalRow, setPinnedApprovalRow] = useState(null);
 
     const [trackYear, setTrackYear] = useState(isAllYear ? ALL_LEAVE_YEAR : selectedYear);
+    const [trackBucket, setTrackBucket] = useState('week');
+    const [trackDetail, setTrackDetail] = useState(null);
     const [trackMonths, setTrackMonths] = useState([]);
     const [trackRangeLabel, setTrackRangeLabel] = useState('');
     const [trackLoading, setTrackLoading] = useState(true);
@@ -598,6 +618,10 @@ export default function LeaveDashboard({
                 params: {
                     year: yearParam,
                     leaveType: statusFilter && statusFilter !== ALL_LEAVE_STATUS ? statusFilter : 'all',
+                    bucket: trackBucket,
+                    month: !isAllMonth ? month : '',
+                    group: groupKey && groupKey !== 'all' ? groupKey : '',
+                    employeeId: employeeId || '',
                 },
                 skipToast: true,
             });
@@ -612,7 +636,7 @@ export default function LeaveDashboard({
         } finally {
             setTrackLoading(false);
         }
-    }, [statusFilter]);
+    }, [employeeId, groupKey, isAllMonth, month, statusFilter, trackBucket]);
 
     useEffect(() => {
         fetchPendingRequests();
@@ -645,6 +669,37 @@ export default function LeaveDashboard({
             onEditRequest?.(row);
         },
         [onEditRequest],
+    );
+
+    const handleDelete = useCallback(
+        async (row) => {
+            if (!row?.id || decidingId) return;
+            const leaveLabel = row.leaveType || 'leave';
+            const when = row.startDate && row.endDate && row.startDate !== row.endDate
+                ? `${row.startDate} to ${row.endDate}`
+                : row.startDate || 'this day';
+            const confirmed = window.confirm(
+                `Remove ${row.name || 'this employee'}'s ${leaveLabel} (${when})? It will be cleared from attendance for those days.`,
+            );
+            if (!confirmed) return;
+            setDecidingId(row.id);
+            try {
+                await axiosInstance.post(
+                    '/Leave/pending-requests/remove',
+                    { attendanceId: row.id },
+                    { skipToast: true },
+                );
+                await fetchPendingRequests();
+                await fetchTeamTrack(trackYear);
+                notifyLeavePendingInboxChanged();
+                onDataChanged?.();
+            } catch (err) {
+                setPendingError(err?.response?.data?.message || err.message || 'Failed to remove leave request.');
+            } finally {
+                setDecidingId('');
+            }
+        },
+        [decidingId, fetchPendingRequests, fetchTeamTrack, onDataChanged, trackYear],
     );
 
     const handleDecide = useCallback(
@@ -913,23 +968,23 @@ export default function LeaveDashboard({
     }, [groupKey, trackMonths]);
 
     const visibleTrackMonths = useMemo(() => {
-        if (isAllMonth) return trackMonths;
+        if (trackBucket === 'week' || isAllMonth) return trackMonths;
         return trackMonths.filter((item) => String(item.monthKey || '') === String(month));
-    }, [isAllMonth, month, trackMonths]);
+    }, [isAllMonth, month, trackBucket, trackMonths]);
 
     const chartData = useMemo(
         () =>
             visibleTrackMonths.map((item) => {
-                const row = { month: item.month };
+                const items = Array.isArray(item.items) ? item.items : [];
+                const row = { month: item.month, items };
                 if (chartGroups.length) {
                     for (const group of chartGroups) {
-                        const found = (item.groups || []).find(
-                            (entry) => String(entry.key || entry.label || '') === group.key,
-                        );
-                        row[group.key] = Number(found?.total) || 0;
+                        row[group.key] = items.filter(
+                            (entry) => String(entry.groupKey || '') === group.key,
+                        ).length;
                     }
                 } else {
-                    row.total = Number(item.total) || 0;
+                    row.total = items.length;
                 }
                 return row;
             }),
@@ -1106,6 +1161,7 @@ export default function LeaveDashboard({
                                         onDecide={handleDecide}
                                         onAccept={handleAccept}
                                         onEdit={handleEdit}
+                                        onDelete={handleDelete}
                                         blinkRowId={blinkRowId}
                                         emptyLabel={approvalEmptyLabel}
                                     />
@@ -1116,9 +1172,31 @@ export default function LeaveDashboard({
                 </section>
 
                 <section className="self-end rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
-                    <div className="mb-3 flex items-center justify-between">
-                        <h3 className="text-[15px] font-semibold text-[#111827]">Team Leave Track</h3>
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                            <h3 className="text-[15px] font-semibold text-[#111827]">Team Leave Track</h3>
+                            <p className="mt-0.5 text-[11px] text-[#9CA3AF]">Through today. Future leave is not included.</p>
+                        </div>
                         <div className="flex items-center gap-2 text-xs text-[#6B7280]">
+                            <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] p-0.5">
+                                {[
+                                    { key: 'week', label: 'Week' },
+                                    { key: 'month', label: 'Month' },
+                                ].map((option) => (
+                                    <button
+                                        key={option.key}
+                                        type="button"
+                                        onClick={() => setTrackBucket(option.key)}
+                                        className={`rounded-md px-2.5 py-1 text-xs font-semibold ${
+                                            trackBucket === option.key
+                                                ? 'bg-white text-[#111827] shadow-sm'
+                                                : 'text-[#6B7280]'
+                                        }`}
+                                    >
+                                        {option.label}
+                                    </button>
+                                ))}
+                            </div>
                             <button
                                 type="button"
                                 onClick={() => shiftTrackYear(-1)}
@@ -1202,9 +1280,19 @@ export default function LeaveDashboard({
                                                   name={group.label}
                                                   fill={GROUP_BAR_COLORS[index % GROUP_BAR_COLORS.length]}
                                                   radius={[2, 2, 0, 0]}
-                                                  barSize={7}
-                                                  maxBarSize={7}
-                                                  minPointSize={6}
+                                                  barSize={trackBucket === 'week' ? 18 : 12}
+                                                  maxBarSize={22}
+                                                  cursor="pointer"
+                                                  onClick={(bar) => {
+                                                      const payload = bar?.payload || bar || {};
+                                                      const items = (payload.items || []).filter(
+                                                          (row) => String(row.groupKey || '') === group.key,
+                                                      );
+                                                      setTrackDetail({
+                                                          title: `${group.label} · ${payload.month || 'Leave'}`,
+                                                          items,
+                                                      });
+                                                  }}
                                               />
                                           ))
                                         : (
@@ -1213,9 +1301,16 @@ export default function LeaveDashboard({
                                                   name="Total leave taken"
                                                   fill="#2563EB"
                                                   radius={[2, 2, 0, 0]}
-                                                  barSize={7}
-                                                  maxBarSize={7}
-                                                  minPointSize={6}
+                                                  barSize={trackBucket === 'week' ? 18 : 12}
+                                                  maxBarSize={22}
+                                                  cursor="pointer"
+                                                  onClick={(bar) => {
+                                                      const payload = bar?.payload || bar || {};
+                                                      setTrackDetail({
+                                                          title: payload.month || 'Leave',
+                                                          items: payload.items || [],
+                                                      });
+                                                  }}
                                               />
                                           )}
                                 </BarChart>
@@ -1224,6 +1319,59 @@ export default function LeaveDashboard({
                     </div>
                 </section>
             </div>
+            {trackDetail && typeof document !== 'undefined'
+                ? createPortal(
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                        <button
+                            type="button"
+                            aria-label="Close leave track"
+                            className="absolute inset-0 bg-black/30"
+                            onClick={() => setTrackDetail(null)}
+                        />
+                        <div className="relative z-[101] flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl">
+                            <div className="flex items-center justify-between gap-3 border-b border-[#E5E7EB] px-5 py-4">
+                                <h3 className="text-[15px] font-semibold text-[#111827]">{trackDetail.title}</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setTrackDetail(null)}
+                                    className="rounded-md px-2 py-1 text-sm font-semibold text-[#6B7280] hover:bg-[#F3F4F6]"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                            <div className="min-h-0 flex-1 overflow-auto p-4">
+                                {trackDetail.items?.length ? (
+                                    <table className="w-full text-left text-sm">
+                                        <thead>
+                                            <tr className="border-b border-[#E5E7EB] text-[11px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
+                                                <th className="px-2 py-2">Employee</th>
+                                                <th className="px-2 py-2">Leave type</th>
+                                                <th className="px-2 py-2">Date</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {trackDetail.items.map((item, index) => (
+                                                <tr key={`${item.employeeMongoId}-${item.date}-${index}`} className="border-b border-[#F3F4F6]">
+                                                    <td className="px-2 py-2 font-medium text-[#111827]">{item.employeeName}</td>
+                                                    <td className="px-2 py-2 text-[#374151]">{item.leaveType}</td>
+                                                    <td className="px-2 py-2 text-[#374151]">
+                                                        {/^\d{4}-\d{2}-\d{2}$/.test(String(item.date || ''))
+                                                            ? format(parseISO(item.date), 'd MMMM yyyy')
+                                                            : item.date}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                ) : (
+                                    <p className="py-8 text-center text-sm text-[#6B7280]">No leave in this bar.</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>,
+                    document.body,
+                )
+                : null}
             {approvalModalOpen && typeof document !== 'undefined'
                 ? createPortal(
                     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -1284,6 +1432,7 @@ export default function LeaveDashboard({
                                                 setApprovalModalOpen(false);
                                                 handleEdit(row);
                                             }}
+                                            onDelete={handleDelete}
                                             blinkRowId={blinkRowId}
                                             emptyLabel={approvalEmptyLabel}
                                         />

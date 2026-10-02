@@ -262,6 +262,7 @@ export function buildMechanicalWorkDetailFormState(service, asset, { flowchartRo
                   : base.quotation1Amount || (base.value != null && base.value !== '' ? String(base.value) : ''),
         employeeLiabilityRows,
         serviceIssue: base.serviceIssue || remark.serviceIssue || '',
+        mechanicalServiceKind: String(remark.mechanicalServiceKind || '').trim(),
         vendorName: remark.vendorName || base.vendorName || '',
         quotation1Amount:
             base.quotation1Amount ||
@@ -368,6 +369,7 @@ const MECHANICAL_WORK_FIELD_LABELS = {
     bodyWorkImages: 'Rectification area photos',
     tireCondition: 'Tire condition',
     serviceIssue: 'Description',
+    mechanicalServiceKind: 'Type of service',
     previousChangeKm: 'Previous change KM',
     currentKm: 'Current KM',
 };
@@ -430,6 +432,9 @@ export function validateMechanicalWorkDetailForm(formData, asset = null) {
 
     if (!String(formData.carDrivenByEmployeeId || '').trim()) {
         e.carDrivenByEmployeeId = 'Vehicle Driven By is required';
+    }
+    if (!String(formData.mechanicalServiceKind || '').trim()) {
+        e.mechanicalServiceKind = 'Type of service is required';
     }
     if (!formData.paymentByMode) {
         e.paymentByMode = 'Payment by is required';
@@ -573,6 +578,7 @@ export function buildMechanicalWorkDetailSubmitBody(formData, { keepPending = tr
     remark.employeeLiabilityTotal = sumEmployeeLiabilityRows(normalized.employeeLiabilityRows);
     remark.liableOn = liableOn;
     remark.serviceIssue = String(normalized.serviceIssue || '').trim();
+    remark.mechanicalServiceKind = String(normalized.mechanicalServiceKind || '').trim();
     {
         const partyId = String(normalized.companyPayPartyId || '').trim();
         const partyName = String(normalized.companyPayPartyName || '').trim();

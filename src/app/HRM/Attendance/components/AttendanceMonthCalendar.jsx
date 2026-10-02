@@ -181,7 +181,7 @@ function getWeekDays(anchorDate) {
 }
 
 /** Month cell: date top-right + evenly spaced icon stats (no underlines). */
-function DayCellStats({ day, today, inMonth, isFuture, stats }) {
+function DayCellStats({ day, today, inMonth, isFuture, stats, staffLabel = '' }) {
     if (isFuture) {
         return (
             <div className="h-full w-full flex flex-col p-2 sm:p-2.5">
@@ -251,7 +251,7 @@ function DayCellStats({ day, today, inMonth, isFuture, stats }) {
                         <IconCount
                             icon={Users}
                             count={stats.activeEmployees}
-                            label="Total staff"
+                            label={staffLabel || 'Total staff'}
                             iconClass="text-slate-600"
                             large
                         />
@@ -424,6 +424,7 @@ function MonthGrid({
     dayStatsByDate = {},
     onSelectDay,
     compact = false,
+    staffLabel = '',
 }) {
     const days = useMemo(() => getMonthGridDays(cursorDate), [cursorDate]);
     const weekCount = Math.max(1, Math.ceil(days.length / 7));
@@ -496,6 +497,7 @@ function MonthGrid({
                                         inMonth={inMonth}
                                         isFuture={isFuture}
                                         stats={stats}
+                                        staffLabel={staffLabel}
                                     />
                                 )}
                             </button>
@@ -507,12 +509,13 @@ function MonthGrid({
     );
 }
 
-export default function AttendanceMonthCalendar({ staffType = null }) {
+export default function AttendanceMonthCalendar({ staffType = null, staffLabel = '' }) {
     const router = useRouter();
     const [view, setView] = useState('Month');
     const [cursorDate, setCursorDate] = useState(() => new Date());
     const [selectedDate, setSelectedDate] = useState(() => new Date());
     const [strengthCount, setStrengthCount] = useState(0);
+    const [companyStaffCount, setCompanyStaffCount] = useState(0);
     const [detailDay, setDetailDay] = useState(() => new Date());
     const [dayStatsByDate, setDayStatsByDate] = useState({});
 
@@ -557,15 +560,19 @@ export default function AttendanceMonthCalendar({ staffType = null }) {
                     params,
                     skipToast: true,
                 });
-                const total = Number(res.data?.totalStaff) || 0;
+                const returnedGroup = String(res.data?.staffType || 'all');
+                if (staffType && returnedGroup !== 'all' && returnedGroup !== staffType) return;
+                const groupTotal = Number(res.data?.totalStaff) || 0;
+                const allTotal = Number(res.data?.totalStaffAll ?? res.data?.totalStaff) || 0;
                 const daysPayload =
                     res.data?.days && typeof res.data.days === 'object' ? res.data.days : {};
                 const mapped = {};
                 for (const [dateKey, raw] of Object.entries(daysPayload)) {
-                    mapped[dateKey] = mapApiDayStats(raw, total);
+                    mapped[dateKey] = mapApiDayStats(raw, groupTotal);
                 }
                 if (!cancelled) {
-                    setStrengthCount(total);
+                    setStrengthCount(groupTotal);
+                    setCompanyStaffCount(allTotal);
                     setDayStatsByDate(mapped);
                 }
             } catch {
@@ -736,6 +743,7 @@ export default function AttendanceMonthCalendar({ staffType = null }) {
                     selectedDate={selectedDate}
                     strengthCount={strengthCount}
                     dayStatsByDate={dayStatsByDate}
+                    staffLabel={staffLabel}
                     onSelectDay={openDayDetail}
                 />
                 )}
@@ -823,7 +831,9 @@ export default function AttendanceMonthCalendar({ staffType = null }) {
                     <AttendanceDayDetailPanel
                         day={detailDay}
                         stats={detailStats}
-                        totalStaff={strengthCount}
+                        totalStaff={companyStaffCount}
+                        groupLabel={staffLabel}
+                        groupCount={strengthCount}
                         onClose={() => setDetailDay(new Date())}
                     />
                 </div>
