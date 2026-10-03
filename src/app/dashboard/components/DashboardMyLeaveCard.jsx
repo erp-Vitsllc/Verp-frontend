@@ -12,6 +12,7 @@ import DashboardSalaryEnrollLock, {
     salaryLockFromAttendancePayload,
 } from './DashboardSalaryEnrollLock';
 import { employeeDataMetrics } from '@/app/HRM/Leave/utils/employeeDataMetrics';
+import CompOffRequestModal from './CompOffRequestModal';
 
 const EMPTY_COUNTS = {
     on_leave: 0,
@@ -368,6 +369,8 @@ export default function DashboardMyLeaveCard() {
     const [entries, setEntries] = useState([]);
     const [detailKey, setDetailKey] = useState('');
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
+    const [compOffOpen, setCompOffOpen] = useState(false);
+    const [reloadTick, setReloadTick] = useState(0);
 
     const query = queryForFilter(filterKey, customMonth);
 
@@ -463,7 +466,7 @@ export default function DashboardMyLeaveCard() {
             cancelled = true;
             window.removeEventListener(ATTENDANCE_CHECK_CHANGED, onChange);
         };
-    }, [query.month, query.year]);
+    }, [query.month, query.year, reloadTick]);
 
     const metricsCtx = useMemo(
         () => ({
@@ -553,6 +556,16 @@ export default function DashboardMyLeaveCard() {
                 }
             />
 
+            <div className="mt-3 flex justify-end">
+                <button
+                    type="button"
+                    onClick={() => setCompOffOpen(true)}
+                    className="h-8 px-3 rounded-full border border-violet-200 bg-violet-50 text-[11px] font-semibold text-violet-700"
+                >
+                    Request comp-off
+                </button>
+            </div>
+
             <div className="mt-3 grid grid-cols-2 min-[1200px]:grid-cols-4 gap-3">
                 <MiniStat value={summary.presentDays} label="Present days" valueClass="text-emerald-700" />
                 <MiniStat
@@ -605,6 +618,11 @@ export default function DashboardMyLeaveCard() {
                 period={periodLabel(filterKey, customMonth)}
                 rows={detailRows}
                 onClose={() => setDetailKey('')}
+            />
+            <CompOffRequestModal
+                open={compOffOpen}
+                onClose={() => setCompOffOpen(false)}
+                onSent={() => setReloadTick((value) => value + 1)}
             />
         </DashboardCard>
     );

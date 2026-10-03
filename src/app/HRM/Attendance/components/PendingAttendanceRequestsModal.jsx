@@ -28,6 +28,14 @@ function buildAttendancePath(row) {
     }
     const empId = row?.employeeMongoId || row?.raw?.employeeMongoId || '';
     const date = row?.date || row?.extra1 || row?.raw?.date || '';
+    if (row?.leaveRequestKind === 'flexible_ot' || row?.requestType === 'Flexible OT Request') {
+        const qs = new URLSearchParams({
+            date: String(date || ''),
+            staffType: String(row?.staffType || row?.raw?.staffType || 'office'),
+            otAttendanceId: String(row?.id || row?.dashboardActionId || ''),
+        });
+        return `/HRM/Attendance/mark?${qs.toString()}`;
+    }
     if (!empId) return '';
     const qs = new URLSearchParams({
         focusAttendance: '1',

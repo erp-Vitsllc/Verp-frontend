@@ -214,7 +214,11 @@ function MarkAttendanceContent() {
             </div>
 
             <div className="px-2 sm:px-4 py-3">
-                <MarkAttendanceTable dateKey={dateKey} staffType={staffTab} />
+                <MarkAttendanceTable
+                    dateKey={dateKey}
+                    staffType={staffTab}
+                    otAttendanceId={searchParams.get('otAttendanceId') || ''}
+                />
             </div>
         </div>
     );

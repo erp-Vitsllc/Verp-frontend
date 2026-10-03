@@ -9,6 +9,8 @@ import MarkAttendanceDetailsModal, {
     getMarkFormConfig,
 } from './MarkAttendanceDetailsModal';
 import { PunchLocationPinCell, PunchTypeCell } from './MarkAttendancePunchCells';
+import FlexibleOtModal from './FlexibleOtModal';
+import CompOffSettleModal from '../../components/CompOffSettleModal';
 
 const MARK_OPTIONS = [
     { key: 'on_office', label: 'On work' },
@@ -24,9 +26,54 @@ const MARK_OPTIONS = [
     { key: 'clear_attendance', label: 'Clear attendance' },
 ];
 
+function shiftMarks(timeIn, timeOut, timeOutDate, date) {
+    const toMinutes = (value) => {
+        const parts = String(value || '').split(':').map(Number);
+        if (parts.length < 2 || parts.slice(0, 2).some((n) => Number.isNaN(n))) return null;
+        return parts[0] * 60 + parts[1];
+    };
+    const inMin = toMinutes(timeIn);
+    const outMin = toMinutes(timeOut);
+    if (inMin == null || outMin == null) return { sun: false, moon: false };
+    const crosses = Boolean(timeOutDate && date && timeOutDate !== date) || outMin < inMin;
+    if (crosses) return { sun: true, moon: true };
+    const inMorning = inMin < 12 * 60;
+    const outMorning = outMin < 12 * 60;
+    if (inMorning && outMorning) return { sun: true, moon: false };
+    if (!inMorning && !outMorning) return { sun: false, moon: true };
+    return { sun: true, moon: true };
+}
+
+function currentEmployeeMongoId() {
+    if (typeof window === 'undefined') return '';
+    try {
+        for (const key of ['employeeUser', 'user']) {
+            const raw = localStorage.getItem(key);
+            if (!raw) continue;
+            const user = JSON.parse(raw);
+            const id = user?.employeeObjectId || user?.employeeMongoId || '';
+            if (id) return String(id);
+        }
+    } catch {
+        return '';
+    }
+    return '';
+}
+
+function otCellLabel(mark) {
+    const status = String(mark?.flexibleOtStatus || '');
+    const approved = Number(mark?.flexibleOtApprovedHours) || 0;
+    if (status === 'approved') {
+        const shown = approved >= 9 ? Math.max(0, Math.round((approved - 9) * 100) / 100) : approved;
+        return `OT: ${shown} hr`;
+    }
+    if (status === 'rejected') return 'OT: 0 hr';
+    if (status === 'pending') return 'Pending';
+    return '';
+}
+
 function formatDisplayTime(value) {
     if (!value) return '—';
-    // HTML time input is HH:mm — show as-is
     return value;
 }
 
@@ -188,6 +235,17 @@ function applyDayRecordsToState(employees, records) {
             leaveRequestStatus: rec.leaveRequestStatus || '',
             leaveRequestKind: rec.leaveRequestKind || '',
             approvalStatus: rec.approvalStatus || '',
+            attendanceId: String(rec._id || ''),
+            date: rec.date || '',
+            rawTimeIn: rec.timeIn || '',
+            rawTimeOut: rec.timeOut || '',
+            timeOutDate: rec.timeOutDate || '',
+            flexibleWorkedHours: rec.flexibleWorkedHours || 0,
+            flexibleOtHours: rec.flexibleOtHours || 0,
+            flexibleOtStatus: rec.flexibleOtStatus || '',
+            flexibleOtApprovedHours: rec.flexibleOtApprovedHours || 0,
+            flexibleOtReason: rec.flexibleOtReason || '',
+            flexibleFromOtDate: rec.flexibleFromOtDate || '',
         };
         return {
             ...e,
@@ -212,6 +270,7 @@ function mapActiveEmployee(emp) {
         empNo: String(empNo),
         name,
         staffType,
+        primaryReportee: String(emp?.primaryReportee || ''),
         timeIn: '—',
         timeOut: '—',
     };
@@ -360,6 +419,9 @@ function EmployeeRow({
     onToggle,
     mark,
     onRequestMark,
+    onRequestOt,
+    onSettleCompOff,
+    canRequestOt = false,
     pastDay = false,
     actionLocked = false,
     actionTitle = '',
@@ -391,6 +453,10 @@ function EmployeeRow({
         : actionLocked
           ? actionTitle
           : undefined;
+
+    const shift = shiftMarks(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
+    const otText = otCellLabel(mark);
+    const showOtRequest = Number(mark?.flexibleOtHours) > 0 && !otText;
 
     return (
         <tr className="border-b border-gray-100 hover:bg-slate-50/80 transition-colors">
@@ -424,6 +490,15 @@ function EmployeeRow({
                             {mark.reason}
                         </span>
                     ) : null}
+                    {mark?.key === 'compoff_leave' ? (
+                        <button
+                            type="button"
+                            onClick={() => onSettleCompOff?.(employee)}
+                            className="w-fit text-[11px] font-semibold text-violet-700 hover:underline"
+                        >
+                            Settle comp-off
+                        </button>
+                    ) : null}
                 </div>
             </td>
             <td className="px-3 py-3 align-middle text-center min-w-[88px]">
@@ -438,6 +513,29 @@ function EmployeeRow({
                     checkOutSource={mark?.checkOutSource}
                     timeOut={timeOut}
                 />
+            </td>
+            <td className="px-3 py-3 align-middle text-center text-base">
+                {shift.sun ? <span title="Day">☀</span> : null}
+                {shift.moon ? <span title="Night">☾</span> : null}
+                {!shift.sun && !shift.moon ? <span className="text-gray-300">—</span> : null}
+            </td>
+            <td className="px-3 py-3 align-middle">
+                {otText ? (
+                    <span className="text-xs font-bold text-slate-700">{otText}</span>
+                ) : showOtRequest ? (
+                    <button
+                        type="button"
+                        disabled={!canRequestOt}
+                        onClick={() => {
+                            if (canRequestOt) onRequestOt?.(employee, mark);
+                        }}
+                        className="rounded-lg border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        Req OT
+                    </button>
+                ) : (
+                    <span className="text-gray-300">—</span>
+                )}
             </td>
             <td className="px-3 py-3 align-middle text-right min-w-[150px]">
                 <div className="relative inline-flex items-center justify-end min-h-[36px]">
@@ -472,7 +570,7 @@ function EmployeeRow({
     );
 }
 
-export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
+export default function MarkAttendanceTable({ dateKey, staffType = 'office', otAttendanceId = '' }) {
     const [allEmployees, setAllEmployees] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -488,6 +586,9 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
     const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
     const [bulkAnchorRect, setBulkAnchorRect] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [otModal, setOtModal] = useState(null);
+    const [compOffEmployee, setCompOffEmployee] = useState(null);
+    const viewerId = useMemo(() => currentEmployeeMongoId(), []);
     const bulkButtonRef = useRef(null);
     const employeesRef = useRef([]);
     const dayRecordsRef = useRef([]);
@@ -574,6 +675,14 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                 const { nextEmployees, nextMarks } = applyDayRecordsToState(allEmployees, records);
                 setEmployees(nextEmployees);
                 setMarks(nextMarks);
+                if (otAttendanceId) {
+                    const match = nextEmployees.find(
+                        (row) => nextMarks[row.id]?.attendanceId === String(otAttendanceId),
+                    );
+                    if (match && nextMarks[match.id]?.flexibleOtStatus === 'pending') {
+                        setOtModal({ employee: match, mark: nextMarks[match.id], mode: 'review' });
+                    }
+                }
             } catch {
                 if (!cancelled) {
                     dayRecordsRef.current = [];
@@ -588,7 +697,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
         return () => {
             cancelled = true;
         };
-    }, [dateKey, loading, allEmployees, dayReload]);
+    }, [dateKey, loading, allEmployees, dayReload, otAttendanceId]);
 
     useEffect(() => {
         setSearchQuery('');
@@ -1034,6 +1143,12 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                             <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 border-l border-gray-200" rowSpan={2}>
                                 Type
                             </th>
+                            <th className="px-3 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
+                                Shift
+                            </th>
+                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
+                                OT
+                            </th>
                             <th className="px-3 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
                                 Action
                             </th>
@@ -1050,7 +1165,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                     <tbody>
                         {filteredEmployees.length === 0 ? (
                             <tr>
-                                <td colSpan={11} className="px-3 py-12 text-center text-sm text-gray-400">
+                                <td colSpan={13} className="px-3 py-12 text-center text-sm text-gray-400">
                                     No employees match “{searchQuery.trim()}”.
                                 </td>
                             </tr>
@@ -1075,6 +1190,9 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                                 }
                                 allowHrClear={canHrClearRow(marks[employee.id])}
                                 onRequestMark={handleRequestMark}
+                                canRequestOt={Boolean(viewerId) && viewerId === String(employee.primaryReportee || '')}
+                                onRequestOt={(row, mark) => setOtModal({ employee: row, mark, mode: 'request' })}
+                                onSettleCompOff={setCompOffEmployee}
                             />
                         ))}
                     </tbody>
@@ -1101,6 +1219,21 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                     setFormState(null);
                     if (ids.length) applyMarkToIds(ids, payload);
                 }}
+            />
+            <CompOffSettleModal
+                open={Boolean(compOffEmployee)}
+                employeeMongoId={compOffEmployee?.id || ''}
+                date={dateKey}
+                onClose={() => setCompOffEmployee(null)}
+                onChanged={() => setDayReload((value) => value + 1)}
+            />
+            <FlexibleOtModal
+                open={Boolean(otModal)}
+                mode={otModal?.mode || 'request'}
+                employee={otModal?.employee}
+                mark={otModal?.mark}
+                onClose={() => setOtModal(null)}
+                onSaved={() => setDayReload((value) => value + 1)}
             />
         </>
     );

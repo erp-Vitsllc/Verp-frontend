@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     AlertTriangle,
@@ -40,6 +40,7 @@ import {
 import { isAdmin } from '@/utils/permissions';
 
 const VEHICLE_LIST_RETURN = '/HRM/Asset/Vehicle';
+const accessFuelListCache = new Map();
 
 function currentMonthKey() {
     const now = new Date();
@@ -68,6 +69,7 @@ const FUEL_COLUMNS = [
     { key: 'monthLabel', label: 'Month', type: 'text' },
     { key: 'monthlyLimit', label: 'Monthly limit', type: 'number' },
     { key: 'amountUsed', label: 'Amount used', type: 'number' },
+    { key: 'excessAmount', label: 'Excess amount', type: 'number' },
     { key: 'kmRun', label: 'Monthly KM', type: 'number' },
     { key: 'idleTimeLabel', label: 'Idle time', type: 'text' },
 ];
@@ -84,6 +86,35 @@ function formatKm(value) {
     return `${n.toLocaleString(undefined, { maximumFractionDigits: 1 })} km`;
 }
 
+/** Amount used minus the monthly limit. Blank when fuel has not been added. */
+function rowExcessAmount(row) {
+    if (!row || row.noFuel || row.amountUsed == null || row.amountUsed === '') return null;
+    const used = Number(row.amountUsed);
+    if (!Number.isFinite(used)) return null;
+    const limit = Number(row.monthlyLimit);
+    return used - (Number.isFinite(limit) ? limit : 0);
+}
+
+function formatExcessAmount(value) {
+    if (value == null || !Number.isFinite(Number(value))) return '—';
+    return formatAmount(value);
+}
+
+function sumListedFuelMoney(rows) {
+    return (rows || []).reduce(
+        (totals, row) => {
+            const limit = Number(row?.monthlyLimit);
+            if (Number.isFinite(limit)) totals.monthlyLimit += limit;
+            const excess = rowExcessAmount(row);
+            if (excess == null) return totals;
+            totals.amountUsed += Number(row.amountUsed) || 0;
+            totals.excessAmount += excess;
+            return totals;
+        },
+        { monthlyLimit: 0, amountUsed: 0, excessAmount: 0 },
+    );
+}
+
 function fuelSortValue(row, key) {
     switch (key) {
         case 'slNo':
@@ -91,6 +122,8 @@ function fuelSortValue(row, key) {
         case 'amountUsed':
         case 'kmRun':
             return numberSortValue(row?.[key]);
+        case 'excessAmount':
+            return rowExcessAmount(row);
         case 'plateNo':
             return codeSortValue(row?.plateNo || row?.vehicleNumber);
         default:
@@ -141,51 +174,81 @@ export default function VehicleAccessFuelPanel({
     const allowManage = canManage || canAccessAddFuel();
     const allowDelete = canDelete || isAdmin();
     const allowEditFuel = Boolean(canEditFuel);
+    const loadSeq = useRef(0);
+
+    const applyFuelPayload = useCallback((data) => {
+        setVehicles(Array.isArray(data?.vehicles) ? data.vehicles : []);
+        setPendingLimit(Array.isArray(data?.pendingLimit) ? data.pendingLimit : []);
+        setAdded(Array.isArray(data?.added) ? data.added : []);
+        setNotAdded(Array.isArray(data?.notAdded) ? data.notAdded : []);
+        setSummary({
+            addedCount: Number(data?.summary?.addedCount || 0),
+            notAddedCount: Number(data?.summary?.notAddedCount || 0),
+            totalAmount: Number(data?.summary?.totalAmount || 0),
+            exceedCount: Number(data?.summary?.exceedCount || 0),
+        });
+        setMonthLabel(data?.monthLabel || '');
+        setCanManage(Boolean(data?.canManage));
+        setCanDelete(Boolean(data?.canDelete) || isAdmin());
+        setCanCreateMonthlyLimit(Boolean(data?.canCreateMonthlyLimit));
+        setMonthlyLimitDisabledReason(data?.monthlyLimitDisabledReason || '');
+        setCanCloseMonthlyFuel(Boolean(data?.canCloseMonthlyFuel));
+        setCloseMonthlyDisabledReason(data?.closeMonthlyDisabledReason || '');
+        setCanEditFuel(Boolean(data?.canEditFuel));
+    }, []);
 
     const loadList = useCallback(async () => {
-        setLoading(true);
+        const requestedMonth = monthKey;
+        const seq = ++loadSeq.current;
+        const cached = accessFuelListCache.get(requestedMonth);
+        if (cached) {
+            applyFuelPayload(cached);
+            setLoading(false);
+        } else {
+            setLoading(true);
+        }
+        let showedList = Boolean(cached);
         try {
             const res = await axiosInstance.get('/VehicleFuel/access-list', {
-                params: { monthKey },
+                params: { monthKey: requestedMonth },
                 skipToast: true,
             });
-            setVehicles(Array.isArray(res.data?.vehicles) ? res.data.vehicles : []);
-            setPendingLimit(Array.isArray(res.data?.pendingLimit) ? res.data.pendingLimit : []);
-            setAdded(Array.isArray(res.data?.added) ? res.data.added : []);
-            setNotAdded(Array.isArray(res.data?.notAdded) ? res.data.notAdded : []);
-            setSummary({
-                addedCount: Number(res.data?.summary?.addedCount || 0),
-                notAddedCount: Number(res.data?.summary?.notAddedCount || 0),
-                totalAmount: Number(res.data?.summary?.totalAmount || 0),
-                exceedCount: Number(res.data?.summary?.exceedCount || 0),
-            });
-            setMonthLabel(res.data?.monthLabel || '');
-            setCanManage(Boolean(res.data?.canManage));
-            setCanDelete(Boolean(res.data?.canDelete) || isAdmin());
-            setCanCreateMonthlyLimit(Boolean(res.data?.canCreateMonthlyLimit));
-            setMonthlyLimitDisabledReason(res.data?.monthlyLimitDisabledReason || '');
-            setCanCloseMonthlyFuel(Boolean(res.data?.canCloseMonthlyFuel));
-            setCloseMonthlyDisabledReason(res.data?.closeMonthlyDisabledReason || '');
-            setCanEditFuel(Boolean(res.data?.canEditFuel));
-        } catch (error) {
-            toast({
-                variant: 'destructive',
-                title: 'Could not load fuel',
-                description: error?.response?.data?.message || 'Try again in a moment.',
-            });
-            setVehicles([]);
-            setPendingLimit([]);
-            setAdded([]);
-            setNotAdded([]);
-            setCanCreateMonthlyLimit(false);
-            setMonthlyLimitDisabledReason('');
-            setCanCloseMonthlyFuel(false);
-            setCloseMonthlyDisabledReason('');
-            setCanEditFuel(false);
-        } finally {
+            accessFuelListCache.set(requestedMonth, res.data);
+            if (seq !== loadSeq.current) return;
+            applyFuelPayload(res.data);
             setLoading(false);
+            showedList = true;
+            if (res.data?.gpsPending) {
+                const gpsRes = await axiosInstance.get('/VehicleFuel/access-list', {
+                    params: { monthKey: requestedMonth, waitGps: '1' },
+                    skipToast: true,
+                });
+                accessFuelListCache.set(requestedMonth, gpsRes.data);
+                if (seq !== loadSeq.current) return;
+                applyFuelPayload(gpsRes.data);
+            }
+        } catch (error) {
+            if (seq !== loadSeq.current) return;
+            if (!showedList) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Could not load fuel',
+                    description: error?.response?.data?.message || 'Try again in a moment.',
+                });
+                setVehicles([]);
+                setPendingLimit([]);
+                setAdded([]);
+                setNotAdded([]);
+                setCanCreateMonthlyLimit(false);
+                setMonthlyLimitDisabledReason('');
+                setCanCloseMonthlyFuel(false);
+                setCloseMonthlyDisabledReason('');
+                setCanEditFuel(false);
+            }
+        } finally {
+            if (seq === loadSeq.current) setLoading(false);
         }
-    }, [toast, monthKey]);
+    }, [applyFuelPayload, toast, monthKey]);
 
     useEffect(() => {
         loadList();
@@ -241,6 +304,8 @@ export default function VehicleAccessFuelPanel({
         const withSl = (visibleRows || []).map((row, index) => ({ ...row, slNo: index + 1 }));
         return sortServiceTableRows(withSl, fuelSortValue, sortKey, sortDirection, column.type);
     }, [visibleRows, sortKey, sortDirection]);
+
+    const listedMoney = useMemo(() => sumListedFuelMoney(sortedRows), [sortedRows]);
 
     const cardHint = (key) => {
         if (loading) return 'Loading…';
@@ -384,6 +449,7 @@ export default function VehicleAccessFuelPanel({
 
     const printVehicleList = (sourceRows, subtitle, fileSuffix) => {
         if (!sourceRows.length) return;
+        const totals = sumListedFuelMoney(sourceRows);
         try {
             downloadAccessFuelListedVehiclesPdf({
                 title: 'Access Fuel',
@@ -397,11 +463,24 @@ export default function VehicleAccessFuelPanel({
                     `${row.monthLabel || monthLabel || '—'}${row.status === 'closed' ? ' (Closed)' : ''}${row.noFuel ? ' (Not added)' : ''}`,
                     formatAmount(row.monthlyLimit),
                     row.noFuel ? '—' : formatAmount(row.amountUsed),
+                    formatExcessAmount(rowExcessAmount(row)),
                     formatKm(row.kmRun),
                     row.idleTimeLabel || '—',
                 ]),
-                columnWeights: [8, 18, 12, 16, 14, 12, 12, 10, 12],
-                columnAlign: ['left', 'left', 'left', 'left', 'left', 'right', 'right', 'right', 'left'],
+                footerRow: [
+                    '',
+                    'Total',
+                    '',
+                    '',
+                    '',
+                    formatAmount(totals.monthlyLimit),
+                    formatAmount(totals.amountUsed),
+                    formatExcessAmount(totals.excessAmount),
+                    '',
+                    '',
+                ],
+                columnWeights: [7, 16, 11, 14, 12, 12, 12, 12, 10, 11],
+                columnAlign: ['left', 'left', 'left', 'left', 'left', 'right', 'right', 'right', 'right', 'left'],
                 fileName: `access-fuel-${fileSuffix}-${monthKey}.pdf`,
             });
         } catch (error) {
@@ -673,7 +752,7 @@ export default function VehicleAccessFuelPanel({
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full border-collapse text-[13px] min-w-[1080px]">
+                            <table className="w-full border-collapse text-[13px] min-w-[1200px]">
                                 <thead className="bg-slate-50/90 border-b border-slate-200">
                                     <tr className="text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                                         {FUEL_COLUMNS.map((column) => (
@@ -685,6 +764,15 @@ export default function VehicleAccessFuelPanel({
                                                 sortDirection={sortDirection}
                                                 onSort={handleSort}
                                                 className="px-3 py-2"
+                                                detail={
+                                                    column.key === 'monthlyLimit'
+                                                        ? formatAmount(listedMoney.monthlyLimit)
+                                                        : column.key === 'amountUsed'
+                                                          ? formatAmount(listedMoney.amountUsed)
+                                                          : column.key === 'excessAmount'
+                                                            ? formatExcessAmount(listedMoney.excessAmount)
+                                                            : ''
+                                                }
                                             />
                                         ))}
                                         <th className="px-3 py-2 whitespace-nowrap text-right w-52">Actions</th>
@@ -739,11 +827,18 @@ export default function VehicleAccessFuelPanel({
                                                         ) : null}
                                                     </span>
                                                 </td>
-                                                <td className="px-3 py-1.5 tabular-nums whitespace-nowrap text-slate-600">
+                                                <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap text-slate-600">
                                                     {formatAmount(row.monthlyLimit)}
                                                 </td>
-                                                <td className="px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap text-teal-800">
+                                                <td className="px-3 py-1.5 text-right font-semibold tabular-nums whitespace-nowrap text-teal-800">
                                                     {row.noFuel ? '—' : formatAmount(row.amountUsed)}
+                                                </td>
+                                                <td
+                                                    className={`px-3 py-1.5 text-right font-semibold tabular-nums whitespace-nowrap ${
+                                                        rowExcessAmount(row) > 0 ? 'text-rose-700' : 'text-slate-700'
+                                                    }`}
+                                                >
+                                                    {formatExcessAmount(rowExcessAmount(row))}
                                                 </td>
                                                 <td className="px-3 py-1.5 tabular-nums whitespace-nowrap text-slate-600">
                                                     {formatKm(row.kmRun)}
@@ -872,10 +967,11 @@ export default function VehicleAccessFuelPanel({
                                                                   ) : null}
                                                               </div>
                                                           </td>
-                                                          <td className="px-3 py-1 text-slate-300">—</td>
-                                                          <td className="px-3 py-1 font-semibold tabular-nums whitespace-nowrap text-slate-700">
+                                                          <td className="px-3 py-1 text-right text-slate-300">—</td>
+                                                          <td className="px-3 py-1 text-right font-semibold tabular-nums whitespace-nowrap text-slate-700">
                                                               {formatAmount(entry.amount)}
                                                           </td>
+                                                          <td className="px-3 py-1 text-right text-slate-300">—</td>
                                                           <td className="px-3 py-1 text-slate-300">—</td>
                                                           <td className="px-3 py-1 text-slate-300">—</td>
                                                           <td className="px-3 py-1 text-right">

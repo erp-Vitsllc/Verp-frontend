@@ -23,6 +23,7 @@ export function downloadAccessFuelListedVehiclesPdf({
     subtitle = '',
     headers = [],
     rows = [],
+    footerRow = null,
     fileName = 'access-fuel.pdf',
     columnWeights,
     columnAlign,
@@ -85,10 +86,9 @@ export function downloadAccessFuelListedVehiclesPdf({
     drawHeader();
     pdf.setFontSize(8);
 
-    listed.forEach((row, index) => {
-        const cells = Array.isArray(row) ? row : [];
+    const paintRow = (cells, { bold = false, fill = null, rule = false } = {}) => {
         const heights = cells.map((cell, i) =>
-            pdf.splitTextToSize(String(cell ?? '—'), colW[i] - 2).length,
+            pdf.splitTextToSize(String(cell ?? '—'), Math.max(colW[i] - 2, 4)).length,
         );
         const rowH = Math.max(6, Math.max(1, ...heights) * lineH + 2);
         if (y + rowH > pageH - 14) {
@@ -97,17 +97,33 @@ export function downloadAccessFuelListedVehiclesPdf({
             drawHeader();
             pdf.setFontSize(8);
         }
-        if (index % 2 === 0) {
-            pdf.setFillColor(241, 245, 249);
+        if (rule) {
+            pdf.setDrawColor(15, 118, 110);
+            pdf.setLineWidth(0.3);
+            pdf.line(margin, y - 4, pageW - margin, y - 4);
+        }
+        if (fill) {
+            pdf.setFillColor(fill[0], fill[1], fill[2]);
             pdf.rect(margin, y - 3.5, pageW - margin * 2, rowH, 'F');
         }
+        pdf.setFont('helvetica', bold ? 'bold' : 'normal');
+        pdf.setTextColor(15, 23, 42);
         let x = margin;
         cells.forEach((cell, i) => {
             drawCell(cell, i, x, y);
             x += colW[i];
         });
         y += rowH;
+    };
+
+    listed.forEach((row, index) => {
+        const cells = Array.isArray(row) ? row : [];
+        paintRow(cells, { fill: index % 2 === 0 ? [241, 245, 249] : null });
     });
+
+    if (Array.isArray(footerRow) && footerRow.length) {
+        paintRow(footerRow, { bold: true, fill: [236, 253, 245], rule: true });
+    }
 
     const pageCount = pdf.getNumberOfPages();
     for (let i = 1; i <= pageCount; i += 1) {

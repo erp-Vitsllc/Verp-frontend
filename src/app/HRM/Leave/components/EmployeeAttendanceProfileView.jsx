@@ -5,34 +5,28 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
     AlertTriangle,
-    ArrowLeftRight,
     ArrowRight,
     BarChart3,
     CalendarDays,
     Check,
     ChevronRight,
     Clock,
-    FileText,
-    Landmark,
-    Minus,
     Paperclip,
     Plane,
-    Search,
     Sparkle,
-    Star,
     Stethoscope,
-    TrendingUp,
     X,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { workLocationLabel } from '@/utils/workLocations';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { getEmployeeInitials } from '@/utils/employeeProfileImage';
-import EmployeeOverviewAttendanceCard from './EmployeeOverviewAttendanceCard';
+import EmployeeInformationDashboard from './EmployeeInformationDashboard';
 import HistoricalSalarySetupView from '@/app/HRM/Salary/enroll/HistoricalSalarySetupView';
 import { navigateFromList } from '@/utils/listReturnNavigation';
 import { salaryRegisterHref } from '@/app/HRM/Salary/utils/salaryRegisterHref';
 import { employeeDataMetrics } from '@/app/HRM/Leave/utils/employeeDataMetrics';
+import CompOffSettleModal from '@/app/HRM/Attendance/components/CompOffSettleModal';
 
 const DATA_ROWS = [
     {
@@ -108,53 +102,6 @@ const DATA_ROW_LABEL = {
     on_office: 'Present days',
     work_from_home: 'Work from home',
 };
-const LEAVE_REQUEST_BOXES = [
-    {
-        key: 'on_leave',
-        label: 'Annual leave',
-        leaveType: 'annual',
-        metrics: 'request',
-        Icon: Plane,
-        wrap: 'bg-[#EEF4FF]',
-        iconWrap: 'bg-[#DCEBFF] text-[#2563EB]',
-    },
-    {
-        key: 'authorized_leave',
-        label: 'Authorized leave',
-        leaveType: 'authorized',
-        metrics: 'request',
-        Icon: Check,
-        wrap: 'bg-[#ECF8F0]',
-        iconWrap: 'bg-[#D8F5DE] text-[#1F7A3A]',
-    },
-    {
-        key: 'unauthorized_leave',
-        label: 'Unauthorized leave',
-        leaveType: 'unauthorized',
-        metrics: 'request',
-        Icon: AlertTriangle,
-        wrap: 'bg-[#FDF2F2]',
-        iconWrap: 'bg-[#F8D5D5] text-[#B42318]',
-    },
-    {
-        key: 'sick_leave',
-        label: 'Sick leave',
-        leaveType: 'sick',
-        metrics: 'request',
-        Icon: Stethoscope,
-        wrap: 'bg-[#F6F0FB]',
-        iconWrap: 'bg-[#E8D9F8] text-[#6B3FA0]',
-    },
-    {
-        key: 'compoff_leave',
-        label: 'Comp off leave',
-        leaveType: 'compoff',
-        metrics: 'compoff',
-        Icon: CalendarDays,
-        wrap: 'bg-[#F4F1FE]',
-        iconWrap: 'bg-[#EDE9FE] text-[#6D28D9]',
-    },
-];
 const DEDUCTION_EVENT_KEYS = ['authorized_leave', 'unauthorized_leave', 'late_arrived', 'early_go'];
 const DEFAULT_TAKEN_COLUMNS = [
     { key: 'date', label: 'Date' },
@@ -425,36 +372,6 @@ function financialTakenRows(key, ctx) {
     return [];
 }
 
-function OverviewListRow({ icon: Icon, iconWrap, title, subtitle, value, valueClass, badge, onClick }) {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-slate-50/80 transition-colors"
-        >
-            <span
-                className={`h-10 w-10 rounded-xl inline-flex items-center justify-center shrink-0 ${iconWrap}`}
-            >
-                <Icon size={16} />
-            </span>
-            <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-bold text-[#1B2A4A]">{title}</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">{subtitle}</p>
-            </div>
-            {badge ? (
-                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-500 shrink-0">
-                    {badge}
-                </span>
-            ) : (
-                <span className={`text-[14px] font-bold tabular-nums shrink-0 ${valueClass || 'text-[#1B2A4A]'}`}>
-                    {value}
-                </span>
-            )}
-            <ChevronRight size={16} className="text-slate-300 shrink-0" />
-        </button>
-    );
-}
-
 function AnnualLeaveEligibilityCard({ annualLeave }) {
     const eligibleDays = n(annualLeave?.eligibleDays);
     const leaveSalaryDays = n(annualLeave?.leaveSalaryDays);
@@ -502,143 +419,6 @@ function AnnualLeaveEligibilityCard({ annualLeave }) {
                         </div>
                     ))}
                 </div>
-            </div>
-        </div>
-    );
-}
-
-const REQUEST_DOTS = ['bg-[#7C3AED]', 'bg-[#F59E0B]', 'bg-[#EF4444]', 'bg-[#2563EB]'];
-const TASK_AGING_FALLBACK = [
-    { label: '1 week', count: 0, color: '#22C55E' },
-    { label: '10 days', count: 0, color: '#6366F1' },
-    { label: '20 days', count: 0, color: '#F59E0B' },
-    { label: '30 days', count: 0, color: '#FB923C' },
-    { label: 'More', count: 0, color: '#EF4444' },
-];
-
-function Metric({ label, value, accent = false }) {
-    return (
-        <div className="flex items-baseline gap-1.5 shrink-0">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 whitespace-nowrap">
-                {label}
-            </span>
-            <span
-                className={`text-[13px] font-bold tabular-nums leading-none ${
-                    accent ? 'text-[#1A9B8C]' : 'text-[#1B2A4A]'
-                }`}
-            >
-                {value}
-            </span>
-        </div>
-    );
-}
-
-function possessiveName(name) {
-    const value = String(name || '').trim();
-    if (!value) return "Employee's";
-    return /s$/i.test(value) ? `${value}'` : `${value}'s`;
-}
-
-function boxMetrics(box, requestStats, leaveBalances, counts) {
-    if (box.metrics === 'compoff') {
-        const balance = leaveBalances?.compoff_leave || {};
-        const used = n(counts?.compoff_leave ?? balance.taken);
-        const unused = n(balance.remaining);
-        return {
-            total: used + unused,
-            items: [
-                { label: 'Used', value: used, wrap: 'bg-white/80 text-[#6D28D9]' },
-                { label: 'Unused', value: unused, wrap: 'bg-white/80 text-[#15803D]' },
-            ],
-        };
-    }
-    const bucket = requestStats?.[box.key] || {};
-    const requested = n(bucket.request);
-    const approved = n(bucket.approved);
-    return {
-        total: requested + approved,
-        items: [
-            { label: 'Requested', value: requested, wrap: 'bg-white/80 text-[#C05621]' },
-            { label: 'Approved', value: approved, wrap: 'bg-white/80 text-[#15803D]' },
-        ],
-    };
-}
-
-function EmployeeLeaveRequestCard({ employeeName, employeeId, requestStats, leaveBalances, counts }) {
-    const stats = requestStats || {};
-    const balances = leaveBalances || {};
-    const yearCounts = counts || {};
-    const hrefFor = (leaveType) => {
-        const params = new URLSearchParams();
-        if (employeeId) params.set('employeeId', employeeId);
-        if (employeeName) params.set('employeeName', employeeName);
-        if (leaveType) params.set('leaveType', leaveType);
-        const query = params.toString();
-        return query ? `/HRM/Leave/annual-leave?${query}` : '/HRM/Leave/annual-leave';
-    };
-    const grandTotal = LEAVE_REQUEST_BOXES.reduce(
-        (sum, box) => sum + boxMetrics(box, stats, balances, yearCounts).total,
-        0,
-    );
-
-    return (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-3">
-                <div>
-                    <h2 className="text-[15px] font-bold text-[#1B2A4A]">
-                        {possessiveName(employeeName)} leave request
-                    </h2>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                        Requested and approved leave, plus comp off used and unused
-                    </p>
-                </div>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[12px] font-bold tabular-nums text-[#1B2A4A] shrink-0">
-                    {grandTotal}
-                </span>
-            </div>
-            <div className="px-3 pb-4 grid grid-cols-2 gap-3">
-                {LEAVE_REQUEST_BOXES.map((box) => {
-                    const Icon = box.Icon;
-                    const { total, items } = boxMetrics(box, stats, balances, yearCounts);
-                    return (
-                        <Link
-                            key={box.key}
-                            href={hrefFor(box.leaveType)}
-                            className={`rounded-2xl ${box.wrap} p-3.5 hover:brightness-[0.98] transition-all`}
-                        >
-                            <div className="flex items-center justify-between gap-2 mb-3">
-                                <div className="flex items-center gap-2 min-w-0">
-                                    <span
-                                        className={`h-8 w-8 rounded-full inline-flex items-center justify-center shrink-0 ${box.iconWrap}`}
-                                    >
-                                        <Icon size={14} />
-                                    </span>
-                                    <p className="text-[13px] font-bold text-[#1B2A4A] leading-tight truncate">
-                                        {box.label}
-                                    </p>
-                                </div>
-                                <span className="text-[20px] font-bold tabular-nums text-[#1B2A4A] leading-none shrink-0">
-                                    {total}
-                                </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-1.5">
-                                {items.map((item) => (
-                                    <div
-                                        key={item.label}
-                                        className={`rounded-xl ${item.wrap} px-1.5 py-2 text-center`}
-                                    >
-                                        <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 leading-none">
-                                            {item.label}
-                                        </p>
-                                        <p className="mt-1.5 text-[16px] font-bold tabular-nums leading-none">
-                                            {item.value}
-                                        </p>
-                                    </div>
-                                ))}
-                            </div>
-                        </Link>
-                    );
-                })}
             </div>
         </div>
     );
@@ -739,7 +519,7 @@ function ProfileHero({ employee, year, presentDays, nextBirthday }) {
     );
 }
 
-function EventsDetailPanel({ title, events, onClose }) {
+function EventsDetailPanel({ title, events, onClose, onOpenCompOff }) {
     return (
         <div
             className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
@@ -771,7 +551,17 @@ function EventsDetailPanel({ title, events, onClose }) {
                         <ul className="divide-y divide-gray-100">
                             {events.map((event) => (
                                 <li key={event.id} className="py-3">
-                                    <p className="text-sm font-semibold text-gray-900">{event.date}</p>
+                                    {event.statusKey === 'compoff_leave' && onOpenCompOff ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => onOpenCompOff(event)}
+                                            className="text-sm font-semibold text-violet-700 hover:underline"
+                                        >
+                                            {event.date}
+                                        </button>
+                                    ) : (
+                                        <p className="text-sm font-semibold text-gray-900">{event.date}</p>
+                                    )}
                                     <p className="text-xs text-gray-500 mt-0.5">{event.statusLabel}</p>
                                     {event.reason ? (
                                         <p className="text-sm text-gray-700 mt-2">{event.reason}</p>
@@ -1004,7 +794,6 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     const router = useRouter();
     const pathname = usePathname();
     const [year, setYear] = useState(currentDubaiYear);
-    const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [profile, setProfile] = useState(null);
@@ -1013,9 +802,10 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     const [financialModalKey, setFinancialModalKey] = useState('');
     const [historicalAnnualLeave, setHistoricalAnnualLeave] = useState([]);
     const [historicalAnnualLoading, setHistoricalAnnualLoading] = useState(false);
-    const [calendarScope, setCalendarScope] = useState('mine');
     const [activeTab, setActiveTab] = useState('attendance');
     const [salaryTabVisited, setSalaryTabVisited] = useState(false);
+    const [compOffDate, setCompOffDate] = useState('');
+    const [categoryRows, setCategoryRows] = useState(null);
 
     const fetchProfile = useCallback(async () => {
         if (!employeeMongoId) return;
@@ -1041,7 +831,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         setAnnualLeaveOpen(false);
         setFinancialModalKey('');
         setHistoricalAnnualLeave([]);
-        setSearch('');
+        setCategoryRows(null);
         setActiveTab('attendance');
         setSalaryTabVisited(false);
     }, [employeeMongoId]);
@@ -1139,19 +929,8 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         router.push(path);
     };
 
-    const yearOptions = useMemo(() => {
-        const now = currentDubaiYear();
-        const joinYear = Number(String(profile?.employee?.dateOfJoining || '').slice(0, 4));
-        const start = Number.isFinite(joinYear) && joinYear >= 2000 ? joinYear : now - 5;
-        const years = [];
-        for (let value = now; value >= start; value -= 1) years.push(value);
-        if (!years.includes(year)) years.unshift(year);
-        return years;
-    }, [profile?.employee?.dateOfJoining, year]);
-
     const employee = profile?.employee;
     const annualLeaveCalendarHref = useMemo(() => {
-        if (calendarScope === 'all') return '/HRM/Leave/annual-leave';
         const params = new URLSearchParams();
         const code = String(employee?.employeeId || '').trim();
         const name = String(employee?.name || '').trim();
@@ -1159,63 +938,18 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         if (name) params.set('employeeName', name);
         const query = params.toString();
         return query ? `/HRM/Leave/annual-leave?${query}` : '/HRM/Leave/annual-leave';
-    }, [calendarScope, employee?.employeeId, employee?.name]);
-    const counts = profile?.summary?.counts || {};
-    const appliedCounts = profile?.summary?.appliedCounts || {};
-    const leaveBalances = profile?.leaveBalances || {};
-    const leavePolicy = profile?.leavePolicy || {};
-    const requestStats = profile?.summary?.requestStats || {};
+    }, [employee?.employeeId, employee?.name]);
     const financial = profile?.financial || {};
     const salary = financial.salary || {};
     const annualLeave = profile?.annualLeave || {};
-    const yearPresentDays = n(profile?.summary?.yearPresentDays ?? counts.on_office);
-    const rowMetricsCtx = {
-        counts,
-        leaveBalances,
-        requestStats,
-        leavePolicy,
-        annualLeave,
-        enrollAttendance: profile?.summary?.enrollAttendance || {},
-        presentDays: n(profile?.summary?.presentDays),
-        absentDays: n(profile?.summary?.enrollAttendance?.absent ?? profile?.summary?.absentDays),
-        yearCard: profile?.summary?.yearCard || null,
-    };
+    const yearPresentDays = n(profile?.summary?.yearPresentDays ?? profile?.summary?.counts?.on_office);
     const loans = approvedFinancialRows(financial.loans);
     const advances = approvedFinancialRows(financial.advances);
     const fines = approvedFinancialRows(financial.fines);
     const rewards = approvedFinancialRows(financial.rewards);
     const utilityItems = approvedFinancialRows(financial.utilityItems);
-    const utility = financial.utility || {};
-    const increment = financial.increment;
-    const loanOutstanding = loans.reduce((sum, row) => sum + n(row.outstanding), 0);
-    const advanceOutstanding = advances.reduce((sum, row) => sum + n(row.outstanding), 0);
-    const fineOutstanding = fines.reduce((sum, row) => sum + n(row.outstanding), 0);
-    const utilityOutstanding = utilityItems.length
-        ? utilityItems.reduce((sum, row) => sum + n(row.amount), 0)
-        : n(utility.outstanding);
-    const totalOutstanding = loanOutstanding + advanceOutstanding + fineOutstanding + utilityOutstanding;
     const monthlySalary = n(salary.monthlySalary) || n(salary.totalSalary);
     const salaryOther = n(salary.other) || Math.max(0, monthlySalary - n(salary.basic));
-    const activeLoan = loans.find((row) => n(row.outstanding) > 0) || loans[0];
-    const activeAdvance = advances.find((row) => n(row.outstanding) > 0);
-    const latestReward = rewards[0];
-    const pendingFine = fines.find((row) => n(row.outstanding) > 0) || fines[0];
-    const rewardTotal = n(latestReward?.amount);
-    const pendingHrRequests = profile?.requests?.pending || [];
-    const pendingHrCount =
-        n(profile?.requests?.hrPendingCount) ||
-        pendingHrRequests.length ||
-        Object.values(appliedCounts).reduce((sum, value) => sum + n(value), 0);
-    const pendingTaskCount = n(profile?.requests?.workTaskPendingCount);
-    const taskAging = profile?.requests?.taskAging?.length
-        ? profile.requests.taskAging
-        : TASK_AGING_FALLBACK;
-    const agingMax = Math.max(1, ...taskAging.map((bar) => n(bar.count)));
-    const deductionBits = DEDUCTION_EVENT_KEYS.map((key) => {
-        if (!n(counts[key]) && !(eventsByKey[key] || []).length) return '';
-        return DATA_ROW_LABEL[key];
-    }).filter(Boolean);
-
     const employeeCode = String(employee?.employeeId || '').trim();
     const salaryHref = employeeCode
         ? `/HRM/Salary/enroll/${encodeURIComponent(employeeCode)}`
@@ -1237,7 +971,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         salary,
         salaryOther,
         monthlySalary,
-        leaveBalances,
+        leaveBalances: profile?.leaveBalances || {},
         salaryHistory: financial.salaryHistory || [],
         increments: financial.increments || [],
         advances,
@@ -1249,12 +983,6 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
             String(b.date || '').localeCompare(String(a.date || '')),
         ),
     });
-
-    const visibleRows = useMemo(() => {
-        const query = search.trim().toLowerCase();
-        if (!query) return DATA_ROWS;
-        return DATA_ROWS.filter((row) => row.label.toLowerCase().includes(query));
-    }, [search]);
 
     if (loading && !profile) {
         return <div className="py-16 text-center text-sm text-gray-500">Loading HR profile...</div>;
@@ -1268,478 +996,46 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
 
     return (
         <>
-            <ProfileHero
-                employee={employee}
-                year={profile.year}
-                presentDays={yearPresentDays}
-                nextBirthday={profile.nextBirthday}
-            />
-
-            <div className="mb-3.5 flex flex-col gap-2.5 lg:flex-row lg:items-end lg:justify-between">
-                <div className="min-w-0">
-                    <div className="flex items-end gap-5 border-b border-slate-200">
-                        <button
-                            type="button"
-                            onClick={() => setActiveTab('attendance')}
-                            className={`-mb-px border-b-2 px-0.5 pb-2 text-sm font-semibold tracking-wide transition-colors ${
-                                activeTab === 'attendance'
-                                    ? 'border-[#1A9B8C] text-[#1B2A4A]'
-                                    : 'border-transparent text-slate-400 hover:text-slate-600'
-                            }`}
-                        >
-                            Attendance and information
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setActiveTab('salary');
-                                setSalaryTabVisited(true);
-                            }}
-                            className={`-mb-px border-b-2 px-0.5 pb-2 text-sm font-semibold tracking-wide transition-colors ${
-                                activeTab === 'salary'
-                                    ? 'border-[#1A9B8C] text-[#1B2A4A]'
-                                    : 'border-transparent text-slate-400 hover:text-slate-600'
-                            }`}
-                        >
-                            Salary information
-                        </button>
-                    </div>
-                    {activeTab === 'attendance' ? (
-                        <p className="text-[11px] sm:text-xs text-slate-500 mt-1.5">
-                            Requests, approvals and historical records in one place
-                        </p>
-                    ) : (
-                        <p className="text-[11px] sm:text-xs text-slate-500 mt-1.5">
-                            Historical salary setup and enrollment for this employee
-                        </p>
-                    )}
-                </div>
-                {activeTab === 'attendance' ? (
-                <div className="flex flex-wrap items-center gap-2">
-                    <label className="relative">
-                        <Search
-                            size={14}
-                            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
-                        />
-                        <input
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Search records"
-                            className="h-9 w-[160px] sm:w-[180px] rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-xs font-medium text-slate-700 placeholder:text-slate-400"
-                        />
-                    </label>
-                    <select
-                        value={year}
-                        onChange={(event) => setYear(Number(event.target.value))}
-                        className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700"
+            {activeTab === 'salary' ? (
+                <div className="mb-4">
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('attendance')}
+                        className="mb-3 text-sm font-semibold text-[#2563EB]"
                     >
-                        {yearOptions.map((option) => (
-                            <option key={option} value={option}>
-                                Year {option}
-                            </option>
-                        ))}
-                    </select>
+                        Back to attendance dashboard
+                    </button>
+                    <ProfileHero
+                        employee={employee}
+                        year={profile.year}
+                        presentDays={yearPresentDays}
+                        nextBirthday={profile.nextBirthday}
+                    />
                 </div>
-                ) : null}
-            </div>
-
-            <div className={activeTab === 'attendance' ? '' : 'hidden'}>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4 items-start">
-                <div className="flex flex-col gap-3 sm:gap-4 min-w-0">
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-                    <div className="px-4 pt-3 pb-2 flex items-start justify-between gap-3">
-                        <div>
-                            <h2 className="text-[15px] font-bold text-[#1B2A4A]">Employee data</h2>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
-                                Leave and present days from salary enroll
-                                {annualLeave.lastAnnualLeaveDate ? ' · after latest annual leave for eligibility' : ''}
-                                {n(leavePolicy.annualAllowedDays)
-                                    ? ` · Annual ${leavePolicy.annualAllowedDays} days/${leavePolicy.annualPeriod || 'year'}`
-                                    : ''}
-                                {leavePolicy.sickAllowedDays != null || leavePolicy.allowedSickLeaveDaysPerYear != null
-                                    ? ` · Sick leave ${leavePolicy.sickAllowedDays ?? leavePolicy.allowedSickLeaveDaysPerYear ?? 0} days ${leavePolicy.sickPeriod || 'from last annual leave to next'} · extra sick counts as authorized leave`
-                                    : ''}
-                                {leavePolicy.sandwichLeave ? ' · Sandwich leave on' : ''}
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => downloadSummaryCsv(profile)}
-                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-500 hover:bg-slate-50 shrink-0"
-                        >
-                            Download report
-                            <ArrowRight size={13} className="text-slate-400" />
-                        </button>
-                    </div>
-
-                    <div className="divide-y divide-slate-100 flex-1">
-                        {visibleRows.length === 0 ? (
-                            <p className="px-5 py-8 text-center text-sm text-slate-400">
-                                No records match “{search}”.
-                            </p>
-                        ) : (
-                            visibleRows.map((row) => {
-                                const Icon = row.Icon;
-                                const metrics = employeeDataMetrics(row, rowMetricsCtx);
-                                const opensDetail = true;
-                                const RowTag = 'button';
-
-                                return (
-                                    <RowTag
-                                        key={row.key}
-                                        type="button"
-                                        onClick={() =>
-                                            row.key === 'on_leave'
-                                                ? setAnnualLeaveOpen(true)
-                                                : setExpandedStatKey(row.key)
-                                        }
-                                        className={`w-full flex items-center justify-between gap-3 px-4 py-1.5 text-left ${
-                                            opensDetail
-                                                ? 'hover:bg-slate-50/80 transition-colors'
-                                                : ''
-                                        }`}
-                                    >
-                                        <div className="flex items-center gap-2.5 min-w-0">
-                                            <span
-                                                className={`h-7 w-7 rounded-full inline-flex items-center justify-center shrink-0 ${row.iconWrap}`}
-                                            >
-                                                <Icon size={13} />
-                                            </span>
-                                            <span className="text-[13px] font-semibold text-[#1B2A4A]">
-                                                {row.label}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center gap-2.5 sm:gap-3.5 shrink-0">
-                                            {metrics.map((metric) => (
-                                                <Metric
-                                                    key={metric.label}
-                                                    label={metric.label}
-                                                    value={metric.value}
-                                                />
-                                            ))}
-                                            {opensDetail ? (
-                                                <ArrowRight size={13} className="text-slate-400 shrink-0" />
-                                            ) : null}
-                                        </div>
-                                    </RowTag>
-                                );
-                            })
-                        )}
-                    </div>
-                    <div className="px-3 pb-3 pt-1">
-                        <AnnualLeaveEligibilityCard annualLeave={annualLeave} />
-                    </div>
-                </div>
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-                    <div className="px-4 pt-4 pb-3.5 flex items-start justify-between gap-3">
-                        <div>
-                            <h2 className="text-[15px] font-bold text-[#1B2A4A]">Salary & financial details</h2>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
-                                Payroll, increments, liabilities and deductions
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={openFilteredSalaryRegister}
-                            className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-500 hover:bg-slate-50 shrink-0"
-                        >
-                            Payroll file
-                            <ArrowRight size={12} className="text-slate-400" />
-                        </button>
-                    </div>
-                    <div className="divide-y divide-slate-100 border-t border-slate-100">
-                        <OverviewListRow
-                            icon={BarChart3}
-                            iconWrap="bg-[#DCEBFF] text-[#2563EB]"
-                            title="Salary"
-                            subtitle={`Basic ${formatAed(salary.basic)} · Other ${formatAed(salaryOther)}`}
-                            value={formatAed(monthlySalary)}
-                            onClick={openFilteredSalaryRegister}
-                        />
-                        <OverviewListRow
-                            icon={TrendingUp}
-                            iconWrap="bg-[#D8F5DE] text-[#1F7A3A]"
-                            title="Latest increment"
-                            subtitle={
-                                increment?.amount
-                                    ? `${increment.dateLabel || 'Latest'} · ${formatAed(increment.amount)} increase`
-                                    : 'No increment recorded'
-                            }
-                            value={increment?.amount ? formatSignedAed(increment.amount) : formatAed(0)}
-                            valueClass={increment?.amount ? 'text-[#16A34A]' : undefined}
-                            onClick={() => setFinancialModalKey('increment')}
-                        />
-                        <OverviewListRow
-                            icon={ArrowLeftRight}
-                            iconWrap="bg-slate-100 text-slate-500"
-                            title="Advance"
-                            subtitle={
-                                activeAdvance
-                                    ? `${activeAdvance.reason || activeAdvance.code} - ${activeAdvance.remainingPayments || 0} payments remaining`
-                                    : 'No active advance'
-                            }
-                            value={formatAed(advanceOutstanding)}
-                            onClick={() => setFinancialModalKey('advance')}
-                        />
-                        <OverviewListRow
-                            icon={Landmark}
-                            iconWrap="bg-[#EDE9FE] text-[#6D28D9]"
-                            title="Loan"
-                            subtitle={
-                                n(activeLoan?.outstanding) > 0
-                                    ? `${activeLoan.reason || activeLoan.code} - ${activeLoan.remainingPayments || 0} payments remaining`
-                                    : 'No active loan'
-                            }
-                            value={formatAed(loanOutstanding)}
-                            onClick={() => setFinancialModalKey('loan')}
-                        />
-                        <OverviewListRow
-                            icon={Star}
-                            iconWrap="bg-[#FEF3C7] text-[#D97706]"
-                            title="Rewards earned"
-                            subtitle={
-                                latestReward
-                                    ? `${latestReward.type}${latestReward.dateLabel ? ` - ${latestReward.dateLabel}` : ''}`
-                                    : 'No rewards recorded'
-                            }
-                            value={formatAed(rewardTotal)}
-                            onClick={() => setFinancialModalKey('rewards')}
-                        />
-                        <OverviewListRow
-                            icon={AlertTriangle}
-                            iconWrap="bg-[#F8D5D5] text-[#B42318]"
-                            title="Fines"
-                            subtitle={
-                                n(pendingFine?.outstanding) > 0
-                                    ? `${pendingFine.code}${pendingFine.type ? ` - ${pendingFine.type}` : ''} · Balance due`
-                                    : 'No approved fines'
-                            }
-                            value={formatAed(fineOutstanding)}
-                            onClick={() => setFinancialModalKey('fines')}
-                        />
-                        <OverviewListRow
-                            icon={Minus}
-                            iconWrap="bg-[#FDE7D0] text-[#C05621]"
-                            title="Utility excess"
-                            subtitle={
-                                utilityOutstanding
-                                    ? `${utility.utilityType || 'Mobile bill'} excess${utility.billMonthLabel ? ` - ${utility.billMonthLabel}` : ''}`
-                                    : 'No utility excess'
-                            }
-                            value={formatAed(utilityOutstanding)}
-                            onClick={() => setFinancialModalKey('utility')}
-                        />
-                        <OverviewListRow
-                            icon={Minus}
-                            iconWrap="bg-[#FCE7F3] text-[#BE185D]"
-                            title="Deductions"
-                            subtitle={deductionBits.length ? deductionBits.join(' - ') : 'No attendance deductions'}
-                            value={formatAed(0)}
-                            onClick={() => setFinancialModalKey('deductions')}
-                        />
-                    </div>
-                    <div className="p-3">
-                        <div className="rounded-xl bg-[#12263F] px-5 py-5 text-white">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div>
-                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/55">
-                                        Total outstanding
-                                    </p>
-                                    <p className="mt-1.5 text-[26px] font-bold tabular-nums leading-none">
-                                        {formatAed(totalOutstanding)}
-                                    </p>
-                                </div>
-                                <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] text-white/80">
-                                    <span>
-                                        Loan{' '}
-                                        <strong className="font-semibold text-white">
-                                            {formatAed(loanOutstanding)}
-                                        </strong>
-                                    </span>
-                                    <span>
-                                        Advance{' '}
-                                        <strong className="font-semibold text-white">
-                                            {formatAed(advanceOutstanding)}
-                                        </strong>
-                                    </span>
-                                    <span>
-                                        Fines{' '}
-                                        <strong className="font-semibold text-white">
-                                            {formatAed(fineOutstanding)}
-                                        </strong>
-                                    </span>
-                                    <span>
-                                        Utility{' '}
-                                        <strong className="font-semibold text-white">
-                                            {formatAed(utilityOutstanding)}
-                                        </strong>
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                </div>
-
-                <div className="flex flex-col gap-3 sm:gap-4 min-w-0">
-                <EmployeeOverviewAttendanceCard
+            ) : (
+                <EmployeeInformationDashboard
                     employeeMongoId={employeeMongoId}
-                    year={profile.year}
+                    profile={profile}
+                    eligibility={<AnnualLeaveEligibilityCard annualLeave={annualLeave} />}
+                    annualCalendarHref={annualLeaveCalendarHref}
+                    onYearChange={(nextYear) => {
+                        if (nextYear && nextYear !== year) setYear(nextYear);
+                    }}
+                    onOpenAnnual={() => setAnnualLeaveOpen(true)}
+                    onOpenCategory={(key, rows) => {
+                        setCategoryRows(Array.isArray(rows) ? rows : []);
+                        setExpandedStatKey(key);
+                    }}
+                    onOpenFinancial={(key) => setFinancialModalKey(key)}
+                    onDownload={() => downloadSummaryCsv(profile)}
+                    onOpenPayroll={openFilteredSalaryRegister}
+                    onOpenSalary={() => {
+                        setActiveTab('salary');
+                        setSalaryTabVisited(true);
+                    }}
+                    onOpenLeaveList={() => navigateHrm('/HRM/Leave')}
                 />
-                <EmployeeLeaveRequestCard
-                    employeeName={employee?.name}
-                    employeeId={employee?.employeeId}
-                    requestStats={requestStats}
-                    leaveBalances={leaveBalances}
-                    counts={counts}
-                />
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-                    <div className="px-4 pt-4 pb-3.5 flex items-start justify-between gap-3">
-                        <div>
-                            <h2 className="text-[15px] font-bold text-[#1B2A4A]">Requests & work follow-up</h2>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
-                                Pending HR approvals and assigned tasks
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => navigateHrm('/HRM/Leave')}
-                            className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-500 hover:bg-slate-50 shrink-0"
-                        >
-                            View all
-                            <ArrowRight size={12} className="text-slate-400" />
-                        </button>
-                    </div>
-
-                    <div className="px-4 pb-4 grid grid-cols-2 gap-3">
-                        <div className="rounded-xl bg-[#F3EEFF] px-3.5 py-4 flex items-center gap-3">
-                            <span className="h-10 w-10 rounded-xl bg-white text-[#6D28D9] inline-flex items-center justify-center shrink-0">
-                                <FileText size={16} />
-                            </span>
-                            <div>
-                                <p className="text-[11px] text-slate-400">HR requests</p>
-                                <p className="text-[14px] font-bold text-[#1B2A4A]">
-                                    {pendingHrCount} pending
-                                </p>
-                            </div>
-                        </div>
-                        <div className="rounded-xl bg-[#EEF5FC] px-3.5 py-4 flex items-center gap-3">
-                            <span className="h-10 w-10 rounded-xl bg-white text-[#2563EB] inline-flex items-center justify-center shrink-0">
-                                <Check size={16} />
-                            </span>
-                            <div>
-                                <p className="text-[11px] text-slate-400">Work tasks</p>
-                                <p className="text-[14px] font-bold text-[#1B2A4A]">
-                                    {pendingTaskCount} pending
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="px-4 pb-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 mb-1">
-                            Pending HR requests
-                        </p>
-                    </div>
-                    <div className="divide-y divide-slate-100 border-t border-slate-100 flex-1">
-                        {pendingHrRequests.length ? (
-                            pendingHrRequests.map((row, index) => (
-                                <button
-                                    key={row.id}
-                                    type="button"
-                                    onClick={() => navigateHrm('/HRM/Leave')}
-                                    className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-slate-50/80 transition-colors"
-                                >
-                                    <span
-                                        className={`h-2.5 w-2.5 rounded-full shrink-0 ${REQUEST_DOTS[index % REQUEST_DOTS.length]}`}
-                                    />
-                                    <div className="min-w-0 flex-1">
-                                        <p className="text-[13px] font-bold text-[#1B2A4A]">{row.title}</p>
-                                        <p className="text-[11px] text-slate-400 mt-0.5">{row.subtitle}</p>
-                                    </div>
-                                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-500 shrink-0">
-                                        {row.badge}
-                                    </span>
-                                    <ChevronRight size={16} className="text-slate-300 shrink-0" />
-                                </button>
-                            ))
-                        ) : (
-                            <p className="px-4 py-6 text-[12px] text-slate-400">No pending HR requests</p>
-                        )}
-                    </div>
-
-                    <div className="px-4 py-4 border-t border-slate-100">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 mb-3">
-                            Task aging
-                        </p>
-                        <div className="space-y-2.5">
-                            {taskAging.map((bar) => {
-                                const count = n(bar.count);
-                                const width = count ? Math.max(14, Math.round((count / agingMax) * 100)) : 0;
-                                return (
-                                    <div key={bar.label} className="flex items-center gap-2.5">
-                                        <span className="w-14 text-[11px] text-slate-400 shrink-0">{bar.label}</span>
-                                        <div className="flex-1 h-2.5 rounded-full bg-slate-100 overflow-hidden">
-                                            <div
-                                                className="h-full rounded-full"
-                                                style={{
-                                                    width: `${width}%`,
-                                                    backgroundColor: bar.color,
-                                                }}
-                                            />
-                                        </div>
-                                        <span className="w-5 text-right text-[11px] font-semibold text-slate-500">
-                                            {count}
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    <div className="mt-auto px-4 py-4 border-t border-slate-100 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                            <p className="text-[13px] font-bold text-[#1B2A4A]">Annual leave calendar</p>
-                            <p className="mt-0.5 text-[11px] text-slate-400">
-                                Check your schedule or team availability
-                            </p>
-                            <Link
-                                href={annualLeaveCalendarHref}
-                                className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#16A34A] hover:text-[#15803D]"
-                            >
-                                Open calendar
-                                <ArrowRight size={12} />
-                            </Link>
-                        </div>
-                        <div className="inline-flex rounded-full border border-slate-200 bg-slate-100 p-0.5 shrink-0">
-                            <button
-                                type="button"
-                                onClick={() => setCalendarScope('mine')}
-                                className={`h-7 rounded-full px-2.5 text-[10px] font-semibold ${
-                                    calendarScope === 'mine'
-                                        ? 'bg-white text-[#1B2A4A] shadow-sm'
-                                        : 'text-slate-400'
-                                }`}
-                            >
-                                My calendar
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setCalendarScope('all')}
-                                className={`h-7 rounded-full px-2.5 text-[10px] font-semibold ${
-                                    calendarScope === 'all'
-                                        ? 'bg-white text-[#1B2A4A] shadow-sm'
-                                        : 'text-slate-400'
-                                }`}
-                            >
-                                All employees
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                </div>
-            </div>
-            </div>
+            )}
 
             {salaryTabVisited && employee?.employeeId ? (
                 <div className={activeTab === 'salary' ? '' : 'hidden'}>
@@ -1757,10 +1053,21 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
             {expandedStatKey && expandedStatKey !== 'on_leave' ? (
                 <EventsDetailPanel
                     title={expandedLabel}
-                    events={expandedEvents}
-                    onClose={() => setExpandedStatKey('')}
+                    events={categoryRows ?? expandedEvents}
+                    onClose={() => {
+                        setExpandedStatKey('');
+                        setCategoryRows(null);
+                    }}
+                    onOpenCompOff={(event) => setCompOffDate(String(event?.date || ''))}
                 />
             ) : null}
+            <CompOffSettleModal
+                open={Boolean(compOffDate)}
+                employeeMongoId={employeeMongoId}
+                date={compOffDate}
+                onClose={() => setCompOffDate('')}
+                onChanged={fetchProfile}
+            />
             <AnnualLeavePeriodsModal
                 open={annualLeaveOpen}
                 periods={annualLeavePeriods}

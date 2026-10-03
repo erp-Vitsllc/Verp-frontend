@@ -123,6 +123,16 @@ function resolveTodayHours(week, dateKey) {
     const day = dayKey ? week?.[dayKey] : null;
     if (!day) return { isOffDay: false, range: '' };
     if (day.isOffDay) return { isOffDay: true, range: '' };
+    if (String(week?.timingMode || '').toLowerCase() === 'flexible') {
+        const dayHours = Number(day.workingHours);
+        const weekHours = Number(week?.hoursPerDay);
+        const label = Number.isFinite(dayHours) && dayHours > 0
+            ? dayHours
+            : Number.isFinite(weekHours) && weekHours > 0
+              ? weekHours
+              : 9;
+        return { isOffDay: false, range: `${label} hours` };
+    }
     return {
         isOffDay: false,
         range: `${formatMeridiemClock(day.startHour, day.startMinute, day.startMeridiem)} – ${formatMeridiemClock(day.endHour, day.endMinute, day.endMeridiem)}`,
@@ -144,6 +154,8 @@ export default function DashboardCheckInOutCard() {
     const [timeOut, setTimeOut] = useState('');
     const [elapsed, setElapsed] = useState(0);
     const [staffType, setStaffType] = useState('office');
+    const [openFlexiblePunch, setOpenFlexiblePunch] = useState(false);
+    const [punchDate, setPunchDate] = useState('');
     const [officeHours, setOfficeHours] = useState({ isOffDay: false, range: '' });
     const [siteHours, setSiteHours] = useState({ isOffDay: false, range: '' });
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
@@ -182,6 +194,8 @@ export default function DashboardCheckInOutCard() {
             const nextStaff = normalizeWorkLocationKey(res.data?.employee?.staffType);
             setTimeIn(record?.timeIn || '');
             setTimeOut(record?.timeOut || '');
+            setPunchDate(record?.date || today);
+            setOpenFlexiblePunch(Boolean(res.data?.openFlexiblePunch));
             setStaffType(nextStaff);
             setOfficeHours(resolveTodayHours(res.data?.workingTime?.office, today));
             setSiteHours(resolveTodayHours(res.data?.workingTime?.site, today));
@@ -221,9 +235,11 @@ export default function DashboardCheckInOutCard() {
             const next = getDubaiDateKey();
             if (next !== dateKey) {
                 setDateKey(next);
-                setTimeIn('');
-                setTimeOut('');
-                setElapsed(0);
+                if (!openFlexiblePunch) {
+                    setTimeIn('');
+                    setTimeOut('');
+                    setElapsed(0);
+                }
                 loadToday();
                 notifyAttendanceChanged();
             }
@@ -239,7 +255,7 @@ export default function DashboardCheckInOutCard() {
             document.removeEventListener('visibilitychange', onVisible);
             window.removeEventListener('focus', checkDay);
         };
-    }, [dateKey, loadToday]);
+    }, [dateKey, loadToday, openFlexiblePunch]);
 
     // Live timer: starts on check-in, stops on check-out, resets after midnight
     useEffect(() => {
@@ -262,6 +278,17 @@ export default function DashboardCheckInOutCard() {
         }
 
         const tick = () => {
+            if (openFlexiblePunch && punchDate) {
+                const start = clockToSeconds(timeIn);
+                if (start == null) {
+                    setElapsed(0);
+                    return;
+                }
+                const [year, month, day] = punchDate.split('-').map(Number);
+                const startMs = Date.UTC(year, month - 1, day, 0, 0, 0) + start * 1000 - 4 * 60 * 60 * 1000;
+                setElapsed(Math.max(0, Math.floor((Date.now() - startMs) / 1000)));
+                return;
+            }
             setElapsed(Math.max(0, getDubaiNowSeconds() - inSec));
         };
         tick();
@@ -269,7 +296,7 @@ export default function DashboardCheckInOutCard() {
         return () => {
             if (tickRef.current) clearInterval(tickRef.current);
         };
-    }, [timeIn, timeOut]);
+    }, [timeIn, timeOut, openFlexiblePunch, punchDate]);
 
     const handlePunchError = (err, fallbackMessage) => {
         if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {

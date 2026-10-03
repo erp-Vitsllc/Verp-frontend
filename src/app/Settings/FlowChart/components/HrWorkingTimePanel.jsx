@@ -29,14 +29,24 @@ function defaultDay(isWeekend) {
         endHour: '06',
         endMinute: '00',
         endMeridiem: 'PM',
+        workingHours: 9,
     };
 }
 
 function buildDefaultWeek() {
-    return WEEK_DAYS.reduce((acc, day, index) => {
+    const week = WEEK_DAYS.reduce((acc, day, index) => {
         acc[day.key] = defaultDay(index >= 5);
         return acc;
     }, {});
+    week.timingMode = 'scheduled';
+    week.hoursPerDay = 9;
+    return week;
+}
+
+function normalizeHoursPerDay(raw) {
+    const hours = Number(raw);
+    if (!Number.isFinite(hours) || hours <= 0) return 9;
+    return Math.min(24, hours);
 }
 
 function normalizeWeek(raw) {
@@ -53,8 +63,14 @@ function normalizeWeek(raw) {
             endHour: String(day.endHour || '06').padStart(2, '0'),
             endMinute: String(day.endMinute || '00').padStart(2, '0'),
             endMeridiem: MERIDIEMS.includes(day.endMeridiem) ? day.endMeridiem : 'PM',
+            workingHours:
+                day.workingHours === '' || day.workingHours == null
+                    ? normalizeHoursPerDay(raw.hoursPerDay)
+                    : day.workingHours,
         };
     });
+    base.timingMode = String(raw.timingMode || '').toLowerCase() === 'flexible' ? 'flexible' : 'scheduled';
+    base.hoursPerDay = normalizeHoursPerDay(raw.hoursPerDay);
     return base;
 }
 
@@ -165,6 +181,7 @@ export default function HrWorkingTimePanel() {
     }, [locations, category]);
 
     const week = schedules[category] || buildDefaultWeek();
+    const flexible = week.timingMode === 'flexible';
 
     const updateDay = (dayKey, patch) => {
         setSchedules((prev) => {
@@ -177,6 +194,19 @@ export default function HrWorkingTimePanel() {
                         ...currentWeek[dayKey],
                         ...patch,
                     },
+                },
+            };
+        });
+    };
+
+    const updateWeek = (patch) => {
+        setSchedules((prev) => {
+            const currentWeek = prev[category] || buildDefaultWeek();
+            return {
+                ...prev,
+                [category]: {
+                    ...currentWeek,
+                    ...patch,
                 },
             };
         });
@@ -221,7 +251,7 @@ export default function HrWorkingTimePanel() {
                         Working Time
                     </h3>
                     <p className="text-slate-400 text-[10px] sm:text-xs lg:text-sm font-bold uppercase tracking-wider mt-1 italic">
-                        Weekly schedule by category — set timing or mark off day
+                        Weekly schedule by group — scheduled timing or flexible hours
                     </p>
                 </div>
                 <button
@@ -255,13 +285,40 @@ export default function HrWorkingTimePanel() {
             {loading ? (
                 <p className="text-sm text-slate-400 py-16 text-center">Loading working times…</p>
             ) : (
+                <>
+                <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border border-slate-100 w-full sm:w-fit">
+                        <button
+                            type="button"
+                            onClick={() => updateWeek({ timingMode: 'scheduled' })}
+                            className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${
+                                !flexible
+                                    ? 'bg-white text-blue-600 shadow-sm border border-slate-200'
+                                    : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                        >
+                            Scheduled timing
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => updateWeek({ timingMode: 'flexible' })}
+                            className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${
+                                flexible
+                                    ? 'bg-white text-blue-600 shadow-sm border border-slate-200'
+                                    : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                        >
+                            Flexible
+                        </button>
+                    </div>
+                </div>
                 <div className="rounded-2xl border border-slate-100 overflow-hidden">
                     <div className="hidden sm:grid grid-cols-[9rem_1fr_auto] gap-4 px-4 sm:px-5 py-3 bg-slate-50 border-b border-slate-100">
                         <span className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-[0.15em]">
                             Day
                         </span>
                         <span className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-[0.15em]">
-                            Timing (AM/PM – AM/PM)
+                            {flexible ? 'Working hours' : 'Timing (AM/PM – AM/PM)'}
                         </span>
                         <span className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] text-right">
                             Off day
@@ -288,6 +345,19 @@ export default function HrWorkingTimePanel() {
                                             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                                                 Off day — no working hours
                                             </span>
+                                        ) : flexible ? (
+                                            <label className="inline-flex items-center gap-2">
+                                                <input
+                                                    type="number"
+                                                    min="0.5"
+                                                    max="24"
+                                                    step="0.5"
+                                                    value={day.workingHours ?? ''}
+                                                    onChange={(e) => updateDay(key, { workingHours: e.target.value })}
+                                                    className="h-9 w-24 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800"
+                                                />
+                                                <span className="text-xs font-bold text-slate-500">hours</span>
+                                            </label>
                                         ) : (
                                             <>
                                                 <TimeSelect
@@ -337,6 +407,7 @@ export default function HrWorkingTimePanel() {
                         })}
                     </div>
                 </div>
+                </>
             )}
         </div>
     );

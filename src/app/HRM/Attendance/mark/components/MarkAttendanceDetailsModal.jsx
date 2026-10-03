@@ -88,6 +88,9 @@ async function loadDefaultPunchTimes({ dateKey, staffType }) {
         const res = await axiosInstance.get('/WorkingTime', { skipToast: true });
         const workingTime = res.data?.workingTime || {};
         const week = weekForStaffType(workingTime, staffType);
+        if (String(week?.timingMode || '').toLowerCase() === 'flexible') {
+            return { timeIn: '', timeOut: '' };
+        }
         const day = week[dayKey] || {};
         return {
             timeIn: scheduleToHHmm(day.startHour, day.startMinute, day.startMeridiem),
