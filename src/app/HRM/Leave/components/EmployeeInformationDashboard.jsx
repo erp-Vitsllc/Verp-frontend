@@ -15,7 +15,6 @@ import {
     Briefcase,
     CalendarDays,
     Check,
-    ChevronDown,
     ChevronLeft,
     ChevronRight,
     Clock,
@@ -28,6 +27,7 @@ import {
     XCircle,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { MonthPicker } from '@/components/ui/date-picker';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { getEmployeeInitials } from '@/utils/employeeProfileImage';
 import { normalizeWorkLocationKey, workLocationLabel } from '@/utils/workLocations';
@@ -67,6 +67,15 @@ const LEGEND = [
 
 function n(value) {
     return Number(value) || 0;
+}
+
+function taskHref(task, employeeMongoId) {
+    const id = String(task?.id || '').trim();
+    if (task?.kind === 'leave') return '/HRM/Leave/annual-leave';
+    if (!id) return '/dashboard';
+    const params = new URLSearchParams({ hubRequestId: id });
+    if (employeeMongoId) params.set('viewEmployee', String(employeeMongoId));
+    return `/dashboard?${params.toString()}`;
 }
 
 function dubaiTodayKey() {
@@ -175,22 +184,100 @@ function dubaiNowMinutes() {
     return hour * 60 + minute;
 }
 
+const placeNameCache = new Map();
+
+function meaningfulPlaceLabel(value) {
+    const label = String(value || '').trim();
+    if (!label || /^pinned location$/i.test(label)) return '';
+    return label;
+}
+
 function locationOf(record) {
-    const spot = record?.checkInLocation?.label
+    const spot = record?.checkInLocation?.latitude != null
         ? record.checkInLocation
-        : record?.checkOutLocation?.label
+        : record?.checkOutLocation?.latitude != null
           ? record.checkOutLocation
-          : record?.checkInLocation?.latitude != null
-            ? record.checkInLocation
-            : record?.checkOutLocation;
-    const label = String(spot?.label || '').trim();
+          : record?.checkInLocation || record?.checkOutLocation;
+    const label = meaningfulPlaceLabel(spot?.label);
     const latitude = Number(spot?.latitude);
     const longitude = Number(spot?.longitude);
-    const hasMap = Number.isFinite(latitude) && Number.isFinite(longitude);
+    const hasMap = Number.isFinite(latitude) && Number.isFinite(longitude) && !(latitude === 0 && longitude === 0);
     return {
-        label: label || (hasMap ? 'Pinned location' : '—'),
+        label,
+        latitude: hasMap ? latitude : null,
+        longitude: hasMap ? longitude : null,
+        hasMap,
         mapHref: hasMap ? `https://www.google.com/maps?q=${latitude},${longitude}` : '',
     };
+}
+
+function placeFromGeocode(data) {
+    const parts = [data?.locality, data?.city, data?.principalSubdivision]
+        .map((part) => String(part || '').trim())
+        .filter(Boolean);
+    return [...new Set(parts)].slice(0, 2).join(', ');
+}
+
+function deductFraction(deduct) {
+    const key = String(deduct || '').trim().toLowerCase();
+    if (key === 'full') return 1;
+    if (key === 'half') return 0.5;
+    if (key === 'quarter') return 0.25;
+    return 0;
+}
+
+function deductDayLabel(deduct) {
+    const fraction = deductFraction(deduct);
+    if (fraction === 1) return '1 day';
+    if (fraction === 0.5) return 'half day';
+    if (fraction === 0.25) return 'quarter day';
+    return '';
+}
+
+function chargeableUnits(count, events) {
+    const total = Math.max(0, Math.floor(Number(count) || 0));
+    const per = Number(events);
+    if (!Number.isFinite(per) || per <= 0) return total;
+    return Math.floor(total / per);
+}
+
+function money2(value) {
+    return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function splitMoney(total, weights) {
+    const entries = Object.entries(weights).filter(([, weight]) => weight > 0);
+    const sum = entries.reduce((totalWeight, [, weight]) => totalWeight + weight, 0);
+    const shares = Object.fromEntries(Object.keys(weights).map((key) => [key, 0]));
+    if (sum <= 0 || total <= 0) return shares;
+    entries.forEach(([key, weight]) => {
+        shares[key] = money2(total * (weight / sum));
+    });
+    const drift = money2(total - Object.values(shares).reduce((sumShares, amount) => sumShares + amount, 0));
+    if (drift) {
+        const [key] = entries.reduce((best, entry) => (entry[1] > best[1] ? entry : best));
+        shares[key] = money2(shares[key] + drift);
+    }
+    return shares;
+}
+
+function mispunchRuleOf(rules) {
+    return (Array.isArray(rules) ? rules : []).find((row) =>
+        /mis[\s-]?punch|missed\s*punch/i.test(String(row?.title || '')),
+    ) || null;
+}
+
+function eventPolicyNote(count, rule) {
+    const dayLabel = deductDayLabel(rule?.deduct);
+    if (!dayLabel) return 'This group policy has no deduct amount for this status';
+    const bundle = Number(rule?.events);
+    const ruleText = Number.isFinite(bundle) && bundle > 0
+        ? `every ${bundle} event${bundle === 1 ? '' : 's'} deducts ${dayLabel}`
+        : `each event deducts ${dayLabel}`;
+    const units = chargeableUnits(count, rule?.events);
+    if (!count) return `Policy: ${ruleText}`;
+    if (!units) return `${count} so far · still inside “${ruleText}”`;
+    return `${units} chargeable · ${ruleText}`;
 }
 
 function monthChoices(joinKey, todayKey) {
@@ -418,6 +505,7 @@ export default function EmployeeInformationDashboard({
     const [allTimeLoading, setAllTimeLoading] = useState(false);
     const [allTimeNote, setAllTimeNote] = useState('');
     const [hoveredDate, setHoveredDate] = useState('');
+    const [pinnedPlace, setPinnedPlace] = useState('');
 
     const monthAnchor = useMemo(() => new Date(`${monthKey}-01T12:00:00`), [monthKey]);
     const choices = useMemo(() => monthChoices(joinKey, todayKey), [joinKey, todayKey]);
@@ -643,7 +731,6 @@ export default function EmployeeInformationDashboard({
     const salary = financial.salary || {};
     const monthlySalary = n(salary.monthlySalary) || n(salary.totalSalary);
     const salaryOther = n(salary.other) || Math.max(0, monthlySalary - n(salary.basic));
-    const dailyRate = monthlySalary > 0 ? monthlySalary / 30 : 0;
     const increment = financial.increment;
     const loans = Array.isArray(financial.loans) ? financial.loans : [];
     const advances = Array.isArray(financial.advances) ? financial.advances : [];
@@ -690,20 +777,79 @@ export default function EmployeeInformationDashboard({
         return { approvedHours, pendingHours, daysCount };
     }, [countedRecords]);
 
+    const salaryBasis = useMemo(() => {
+        let weekOffs = 0;
+        days.forEach((day) => {
+            if (offWeekdays.has(WEEKDAY_KEYS[getDay(day)])) weekOffs += 1;
+        });
+        const calendarDays = days.length;
+        const workingDays = Math.max(calendarDays - weekOffs, 1);
+        const daily = monthlySalary > 0 && calendarDays > 0 ? money2(monthlySalary / workingDays) : 0;
+        return { calendarDays, weekOffs, workingDays, daily };
+    }, [days, offWeekdays, monthlySalary]);
     const deductionRows = useMemo(() => {
         const policy = profile?.leavePolicy || {};
+        const daily = salaryBasis.daily;
+        const lateCount = n(monthStats.lateIn);
+        const earlyCount = n(monthStats.earlyOut);
+        const missedCount = n(monthStats.missed);
         const authDays = n(leaveTallies(countedRecords, 'authorized_leave').used);
         const unauthDays = n(leaveTallies(countedRecords, 'unauthorized_leave').used);
-        const authValue = authDays * (n(policy.authorizedDeductionDays) || 1) * dailyRate;
-        const unauthValue = unauthDays * (n(policy.unauthorizedDeductionDays) || 1) * dailyRate;
+        const authTimes = policy.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
+        const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
+        const lateRule = policy.lateRule || null;
+        const combinedLate = lateCount + earlyCount;
+        const lateUnits = chargeableUnits(combinedLate, lateRule?.events);
+        const lateTotal = money2(daily * deductFraction(lateRule?.deduct) * lateUnits);
+        const lateShares = splitMoney(lateTotal, { late: lateCount, early: earlyCount });
+        const punchRule = mispunchRuleOf(policy.extraLateRules);
+        const punchUnits = punchRule ? chargeableUnits(missedCount, punchRule.events) : 0;
+        const punchAmount = punchRule ? money2(daily * deductFraction(punchRule.deduct) * punchUnits) : 0;
+        const dayRate = formatAed(daily, 2);
         return [
-            { key: 'late_arrived', type: 'Late in', count: monthStats.lateIn, amount: null },
-            { key: 'early_go', type: 'Early out', count: monthStats.earlyOut, amount: null },
-            { key: 'mispunch', type: 'Missed punch', count: monthStats.missed, amount: null },
-            { key: 'authorized_leave', type: 'Authorized leave', count: authDays, amount: authValue },
-            { key: 'unauthorized_leave', type: 'Unauthorized leave', count: unauthDays, amount: unauthValue },
+            {
+                key: 'late_arrived',
+                type: 'Late in',
+                count: lateCount,
+                amount: lateShares.late || 0,
+                note: eventPolicyNote(combinedLate, lateRule),
+            },
+            {
+                key: 'early_go',
+                type: 'Early out',
+                count: earlyCount,
+                amount: lateShares.early || 0,
+                note: 'Shares the late in / late out event count on this group policy',
+            },
+            {
+                key: 'mispunch',
+                type: 'Missed punch',
+                count: missedCount,
+                amount: punchAmount,
+                note: punchRule
+                    ? eventPolicyNote(missedCount, punchRule)
+                    : 'No missed-punch rule on this employee group policy',
+            },
+            {
+                key: 'authorized_leave',
+                type: 'Authorized leave',
+                count: authDays,
+                amount: money2(authDays * authTimes * daily),
+                note: authDays
+                    ? `${authDays} × ${authTimes} day × ${dayRate}`
+                    : `1 authorized day deducts ${authTimes} × ${dayRate}`,
+            },
+            {
+                key: 'unauthorized_leave',
+                type: 'Unauthorized leave',
+                count: unauthDays,
+                amount: money2(unauthDays * unauthTimes * daily),
+                note: unauthDays
+                    ? `${unauthDays} × ${unauthTimes} day × ${dayRate}`
+                    : `1 unauthorized day deducts ${unauthTimes} × ${dayRate}`,
+            },
         ];
-    }, [countedRecords, profile?.leavePolicy, dailyRate, monthStats]);
+    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, monthStats]);
     const deductionTotal = deductionRows.reduce((sum, row) => sum + (row.amount == null ? 0 : row.amount), 0);
 
     const elapsedDays = countFrom && countTo ? inclusiveDays(countFrom, countTo) : 0;
@@ -714,6 +860,9 @@ export default function EmployeeInformationDashboard({
     const accumulatedPct = monthlySalary > 0 ? Math.round((accumulated / monthlySalary) * 1000) / 10 : 0;
 
     const pending = profile?.requests?.pending || [];
+    const workTasks = Array.isArray(profile?.requests?.workTasks) ? profile.requests.workTasks : [];
+    const oldestMonth = choices[choices.length - 1] || currentMonth;
+    const newestMonth = choices[0] || currentMonth;
     const rangeLabel = (() => {
         if (period === 'year') {
             const year = profile?.year || monthKey.slice(0, 4);
@@ -758,6 +907,41 @@ export default function EmployeeInformationDashboard({
     }
 
     const todayLocation = locationOf(todayRecord);
+    useEffect(() => {
+        const saved = todayLocation.label;
+        if (saved) {
+            setPinnedPlace(saved);
+            return undefined;
+        }
+        if (!todayLocation.hasMap) {
+            setPinnedPlace('');
+            return undefined;
+        }
+        const key = `${todayLocation.latitude.toFixed(4)},${todayLocation.longitude.toFixed(4)}`;
+        const coords = `${todayLocation.latitude.toFixed(5)}, ${todayLocation.longitude.toFixed(5)}`;
+        const cached = placeNameCache.get(key);
+        if (cached) {
+            setPinnedPlace(cached);
+            return undefined;
+        }
+        let cancelled = false;
+        setPinnedPlace(coords);
+        fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${todayLocation.latitude}&longitude=${todayLocation.longitude}&localityLanguage=en`)
+            .then((response) => (response.ok ? response.json() : null))
+            .then((data) => {
+                const place = placeFromGeocode(data) || coords;
+                placeNameCache.set(key, place);
+                if (!cancelled) setPinnedPlace(place);
+            })
+            .catch(() => {
+                placeNameCache.set(key, coords);
+                if (!cancelled) setPinnedPlace(coords);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [todayLocation.label, todayLocation.hasMap, todayLocation.latitude, todayLocation.longitude]);
+    const locationText = todayLocation.label || pinnedPlace || '—';
     const todayIn = todayRecord?.timeIn;
     const todayOut = todayRecord?.timeOut;
     const openMinutes = !todayOut && clockToMinutes(todayIn) != null
@@ -833,18 +1017,16 @@ export default function EmployeeInformationDashboard({
                         </div>
                         <div>
                             <p className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-[#94A3B8]">Month</p>
-                            <div className="relative">
-                                <select
-                                    value={choices.includes(monthKey) ? monthKey : choices[0]}
-                                    onChange={(event) => selectMonth(event.target.value)}
-                                    className="h-7 appearance-none rounded-lg border border-[#E2E8F0] bg-white pl-2 pr-6 text-[11px] font-semibold text-[#1B2A4A]"
-                                >
-                                    {choices.map((option) => (
-                                        <option key={option} value={option}>{formatMonthLabel(option)}</option>
-                                    ))}
-                                </select>
-                                <ChevronDown size={12} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
-                            </div>
+                            <MonthPicker
+                                value={choices.includes(monthKey) ? monthKey : newestMonth}
+                                onChange={selectMonth}
+                                minMonth={oldestMonth}
+                                maxMonth={newestMonth}
+                                fromYear={Number(oldestMonth.slice(0, 4))}
+                                toYear={Number(newestMonth.slice(0, 4))}
+                                placeholder="Select month"
+                                className="h-7 w-auto min-w-[8.5rem] gap-1 rounded-lg border-[#E2E8F0] px-2 text-[11px] font-semibold text-[#1B2A4A] shadow-none [&_svg]:mr-1 [&_svg]:h-3.5 [&_svg]:w-3.5"
+                            />
                         </div>
                         <button type="button" onClick={onOpenSalary} className="h-7 rounded-lg border border-[#E2E8F0] px-2 text-[11px] font-semibold text-[#64748B]">
                             Salary setup
@@ -916,7 +1098,17 @@ export default function EmployeeInformationDashboard({
                                 <div className="mt-1.5 grid grid-cols-3 gap-1">
                                     <Metric label="Time in" value={formatClock12(todayIn)} />
                                     <Metric label="Working" value={todayIn ? formatDuration(todayWorked) : '—'} />
-                                    <Metric label="Location" value={todayLocation.label} />
+                                    <div className="min-w-0">
+                                        <p className="text-[9px] font-semibold uppercase tracking-wide text-[#94A3B8]">Location</p>
+                                        {todayLocation.mapHref ? (
+                                            <a href={todayLocation.mapHref} target="_blank" rel="noreferrer" className="mt-0.5 flex items-start gap-1 text-[11px] font-semibold leading-tight text-[#1D4ED8]" title={locationText}>
+                                                <MapPin size={12} className="mt-px shrink-0" />
+                                                <span className="line-clamp-2">{locationText}</span>
+                                            </a>
+                                        ) : (
+                                            <p className="mt-0.5 text-[12px] font-bold leading-none text-[#1B2A4A]">—</p>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                             <SummaryTile icon={AlertTriangle} iconClass="bg-[#FEE2E2] text-[#DC2626]" title="Absent">
@@ -1005,10 +1197,13 @@ export default function EmployeeInformationDashboard({
                                 <tbody>
                                     {deductionRows.map((row, index) => (
                                         <tr key={row.key} className="border-t border-[#F1F5F9] text-[11px] text-[#1B2A4A]">
-                                            <td className="px-2.5 py-1">{index + 1}</td>
-                                            <td className="px-2 py-1">{row.type}</td>
-                                            <td className="px-2 py-1 tabular-nums">{salaryLock.locked ? '—' : row.count}</td>
-                                            <td className="px-2.5 py-1 text-right tabular-nums">{salaryLock.locked || row.amount == null ? '—' : formatAedNumber(row.amount)}</td>
+                                            <td className="px-2.5 py-1 align-top">{index + 1}</td>
+                                            <td className="px-2 py-1">
+                                                <p>{row.type}</p>
+                                                {salaryLock.locked ? null : <p className="text-[10px] leading-snug text-[#94A3B8]">{row.note}</p>}
+                                            </td>
+                                            <td className="px-2 py-1 align-top tabular-nums">{salaryLock.locked ? '—' : row.count}</td>
+                                            <td className="px-2.5 py-1 text-right align-top tabular-nums">{salaryLock.locked ? '—' : formatAedNumber(row.amount)}</td>
                                         </tr>
                                     ))}
                                     <tr className="border-t border-[#E2E8F0] text-[11px] font-bold text-[#1B2A4A]">
@@ -1017,6 +1212,11 @@ export default function EmployeeInformationDashboard({
                                     </tr>
                                 </tbody>
                             </table>
+                            {salaryLock.locked ? null : (
+                                <p className="border-t border-[#F1F5F9] px-2.5 py-1.5 text-[10px] leading-snug text-[#64748B]">
+                                    {formatMonthLabel(monthKey)}: {salaryBasis.calendarDays} days − {salaryBasis.weekOffs} weekly offs = {salaryBasis.workingDays} working days. One day = {formatAed(monthlySalary)} ÷ {salaryBasis.workingDays} = {formatAed(salaryBasis.daily, 2)}, using this employee group salary policy.
+                                </p>
+                            )}
                         </div>
                     </Panel>
                 </div>
@@ -1066,7 +1266,7 @@ export default function EmployeeInformationDashboard({
                                                                 <p className="flex justify-between"><span className="text-[#94A3B8]">Time in</span><span>{formatClock12(record?.timeIn)}</span></p>
                                                                 <p className="flex justify-between"><span className="text-[#94A3B8]">Time out</span><span>{formatClock12(record?.timeOut)}</span></p>
                                                                 <p className="flex justify-between"><span className="text-[#94A3B8]">Worked</span><span>{worked == null ? '—' : formatDuration(worked)}</span></p>
-                                                                <p className="flex items-start justify-between gap-2"><span className="text-[#94A3B8]">Location</span><span className="text-right">{place.label}</span></p>
+                                                                <p className="flex items-start justify-between gap-2"><span className="text-[#94A3B8]">Location</span><span className="text-right">{place.label || (place.hasMap ? `${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}` : '—')}</span></p>
                                                             </div>
                                                             {place.mapHref ? <a href={place.mapHref} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-[#2563EB]"><MapPin size={11} /> View on map</a> : null}
                                                         </div>
@@ -1168,11 +1368,39 @@ export default function EmployeeInformationDashboard({
                     <section className="overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white">
                         <div className="flex items-center justify-between px-3 py-2">
                             <p className="text-[13px] font-bold text-[#1B2A4A]">Pending employee tasks</p>
-                            <span className="text-[11px] text-[#64748B]">{n(profile?.requests?.workTaskPendingCount)} pending</span>
+                            <span className="text-[11px] text-[#64748B]">{workTasks.length} pending</span>
                         </div>
-                        <p className="border-t border-[#F1F5F9] px-3 py-2 text-[11px] text-[#94A3B8]">
-                            {n(profile?.requests?.workTaskPendingCount) ? `${n(profile.requests.workTaskPendingCount)} assigned task${n(profile.requests.workTaskPendingCount) === 1 ? '' : 's'} still open.` : 'No pending tasks.'}
-                        </p>
+                        {workTasks.length ? (
+                            <table className="w-full text-left">
+                                <thead className="text-[9px] font-semibold uppercase tracking-wide text-[#94A3B8]">
+                                    <tr>
+                                        <th className="px-2.5 py-1 font-semibold">#</th>
+                                        <th className="px-2 py-1 font-semibold">Task</th>
+                                        <th className="px-2 py-1 font-semibold">From</th>
+                                        <th className="px-2 py-1 font-semibold">Waiting</th>
+                                        <th className="px-2.5 py-1 font-semibold">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {workTasks.map((task, index) => (
+                                        <tr key={task.id} className="border-t border-[#F8FAFC] text-[11px] text-[#1B2A4A]">
+                                            <td className="px-2.5 py-1.5">{index + 1}</td>
+                                            <td className="px-2 py-1.5">
+                                                <p className="font-semibold">{task.title || 'Task'}</p>
+                                                {task.subtitle ? <p className="line-clamp-2 text-[10px] text-[#94A3B8]">{task.subtitle}</p> : null}
+                                            </td>
+                                            <td className="px-2 py-1.5">{task.requesterName || '—'}</td>
+                                            <td className="px-2 py-1.5">{task.badge || 'Pending'}</td>
+                                            <td className="px-2.5 py-1.5">
+                                                <Link href={taskHref(task, employeeMongoId)} className="font-semibold text-[#2563EB]">Open</Link>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <p className="border-t border-[#F1F5F9] px-3 py-2 text-[11px] text-[#94A3B8]">No pending tasks.</p>
+                        )}
                     </section>
 
                     <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#E6EDF5] bg-white px-3 py-2.5">
