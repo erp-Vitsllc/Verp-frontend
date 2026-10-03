@@ -12,16 +12,19 @@ import {
 } from 'date-fns';
 import {
     AlertTriangle,
-    ArrowRight,
+    Briefcase,
     CalendarDays,
     Check,
+    ChevronDown,
     ChevronLeft,
     ChevronRight,
     Clock,
     Fingerprint,
+    Gift,
     MapPin,
     Plane,
     Stethoscope,
+    UserRound,
     XCircle,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
@@ -340,54 +343,44 @@ function eventRowsFromRecords(records, key) {
         }));
 }
 
-function StatCard({ icon: Icon, iconClass, title, onClick, children, footer }) {
+function Panel({ title, aside, children }) {
     return (
-        <button
-            type="button"
-            onClick={onClick}
-            className="rounded-2xl border border-[#E7EDF5] bg-white p-3.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:border-[#D5DEEA] transition-colors"
-        >
-            <div className="flex items-center gap-2.5">
-                <span className={`h-9 w-9 rounded-xl inline-flex items-center justify-center shrink-0 ${iconClass}`}>
-                    <Icon size={16} />
-                </span>
-                <p className="text-[13px] font-bold text-[#1B2A4A] leading-tight">{title}</p>
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2">{children}</div>
-            {footer ? <p className="mt-2 text-[11px] text-slate-400">{footer}</p> : null}
-        </button>
+        <section className="relative rounded-2xl border border-[#E6EDF5] bg-white p-3">
+            {title ? (
+                <div className="mb-2 flex items-center justify-between gap-2">
+                    <h2 className="text-[13px] font-bold text-[#1B2A4A]">{title}</h2>
+                    {aside ? <div className="shrink-0 text-[12px] font-medium text-[#94A3B8]">{aside}</div> : null}
+                </div>
+            ) : null}
+            {children}
+        </section>
     );
 }
 
-function MiniMetric({ label, value, tone = 'text-[#1B2A4A]' }) {
+function Metric({ label, value }) {
     return (
-        <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-            <p className={`mt-1 text-[18px] font-bold tabular-nums leading-none ${tone}`}>{value}</p>
+        <div className="min-w-0">
+            <p className="text-[9px] font-semibold uppercase tracking-wide text-[#94A3B8]">{label}</p>
+            <p className="mt-0.5 text-[15px] font-bold leading-none tabular-nums text-[#1B2A4A]">{value}</p>
         </div>
     );
 }
 
-function CountCard({ icon: Icon, iconClass, title, value, unit, detail, tone, onClick }) {
+function SummaryTile({ icon: Icon, iconClass, title, onClick, children }) {
     const Tag = onClick ? 'button' : 'div';
     return (
         <Tag
             type={onClick ? 'button' : undefined}
             onClick={onClick}
-            className={`rounded-2xl border p-3.5 text-left transition-all ${tone} ${
-                onClick ? 'hover:brightness-[0.99]' : ''
-            }`}
+            className="rounded-xl border border-[#E7EEF6] bg-white px-2.5 py-2 text-left"
         >
-            <div className="flex items-center gap-2">
-                <span className={`h-8 w-8 rounded-lg inline-flex items-center justify-center shrink-0 ${iconClass}`}>
-                    <Icon size={15} />
+            <div className="flex items-center gap-1.5">
+                <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${iconClass}`}>
+                    <Icon size={13} />
                 </span>
-                <p className="text-[13px] font-bold text-[#1B2A4A]">{title}</p>
+                <span className="truncate text-[12px] font-semibold text-[#1B2A4A]">{title}</span>
             </div>
-            <p className="mt-3 text-[22px] font-bold tabular-nums leading-none text-[#1B2A4A]">
-                {value} <span className="text-[13px] font-semibold text-slate-500">{unit}</span>
-            </p>
-            {detail ? <p className="mt-1.5 text-[11px] text-slate-500">{detail}</p> : null}
+            <div className="mt-1.5">{children}</div>
         </Tag>
     );
 }
@@ -658,13 +651,11 @@ export default function EmployeeInformationDashboard({
     const rewards = Array.isArray(financial.rewards) ? financial.rewards : [];
     const utilityItems = Array.isArray(financial.utilityItems) ? financial.utilityItems : [];
     const loanOutstanding = loans.reduce((sum, row) => sum + n(row.outstanding), 0);
-    const loanTotal = loans.reduce((sum, row) => sum + n(row.total), 0);
     const loanPaid = loans.reduce(
         (sum, row) => sum + (row.paid != null && row.paid !== '' ? n(row.paid) : Math.max(0, n(row.total) - n(row.outstanding))),
         0,
     );
     const advanceOutstanding = advances.reduce((sum, row) => sum + n(row.outstanding), 0);
-    const advanceTotal = advances.reduce((sum, row) => sum + n(row.total), 0);
     const advancePaid = advances.reduce(
         (sum, row) => sum + (row.paid != null && row.paid !== '' ? n(row.paid) : Math.max(0, n(row.total) - n(row.outstanding))),
         0,
@@ -1088,319 +1079,428 @@ export default function EmployeeInformationDashboard({
                                         const place = locationOf(record);
                                         const open = hoveredDate === dateKey;
                                         return (
-                                            <div
-                                                key={dateKey}
-                                                className="relative"
-                                                onMouseEnter={() => setHoveredDate(dateKey)}
-                                                onMouseLeave={() => setHoveredDate('')}
-                                            >
-                                                <div
-                                                    className={`flex h-11 items-center justify-center rounded-lg text-[13px] font-bold tabular-nums ${DAY_STYLE[kind] || DAY_STYLE.empty}`}
-                                                >
-                                                    {format(day, 'd')}
-                                                </div>
-                                                {open && !salaryLock.locked ? (
-                                                    <div
-                                                        className={`absolute left-1/2 z-30 w-52 -translate-x-1/2 rounded-xl border border-[#E2E8F0] bg-white p-3 text-left shadow-lg ${
-                                                            Number(format(day, 'd')) > 20 ? 'bottom-full mb-1' : 'top-full mt-1'
-                                                        }`}
-                                                    >
-                                                        <p className="text-[12px] font-bold text-[#1B2A4A]">
-                                                            {format(day, 'd MMM yyyy')}
-                                                        </p>
-                                                        <p className="mt-0.5 text-[11px] text-slate-500">
-                                                            {kindLabel(kind)}
-                                                            {holidayNamesByDate[dateKey] ? ` · ${holidayNamesByDate[dateKey]}` : ''}
-                                                        </p>
-                                                        <div className="mt-2 space-y-1 text-[11px] text-[#1B2A4A]">
-                                                            <p>Time in · {formatClock12(record?.timeIn)}</p>
-                                                            <p>Time out · {formatClock12(record?.timeOut)}</p>
-                                                            <p className="inline-flex items-start gap-1">
-                                                                <MapPin size={12} className="mt-0.5 shrink-0 text-slate-400" />
-                                                                <span>{place.label}</span>
-                                                            </p>
-                                                        </div>
-                                                        {place.mapHref ? (
-                                                            <a
-                                                                href={place.mapHref}
-                                                                target="_blank"
-                                                                rel="noreferrer"
-                                                                className="mt-2 inline-flex text-[11px] font-semibold text-[#2563EB]"
-                                                            >
-                                                                View on map
-                                                            </a>
-                                                        ) : null}
-                                                    </div>
-                                                ) : null}
-                                            </div>
-                                        );
-                                    })}
+        <div className="space-y-3">
+            <section className="rounded-2xl border border-[#E6EDF5] bg-white px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                        <div className="relative shrink-0">
+                            {employee.profilePicture ? (
+                                <img src={employee.profilePicture} alt="" className="h-11 w-11 rounded-xl object-cover" />
+                            ) : (
+                                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#DBEAFE] text-sm font-black text-[#1D4ED8]">
+                                    {initials}
+                                </div>
+                            )}
+                            <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${isActive ? 'bg-[#22C55E]' : 'bg-slate-400'}`} />
+                        </div>
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                                <h1 className="truncate text-[16px] font-bold text-[#1B2A4A]">{employee.name || 'Employee'}</h1>
+                                <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase ${isActive ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-slate-100 text-slate-500'}`}>
+                                    {isActive ? 'Active' : employee.status || 'Inactive'}
+                                </span>
+                            </div>
+                            <p className="truncate text-[12px] text-[#64748B]">
+                                {employee.employeeId || '—'}
+                                {employee.designation ? ` · ${employee.designation}` : ''}
+                                {employee.department ? ` | ${employee.department}` : ''}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="hidden min-w-0 items-center divide-x divide-[#E6EDF5] md:flex">
+                        {[
+                            { icon: CalendarDays, label: 'Joining date', value: formatDayLabel(joinKey) },
+                            { icon: UserRound, label: 'Reporting manager', value: employee.reportsTo || '—' },
+                            { icon: Briefcase, label: 'Work location', value: workLocationLabel(employee.staffType) || '—' },
+                        ].map((item) => (
+                            <div key={item.label} className="flex items-center gap-1.5 px-3">
+                                <item.icon size={13} className="text-[#94A3B8]" />
+                                <div className="min-w-0">
+                                    <p className="text-[9px] font-semibold uppercase tracking-wide text-[#94A3B8]">{item.label}</p>
+                                    <p className="truncate text-[12px] font-semibold text-[#1B2A4A]">{item.value}</p>
                                 </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-y-2 lg:w-40 lg:grid-cols-1">
-                                {LEGEND.map((item) => (
-                                    <span key={item.key} className="inline-flex items-center gap-2 text-[11px] text-slate-500">
-                                        <span className={`h-2.5 w-2.5 rounded-full ${item.swatch}`} />
-                                        {item.label}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                    <DashboardSalaryEnrollLock {...salaryLock} />
-                </section>
+                        ))}
+                    </div>
 
-                <section className="rounded-2xl border border-[#E7EDF5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                    <div className="mb-3 flex items-start justify-between gap-3">
+                    <div className="ml-auto flex items-end gap-2">
                         <div>
-                            <h2 className="text-[15px] font-bold text-[#1B2A4A]">Salary & financial details</h2>
-                            <p className="mt-0.5 text-[12px] text-slate-400">
-                                {formatMonthLabel(monthKey)}
-                                {monthKey === currentMonth ? ' · through yesterday' : ''}
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={onOpenPayroll}
-                            className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-200 px-3 text-[12px] font-semibold text-slate-500"
-                        >
-                            Payroll file
-                            <ArrowRight size={12} />
-                        </button>
-                    </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <button
-                            type="button"
-                            onClick={onOpenPayroll}
-                            className="rounded-2xl bg-[#EFF6FF] px-4 py-3 text-left"
-                        >
-                            <p className="text-[12px] text-slate-500">Monthly salary</p>
-                            <p className="mt-1 text-[22px] font-bold tabular-nums text-[#1B2A4A]">{formatAed(monthlySalary)}</p>
-                            <p className="mt-1 text-[11px] text-slate-500">
-                                Basic {formatAed(salary.basic)} · Other {formatAed(salaryOther)}
-                            </p>
-                        </button>
-                        <div className="rounded-2xl bg-[#ECFDF5] px-4 py-3">
-                            <p className="text-[12px] text-slate-500">Current accumulated salary</p>
-                            <p className="mt-1 text-[22px] font-bold tabular-nums text-[#1B2A4A]">
-                                {salaryLock.locked ? '—' : formatAed(accumulated, 2)}
-                            </p>
-                            <p className="mt-1 text-[11px] text-slate-500">
-                                {salaryLock.locked
-                                    ? 'Attendance for this month is not open yet'
-                                    : `${accumulatedPct}% of ${formatAed(monthlySalary)} · ${elapsedDays} of ${daysInMonth} days`}
-                            </p>
-                        </div>
-                    </div>
-                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <button type="button" onClick={() => onOpenFinancial?.('increment')} className="rounded-2xl border border-[#E7EDF5] p-3 text-left">
-                            <p className="text-[12px] font-semibold text-slate-500">Last increment</p>
-                            <p className="mt-1 text-[18px] font-bold text-[#15803D]">
-                                {increment?.amount ? `+ ${formatAed(increment.amount)}` : formatAed(0)}
-                            </p>
-                            <p className="mt-1 text-[11px] text-slate-500">
-                                {increment?.dateLabel || 'No increment recorded'}
-                                {increment?.fromTotal ? ` · ${formatAed(increment.fromTotal)} to ${formatAed(increment.toTotal)}` : ''}
-                            </p>
-                        </button>
-                        <button type="button" onClick={() => onOpenFinancial?.('advance')} className="rounded-2xl border border-[#E7EDF5] p-3 text-left">
-                            <p className="text-[12px] font-semibold text-slate-500">Advance</p>
-                            <p className="mt-1 text-[13px] text-[#1B2A4A]">Owed {formatAed(advanceTotal)}</p>
-                            <p className="text-[13px] text-[#1B2A4A]">Paid {formatAed(advancePaid)} · Pending {formatAed(advanceOutstanding)}</p>
-                            <p className="mt-1 text-[11px] text-slate-400">Current balance</p>
-                        </button>
-                        <button type="button" onClick={() => onOpenFinancial?.('loan')} className="rounded-2xl border border-[#E7EDF5] p-3 text-left">
-                            <p className="text-[12px] font-semibold text-slate-500">Loan</p>
-                            <p className="mt-1 text-[13px] text-[#1B2A4A]">Owed {formatAed(loanTotal)}</p>
-                            <p className="text-[13px] text-[#1B2A4A]">Recovered {formatAed(loanPaid)} · Pending {formatAed(loanOutstanding)}</p>
-                            <p className="mt-1 text-[11px] text-slate-400">Current balance</p>
-                        </button>
-                        <button type="button" onClick={() => onOpenFinancial?.('fines')} className="rounded-2xl border border-[#E7EDF5] p-3 text-left">
-                            <p className="text-[12px] font-semibold text-slate-500">Outstanding fines</p>
-                            <p className="mt-1 text-[18px] font-bold text-[#B91C1C]">{formatAed(fineOutstanding)}</p>
-                        </button>
-                        <button type="button" onClick={() => onOpenFinancial?.('utility')} className="rounded-2xl border border-[#E7EDF5] p-3 text-left">
-                            <p className="text-[12px] font-semibold text-slate-500">Utility excess</p>
-                            <p className="mt-1 text-[18px] font-bold text-[#C2410C]">{formatAed(utilityOutstanding)}</p>
-                        </button>
-                        <button type="button" onClick={() => onOpenFinancial?.('rewards')} className="rounded-2xl border border-[#E7EDF5] p-3 text-left">
-                            <p className="text-[12px] font-semibold text-slate-500">Reward earned</p>
-                            <p className="mt-1 text-[18px] font-bold text-[#1B2A4A]">{formatAed(rewardAmount)}</p>
-                            <p className="mt-1 text-[11px] text-slate-500">
-                                {rewardLead ? `${rewardLead.type || 'Reward'} · ${rewardLead.dateLabel || monthRewardLabel}` : `None in ${monthRewardLabel}`}
-                            </p>
-                        </button>
-                    </div>
-                    <div className="mt-3 rounded-2xl border border-[#E7EDF5] p-3">
-                        <p className="text-[12px] font-semibold text-slate-500">Overtime earned</p>
-                        <p className="mt-1 text-[18px] font-bold text-[#1B2A4A]">
-                            {salaryLock.locked ? '—' : formatDuration(Math.round(overtime.approvedHours * 60))}
-                        </p>
-                        <p className="mt-1 text-[11px] text-slate-500">
-                            {overtime.daysCount} approved day{overtime.daysCount === 1 ? '' : 's'} · Pending {formatDuration(Math.round(overtime.pendingHours * 60))}
-                        </p>
-                    </div>
-                    <div className="mt-3 overflow-hidden rounded-2xl border border-[#E7EDF5]">
-                        <div className="flex items-center justify-between px-3 py-2">
-                            <p className="text-[13px] font-bold text-[#1B2A4A]">Salary deductions · {formatMonthLabel(monthKey)}</p>
-                            <button type="button" onClick={() => onOpenFinancial?.('deductions')} className="text-[11px] font-semibold text-[#2563EB]">
-                                View records
-                            </button>
-                        </div>
-                        <table className="w-full text-left">
-                            <thead className="bg-[#F8FAFC] text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                                <tr>
-                                    <th className="px-3 py-2 font-semibold">Type</th>
-                                    <th className="px-3 py-2 font-semibold">Count</th>
-                                    <th className="px-3 py-2 text-right font-semibold">Amount (AED)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {deductionRows.map((row) => (
-                                    <tr key={row.key} className="border-t border-[#F1F5F9] text-[13px] text-[#1B2A4A]">
-                                        <td className="px-3 py-2">{row.type}</td>
-                                        <td className="px-3 py-2 tabular-nums">{salaryLock.locked ? '—' : row.count}</td>
-                                        <td className="px-3 py-2 text-right tabular-nums">
-                                            {salaryLock.locked || row.amount == null ? '—' : formatAedNumber(row.amount)}
-                                        </td>
-                                    </tr>
+                            <p className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-[#94A3B8]">Period</p>
+                            <div className="inline-flex rounded-lg bg-[#F1F5F9] p-0.5">
+                                {[
+                                    { id: 'month', label: 'Monthly' },
+                                    { id: 'year', label: 'Yearly' },
+                                    { id: 'all', label: 'All time' },
+                                ].map((item) => (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => setPeriod(item.id)}
+                                        className={`h-7 rounded-md px-2.5 text-[11px] font-semibold ${period === item.id ? 'bg-[#2563EB] text-white' : 'text-[#64748B]'}`}
+                                    >
+                                        {item.label}
+                                    </button>
                                 ))}
-                                <tr className="border-t border-[#E2E8F0] text-[13px] font-bold text-[#1B2A4A]">
-                                    <td className="px-3 py-2" colSpan={2}>Total</td>
-                                    <td className="px-3 py-2 text-right tabular-nums">
-                                        {salaryLock.locked ? '—' : formatAedNumber(deductionTotal)}
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <p className="px-3 py-2 text-[11px] text-slate-400">
-                            Leave amounts use monthly salary ÷ 30 and the deduction days on this profile. Late, early, and missed-punch amounts stay on the payslip policy.
-                        </p>
-                    </div>
-                </section>
-
-                <section className="space-y-4">
-                    <div className="rounded-2xl border border-[#E7EDF5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                        <div className="mb-3 flex items-center justify-between gap-3">
-                            <div>
-                                <h2 className="text-[15px] font-bold text-[#1B2A4A]">Leave details</h2>
-                                <p className="mt-0.5 text-[12px] text-slate-400">{rangeLabel}</p>
                             </div>
-                            <button type="button" onClick={onOpenLeaveList} className="text-[12px] font-semibold text-[#2563EB]">
-                                View leave history
+                        </div>
+                        <div>
+                            <p className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-[#94A3B8]">Month</p>
+                            <div className="relative">
+                                <select
+                                    value={choices.includes(monthKey) ? monthKey : choices[0]}
+                                    onChange={(event) => selectMonth(event.target.value)}
+                                    className="h-7 appearance-none rounded-lg border border-[#E2E8F0] bg-white pl-2 pr-6 text-[11px] font-semibold text-[#1B2A4A]"
+                                >
+                                    {choices.map((option) => (
+                                        <option key={option} value={option}>{formatMonthLabel(option)}</option>
+                                    ))}
+                                </select>
+                                <ChevronDown size={12} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+                            </div>
+                        </div>
+                        <button type="button" onClick={onOpenSalary} className="h-7 rounded-lg border border-[#E2E8F0] px-2 text-[11px] font-semibold text-[#64748B]">
+                            Salary setup
+                        </button>
+                        <button type="button" onClick={onDownload} className="h-7 rounded-lg border border-[#E2E8F0] px-2 text-[11px] font-semibold text-[#64748B]">
+                            Report
+                        </button>
+                    </div>
+                </div>
+                <p className="mt-1 text-right text-[10px] text-[#94A3B8]">
+                    {rangeLabel}
+                    {period === 'month' ? ' · counts through yesterday' : ''}
+                    {period === 'all' && allTimeLoading ? ' · loading…' : ''}
+                    {allTimeNote ? ` · ${allTimeNote}` : ''}
+                </p>
+            </section>
+
+            <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-2">
+                <div className="flex min-w-0 flex-col gap-3">
+                    <Panel
+                        title="Attendance & leave summary"
+                        aside={period === 'month' ? formatMonthLabel(monthKey) : period === 'year' ? `Year ${profile?.year || ''}` : 'All time'}
+                    >
+                        <div className="grid grid-cols-3 gap-2">
+                            <SummaryTile icon={Plane} iconClass="bg-[#DBEAFE] text-[#2563EB]" title="Annual leave" onClick={() => openRecords('on_leave')}>
+                                <div className="grid grid-cols-3 gap-1">
+                                    <Metric label="Applied" value={showValue(activeStats.annual.requested)} />
+                                    <Metric label="Approved" value={showValue(activeStats.annual.approved)} />
+                                    <Metric label="Used" value={showValue(activeStats.annual.used)} />
+                                </div>
+                            </SummaryTile>
+                            <SummaryTile icon={Stethoscope} iconClass="bg-[#EDE9FE] text-[#7C3AED]" title="Sick leave" onClick={() => openRecords('sick_leave')}>
+                                <div className="grid grid-cols-2 gap-1">
+                                    <Metric label="Used" value={showValue(activeStats.sick.used)} />
+                                    <Metric label="Remaining" value={sickRemaining} />
+                                </div>
+                            </SummaryTile>
+                            <SummaryTile icon={CalendarDays} iconClass="bg-[#FFEDD5] text-[#C2410C]" title="Comp off" onClick={() => openRecords('compoff_leave')}>
+                                <div className="grid grid-cols-2 gap-1">
+                                    <Metric label="Pending" value={showValue(activeStats.compoffPending)} />
+                                    <Metric label="Available" value={compoffBalance} />
+                                </div>
+                            </SummaryTile>
+                            <SummaryTile icon={XCircle} iconClass="bg-[#FEE2E2] text-[#DC2626]" title="Unauthorized leave" onClick={() => openRecords('unauthorized_leave')}>
+                                <p className="text-[16px] font-bold leading-none text-[#1B2A4A]">{showValue(activeStats.unauthorized.used)} <span className="text-[11px] font-medium text-[#64748B]">days</span></p>
+                                <p className="mt-1 text-[10px] text-[#94A3B8]">{showValue(activeStats.unauthorized.approved)} approved</p>
+                            </SummaryTile>
+                            <SummaryTile icon={Check} iconClass="bg-[#DCFCE7] text-[#15803D]" title="Authorized leave" onClick={() => openRecords('authorized_leave')}>
+                                <p className="text-[16px] font-bold leading-none text-[#1B2A4A]">{showValue(activeStats.authorized.used)} <span className="text-[11px] font-medium text-[#64748B]">days</span></p>
+                                <p className="mt-1 text-[10px] text-[#94A3B8]">{showValue(activeStats.authorized.approved)} approved</p>
+                            </SummaryTile>
+                            <SummaryTile icon={Clock} iconClass="bg-[#FEF3C7] text-[#B45309]" title="Late in" onClick={() => openRecords('late_arrived')}>
+                                <p className="text-[16px] font-bold leading-none text-[#1B2A4A]">{showValue(activeStats.lateIn)} <span className="text-[11px] font-medium text-[#64748B]">events</span></p>
+                            </SummaryTile>
+                            <SummaryTile icon={Clock} iconClass="bg-[#FFEDD5] text-[#C2410C]" title="Early out" onClick={() => openRecords('early_go')}>
+                                <p className="text-[16px] font-bold leading-none text-[#1B2A4A]">{showValue(activeStats.earlyOut)} <span className="text-[11px] font-medium text-[#64748B]">events</span></p>
+                            </SummaryTile>
+                            <SummaryTile icon={Fingerprint} iconClass="bg-[#DBEAFE] text-[#1D4ED8]" title="Missed punch" onClick={() => openRecords('mispunch')}>
+                                <p className="text-[16px] font-bold leading-none text-[#1B2A4A]">{showValue(activeStats.missed)} <span className="text-[11px] font-medium text-[#64748B]">events</span></p>
+                            </SummaryTile>
+                            <SummaryTile icon={Check} iconClass="bg-[#DCFCE7] text-[#15803D]" title="Present" onClick={() => openRecords('on_office')}>
+                                <p className="text-[16px] font-bold leading-none text-[#1B2A4A]">{showValue(n(activeStats.present) + n(activeStats.wfh))} <span className="text-[11px] font-medium text-[#64748B]">days</span></p>
+                            </SummaryTile>
+                            <div className="col-span-2 rounded-xl border border-[#D1FAE5] bg-[#F0FDF4] px-2.5 py-2">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-[12px] font-semibold text-[#1B2A4A]">Current attendance</p>
+                                    <span className="text-[10px] font-semibold text-[#15803D]">{todayIn ? 'Checked in' : 'No punch yet'}</span>
+                                </div>
+                                <div className="mt-1.5 grid grid-cols-3 gap-1">
+                                    <Metric label="Time in" value={formatClock12(todayIn)} />
+                                    <Metric label="Working" value={todayIn ? formatDuration(todayWorked) : '—'} />
+                                    <Metric label="Location" value={todayLocation.label} />
+                                </div>
+                            </div>
+                            <SummaryTile icon={AlertTriangle} iconClass="bg-[#FEE2E2] text-[#DC2626]" title="Absent">
+                                <p className="text-[16px] font-bold leading-none text-[#1B2A4A]">{activeStats.absent == null || statsLocked ? '—' : activeStats.absent} <span className="text-[11px] font-medium text-[#64748B]">days</span></p>
+                            </SummaryTile>
+                        </div>
+                        {eligibility ? <div className="mt-2">{eligibility}</div> : null}
+                    </Panel>
+
+                    <Panel title="Salary & financial details" aside={formatMonthLabel(monthKey)}>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button type="button" onClick={onOpenPayroll} className="rounded-xl bg-[#EFF6FF] px-3 py-2 text-left">
+                                <p className="text-[11px] text-[#64748B]">Monthly salary</p>
+                                <p className="mt-0.5 text-[18px] font-bold leading-none tabular-nums text-[#1B2A4A]">{formatAed(monthlySalary)}</p>
+                                <p className="mt-1 text-[10px] text-[#94A3B8]">Basic {formatAed(salary.basic)} · Other {formatAed(salaryOther)}</p>
                             </button>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <div className="rounded-2xl bg-[#EFF6FF] p-3">
-                                <p className="text-[13px] font-bold text-[#1B2A4A]">Annual leave</p>
-                                <div className="mt-2 grid grid-cols-2 gap-2">
-                                    <MiniMetric label="Requested" value={showValue(activeStats.annual.requested)} />
-                                    <MiniMetric label="Approved" value={showValue(activeStats.annual.approved)} />
-                                    <MiniMetric label="Used" value={showValue(activeStats.annual.used)} />
-                                    <MiniMetric label="Balance" value={annualBalance} />
-                                </div>
-                            </div>
-                            <div className="rounded-2xl bg-[#F0FDF4] p-3">
-                                <p className="text-[13px] font-bold text-[#1B2A4A]">Authorized leave</p>
-                                <div className="mt-2 grid grid-cols-3 gap-2">
-                                    <MiniMetric label="Requested" value={showValue(activeStats.authorized.requested)} />
-                                    <MiniMetric label="Approved" value={showValue(activeStats.authorized.approved)} />
-                                    <MiniMetric label="Used" value={showValue(activeStats.authorized.used)} />
-                                </div>
-                            </div>
-                            <div className="rounded-2xl bg-[#F5F3FF] p-3">
-                                <p className="text-[13px] font-bold text-[#1B2A4A]">Sick leave</p>
-                                <div className="mt-2 grid grid-cols-2 gap-2">
-                                    <MiniMetric label="Requested" value={showValue(activeStats.sick.requested)} />
-                                    <MiniMetric label="Approved" value={showValue(activeStats.sick.approved)} />
-                                    <MiniMetric label="Used" value={showValue(activeStats.sick.used)} />
-                                    <MiniMetric label="Balance" value={sickRemaining} />
-                                </div>
-                            </div>
-                            <div className="rounded-2xl bg-[#FFF7ED] p-3">
-                                <p className="text-[13px] font-bold text-[#1B2A4A]">Comp off</p>
-                                <div className="mt-2 grid grid-cols-2 gap-2">
-                                    <MiniMetric label="Used" value={showValue(activeStats.compoffUsed)} />
-                                    <MiniMetric label="Balance" value={compoffBalance} />
-                                </div>
+                            <div className="rounded-xl bg-[#ECFDF5] px-3 py-2">
+                                <p className="text-[11px] text-[#64748B]">Current accumulated salary</p>
+                                <p className="mt-0.5 text-[18px] font-bold leading-none tabular-nums text-[#1B2A4A]">{salaryLock.locked ? '—' : formatAed(accumulated, 2)}</p>
+                                <p className="mt-1 text-[10px] text-[#94A3B8]">{salaryLock.locked ? 'Month not open' : `${accumulatedPct}% of ${formatAed(monthlySalary)}`}</p>
                             </div>
                         </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-[#FECACA] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
-                        <div className="bg-[#FEF2F2] px-4 py-3">
-                            <p className="text-[13px] font-bold text-[#991B1B]">
-                                Salary preparation {pending.length ? `blocked · ${pending.length} pending` : 'clear'}
-                            </p>
-                            <p className="mt-0.5 text-[12px] text-[#B91C1C]">
-                                Open queries for this employee that still need a decision
-                            </p>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                            <button type="button" onClick={() => onOpenFinancial?.('increment')} className="rounded-xl border border-[#E7EEF6] px-2.5 py-2 text-left">
+                                <p className="text-[11px] font-semibold text-[#64748B]">Last increment</p>
+                                <div className="mt-1 space-y-0.5 text-[11px] text-[#1B2A4A]">
+                                    <p className="flex justify-between"><span className="text-[#94A3B8]">Previous</span><span>{increment?.fromTotal ? formatAed(increment.fromTotal) : '—'}</span></p>
+                                    <p className="flex justify-between"><span className="text-[#94A3B8]">Increment</span><span className="font-semibold text-[#15803D]">{increment?.amount ? `+${formatAed(increment.amount)}` : formatAed(0)}</span></p>
+                                    <p className="flex justify-between"><span className="text-[#94A3B8]">New</span><span>{increment?.toTotal ? formatAed(increment.toTotal) : formatAed(monthlySalary)}</span></p>
+                                    <p className="flex justify-between"><span className="text-[#94A3B8]">Effective</span><span>{increment?.dateLabel || '—'}</span></p>
+                                </div>
+                            </button>
+                            <div className="rounded-xl border border-[#E7EEF6] px-2.5 py-2">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-[11px] font-semibold text-[#64748B]">Financial obligations</p>
+                                    <button type="button" onClick={onOpenPayroll} className="text-[10px] font-semibold text-[#2563EB]">View details</button>
+                                </div>
+                                <div className="mt-1 grid grid-cols-2 gap-1.5">
+                                    <button type="button" onClick={() => onOpenFinancial?.('advance')} className="rounded-lg bg-[#F8FAFC] px-2 py-1.5 text-left">
+                                        <p className="text-[10px] text-[#64748B]">Advance</p>
+                                        <p className="text-[12px] font-bold text-[#1B2A4A]">{formatAed(advanceOutstanding)}</p>
+                                        <p className="text-[10px] text-[#94A3B8]">Paid {formatAed(advancePaid)}</p>
+                                    </button>
+                                    <button type="button" onClick={() => onOpenFinancial?.('loan')} className="rounded-lg bg-[#F8FAFC] px-2 py-1.5 text-left">
+                                        <p className="text-[10px] text-[#64748B]">Loan</p>
+                                        <p className="text-[12px] font-bold text-[#1B2A4A]">{formatAed(loanOutstanding)}</p>
+                                        <p className="text-[10px] text-[#94A3B8]">Recovered {formatAed(loanPaid)}</p>
+                                    </button>
+                                    <button type="button" onClick={() => onOpenFinancial?.('fines')} className="rounded-lg bg-[#FEF2F2] px-2 py-1.5 text-left">
+                                        <p className="text-[10px] text-[#64748B]">Fines</p>
+                                        <p className="text-[12px] font-bold text-[#B91C1C]">{formatAed(fineOutstanding)}</p>
+                                    </button>
+                                    <button type="button" onClick={() => onOpenFinancial?.('utility')} className="rounded-lg bg-[#FFF7ED] px-2 py-1.5 text-left">
+                                        <p className="text-[10px] text-[#64748B]">Utility excess</p>
+                                        <p className="text-[12px] font-bold text-[#C2410C]">{formatAed(utilityOutstanding)}</p>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full min-w-[36rem] text-left">
-                                <thead className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                            <button type="button" onClick={() => onOpenFinancial?.('rewards')} className="rounded-xl border border-[#E7EEF6] px-2.5 py-2 text-left">
+                                <p className="flex items-center gap-1 text-[11px] font-semibold text-[#64748B]"><Gift size={12} /> Rewards earned</p>
+                                <p className="mt-1 text-[16px] font-bold leading-none text-[#1B2A4A]">{formatAed(rewardAmount)}</p>
+                                <p className="mt-1 text-[10px] text-[#94A3B8]">{rewardLead ? `${rewardLead.dateLabel || monthRewardLabel} · ${rewardLead.type || 'Reward'}` : `None in ${monthRewardLabel}`}</p>
+                            </button>
+                            <div className="rounded-xl border border-[#E7EEF6] px-2.5 py-2">
+                                <p className="flex items-center gap-1 text-[11px] font-semibold text-[#64748B]"><Clock size={12} /> Overtime</p>
+                                <p className="mt-1 text-[16px] font-bold leading-none text-[#1B2A4A]">{salaryLock.locked ? '—' : formatDuration(Math.round(overtime.approvedHours * 60))}</p>
+                                <p className="mt-1 text-[10px] text-[#94A3B8]">{overtime.daysCount} days · pending {formatDuration(Math.round(overtime.pendingHours * 60))}</p>
+                            </div>
+                        </div>
+                        <div className="mt-2 overflow-hidden rounded-xl border border-[#E7EEF6]">
+                            <div className="flex items-center justify-between px-2.5 py-1.5">
+                                <p className="text-[12px] font-bold text-[#1B2A4A]">Salary deduction for {formatMonthLabel(monthKey)}</p>
+                                <button type="button" onClick={() => onOpenFinancial?.('deductions')} className="text-[10px] font-semibold text-[#2563EB]">View records</button>
+                            </div>
+                            <table className="w-full text-left">
+                                <thead className="bg-[#F8FAFC] text-[9px] font-semibold uppercase tracking-wide text-[#94A3B8]">
                                     <tr>
-                                        <th className="px-3 py-2 font-semibold">#</th>
-                                        <th className="px-3 py-2 font-semibold">Pending item</th>
-                                        <th className="px-3 py-2 font-semibold">Reference</th>
-                                        <th className="px-3 py-2 font-semibold">Status</th>
-                                        <th className="px-3 py-2 font-semibold">Action</th>
+                                        <th className="px-2.5 py-1 font-semibold">#</th>
+                                        <th className="px-2 py-1 font-semibold">Deduction type</th>
+                                        <th className="px-2 py-1 font-semibold">Count</th>
+                                        <th className="px-2.5 py-1 text-right font-semibold">Amount (AED)</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {pending.length ? (
-                                        pending.map((row, index) => (
-                                            <tr key={row.id} className="border-t border-[#F1F5F9] text-[12px] text-[#1B2A4A]">
-                                                <td className="px-3 py-2">{index + 1}</td>
-                                                <td className="px-3 py-2">
-                                                    <p className="font-semibold">{row.title}</p>
-                                                    <p className="text-[11px] text-slate-400">{row.subtitle}</p>
-                                                </td>
-                                                <td className="px-3 py-2">{row.id}</td>
-                                                <td className="px-3 py-2">{row.badge || 'Pending'}</td>
-                                                <td className="px-3 py-2">
-                                                    <button type="button" onClick={onOpenLeaveList} className="font-semibold text-[#2563EB]">
-                                                        View
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))
-                                    ) : (
-                                        <tr>
-                                            <td colSpan={5} className="px-3 py-6 text-center text-[12px] text-slate-400">
-                                                No pending queries for this employee.
-                                            </td>
+                                    {deductionRows.map((row, index) => (
+                                        <tr key={row.key} className="border-t border-[#F1F5F9] text-[11px] text-[#1B2A4A]">
+                                            <td className="px-2.5 py-1">{index + 1}</td>
+                                            <td className="px-2 py-1">{row.type}</td>
+                                            <td className="px-2 py-1 tabular-nums">{salaryLock.locked ? '—' : row.count}</td>
+                                            <td className="px-2.5 py-1 text-right tabular-nums">{salaryLock.locked || row.amount == null ? '—' : formatAedNumber(row.amount)}</td>
                                         </tr>
-                                    )}
+                                    ))}
+                                    <tr className="border-t border-[#E2E8F0] text-[11px] font-bold text-[#1B2A4A]">
+                                        <td className="px-2.5 py-1" colSpan={3}>Total deduction</td>
+                                        <td className="px-2.5 py-1 text-right tabular-nums">{salaryLock.locked ? '—' : formatAedNumber(deductionTotal)}</td>
+                                    </tr>
                                 </tbody>
                             </table>
                         </div>
-                    </div>
+                    </Panel>
+                </div>
 
-                    <div className="rounded-2xl border border-[#E7EDF5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                        <div className="mb-2 flex items-center justify-between">
-                            <h2 className="text-[15px] font-bold text-[#1B2A4A]">Pending employee tasks</h2>
-                            <span className="text-[12px] font-semibold text-slate-500">
-                                {n(profile?.requests?.workTaskPendingCount)} pending
-                            </span>
+                <div className="flex min-w-0 flex-col gap-3">
+                    <Panel title="Attendance calendar">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="inline-flex h-7 items-center rounded-lg border border-[#E2E8F0]">
+                                <button type="button" onClick={() => shiftMonth(-1)} className="inline-flex h-7 w-6 items-center justify-center text-[#64748B]" aria-label="Previous month"><ChevronLeft size={14} /></button>
+                                <span className="min-w-[6.5rem] text-center text-[11px] font-semibold text-[#1B2A4A]">{formatMonthLabel(monthKey)}</span>
+                                <button type="button" onClick={() => shiftMonth(1)} className="inline-flex h-7 w-6 items-center justify-center text-[#64748B]" aria-label="Next month"><ChevronRight size={14} /></button>
+                            </div>
+                            <button type="button" onClick={() => selectMonth(currentMonth)} className="h-7 rounded-lg border border-[#E2E8F0] px-2 text-[11px] font-semibold text-[#2563EB]">Today</button>
                         </div>
-                        {n(profile?.requests?.workTaskPendingCount) ? (
-                            <p className="text-[12px] text-slate-500">
-                                {n(profile?.requests?.workTaskPendingCount)} assigned task
-                                {n(profile?.requests?.workTaskPendingCount) === 1 ? '' : 's'} still open.
-                            </p>
+                        {monthError ? (
+                            <button type="button" onClick={loadMonth} className="py-6 text-[12px] text-red-500">{monthError} · Retry</button>
+                        ) : monthLoading ? (
+                            <p className="py-6 text-center text-[12px] text-[#94A3B8]">Loading calendar…</p>
                         ) : (
-                            <p className="text-[12px] text-slate-400">No pending tasks on this profile.</p>
+                            <div className="flex gap-3">
+                                <div className="min-w-0 flex-1">
+                                    <div className="mb-1 grid grid-cols-7 gap-1">
+                                        {WEEKDAYS.map((day) => (
+                                            <div key={day} className="text-center text-[9px] font-semibold uppercase text-[#94A3B8]">{day}</div>
+                                        ))}
+                                    </div>
+                                    <div className="grid grid-cols-7 gap-1">
+                                        {Array.from({ length: leadingBlanks }).map((_, index) => <div key={`blank-${index}`} />)}
+                                        {days.map((day) => {
+                                            const dateKey = format(day, 'yyyy-MM-dd');
+                                            const record = recordsByDate[dateKey];
+                                            const weekdayKey = WEEKDAY_KEYS[getDay(day)];
+                                            const isHoliday = holidayDates.has(dateKey) || record?.statusKey === 'holiday';
+                                            const isWeeklyOff = !isHoliday && (record?.statusKey === 'weekly_off' || offWeekdays.has(weekdayKey));
+                                            const isFuture = dateKey > todayKey;
+                                            const kind = salaryLock.locked ? 'future' : dayKind(record, { isFuture, isToday: dateKey === todayKey, isHoliday, isWeeklyOff });
+                                            const place = locationOf(record);
+                                            const worked = record?.timeIn ? workedMinutes(record.timeIn, record.timeOut) : null;
+                                            return (
+                                                <div key={dateKey} className="relative" onMouseEnter={() => setHoveredDate(dateKey)} onMouseLeave={() => setHoveredDate('')}>
+                                                    <div className={`flex h-8 items-center justify-center rounded-md text-[12px] font-bold tabular-nums ${DAY_STYLE[kind] || DAY_STYLE.empty}`}>{format(day, 'd')}</div>
+                                                    {hoveredDate === dateKey && !salaryLock.locked ? (
+                                                        <div className={`absolute left-1/2 z-30 w-48 -translate-x-1/2 rounded-xl border border-[#E6EDF5] bg-white p-2.5 text-left shadow-lg ${Number(format(day, 'd')) > 20 ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+                                                            <p className="text-[12px] font-bold text-[#1B2A4A]">{format(day, 'd MMMM yyyy')}</p>
+                                                            <p className="mt-0.5 text-[11px] text-[#64748B]">{kindLabel(kind)}{holidayNamesByDate[dateKey] ? ` · ${holidayNamesByDate[dateKey]}` : ''}</p>
+                                                            <div className="mt-1.5 space-y-0.5 text-[11px] text-[#1B2A4A]">
+                                                                <p className="flex justify-between"><span className="text-[#94A3B8]">Time in</span><span>{formatClock12(record?.timeIn)}</span></p>
+                                                                <p className="flex justify-between"><span className="text-[#94A3B8]">Time out</span><span>{formatClock12(record?.timeOut)}</span></p>
+                                                                <p className="flex justify-between"><span className="text-[#94A3B8]">Worked</span><span>{worked == null ? '—' : formatDuration(worked)}</span></p>
+                                                                <p className="flex items-start justify-between gap-2"><span className="text-[#94A3B8]">Location</span><span className="text-right">{place.label}</span></p>
+                                                            </div>
+                                                            {place.mapHref ? <a href={place.mapHref} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-[#2563EB]"><MapPin size={11} /> View on map</a> : null}
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                                <div className="w-[7.5rem] shrink-0 space-y-1 pt-4">
+                                    <p className="text-[10px] font-semibold text-[#94A3B8]">Legend</p>
+                                    {LEGEND.map((item) => (
+                                        <span key={item.key} className="flex items-center gap-1.5 text-[10px] leading-tight text-[#64748B]">
+                                            <span className={`h-2 w-2 shrink-0 rounded-full ${item.swatch}`} />
+                                            {item.label}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
                         )}
-                        <Link
-                            href={annualCalendarHref || '/HRM/Leave/annual-leave'}
-                            className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[#2563EB] text-[13px] font-semibold text-white"
-                        >
-                            <CalendarDays size={16} />
+                        <DashboardSalaryEnrollLock {...salaryLock} />
+                    </Panel>
+
+                    <Panel
+                        title={`Leave details (${period === 'month' ? formatMonthLabel(monthKey) : period === 'year' ? profile?.year || '' : 'all time'})`}
+                        aside={<button type="button" onClick={onOpenLeaveList} className="text-[11px] font-semibold text-[#2563EB]">View leave history</button>}
+                    >
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="rounded-xl bg-[#F5F8FF] px-2.5 py-2">
+                                <p className="mb-1.5 flex items-center gap-1 text-[12px] font-bold text-[#1B2A4A]"><Plane size={13} className="text-[#2563EB]" /> Annual leave</p>
+                                <div className="grid grid-cols-4 gap-1">
+                                    <Metric label="Requested" value={showValue(activeStats.annual.requested)} />
+                                    <Metric label="Approved" value={showValue(activeStats.annual.approved)} />
+                                    <Metric label="Used" value={showValue(activeStats.annual.used)} />
+                                    <Metric label="Balance" value={annualBalance} />
+                                </div>
+                            </div>
+                            <div className="rounded-xl bg-[#F3FBF6] px-2.5 py-2">
+                                <p className="mb-1.5 flex items-center gap-1 text-[12px] font-bold text-[#1B2A4A]"><Check size={13} className="text-[#15803D]" /> Authorized leave</p>
+                                <div className="grid grid-cols-3 gap-1">
+                                    <Metric label="Requested" value={showValue(activeStats.authorized.requested)} />
+                                    <Metric label="Approved" value={showValue(activeStats.authorized.approved)} />
+                                    <Metric label="Used" value={showValue(activeStats.authorized.used)} />
+                                </div>
+                            </div>
+                            <div className="rounded-xl bg-[#F7F5FF] px-2.5 py-2">
+                                <p className="mb-1.5 flex items-center gap-1 text-[12px] font-bold text-[#1B2A4A]"><Stethoscope size={13} className="text-[#7C3AED]" /> Sick leave</p>
+                                <div className="grid grid-cols-4 gap-1">
+                                    <Metric label="Requested" value={showValue(activeStats.sick.requested)} />
+                                    <Metric label="Approved" value={showValue(activeStats.sick.approved)} />
+                                    <Metric label="Used" value={showValue(activeStats.sick.used)} />
+                                    <Metric label="Balance" value={sickRemaining} />
+                                </div>
+                            </div>
+                            <div className="rounded-xl bg-[#F4FBFA] px-2.5 py-2">
+                                <p className="mb-1.5 flex items-center gap-1 text-[12px] font-bold text-[#1B2A4A]"><CalendarDays size={13} className="text-[#0F766E]" /> Comp off</p>
+                                <div className="grid grid-cols-2 gap-1">
+                                    <Metric label="Used" value={showValue(activeStats.compoffUsed)} />
+                                    <Metric label="Balance" value={compoffBalance} />
+                                </div>
+                            </div>
+                        </div>
+                    </Panel>
+
+                    <section className="overflow-hidden rounded-2xl border border-[#FECACA] bg-white">
+                        <div className="flex items-center justify-between bg-[#FEF2F2] px-3 py-2">
+                            <p className="text-[13px] font-bold text-[#991B1B]">Salary preparation status</p>
+                            <span className="text-[11px] font-semibold text-[#B91C1C]">{pending.length ? `${pending.length} pending` : 'Clear'}</span>
+                        </div>
+                        <table className="w-full text-left">
+                            <thead className="text-[9px] font-semibold uppercase tracking-wide text-[#94A3B8]">
+                                <tr>
+                                    <th className="px-2.5 py-1 font-semibold">#</th>
+                                    <th className="px-2 py-1 font-semibold">Pending item</th>
+                                    <th className="px-2 py-1 font-semibold">Reference</th>
+                                    <th className="px-2 py-1 font-semibold">Status</th>
+                                    <th className="px-2.5 py-1 font-semibold">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {pending.length ? pending.map((row, index) => (
+                                    <tr key={row.id} className="border-t border-[#F8FAFC] text-[11px] text-[#1B2A4A]">
+                                        <td className="px-2.5 py-1.5">{index + 1}</td>
+                                        <td className="px-2 py-1.5">
+                                            <p className="font-semibold">{row.title}</p>
+                                            <p className="text-[10px] text-[#94A3B8]">{row.subtitle}</p>
+                                        </td>
+                                        <td className="px-2 py-1.5">{row.id}</td>
+                                        <td className="px-2 py-1.5">{row.badge || 'Pending'}</td>
+                                        <td className="px-2.5 py-1.5"><button type="button" onClick={onOpenLeaveList} className="font-semibold text-[#2563EB]">View</button></td>
+                                    </tr>
+                                )) : (
+                                    <tr><td colSpan={5} className="px-3 py-2 text-[11px] text-[#94A3B8]">No pending queries.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <section className="overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white">
+                        <div className="flex items-center justify-between px-3 py-2">
+                            <p className="text-[13px] font-bold text-[#1B2A4A]">Pending employee tasks</p>
+                            <span className="text-[11px] text-[#64748B]">{n(profile?.requests?.workTaskPendingCount)} pending</span>
+                        </div>
+                        <p className="border-t border-[#F1F5F9] px-3 py-2 text-[11px] text-[#94A3B8]">
+                            {n(profile?.requests?.workTaskPendingCount) ? `${n(profile.requests.workTaskPendingCount)} assigned task${n(profile.requests.workTaskPendingCount) === 1 ? '' : 's'} still open.` : 'No pending tasks.'}
+                        </p>
+                    </section>
+
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#E6EDF5] bg-white px-3 py-2.5">
+                        <div className="flex min-w-0 items-center gap-2">
+                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#EFF6FF] text-[#2563EB]"><CalendarDays size={15} /></span>
+                            <div className="min-w-0">
+                                <p className="text-[13px] font-bold text-[#1B2A4A]">Annual attendance calendar</p>
+                                <p className="truncate text-[11px] text-[#94A3B8]">Full-year attendance for this employee</p>
+                            </div>
+                        </div>
+                        <Link href={annualCalendarHref || '/HRM/Leave/annual-leave'} className="inline-flex h-8 shrink-0 items-center rounded-lg bg-[#2563EB] px-3 text-[12px] font-semibold text-white">
                             View annual calendar
                         </Link>
                     </div>
-                </section>
+                </div>
             </div>
         </div>
     );

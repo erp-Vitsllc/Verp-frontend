@@ -23,7 +23,7 @@ function EmployeeAttendanceProfilePageInner({ employeeMongoId }) {
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
                     <div
-                        className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden"
+                        className="p-3 w-full max-w-full overflow-x-hidden"
                         style={{ backgroundColor: '#F2F6F9' }}
                     >
                         <ListReturnBackButton onNavigate={handleListReturnBack} />
