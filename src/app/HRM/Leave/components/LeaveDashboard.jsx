@@ -969,7 +969,11 @@ export default function LeaveDashboard({
 
     const visibleTrackMonths = useMemo(() => {
         if (trackBucket === 'week' || isAllMonth) return trackMonths;
-        return trackMonths.filter((item) => String(item.monthKey || '') === String(month));
+        const selected = String(month);
+        return trackMonths.filter((item) => {
+            const key = String(item.monthKey || '');
+            return key === selected || key.startsWith(`${selected}-`);
+        });
     }, [isAllMonth, month, trackBucket, trackMonths]);
 
     const chartData = useMemo(
@@ -1175,7 +1179,13 @@ export default function LeaveDashboard({
                     <div className="mb-3 flex items-center justify-between gap-2">
                         <div className="min-w-0">
                             <h3 className="text-[15px] font-semibold text-[#111827]">Team Leave Track</h3>
-                            <p className="mt-0.5 text-[11px] text-[#9CA3AF]">Through today. Future leave is not included.</p>
+                            <p className="mt-0.5 text-[11px] text-[#9CA3AF]">
+                                {trackBucket === 'week'
+                                    ? 'Sunday through today. Future leave is not included.'
+                                    : !isAllMonth
+                                      ? 'Weeks 1–4 through today. Future leave is not included.'
+                                      : 'Through today. Future leave is not included.'}
+                            </p>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-[#6B7280]">
                             <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] p-0.5">
@@ -1206,11 +1216,13 @@ export default function LeaveDashboard({
                             >
                                 <ChevronLeft size={16} />
                             </button>
-                            <span>
-                                {monthLabel ||
-                                    (isAllLeaveYear(trackYear)
-                                        ? trackRangeLabel || 'Last 12 months'
-                                        : trackYear)}
+                            <span className="whitespace-nowrap">
+                                {trackBucket === 'week'
+                                    ? trackRangeLabel || 'This week'
+                                    : monthLabel ||
+                                      (isAllLeaveYear(trackYear)
+                                          ? trackRangeLabel || 'Last 12 months'
+                                          : trackYear)}
                             </span>
                             <button
                                 type="button"
@@ -1237,14 +1249,14 @@ export default function LeaveDashboard({
                             <RechartsBox height={220} minHeight={220} minWidth={0} className="h-full">
                                 <BarChart
                                     data={chartData}
-                                    margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
+                                    margin={{ top: 8, right: 8, left: -18, bottom: trackBucket === 'week' ? 4 : 0 }}
                                     barCategoryGap="42%"
                                     barGap={1}
                                 >
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                                     <XAxis
                                         dataKey="month"
-                                        tick={{ fontSize: 11, fill: '#9CA3AF' }}
+                                        tick={{ fontSize: trackBucket === 'week' ? 10 : 11, fill: '#9CA3AF' }}
                                         axisLine={false}
                                         tickLine={false}
                                         interval={0}
@@ -1280,7 +1292,7 @@ export default function LeaveDashboard({
                                                   name={group.label}
                                                   fill={GROUP_BAR_COLORS[index % GROUP_BAR_COLORS.length]}
                                                   radius={[2, 2, 0, 0]}
-                                                  barSize={trackBucket === 'week' ? 18 : 12}
+                                                  barSize={trackBucket === 'week' ? 12 : 16}
                                                   maxBarSize={22}
                                                   cursor="pointer"
                                                   onClick={(bar) => {
@@ -1301,7 +1313,7 @@ export default function LeaveDashboard({
                                                   name="Total leave taken"
                                                   fill="#2563EB"
                                                   radius={[2, 2, 0, 0]}
-                                                  barSize={trackBucket === 'week' ? 18 : 12}
+                                                  barSize={trackBucket === 'week' ? 12 : 16}
                                                   maxBarSize={22}
                                                   cursor="pointer"
                                                   onClick={(bar) => {

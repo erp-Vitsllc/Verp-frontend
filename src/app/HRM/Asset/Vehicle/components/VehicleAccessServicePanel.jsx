@@ -61,6 +61,84 @@ function emptyVehiclesByType() {
 const VEHICLE_LIST_RETURN = '/HRM/Asset/Vehicle';
 const ALL_FILTER = 'all';
 
+const DATE_RANGE_OPTIONS = [
+    { key: 'all', label: 'All' },
+    { key: 'this_year', label: 'This year' },
+    { key: 'this_month', label: 'This month' },
+    { key: 'prev_year', label: 'Previous year' },
+    { key: 'prev_month', label: 'Previous month' },
+    { key: 'custom', label: 'Custom' },
+];
+
+function pad2(value) {
+    return String(value).padStart(2, '0');
+}
+
+function dateKeyFromDate(date) {
+    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function lastDayOfMonth(year, monthIndex) {
+    return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+function currentMonthStartKey(now = new Date()) {
+    return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`;
+}
+
+function resolveAccessDateRange(rangeKey, customFrom, customTo, now = new Date()) {
+    const year = now.getFullYear();
+    const month = now.getMonth();
+
+    if (rangeKey === 'this_year') {
+        return { from: `${year}-01-01`, to: `${year}-12-31` };
+    }
+    if (rangeKey === 'this_month') {
+        return {
+            from: `${year}-${pad2(month + 1)}-01`,
+            to: `${year}-${pad2(month + 1)}-${pad2(lastDayOfMonth(year, month))}`,
+        };
+    }
+    if (rangeKey === 'prev_year') {
+        const prevYear = year - 1;
+        return { from: `${prevYear}-01-01`, to: `${prevYear}-12-31` };
+    }
+    if (rangeKey === 'prev_month') {
+        const prev = new Date(year, month - 1, 1);
+        const prevYear = prev.getFullYear();
+        const prevMonth = prev.getMonth();
+        return {
+            from: `${prevYear}-${pad2(prevMonth + 1)}-01`,
+            to: `${prevYear}-${pad2(prevMonth + 1)}-${pad2(lastDayOfMonth(prevYear, prevMonth))}`,
+        };
+    }
+    if (rangeKey === 'custom') {
+        const from = String(customFrom || '').slice(0, 10);
+        const to = String(customTo || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
+        return from > to ? { from: to, to: from } : { from, to };
+    }
+    return null;
+}
+
+function rowServiceDateKey(row) {
+    const raw = row?.requestDate || row?.createdAt || row?.lastOilServiceDate || row?.sortDate || '';
+    const text = String(raw || '').trim();
+    if (!text) return '';
+    const dateOnly = text.match(/^(\d{4}-\d{2}-\d{2})$/);
+    if (dateOnly) return dateOnly[1];
+    const parsed = new Date(text);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return dateKeyFromDate(parsed);
+}
+
+function rowMatchesDateRange(row, range) {
+    if (!range) return true;
+    const key = rowServiceDateKey(row);
+    if (!key) return false;
+    return key >= range.from && key <= range.to;
+}
+
 function rowVehicleId(row) {
     return String(row?.vehicleId || '').trim();
 }
@@ -138,6 +216,9 @@ export default function VehicleAccessServicePanel({
     const [listLoading, setListLoading] = useState(false);
     const [vehicleFilter, setVehicleFilter] = useState(ALL_FILTER);
     const [serviceFilter, setServiceFilter] = useState(ALL_FILTER);
+    const [dateRange, setDateRange] = useState('all');
+    const [customFrom, setCustomFrom] = useState(() => currentMonthStartKey());
+    const [customTo, setCustomTo] = useState(() => dateKeyFromDate(new Date()));
 
     const statusFilter = VEHICLE_ACCESS_SERVICE_STATUS_FILTERS.some((tab) => tab.key === selectedType)
         ? selectedType
@@ -227,15 +308,25 @@ export default function VehicleAccessServicePanel({
         return allRows;
     }, [allRows, statusFilter]);
 
+    const dateRangeBounds = useMemo(
+        () => resolveAccessDateRange(dateRange, customFrom, customTo),
+        [customFrom, customTo, dateRange],
+    );
+
+    const dateScopedRows = useMemo(
+        () => visibleRows.filter((row) => rowMatchesDateRange(row, dateRangeBounds)),
+        [dateRangeBounds, visibleRows],
+    );
+
     const serviceScopedRows = useMemo(() => {
-        if (serviceFilter === ALL_FILTER) return visibleRows;
-        return visibleRows.filter((row) => rowServiceType(row) === serviceFilter);
-    }, [serviceFilter, visibleRows]);
+        if (serviceFilter === ALL_FILTER) return dateScopedRows;
+        return dateScopedRows.filter((row) => rowServiceType(row) === serviceFilter);
+    }, [dateScopedRows, serviceFilter]);
 
     const vehicleScopedRows = useMemo(() => {
-        if (vehicleFilter === ALL_FILTER) return visibleRows;
-        return visibleRows.filter((row) => rowVehicleId(row) === vehicleFilter);
-    }, [vehicleFilter, visibleRows]);
+        if (vehicleFilter === ALL_FILTER) return dateScopedRows;
+        return dateScopedRows.filter((row) => rowVehicleId(row) === vehicleFilter);
+    }, [dateScopedRows, vehicleFilter]);
 
     const vehicleOptions = useMemo(() => {
         const options = uniqueVehicleOptions(serviceScopedRows);
@@ -257,12 +348,12 @@ export default function VehicleAccessServicePanel({
 
     const displayedRows = useMemo(
         () =>
-            visibleRows.filter((row) => {
+            dateScopedRows.filter((row) => {
                 if (vehicleFilter !== ALL_FILTER && rowVehicleId(row) !== vehicleFilter) return false;
                 if (serviceFilter !== ALL_FILTER && rowServiceType(row) !== serviceFilter) return false;
                 return true;
             }),
-        [serviceFilter, vehicleFilter, visibleRows],
+        [dateScopedRows, serviceFilter, vehicleFilter],
     );
 
     const filteredTotalAmount = useMemo(() => sumAccessAmounts(displayedRows), [displayedRows]);
@@ -309,7 +400,8 @@ export default function VehicleAccessServicePanel({
         VEHICLE_ACCESS_SERVICE_STATUS_FILTERS.find((tab) => tab.key === statusFilter)?.label ||
         'All service records';
 
-    const filtersNarrowed = vehicleFilter !== ALL_FILTER || serviceFilter !== ALL_FILTER;
+    const filtersNarrowed =
+        vehicleFilter !== ALL_FILTER || serviceFilter !== ALL_FILTER || Boolean(dateRangeBounds);
     const emptyMessage = filtersNarrowed
         ? 'No services match the selected filters.'
         : statusFilter === VEHICLE_ACCESS_SERVICE_PENDING
@@ -351,7 +443,7 @@ export default function VehicleAccessServicePanel({
                         ) : null}
                     </div>
                     <p className="text-xs text-slate-500 mt-1">
-                        All fleet service records — filter by status or vehicles with no completed service
+                        All fleet service records — filter by status, vehicle, service, or date
                     </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -447,6 +539,59 @@ export default function VehicleAccessServicePanel({
                             ))}
                         </select>
                     </label>
+                    <label className="block min-w-[11rem] flex-1 sm:flex-none sm:w-48">
+                        <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Date
+                        </span>
+                        <select
+                            value={dateRange}
+                            onChange={(event) => setDateRange(event.target.value)}
+                            aria-label="Filter by date range"
+                            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15"
+                        >
+                            {DATE_RANGE_OPTIONS.map((option) => (
+                                <option key={option.key} value={option.key}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    {dateRange === 'custom' ? (
+                        <>
+                            <label className="block min-w-[10rem] flex-1 sm:flex-none sm:w-40">
+                                <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                    From
+                                </span>
+                                <input
+                                    type="date"
+                                    value={customFrom}
+                                    onChange={(event) => {
+                                        const value = event.target.value;
+                                        setCustomFrom(value);
+                                        setCustomTo((prev) => (prev && value && value > prev ? value : prev));
+                                    }}
+                                    aria-label="Custom range start date"
+                                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15"
+                                />
+                            </label>
+                            <label className="block min-w-[10rem] flex-1 sm:flex-none sm:w-40">
+                                <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                    To
+                                </span>
+                                <input
+                                    type="date"
+                                    value={customTo}
+                                    onChange={(event) => {
+                                        const value = event.target.value;
+                                        setCustomTo(value);
+                                        setCustomFrom((prev) => (prev && value && value < prev ? value : prev));
+                                    }}
+                                    aria-label="Custom range end date"
+                                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15"
+                                />
+                            </label>
+                        </>
+                    ) : null}
                 </div>
                 <div className="overflow-hidden">
                     {listLoading ? (

@@ -75,6 +75,38 @@ function formatDisplayTime(value) {
     return value;
 }
 
+function shortEmployeeName(name) {
+    const parts = String(name || '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+    if (!parts.length) return '—';
+    if (parts.length === 1) return parts[0];
+    const letter = parts[1].charAt(0).toUpperCase();
+    return letter ? `${parts[0]} ${letter}` : parts[0];
+}
+
+function punchDurationLabel(timeIn, timeOut, timeOutDate, date) {
+    const toSeconds = (value) => {
+        const text = String(value || '').trim();
+        if (!text || text === '—') return null;
+        const parts = text.split(':').map(Number);
+        if (parts.length < 2 || parts.slice(0, 2).some((n) => Number.isNaN(n))) return null;
+        const seconds = parts.length > 2 && !Number.isNaN(parts[2]) ? parts[2] : 0;
+        return parts[0] * 3600 + parts[1] * 60 + seconds;
+    };
+    const start = toSeconds(timeIn);
+    const end = toSeconds(timeOut);
+    if (start == null || end == null) return '—';
+    let diff = end - start;
+    const nextDay = Boolean(timeOutDate && date && timeOutDate !== date);
+    if (nextDay || diff < 0) diff += 24 * 3600;
+    if (diff < 0) return '—';
+    const hours = Math.floor(diff / 3600);
+    const mins = Math.floor((diff % 3600) / 60);
+    return `${hours}h ${String(mins).padStart(2, '0')}m`;
+}
+
 function dubaiDateKey(date = new Date()) {
     return new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Asia/Dubai',
@@ -159,21 +191,21 @@ function formatStatusLabel(mark, timeIn, pastDay = false) {
     const raw = String(mark?.label || '').trim();
     const kind = String(mark?.leaveRequestKind || '').trim();
     const punchedIn = Boolean(timeIn && timeIn !== '—');
-    const missedDay = pastDay ? 'Unauthorized Leave' : 'Absent';
+    const missedDay = pastDay ? 'Unauth' : 'Absent';
 
     if (key === 'late_arrived' || /late arrival/i.test(raw)) return 'Present (Late Arrival)';
     if (key === 'early_go' || /early go/i.test(raw)) return 'Present (Early Go)';
     if (key === 'mispunch') return raw || 'Mispunched';
-    if (key === 'unauthorized_leave') return raw || 'Unauthorized Leave';
+    if (key === 'unauthorized_leave') return 'Unauth';
     if (key === 'authorized_leave') {
         const halfAt = raw.indexOf('·');
-        if (halfAt >= 0) return `Authorized Leave ${raw.slice(halfAt).trim()}`;
-        return 'Authorized Leave';
+        if (halfAt >= 0) return `Auth ${raw.slice(halfAt).trim()}`;
+        return 'Auth';
     }
     if (key === 'sick_leave') return raw || 'Sick Leave';
     if (key === 'compoff_leave') return raw || 'Comp Off Leave';
     if (key === 'on_leave' || kind === 'future_annual') {
-        if (!raw || /^on leave$/i.test(raw) || /annual/i.test(raw)) return 'Annual Leave';
+        if (!raw || /^on leave$/i.test(raw) || /annual/i.test(raw)) return 'Annual';
         return raw;
     }
     if (key === 'work_from_home') return raw || 'Work from home';
@@ -190,17 +222,28 @@ function formatStatusLabel(mark, timeIn, pastDay = false) {
     return raw || missedDay;
 }
 
+function statusHoverTitle(statusText) {
+    const text = String(statusText || '');
+    if (text === 'Unauth') return 'Unauthorized Leave';
+    if (text === 'Annual') return 'Annual Leave';
+    if (text === 'Auth' || text.startsWith('Auth ')) return text.replace(/^Auth/, 'Authorized Leave');
+    return text;
+}
+
 function statusChipClass(mark, label) {
     const key = String(mark?.key || '').trim();
     if (
         label === 'Absent' ||
+        label === 'Unauth' ||
         label === 'Unauthorized Leave' ||
         key === 'absent' ||
         key === 'unauthorized_leave'
     ) {
         return 'text-rose-700 bg-rose-50';
     }
-    if (key === 'on_leave' || /annual leave/i.test(label)) return 'text-indigo-700 bg-indigo-50';
+    if (key === 'on_leave' || /^annual$/i.test(label) || /annual leave/i.test(label)) {
+        return 'text-indigo-700 bg-indigo-50';
+    }
     if (key === 'authorized_leave') return 'text-orange-700 bg-orange-50';
     if (key === 'compoff_leave') return 'text-violet-700 bg-violet-50';
     if (key === 'weekly_off' || key === 'holiday') return 'text-[#9B59B6] bg-purple-50';
@@ -444,10 +487,17 @@ function EmployeeRow({
     const timeIn = employee.timeIn || '—';
     const timeOut = employee.timeOut || '—';
     const statusText = formatStatusLabel(mark, timeIn, pastDay);
+    const statusFull = statusHoverTitle(statusText);
+    const duration = punchDurationLabel(
+        mark?.rawTimeIn || timeIn,
+        mark?.rawTimeOut || timeOut,
+        mark?.timeOutDate,
+        mark?.date,
+    );
     const leaveLocked = isApprovedLeaveMark(mark) && !allowHrClear;
     const rowLocked = leaveLocked || actionLocked;
     const lockTitle = leaveLocked
-        ? `${statusText} is approved for this day`
+        ? `${statusFull} is approved for this day`
         : actionLocked
           ? actionTitle
           : undefined;
@@ -471,15 +521,18 @@ function EmployeeRow({
                 />
             </td>
             <td className="px-3 py-3 text-sm text-gray-600 tabular-nums align-middle">{index}</td>
-            <td className="px-3 py-3 text-sm font-medium text-gray-900 align-middle">{employee.name}</td>
+            <td className="px-3 py-3 text-sm font-medium text-gray-900 align-middle whitespace-nowrap" title={employee.name}>
+                {shortEmployeeName(employee.name)}
+            </td>
             <td className="px-3 py-3 text-sm text-gray-600 tabular-nums align-middle">{employee.empNo}</td>
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{timeIn}</td>
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{timeOut}</td>
+            <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle whitespace-nowrap">{duration}</td>
             <td className="px-3 py-3 align-middle min-w-[140px]">
                 <div className="flex flex-col gap-0.5 min-w-0">
                     <span
                         className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${statusChipClass(mark, statusText)}`}
-                        title={[statusText, mark?.reason].filter(Boolean).join(' — ')}
+                        title={[statusFull, mark?.reason].filter(Boolean).join(' — ')}
                     >
                         {statusText}
                     </span>
@@ -535,21 +588,22 @@ function EmployeeRow({
                     <span className="text-gray-300">—</span>
                 )}
             </td>
-            <td className="px-3 py-3 align-middle text-right min-w-[150px]">
-                <div className="relative inline-flex items-center justify-end min-h-[36px]">
+            <td className="px-2 py-3 align-middle text-right">
+                <div className="relative inline-flex items-center justify-end min-h-[32px]">
                     <button
                         ref={buttonRef}
                         type="button"
                         disabled={rowLocked}
-                        title={lockTitle}
+                        title={lockTitle || 'Mark Attendance'}
+                        aria-label={`Mark attendance for ${employee.name}`}
                         onClick={() => {
                             if (rowLocked) return;
                             if (menuOpen) closeMenu();
                             else openMenu();
                         }}
-                        className="h-8 px-3 rounded-lg bg-[#EA3D2F] text-white text-xs font-semibold whitespace-nowrap transition-colors hover:bg-[#d43528] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-[#EA3D2F]"
+                        className="h-7 px-2 rounded-md bg-[#EA3D2F] text-white text-[11px] font-semibold whitespace-nowrap transition-colors hover:bg-[#d43528] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-[#EA3D2F]"
                     >
-                        Mark Attendance
+                        Mark
                     </button>
                     {menuOpen && anchorRect ? (
                         <MarkAttendanceMenu
@@ -1080,9 +1134,9 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                 if (bulkMenuOpen) closeBulkMenu();
                                 else openBulkMenu();
                             }}
-                            className="h-9 px-4 rounded-lg bg-[#EA3D2F] hover:bg-[#d43528] text-white text-sm font-semibold whitespace-nowrap transition-colors disabled:opacity-60"
+                            className="h-8 px-2.5 rounded-md bg-[#EA3D2F] hover:bg-[#d43528] text-white text-xs font-semibold whitespace-nowrap transition-colors disabled:opacity-60"
                         >
-                            Mark Attendance All
+                            Mark all
                         </button>
                         {bulkMenuOpen && bulkAnchorRect ? (
                             <MarkAttendanceMenu
@@ -1133,6 +1187,9 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                 Time Out
                             </th>
                             <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
+                                Duration
+                            </th>
+                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
                                 Status
                             </th>
                             <th className="px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-gray-500 border-l border-gray-200" colSpan={2}>
@@ -1163,7 +1220,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                     <tbody>
                         {filteredEmployees.length === 0 ? (
                             <tr>
-                                <td colSpan={13} className="px-3 py-12 text-center text-sm text-gray-400">
+                                <td colSpan={14} className="px-3 py-12 text-center text-sm text-gray-400">
                                     No employees match “{searchQuery.trim()}”.
                                 </td>
                             </tr>
