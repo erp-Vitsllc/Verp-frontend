@@ -35,13 +35,11 @@ function shiftMarks(timeIn, timeOut, timeOutDate, date) {
     const inMin = toMinutes(timeIn);
     const outMin = toMinutes(timeOut);
     if (inMin == null || outMin == null) return { sun: false, moon: false };
-    const crosses = Boolean(timeOutDate && date && timeOutDate !== date) || outMin < inMin;
-    if (crosses) return { sun: true, moon: true };
-    const inMorning = inMin < 12 * 60;
-    const outMorning = outMin < 12 * 60;
-    if (inMorning && outMorning) return { sun: true, moon: false };
-    if (!inMorning && !outMorning) return { sun: false, moon: true };
-    return { sun: true, moon: true };
+    // Same calendar day is a day shift, including late arrival and early go.
+    // Night is only a check-out after the next midnight.
+    const crossesMidnight = Boolean(timeOutDate && date && timeOutDate !== date) || outMin < inMin;
+    if (crossesMidnight) return { sun: false, moon: true };
+    return { sun: true, moon: false };
 }
 
 function currentEmployeeMongoId() {
@@ -515,8 +513,8 @@ function EmployeeRow({
                 />
             </td>
             <td className="px-3 py-3 align-middle text-center text-base">
-                {shift.sun ? <span title="Day">☀</span> : null}
-                {shift.moon ? <span title="Night">☾</span> : null}
+                {shift.sun ? <span title="Day shift">☀</span> : null}
+                {shift.moon ? <span title="Night shift">☾</span> : null}
                 {!shift.sun && !shift.moon ? <span className="text-gray-300">—</span> : null}
             </td>
             <td className="px-3 py-3 align-middle">
