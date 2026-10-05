@@ -30,7 +30,7 @@ import axiosInstance from '@/utils/axios';
 import { MonthPicker } from '@/components/ui/date-picker';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { getEmployeeInitials } from '@/utils/employeeProfileImage';
-import { normalizeWorkLocationKey, workLocationLabel } from '@/utils/workLocations';
+import { normalizeWorkLocationKey, weekForStaffType, workLocationLabel } from '@/utils/workLocations';
 import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
     salaryLockFromAttendancePayload,
@@ -325,15 +325,84 @@ function splitMoney(total, weights) {
     return shares;
 }
 
+function isMispunchTitle(title) {
+    return /miss(?:ed)?[\s-]*punch|mis[\s-]*punch/i.test(String(title || ''));
+}
+
 function mispunchRuleOf(rules) {
-    const rows = (Array.isArray(rules) ? rules : []).filter((row) =>
-        String(row?.title || '').trim() || String(row?.deduct || '').trim() || eventBundle(row?.events),
-    );
-    const titled = rows.find((row) =>
-        /miss(?:ed)?[\s-]*punch|mis[\s-]*punch/i.test(String(row?.title || '')),
-    );
-    if (titled) return titled;
-    return rows.length === 1 ? rows[0] : null;
+    return (Array.isArray(rules) ? rules : []).find((row) => isMispunchTitle(row?.title) && deductFraction(row?.deduct)) || null;
+}
+
+function ruleDirection(rule) {
+    const title = String(rule?.title || '').toLowerCase();
+    if (/late\s*out|early\s*out|early/.test(title)) return 'out';
+    if (/late\s*in/.test(title)) return 'in';
+    return '';
+}
+
+function dayPartToMinutes(day, which) {
+    if (!day) return null;
+    const isStart = which === 'start';
+    let hour = Number(isStart ? day.startHour : day.endHour);
+    const minute = Number(isStart ? day.startMinute : day.endMinute);
+    const meridiem = String((isStart ? day.startMeridiem : day.endMeridiem) || 'AM').toUpperCase();
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+    if (meridiem === 'AM' && hour === 12) hour = 0;
+    if (meridiem === 'PM' && hour !== 12) hour += 12;
+    return hour * 60 + minute;
+}
+
+function shiftForDate(week, dateKey) {
+    if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return null;
+    const day = week[WEEKDAY_KEYS[new Date(`${dateKey}T12:00:00Z`).getUTCDay()]];
+    if (!day || day.isOffDay) return null;
+    const start = dayPartToMinutes(day, 'start');
+    const end = dayPartToMinutes(day, 'end');
+    if (start == null || end == null || end <= start) return null;
+    return { start, end };
+}
+
+const TIMED_RULE_SKIP = new Set([
+    'holiday',
+    'weekly_off',
+    'on_leave',
+    'sick_leave',
+    'authorized_leave',
+    'unauthorized_leave',
+    'compoff_leave',
+]);
+
+function timedPolicyCounts(records, rules, week) {
+    const timed = (Array.isArray(rules) ? rules : [])
+        .map((rule, index) => ({ rule, index, direction: ruleDirection(rule) }))
+        .filter((row) => row.direction && deductFraction(row.rule?.deduct) && !isMispunchTitle(row.rule?.title));
+    const counts = timed.map(() => 0);
+    const order = { in: [], out: [] };
+    timed.forEach((row, index) => order[row.direction].push(index));
+    order.in.sort((a, b) => n(timed[b].rule.minutes) - n(timed[a].rule.minutes));
+    order.out.sort((a, b) => n(timed[b].rule.minutes) - n(timed[a].rule.minutes));
+    (Array.isArray(records) ? records : []).forEach((record) => {
+        if (TIMED_RULE_SKIP.has(String(record?.statusKey || ''))) return;
+        const shift = shiftForDate(week, record?.date);
+        if (!shift) return;
+        const actualIn = clockToMinutes(record?.timeIn);
+        const actualOut = clockToMinutes(record?.timeOut);
+        const lateIn = actualIn == null ? 0 : actualIn - shift.start;
+        const lateOut = actualOut == null ? 0 : shift.end - actualOut;
+        ['in', 'out'].forEach((side) => {
+            const minutes = side === 'in' ? lateIn : lateOut;
+            if (minutes <= 0) return;
+            const match = order[side].find((index) => minutes >= Math.max(0, n(timed[index].rule.minutes)));
+            if (match != null) counts[match] += 1;
+        });
+    });
+    return timed.map((row, index) => ({ ...row, count: counts[index] }));
+}
+
+function extraPolicyNote(count, rule, daily) {
+    const minutes = Math.max(0, Math.floor(n(rule?.minutes)));
+    const minuteText = minutes > 0 ? `${minutes} minutes above schedule` : 'Above schedule';
+    return `${minuteText} · ${eventPolicyNote(count, rule, daily)}`;
 }
 
 function eventPolicyNote(count, rule, daily) {
@@ -432,6 +501,20 @@ function addPeriodStats(total, next) {
         wfh: n(total.wfh) + n(next.wfh),
         absent: null,
     };
+}
+
+function leaveDayWeight(row, authorized) {
+    const part = String(row?.leaveRequestDayPart || '');
+    const fraction = part === 'half' ? 0.5 : part === 'quarter' ? 0.25 : 1;
+    const doubled = authorized && Number(row?.leaveDeductionTimes) === 2 ? 2 : 1;
+    return fraction * doubled;
+}
+
+function leaveChargeDays(records, key) {
+    return (records || []).reduce((sum, row) => {
+        if (String(row?.statusKey || '') !== key) return sum;
+        return sum + leaveDayWeight(row, key === 'authorized_leave');
+    }, 0);
 }
 
 function leaveTallies(records, key) {
@@ -568,6 +651,7 @@ export default function EmployeeInformationDashboard({
     const [recordsByDate, setRecordsByDate] = useState({});
     const [monthRecords, setMonthRecords] = useState([]);
     const [offWeekdays, setOffWeekdays] = useState(() => new Set(['saturday', 'sunday']));
+    const [scheduleWeek, setScheduleWeek] = useState(null);
     const [staffType, setStaffType] = useState('office');
     const [holidayRows, setHolidayRows] = useState([]);
     const [monthLoading, setMonthLoading] = useState(true);
@@ -599,7 +683,9 @@ export default function EmployeeInformationDashboard({
             });
             setMonthRecords(rows);
             setRecordsByDate(map);
-            setStaffType(normalizeWorkLocationKey(response.data?.employee?.staffType || employee.staffType));
+            const nextStaffType = normalizeWorkLocationKey(response.data?.employee?.staffType || employee.staffType);
+            setStaffType(nextStaffType);
+            setScheduleWeek(weekForStaffType(response.data?.workingTime, nextStaffType));
             setOffWeekdays(
                 new Set(
                     Array.isArray(response.data?.offWeekdays) && response.data.offWeekdays.length
@@ -614,6 +700,7 @@ export default function EmployeeInformationDashboard({
         } catch (err) {
             setMonthRecords([]);
             setRecordsByDate({});
+            setScheduleWeek(null);
             if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
                 setSalaryLock(salaryLockFromAttendancePayload(err.response.data));
                 setMonthError('');
@@ -867,17 +954,26 @@ export default function EmployeeInformationDashboard({
         const lateCount = n(monthStats.lateIn);
         const earlyCount = n(monthStats.earlyOut);
         const missedCount = n(monthStats.missed);
-        const authDays = n(leaveTallies(countedRecords, 'authorized_leave').used);
-        const unauthDays = n(leaveTallies(countedRecords, 'unauthorized_leave').used);
+        const authDays = money2(leaveChargeDays(countedRecords, 'authorized_leave'));
+        const unauthDays = money2(leaveChargeDays(countedRecords, 'unauthorized_leave'));
         const authTimes = policy.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
         const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
         const lateRule = policy.lateRule || null;
         const combinedLate = lateCount + earlyCount;
         const lateTotal = policyDeductionAmount(daily, combinedLate, lateRule);
         const lateShares = splitMoney(lateTotal, { late: lateCount, early: earlyCount });
-        const punchRule = mispunchRuleOf(policy.extraLateRules);
+        const punchRule = deductFraction(policy.missedPunchRule?.deduct)
+            ? policy.missedPunchRule
+            : mispunchRuleOf(policy.extraLateRules);
         const punchAmount = punchRule ? policyDeductionAmount(daily, missedCount, punchRule) : 0;
         const dayRate = formatAed(daily, 2);
+        const extraRows = timedPolicyCounts(countedRecords, policy.extraLateRules, scheduleWeek).map((row) => ({
+            key: `extra-${row.index}`,
+            type: row.rule.title || (row.direction === 'out' ? 'Late out' : 'Late in'),
+            count: row.count,
+            amount: policyDeductionAmount(daily, row.count, row.rule),
+            note: extraPolicyNote(row.count, row.rule, daily),
+        }));
         return [
             {
                 key: 'late_arrived',
@@ -895,6 +991,7 @@ export default function EmployeeInformationDashboard({
                     ? `Same late in / late out rule · this share ${formatAed(lateShares.early || 0, 2)}`
                     : 'Shares the late in / late out event count on this group policy',
             },
+            ...extraRows,
             {
                 key: 'mispunch',
                 type: 'Missed punch',
@@ -923,7 +1020,7 @@ export default function EmployeeInformationDashboard({
                     : `1 unauthorized day deducts ${unauthTimes} × ${dayRate}`,
             },
         ];
-    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, monthStats]);
+    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, monthStats, scheduleWeek]);
     const deductionTotal = deductionRows.reduce((sum, row) => sum + (row.amount == null ? 0 : row.amount), 0);
 
     const elapsedDays = countFrom && countTo ? inclusiveDays(countFrom, countTo) : 0;

@@ -42,6 +42,7 @@ export default function AttendanceLeaveDecideModal({
     fromDate = '',
     toDate = '',
     dayPart = '',
+    session = '',
     requestTimeIn = '',
     requestTimeOut = '',
     deciding = false,
@@ -63,11 +64,11 @@ export default function AttendanceLeaveDecideModal({
     const kindKey = String(kind || '');
     const isMultiDay = Boolean(fromDate && toDate && fromDate !== toDate);
     const rangeLabel = isMultiDay ? `${fromDate} → ${toDate}` : '';
+    const side = session === 'pm' ? 'PM' : session === 'am' ? 'AM' : '';
+    const workWindow = requestTimeIn && requestTimeOut ? `work ${requestTimeIn}–${requestTimeOut}` : '';
     const dayPartLabel =
-        dayPart === 'half'
-            ? requestTimeIn && requestTimeOut
-                ? `Half day · ${requestTimeIn} – ${requestTimeOut}`
-                : 'Half day'
+        dayPart === 'half' || dayPart === 'quarter'
+            ? [dayPart === 'quarter' ? 'Quarter day' : 'Half day', side, workWindow].filter(Boolean).join(' · ')
             : dayPart === 'full'
               ? 'Full day'
               : '';
@@ -94,8 +95,8 @@ export default function AttendanceLeaveDecideModal({
         : kindKey === 'future_annual'
           ? `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Annual Leave. Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
         : kindKey === 'future_leave'
-          ? dayPart === 'half'
-              ? `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Half day Authorized Leave. Authorized leave is unpaid. Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
+          ? dayPart === 'half' || dayPart === 'quarter'
+              ? `Approve marks this day as ${dayPart === 'quarter' ? 'Authorized Quarter Day' : 'Authorized Half Day'}${side ? ` (${side})` : ''}. The salary deduction uses that portion. Reject keeps it upcoming.`
               : `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Authorized Leave. Authorized leave is unpaid. Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
           : isPastLate
             ? `Approve marks this day as Late Arrival${

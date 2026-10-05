@@ -608,8 +608,56 @@ export default function SalaryPolicyFields({
                     />
                     <span className="text-xs text-slate-500">day</span>
                 </NumberedFieldRow>
-                <LateRuleRow
+                <NumberedFieldRow
                     number={12}
+                    label="Missed punch"
+                    hint="Full, half, or quarter day from this employee group. An event count is free; the next missed punch deducts."
+                >
+                    <label className="flex items-center gap-1.5">
+                        <input
+                            type="number"
+                            min="0"
+                            value={form.missedPunchRule?.events ?? ''}
+                            onChange={(e) =>
+                                setForm((p) => ({
+                                    ...p,
+                                    missedPunchRule: {
+                                        ...(p.missedPunchRule || {}),
+                                        events: e.target.value,
+                                    },
+                                }))
+                            }
+                            className={compactInputClass}
+                            placeholder="0"
+                        />
+                        <span className="text-xs text-slate-500">event deduct</span>
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                        <select
+                            value={form.missedPunchRule?.deduct || ''}
+                            onChange={(e) =>
+                                setForm((p) => ({
+                                    ...p,
+                                    missedPunchRule: {
+                                        ...(p.missedPunchRule || {}),
+                                        deduct: e.target.value,
+                                    },
+                                }))
+                            }
+                            className={compactSelectClass}
+                        >
+                            <option value="">Deduct</option>
+                            {LATE_DEDUCT_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                </option>
+                            ))}
+                        </select>
+                        <span className="text-xs text-slate-500">day</span>
+                    </label>
+                </NumberedFieldRow>
+                <LateRuleRow
+                    number={13}
                     label="Late in - Late out"
                     row={form.lateInRules[0] || form.lateOutRules[0] || emptyLateRule()}
                     onFieldChange={(field, value) =>
@@ -640,7 +688,7 @@ export default function SalaryPolicyFields({
                     return (
                         <LateRuleRow
                             key={`extra-late-${index}`}
-                            number={13 + index}
+                            number={14 + index}
                             titleEditable
                             row={row}
                             onTitleChange={(title) =>

@@ -18,7 +18,7 @@ import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import ZohoUpdateConfirmModal from './ZohoUpdateConfirmModal';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import { applyFineDiscount, validateFineDiscount } from '../utils/fineDiscount';
-import { toFineDateInputValue, toFineMonthInputValue } from '../utils/fineScheduleUtils';
+import { isEndOfServiceFineSource, toFineDateInputValue, toFineMonthInputValue } from '../utils/fineScheduleUtils';
 
 export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
@@ -39,6 +39,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
         serviceCharge: '',
         discount: '',
         fineSource: '',
+        sourceOfIncome: 'Salary',
     });
 
     const [selectedEmployees, setSelectedEmployees] = useState([]);
@@ -112,6 +113,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 serviceCharge: String(initialData.serviceCharge || ''),
                 discount: String(initialData.discount || ''),
                 fineSource: initialData.fineSource || '',
+                sourceOfIncome: initialData.sourceOfIncome || 'Salary',
             });
             setMonthStart(initialData.monthStart || toFineMonthInputValue());
             setAwardedDate(
@@ -158,7 +160,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
             setFormData({
                 description: '', deductionAmount: '', paidBy: 'Employee', employeeAmount: '', companyAmount: '',
                 attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '', companyDescription: '',
-                serviceCharge: '', discount: '', fineSource: '',
+                serviceCharge: '', discount: '', fineSource: '', sourceOfIncome: 'Salary',
             });
             setSelectedEmployees([]);
             setCurrentEmployeeId('');
@@ -292,7 +294,11 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
             newErrors.company = 'Company selection is required';
         }
 
-        if (shouldValidateFineDeductionSchedule(formData.paidBy) && selectedEmployees.length > 0) {
+        if (
+            !isEndOfServiceFineSource(formData.sourceOfIncome) &&
+            shouldValidateFineDeductionSchedule(formData.paidBy) &&
+            selectedEmployees.length > 0
+        ) {
             const visaErrors = validateEmployeesDeductionVsVisa({
                 monthStart,
                 payableDuration,
@@ -386,7 +392,9 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 assignedEmployees: selectedEmployees, responsibleFor: formData.paidBy,
                 description: formData.description, companyDescription: formData.companyDescription,
                 fineSource: formData.fineSource || '',
-                fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'), isBulk: true, monthStart,
+                sourceOfIncome: formData.sourceOfIncome || 'Salary',
+                fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'), isBulk: true,
+                monthStart: isEndOfServiceFineSource(formData.sourceOfIncome) ? '' : monthStart,
                 awardedDate: awardedDate || toFineDateInputValue(),
                 fineAmount: grandTotalFine,
                 employeeAmount: totalEmpAmount,
@@ -406,7 +414,9 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                             individualAmount: individualPayable.toFixed(2),
                             employeeAmount: individualBase.toFixed(2),
                             companyAmount: "0.00",
-                            payableDuration: parseInt(payableDuration) || 1
+                            payableDuration: isEndOfServiceFineSource(formData.sourceOfIncome)
+                                ? null
+                                : (parseInt(payableDuration) || 1)
                         };
                     });
 
@@ -548,6 +558,29 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                             disabled={submitting}
                         />
                     </div>
+                    <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Fine Source</label>
+                        <select
+                            value={formData.sourceOfIncome || 'Salary'}
+                            onChange={(e) => {
+                                const nextSource = e.target.value;
+                                setFormData((p) => ({ ...p, sourceOfIncome: nextSource }));
+                                if (nextSource === 'End of Service') {
+                                    setErrors((prev) => ({
+                                        ...prev,
+                                        monthStart: '',
+                                        payableDuration: '',
+                                        deductionSchedule: '',
+                                    }));
+                                }
+                            }}
+                            className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"
+                        >
+                            <option value="Salary">Salary</option>
+                            <option value="End of Service">End of Service</option>
+                        </select>
+                    </div>
+                    {!isEndOfServiceFineSource(formData.sourceOfIncome) ? (
                     <div className="grid grid-cols-2 gap-5">
                         <div className="space-y-1.5" data-schedule-field>
                             <label className="text-sm font-medium">Payable Duration</label>
@@ -586,9 +619,10 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                             ) : null}
                         </div>
                     </div>
+                    ) : null}
 
                     <div className="space-y-1.5">
-                        <label className="text-sm font-medium">Fine Source</label>
+                        <label className="text-sm font-medium">Vendor</label>
                         <ZohoVendorSelect
                             value={formData.fineSource}
                             onChange={(nextValue) => setFormData((p) => ({ ...p, fineSource: nextValue }))}

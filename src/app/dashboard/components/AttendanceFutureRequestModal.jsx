@@ -4,16 +4,28 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Paperclip, X } from 'lucide-react';
 import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
-const SLOT_STEP_MINUTES = 30;
-const DEFAULT_START_MINUTES = 9 * 60;
-const DEFAULT_END_MINUTES = 18 * 60;
-
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 const DAY_PART_OPTIONS = [
     { key: 'full', label: 'Full day' },
     { key: 'half', label: 'Half day' },
+    { key: 'quarter', label: 'Quarter day' },
 ];
+
+function dubaiTodayKey() {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Dubai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date());
+}
+
+function laterDateKey(a, b) {
+    if (!a) return b || '';
+    if (!b) return a;
+    return a > b ? a : b;
+}
 
 function nextDateKey(dateKey) {
     const [year, month, day] = String(dateKey).split('-').map(Number);
@@ -85,31 +97,61 @@ function resolveShift(scheduleWeek, dateKey) {
     const day = scheduleWeek?.[weekdayKeyFromDateKey(dateKey)] || null;
     const start = dayPartToMinutes(day, 'start');
     const end = dayPartToMinutes(day, 'end');
-    if (start == null || end == null || end <= start) {
-        return { startMinutes: DEFAULT_START_MINUTES, endMinutes: DEFAULT_END_MINUTES };
-    }
+    if (start == null || end == null || end <= start) return null;
     return { startMinutes: start, endMinutes: end };
 }
 
-function minutesToClock(minutes) {
-    const h = String(Math.floor(minutes / 60)).padStart(2, '0');
-    const m = String(minutes % 60).padStart(2, '0');
-    return `${h}:${m}`;
-}
-
 function minutesToLabel(minutes) {
-    const hour24 = Math.floor(minutes / 60);
+    const value = Math.round(Number(minutes) || 0);
+    const hour24 = Math.floor(value / 60) % 24;
     const meridiem = hour24 >= 12 ? 'PM' : 'AM';
     const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
-    return `${hour12}:${String(minutes % 60).padStart(2, '0')} ${meridiem}`;
+    return `${hour12}:${String(value % 60).padStart(2, '0')} ${meridiem}`;
 }
 
-function clockToMinutes(clock) {
-    const [h, m] = String(clock || '')
-        .split(':')
-        .map(Number);
-    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-    return h * 60 + m;
+function formatDurationMinutes(minutes) {
+    const total = Math.max(0, Math.round(Number(minutes) || 0));
+    const hours = Math.floor(total / 60);
+    const mins = total % 60;
+    const hourLabel = `${hours} hr${hours === 1 ? '' : 's'}`;
+    return mins ? `${hourLabel} ${mins} min` : hourLabel;
+}
+
+function partialLeaveMessage(scheduleWeek, dateKey, dayPart, session) {
+    if (dayPart !== 'half' && dayPart !== 'quarter') return '';
+    if (session !== 'am' && session !== 'pm') return '';
+    const portion = dayPart === 'half' ? 0.5 : 0.25;
+    const name = dayPart === 'half' ? 'half day' : 'quarter day';
+    const side = session.toUpperCase();
+    const flexible = String(scheduleWeek?.timingMode || '').toLowerCase() === 'flexible';
+    const day = scheduleWeek?.[weekdayKeyFromDateKey(dateKey)] || null;
+    const flexibleHours = Number(day?.workingHours) > 0
+        ? Number(day.workingHours)
+        : Number(scheduleWeek?.hoursPerDay) > 0
+          ? Number(scheduleWeek.hoursPerDay)
+          : 9;
+    const duration = flexible
+        ? Math.round(Math.min(24, flexibleHours) * 60)
+        : (() => {
+            const shift = resolveShift(scheduleWeek, dateKey);
+            return shift ? shift.endMinutes - shift.startMinutes : 0;
+        })();
+    if (duration <= 0) return 'Working hours are not set for this day.';
+    const leaveMinutes = Math.round(duration * portion);
+    const workMinutes = duration - leaveMinutes;
+    const hoursLabel = formatDurationMinutes(leaveMinutes);
+    if (flexible) {
+        return `You have ${hoursLabel} authorized ${name} (${side}). Complete the other ${formatDurationMinutes(workMinutes)}. If you do not, the deduction is 2×.`;
+    }
+    const shift = resolveShift(scheduleWeek, dateKey);
+    const leaveStart = session === 'am' ? shift.startMinutes : shift.endMinutes - leaveMinutes;
+    const leaveEnd = leaveStart + leaveMinutes;
+    const workStart = session === 'am' ? leaveEnd : shift.startMinutes;
+    const workEnd = session === 'am' ? shift.endMinutes : leaveStart;
+    const penalty = session === 'am'
+        ? `If you punch in after ${minutesToLabel(workStart)}, the deduction is 2×.`
+        : `If you punch out before ${minutesToLabel(workEnd)}, the deduction is 2×.`;
+    return `You have ${hoursLabel} authorized ${name} (${side}). Authorized leave is ${minutesToLabel(leaveStart)}–${minutesToLabel(leaveEnd)}. Work ${minutesToLabel(workStart)}–${minutesToLabel(workEnd)}. ${penalty}`;
 }
 
 export default function AttendanceFutureRequestModal({
@@ -129,48 +171,30 @@ export default function AttendanceFutureRequestModal({
     onSubmit,
 }) {
     const fileRef = useRef(null);
+    const isAnnualLeave = variant === 'annual';
+    const dayAfterTomorrow = nextDateKey(nextDateKey(dubaiTodayKey()));
+    const minimumDate = isAnnualLeave ? earliestDate || '' : laterDateKey(earliestDate, dayAfterTomorrow);
     const [fromDate, setFromDate] = useState(dateKey || '');
     const [toDate, setToDate] = useState(dateKey || '');
     const [leaveDuration, setLeaveDuration] = useState('');
     const [dayPart, setDayPart] = useState('full');
-    const [timeIn, setTimeIn] = useState('');
-    const [timeOut, setTimeOut] = useState('');
+    const [session, setSession] = useState('');
     const [reason, setReason] = useState('');
     const [attachment, setAttachment] = useState(null);
     const [localError, setLocalError] = useState('');
 
-    const shift = useMemo(
-        () => resolveShift(scheduleWeek, fromDate || dateKey),
-        [scheduleWeek, fromDate, dateKey],
-    );
-
-    const slots = useMemo(() => {
-        const out = [];
-        for (let m = shift.startMinutes; m <= shift.endMinutes; m += SLOT_STEP_MINUTES) {
-            out.push({ value: minutesToClock(m), label: minutesToLabel(m), minutes: m });
-        }
-        return out;
-    }, [shift]);
-
     useEffect(() => {
         if (!isOpen) return;
-        setFromDate(dateKey || '');
-        setToDate(dateKey || '');
+        const start = dateKey && minimumDate && dateKey < minimumDate ? minimumDate : dateKey || minimumDate || '';
+        setFromDate(start);
+        setToDate(start);
         setLeaveDuration('');
         setDayPart('full');
+        setSession('');
         setReason('');
         setAttachment(null);
         setLocalError('');
-    }, [isOpen, dateKey]);
-
-    // Shift hours are the source of truth for the half-day window, same as the Check In / Out card.
-    useEffect(() => {
-        if (!isOpen) return;
-        setTimeIn(minutesToClock(shift.startMinutes));
-        setTimeOut(minutesToClock(shift.endMinutes));
-    }, [isOpen, shift.startMinutes, shift.endMinutes]);
-
-    const isAnnualLeave = variant === 'annual';
+    }, [isOpen, dateKey, minimumDate]);
     const isMultiDay = Boolean(fromDate && toDate && fromDate !== toDate);
     const leaveDayCount = useMemo(
         () => countLeaveDays(fromDate, toDate, holidayDates, offWeekdays),
@@ -187,15 +211,19 @@ export default function AttendanceFutureRequestModal({
 
     if (!isOpen) return null;
 
-    const timeInMinutes = clockToMinutes(timeIn);
-    const isHalfDay = !isAnnualLeave && leaveDuration === 'single' && dayPart === 'half';
+    const isPartial = !isAnnualLeave && leaveDuration === 'single' && (dayPart === 'half' || dayPart === 'quarter');
+    const partialMessage = isPartial
+        ? partialLeaveMessage(scheduleWeek, fromDate || dateKey, dayPart, session)
+        : '';
     const authorizedBlock = !isAnnualLeave ? authorizedSpanMessage(leaveDuration, fromDate, toDate) : '';
     const requestKind = isAnnualLeave ? 'annual_leave' : 'leave';
     const requestTypeLabel = isAnnualLeave
         ? 'Annual Leave'
-        : isHalfDay
+        : dayPart === 'half' && leaveDuration === 'single'
           ? 'Half day leave'
-          : 'Authorized Leave';
+          : dayPart === 'quarter' && leaveDuration === 'single'
+            ? 'Quarter day leave'
+            : 'Authorized Leave';
     const durationLabel =
         fromDate && toDate && toDate >= fromDate && leaveDayCount > 0
             ? fromDate === toDate
@@ -229,17 +257,6 @@ export default function AttendanceFutureRequestModal({
         setDayPart('full');
     };
 
-    const handleTimeInChange = (value) => {
-        setTimeIn(value);
-        setLocalError('');
-        const nextIn = clockToMinutes(value);
-        const currentOut = clockToMinutes(timeOut);
-        if (nextIn != null && (currentOut == null || currentOut <= nextIn)) {
-            const nextSlot = slots.find((slot) => slot.minutes > nextIn);
-            setTimeOut(nextSlot ? nextSlot.value : '');
-        }
-    };
-
     const handleAttachmentChange = (event) => {
         const result = guardAttachmentFileChange(event, (_, file) => {
             setAttachment(file);
@@ -266,24 +283,20 @@ export default function AttendanceFutureRequestModal({
             setLocalError('To date cannot be before the from date.');
             return;
         }
-        if (earliestDate && fromDate < earliestDate) {
-            setLocalError(`The earliest date you can request is ${earliestDate}.`);
+        if (!isAnnualLeave && (fromDate < dayAfterTomorrow || toDate < dayAfterTomorrow)) {
+            setLocalError('Authorized leave cannot be requested for today or tomorrow.');
             return;
         }
-        if (isHalfDay) {
-            const inMinutes = clockToMinutes(timeIn);
-            const outMinutes = clockToMinutes(timeOut);
-            if (inMinutes == null || outMinutes == null) {
-                setLocalError('Choose a time in and time out for the half day.');
-                return;
-            }
-            if (outMinutes <= inMinutes) {
-                setLocalError('Time out must be after time in.');
-                return;
-            }
+        if (minimumDate && fromDate < minimumDate) {
+            setLocalError(`The earliest date you can request is ${minimumDate}.`);
+            return;
+        }
+        const effectiveDayPart = isMultiDay || isAnnualLeave ? 'full' : dayPart;
+        if ((effectiveDayPart === 'half' || effectiveDayPart === 'quarter') && session !== 'am' && session !== 'pm') {
+            setLocalError('Choose AM or PM for a half day or quarter day.');
+            return;
         }
         const trimmed = String(reason || '').trim();
-        const effectiveDayPart = isMultiDay ? 'full' : dayPart;
         if (attachment) {
             const check = validateErpUploadFile(attachment);
             if (!check.ok) {
@@ -297,8 +310,9 @@ export default function AttendanceFutureRequestModal({
             fromDate,
             toDate,
             dayPart: effectiveDayPart,
-            timeIn: isHalfDay ? timeIn : '',
-            timeOut: isHalfDay ? timeOut : '',
+            session: effectiveDayPart === 'full' ? '' : session,
+            timeIn: '',
+            timeOut: '',
             reason: trimmed,
             attachmentName: attachment?.name || '',
         });
@@ -334,10 +348,14 @@ export default function AttendanceFutureRequestModal({
                             {!eyebrow && dateKey ? (
                                 <p className="text-sm text-slate-500 mt-1">{dateKey}</p>
                             ) : null}
-                            {earliestDate ? (
+                            {!isAnnualLeave ? (
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Earliest allowed date is {earliestDate} (not tomorrow; holidays and
-                                    weekly offs are skipped).
+                                    Today and tomorrow cannot be requested.
+                                    {minimumDate ? ` Earliest date is ${minimumDate}.` : ''}
+                                </p>
+                            ) : earliestDate ? (
+                                <p className="text-xs text-slate-400 mt-1">
+                                    Earliest allowed date is {earliestDate}. Holidays and weekly offs are skipped.
                                 </p>
                             ) : null}
                         </div>
@@ -413,7 +431,7 @@ export default function AttendanceFutureRequestModal({
                             <input
                                 type="date"
                                 value={fromDate}
-                                min={earliestDate || undefined}
+                                min={minimumDate || earliestDate || undefined}
                                 onChange={(e) => handleFromDateChange(e.target.value)}
                                 disabled={submitting}
                                 className={fieldClass}
@@ -424,7 +442,7 @@ export default function AttendanceFutureRequestModal({
                             <input
                                 type="date"
                                 value={toDate}
-                                min={leaveDuration === 'multiple' ? fromDate || earliestDate || undefined : earliestDate || undefined}
+                                min={leaveDuration === 'multiple' ? fromDate || minimumDate || earliestDate || undefined : minimumDate || earliestDate || undefined}
                                 onChange={(e) => {
                                     const value = e.target.value;
                                     setLocalError('');
@@ -467,51 +485,38 @@ export default function AttendanceFutureRequestModal({
                         </label>
                     ) : null}
 
-                    {isHalfDay ? (
-                        <div className="grid grid-cols-2 gap-3">
-                            <label className="block">
-                                <span className={labelClass}>Time in</span>
-                                <select
-                                    value={timeIn}
-                                    onChange={(e) => handleTimeInChange(e.target.value)}
-                                    disabled={submitting}
-                                    className={fieldClass}
-                                >
-                                    {slots.map((slot) => (
-                                        <option
-                                            key={slot.value}
-                                            value={slot.value}
-                                            disabled={slot.minutes >= shift.endMinutes}
+                    {isPartial ? (
+                        <div>
+                            <span className={labelClass}>AM / PM</span>
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { key: 'am', label: 'AM' },
+                                    { key: 'pm', label: 'PM' },
+                                ].map((option) => {
+                                    const selected = session === option.key;
+                                    return (
+                                        <button
+                                            key={option.key}
+                                            type="button"
+                                            disabled={submitting}
+                                            onClick={() => {
+                                                setSession(option.key);
+                                                setLocalError('');
+                                            }}
+                                            className={`h-11 rounded-xl border text-sm font-semibold transition-colors ${
+                                                selected
+                                                    ? 'border-slate-900 bg-slate-900 text-white'
+                                                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                                            }`}
                                         >
-                                            {slot.label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label className="block">
-                                <span className={labelClass}>Time out</span>
-                                <select
-                                    value={timeOut}
-                                    onChange={(e) => {
-                                        setTimeOut(e.target.value);
-                                        setLocalError('');
-                                    }}
-                                    disabled={submitting}
-                                    className={fieldClass}
-                                >
-                                    {slots.map((slot) => (
-                                        <option
-                                            key={slot.value}
-                                            value={slot.value}
-                                            disabled={
-                                                timeInMinutes != null && slot.minutes <= timeInMinutes
-                                            }
-                                        >
-                                            {slot.label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
+                                            {option.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            {partialMessage ? (
+                                <p className="mt-2 text-sm font-medium text-rose-600">{partialMessage}</p>
+                            ) : null}
                         </div>
                     ) : null}
 
@@ -576,7 +581,7 @@ export default function AttendanceFutureRequestModal({
                             disabled={submitting || Boolean(authorizedBlock)}
                             className="flex-1 h-11 rounded-xl text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50"
                         >
-                            {submitting ? 'Sending…' : 'Send to reportee'}
+                            {submitting ? 'Sending…' : 'Send to HR'}
                         </button>
                     </div>
                 </form>

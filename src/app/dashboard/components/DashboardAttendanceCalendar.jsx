@@ -735,6 +735,7 @@ export default function DashboardAttendanceCalendar({
         fromDate,
         toDate,
         dayPart,
+        session,
         timeIn,
         timeOut,
         reason,
@@ -752,6 +753,7 @@ export default function DashboardAttendanceCalendar({
                     toDate: toDate || fromDate || futureModal.dateKey,
                     kind,
                     dayPart: dayPart || 'full',
+                    session: session || '',
                     timeIn: timeIn || '',
                     timeOut: timeOut || '',
                     reason,
@@ -989,6 +991,7 @@ export default function DashboardAttendanceCalendar({
                                     !isHoliday &&
                                     !isWeeklyOff &&
                                     Boolean(earliestFutureDate) &&
+                                    dateKey >= nextDateKey(nextDateKey(todayKey)) &&
                                     dateKey >= earliestFutureDate &&
                                     record?.leaveRequestStatus !== 'pending' &&
                                     !alreadyApprovedFuture;
@@ -1182,6 +1185,7 @@ export default function DashboardAttendanceCalendar({
                 fromDate={decideModal?.record?.leaveRequestFromDate || ''}
                 toDate={decideModal?.record?.leaveRequestToDate || ''}
                 dayPart={decideModal?.record?.leaveRequestDayPart || ''}
+                session={decideModal?.record?.leaveRequestSession || ''}
                 requestTimeIn={decideModal?.record?.leaveRequestTimeIn || ''}
                 requestTimeOut={decideModal?.record?.leaveRequestTimeOut || ''}
                 deciding={decideSubmitting}

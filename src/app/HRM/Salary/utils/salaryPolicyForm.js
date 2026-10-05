@@ -132,6 +132,7 @@ export const EMPTY_POLICY_FORM = {
     lateInRules: [{ minutes: '', events: '', deduct: '' }],
     lateOutRules: [{ minutes: '', events: '', deduct: '' }],
     extraLateRules: [],
+    missedPunchRule: { events: '', deduct: '' },
     salaryProcessReminders: [
         { daysBefore: '', forWhom: [] },
         { daysBefore: '', forWhom: [] },
@@ -226,6 +227,10 @@ export function policyFormFromApi(data) {
         lateInRules: toSharedLateRuleRow(data?.lateInRules, data?.lateOutRules),
         lateOutRules: toSharedLateRuleRow(data?.lateInRules, data?.lateOutRules),
         extraLateRules: toExtraLateRuleRows(data?.extraLateRules),
+        missedPunchRule: {
+            events: data?.missedPunchRule?.events ?? '',
+            deduct: data?.missedPunchRule?.deduct || '',
+        },
         salaryProcessReminders: toReminderRows(data?.salaryProcessReminders),
         minAllowedLeavePerGroupPercent: data?.minAllowedLeavePerGroupPercent ?? '',
         maxAllowedLeavePerGroupPercent: data?.maxAllowedLeavePerGroupPercent ?? '',
