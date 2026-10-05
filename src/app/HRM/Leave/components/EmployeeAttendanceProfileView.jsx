@@ -18,7 +18,7 @@ import {
     X,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
-import { workLocationLabel } from '@/utils/workLocations';
+import { weekForStaffType, workLocationLabel } from '@/utils/workLocations';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { getEmployeeInitials } from '@/utils/employeeProfileImage';
 import EmployeeInformationDashboard from './EmployeeInformationDashboard';
@@ -106,7 +106,7 @@ const DEDUCTION_EVENT_KEYS = ['authorized_leave', 'unauthorized_leave', 'late_ar
 const DEFAULT_TAKEN_COLUMNS = [
     { key: 'date', label: 'Date' },
     { key: 'detail', label: 'Detail' },
-    { key: 'amount', label: 'Amount', align: 'right' },
+    { key: 'amount', label: 'Amount', align: 'right', wide: true },
 ];
 const DEDUCTION_COLUMNS = [
     { key: 'type', label: 'Type' },
@@ -268,19 +268,177 @@ function deductionTypeLabel(event) {
     return DATA_ROW_LABEL[key] || event?.statusLabel || key || 'Deduction';
 }
 
-function deductionAmountDays(event, leaveBalances) {
-    const key = String(event?.statusKey || '').trim();
-    if (key === 'sick_leave') return 0;
-    const raw = leaveBalances?.[key]?.multiplier;
-    if (raw == null || raw === '') return 1;
-    return n(raw);
+const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+function deductFraction(deduct) {
+    const key = String(deduct || '').trim().toLowerCase();
+    if (key === 'full') return 1;
+    if (key === 'half') return 0.5;
+    if (key === 'quarter') return 0.25;
+    return 0;
 }
 
-function formatDeductionAmount(days, monthlySalary) {
-    const dayLabel = `${days} day${days === 1 ? '' : 's'}`;
+function chargeableUnits(totalEvents, policyEvents) {
+    const total = Math.max(0, Math.floor(Number(totalEvents) || 0));
+    const per = Number(policyEvents);
+    if (!Number.isFinite(per) || per <= 0) return total;
+    if (total <= per) return 0;
+    return Math.floor((total - 1) / per);
+}
+
+function clockToMinutes(value) {
+    const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour > 23 || minute > 59) return null;
+    return hour * 60 + minute;
+}
+
+function dayPartToMinutes(day, which) {
+    if (!day) return null;
+    const isStart = which === 'start';
+    let hour = Number(isStart ? day.startHour : day.endHour);
+    const minute = Number(isStart ? day.startMinute : day.endMinute);
+    const meridiem = String((isStart ? day.startMeridiem : day.endMeridiem) || 'AM').toUpperCase();
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+    if (meridiem === 'AM' && hour === 12) hour = 0;
+    if (meridiem === 'PM' && hour !== 12) hour += 12;
+    return hour * 60 + minute;
+}
+
+function shiftForDate(week, dateKey) {
+    if (!week || String(week.timingMode || '').toLowerCase() === 'flexible') return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return null;
+    const day = week[WEEKDAY_KEYS[new Date(`${dateKey}T12:00:00Z`).getUTCDay()]];
+    if (!day || day.isOffDay) return null;
+    const start = dayPartToMinutes(day, 'start');
+    const end = dayPartToMinutes(day, 'end');
+    if (start == null || end == null || end <= start) return null;
+    return { start, end };
+}
+
+function ruleDirection(rule) {
+    const title = String(rule?.title || '').toLowerCase();
+    if (/late\s*out|early\s*out|early/.test(title)) return 'out';
+    if (/late\s*in/.test(title)) return 'in';
+    return '';
+}
+
+function isMispunchTitle(title) {
+    return /miss(?:ed)?[\s-]*punch|mis[\s-]*punch/i.test(String(title || ''));
+}
+
+function salaryCutPhrase(days) {
+    const fraction = Math.round((Number(days) || 0) * 100) / 100;
+    if (!fraction) return 'No salary cut';
+    if (fraction === 0.25) return '1/4 salary cut';
+    if (fraction === 0.5) return '1/2 salary cut';
+    if (fraction === 0.75) return '3/4 salary cut';
+    if (fraction === 1) return '1 salary cut';
+    if (fraction === 1.5) return '1 1/2 salary cut';
+    if (fraction === 2) return '2 salary cut';
+    return `${fraction} salary cut`;
+}
+
+function formatSalaryCut(days, monthlySalary) {
+    const phrase = salaryCutPhrase(days);
     const monthly = n(monthlySalary);
-    if (monthly <= 0) return dayLabel;
-    return `${dayLabel} · ${formatAed((monthly / 30) * days)}`;
+    if (!days || monthly <= 0) return phrase;
+    return `${phrase} · ${formatAed((monthly / 30) * days)}`;
+}
+
+function leavePortion(event) {
+    const part = String(event?.leaveRequestDayPart || '').trim().toLowerCase();
+    if (part === 'half') return 0.5;
+    if (part === 'quarter') return 0.25;
+    const fraction = Number(event?.leaveDayFraction);
+    if (fraction > 0 && fraction < 1) return fraction;
+    return 1;
+}
+
+function lateGapMinutes(event, week, direction) {
+    const shift = shiftForDate(week, event?.date);
+    if (!shift) return null;
+    if (direction === 'in') {
+        const actual = clockToMinutes(event?.timeIn);
+        return actual == null ? null : actual - shift.start;
+    }
+    const actual = clockToMinutes(event?.timeOut);
+    return actual == null ? null : shift.end - actual;
+}
+
+function highestExtraRule(rules, direction, minutes) {
+    if (minutes == null || minutes <= 0) return null;
+    return (Array.isArray(rules) ? rules : [])
+        .map((rule, index) => ({ rule, index, direction: ruleDirection(rule) }))
+        .filter(
+            (row) =>
+                row.direction === direction &&
+                deductFraction(row.rule?.deduct) > 0 &&
+                !isMispunchTitle(row.rule?.title) &&
+                minutes >= Math.max(0, Number(row.rule?.minutes) || 0),
+        )
+        .sort((a, b) => (Number(b.rule?.minutes) || 0) - (Number(a.rule?.minutes) || 0))[0] || null;
+}
+
+function addedCutDays(nextCount, rule) {
+    const before = chargeableUnits(nextCount - 1, rule?.events);
+    const after = chargeableUnits(nextCount, rule?.events);
+    return Math.max(0, after - before) * deductFraction(rule?.deduct);
+}
+
+function leaveCutDays(event, policy) {
+    const key = String(event?.statusKey || '');
+    const portion = leavePortion(event);
+    const doubled = Number(event?.leaveDeductionTimes) === 2 ? 2 : 1;
+    if (key === 'authorized_leave') {
+        const times = policy?.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
+        return portion * times * doubled;
+    }
+    if (key === 'unauthorized_leave') {
+        const times = policy?.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
+        return portion * times * doubled;
+    }
+    return null;
+}
+
+function deductionCutTexts(events, policy, week) {
+    const texts = new Map();
+    const byMonth = new Map();
+    for (const event of events || []) {
+        const month = String(event?.date || '').slice(0, 7);
+        if (!byMonth.has(month)) byMonth.set(month, []);
+        byMonth.get(month).push(event);
+    }
+    for (const rows of byMonth.values()) {
+        const ordered = [...rows].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+        let sharedCount = 0;
+        const extraCounts = new Map();
+        for (const event of ordered) {
+            const leaveDays = leaveCutDays(event, policy);
+            if (leaveDays != null) {
+                texts.set(event.id, leaveDays);
+                continue;
+            }
+            const key = String(event?.statusKey || '');
+            const direction = key === 'early_go' ? 'out' : key === 'late_arrived' ? 'in' : '';
+            if (!direction) {
+                texts.set(event.id, 0);
+                continue;
+            }
+            const extra = highestExtraRule(policy?.extraLateRules, direction, lateGapMinutes(event, week, direction));
+            if (extra) {
+                const next = (extraCounts.get(extra.index) || 0) + 1;
+                extraCounts.set(extra.index, next);
+                texts.set(event.id, addedCutDays(next, extra.rule));
+                continue;
+            }
+            sharedCount += 1;
+            texts.set(event.id, addedCutDays(sharedCount, policy?.lateRule));
+        }
+    }
+    return texts;
 }
 
 function financialTakenRows(key, ctx) {
@@ -358,16 +516,15 @@ function financialTakenRows(key, ctx) {
         }));
     }
     if (key === 'deductions') {
-        return (ctx.deductionEvents || []).map((event) => {
-            const days = deductionAmountDays(event, ctx.leaveBalances);
-            return {
-                id: event.id,
-                type: deductionTypeLabel(event),
-                date: formatLeaveDate(event.date),
-                amount: formatDeductionAmount(days, ctx.monthlySalary),
-                href: salaryHref,
-            };
-        });
+        const events = ctx.deductionEvents || [];
+        const cuts = deductionCutTexts(events, ctx.leavePolicy, ctx.scheduleWeek);
+        return events.map((event) => ({
+            id: event.id,
+            type: deductionTypeLabel(event),
+            date: formatLeaveDate(event.date),
+            amount: formatSalaryCut(cuts.get(event.id) || 0, ctx.monthlySalary),
+            href: salaryHref,
+        }));
     }
     return [];
 }
@@ -731,7 +888,7 @@ function TakenItemsModal({ open, title, hint, rows, columns, onClose, onSelect }
                                                             col.key === 'type' || col.key === 'detail'
                                                                 ? 'flex-1 font-semibold text-[#1B2A4A] truncate'
                                                                 : col.align === 'right'
-                                                                  ? 'w-40 shrink-0 font-bold tabular-nums text-[#1B2A4A] text-right'
+                                                                  ? `${col.wide ? 'w-56' : 'w-40'} shrink-0 font-bold tabular-nums text-[#1B2A4A] text-right whitespace-normal leading-snug`
                                                                   : 'w-28 shrink-0 font-semibold text-[#1B2A4A]'
                                                         }`}
                                                     >
@@ -806,6 +963,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     const [salaryTabVisited, setSalaryTabVisited] = useState(false);
     const [compOffDate, setCompOffDate] = useState('');
     const [categoryRows, setCategoryRows] = useState(null);
+    const [workingTime, setWorkingTime] = useState(null);
 
     const fetchProfile = useCallback(async () => {
         if (!employeeMongoId) return;
@@ -840,6 +998,21 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         if (!employeeMongoId) return;
         fetchProfile();
     }, [employeeMongoId, fetchProfile]);
+
+    useEffect(() => {
+        let cancelled = false;
+        axiosInstance
+            .get('/WorkingTime', { skipToast: true })
+            .then((response) => {
+                if (!cancelled) setWorkingTime(response.data?.workingTime || response.data || null);
+            })
+            .catch(() => {
+                if (!cancelled) setWorkingTime(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [employeeMongoId]);
 
     const eventsByKey = useMemo(() => {
         const map = {};
@@ -972,6 +1145,8 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         salaryOther,
         monthlySalary,
         leaveBalances: profile?.leaveBalances || {},
+        leavePolicy: profile?.leavePolicy || {},
+        scheduleWeek: weekForStaffType(workingTime, employee?.staffType),
         salaryHistory: financial.salaryHistory || [],
         increments: financial.increments || [],
         advances,

@@ -4,11 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Building2,
     Calendar,
-    CalendarDays,
     ChevronDown,
     ChevronRight,
-    Clock,
-    Fingerprint,
     HardHat,
     Users,
     UserX,
@@ -152,17 +149,17 @@ function SummaryRow({ icon: Icon, iconClass, rowClass, label, hint, value, value
         <button
             type="button"
             onClick={onClick}
-            className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${rowClass}`}
+            className={`w-full flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors ${rowClass}`}
         >
-            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${iconClass}`}>
-                <Icon size={16} />
+            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${iconClass}`}>
+                <Icon size={14} />
             </span>
             <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-slate-800 leading-tight">{label}</span>
-                <span className="block text-[11px] text-slate-500 leading-tight mt-0.5">{hint}</span>
+                <span className="block text-xs font-semibold text-slate-800 leading-tight">{label}</span>
+                <span className="block text-[10px] text-slate-500 leading-tight">{hint}</span>
             </span>
-            <span className={`text-xl sm:text-2xl font-bold tabular-nums ${valueClass}`}>{value}</span>
-            <ChevronRight size={16} className="shrink-0 text-slate-300" />
+            <span className={`text-lg font-bold tabular-nums ${valueClass}`}>{value}</span>
+            <ChevronRight size={14} className="shrink-0 text-slate-300" />
         </button>
     );
 }
@@ -187,44 +184,17 @@ function PeopleCard({ title, hint, icon: Icon, totals, phrase, onOpen }) {
             value: totals.absent,
             valueClass: 'text-rose-600',
         },
-        {
-            key: 'late',
-            icon: Clock,
-            iconClass: 'bg-amber-100 text-amber-600',
-            rowClass: 'bg-amber-50/80 hover:bg-amber-50',
-            label: countLabel(phrase, 'Late-Arrival'),
-            value: totals.late,
-            valueClass: 'text-amber-500',
-        },
-        {
-            key: 'leave',
-            icon: CalendarDays,
-            iconClass: 'bg-blue-100 text-blue-600',
-            rowClass: 'bg-blue-50/80 hover:bg-blue-50',
-            label: countLabel(phrase, 'Leave'),
-            value: totals.leave,
-            valueClass: 'text-blue-600',
-        },
-        {
-            key: 'missed',
-            icon: Fingerprint,
-            iconClass: 'bg-orange-100 text-orange-600',
-            rowClass: 'bg-orange-50/80 hover:bg-orange-50',
-            label: countLabel(phrase, 'Missed Punch'),
-            value: totals.missed,
-            valueClass: 'text-orange-600',
-        },
     ];
 
     return (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 sm:p-5 min-w-0">
-            <div className="flex items-center gap-3 mb-4">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
-                    <Icon size={20} />
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm px-3 py-2.5 min-w-0">
+            <div className="flex items-center gap-2 mb-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
+                    <Icon size={15} />
                 </span>
-                <h3 className="text-lg font-bold text-slate-900">{title}</h3>
+                <h3 className="text-sm font-bold text-slate-900">{title}</h3>
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5">
                 {rows.map((row) => (
                     <SummaryRow
                         key={row.key}
@@ -238,21 +208,12 @@ function PeopleCard({ title, hint, icon: Icon, totals, phrase, onOpen }) {
                         onClick={onOpen}
                     />
                 ))}
-                <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
-                        <Users size={16} />
-                    </span>
-                    <span className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
-                        Total {title.replace('People', 'Employees')}
-                    </span>
-                    <span className="text-xl sm:text-2xl font-bold tabular-nums text-slate-900">{totals.total}</span>
-                </div>
             </div>
         </div>
     );
 }
 
-export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup }) {
+export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup, actions = null }) {
     const today = dubaiTodayKey();
     const [period, setPeriod] = useState('today');
     const [customFrom, setCustomFrom] = useState(today);
@@ -304,10 +265,21 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup 
         };
     }, [range.from, range.to, today]);
 
+    const filterButtonClass = (selected) =>
+        `h-8 px-2.5 rounded-lg text-xs font-medium whitespace-nowrap border transition-colors ${
+            selected
+                ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+        }`;
+
     return (
-        <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-5 mb-4 sm:mb-6">
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-                <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mr-1">Attendance Summary</h2>
+        <section className="mb-3">
+            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 mb-3">
+                <div className="min-w-0 shrink-0">
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Attendance</h1>
+                    <p className="text-sm text-gray-600">Review staff attendance and pending approvals</p>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2 min-w-0">
                 {PERIODS.map((item) => (
                     <button
                         key={item.id}
@@ -316,11 +288,7 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup 
                             setPeriod(item.id);
                             if (item.id === 'custom') setRangeOpen(true);
                         }}
-                        className={`h-9 px-3.5 rounded-lg text-sm font-medium whitespace-nowrap border transition-colors ${
-                            period === item.id
-                                ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
-                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                        }`}
+                        className={filterButtonClass(period === item.id)}
                     >
                         {item.label}
                     </button>
@@ -329,15 +297,15 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup 
                     <button
                         type="button"
                         onClick={() => setRangeOpen((open) => !open)}
-                        className={`h-9 pl-3 pr-2.5 rounded-lg border text-sm font-medium inline-flex items-center gap-2 whitespace-nowrap ${
+                        className={`h-8 pl-2.5 pr-2 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap ${
                             period === 'custom'
                                 ? 'border-blue-600 text-blue-700 bg-blue-50'
                                 : 'border-slate-200 text-slate-700 bg-white hover:bg-slate-50'
                         }`}
                     >
-                        <Calendar size={15} className="text-slate-500" />
+                        <Calendar size={14} className="text-slate-500" />
                         <span>Select Date Range</span>
-                        <ChevronDown size={15} className={`text-slate-400 ${rangeOpen ? 'rotate-180' : ''}`} />
+                        <ChevronDown size={14} className={`text-slate-400 ${rangeOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {rangeOpen ? (
                         <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
@@ -366,8 +334,10 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup 
                         </div>
                     ) : null}
                 </div>
+                {actions}
+                </div>
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <PeopleCard
                     title="Office People"
                     hint={officeLabel}
