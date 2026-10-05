@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom';
 import { ChevronRight, Search, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import { nonHrMarkableDateKeys } from '@/app/HRM/Attendance/utils/nonHrMarkWindow';
+import { weekForStaffType } from '@/utils/workLocations';
 import MarkAttendanceDetailsModal, {
     getMarkFormConfig,
 } from './MarkAttendanceDetailsModal';
@@ -126,10 +128,10 @@ function shiftDateKey(dateKey, deltaDays) {
 }
 
 const HR_ONLY_MARK_TITLE =
-    'Only the flowchart HR assignee can mark attendance more than 2 days ago.';
+    'Only the flowchart HR assignee can mark attendance outside today and the two previous days. Holidays are skipped.';
 const HR_ONLY_CLEAR_TITLE = 'Only the flowchart HR assignee can clear attendance.';
 const ABSENT_ONLY_MARK_TITLE =
-    'Only absent attendance from the last 2 days can be changed to Authorized leave or marked present.';
+    'Only absent attendance from the two previous days can be changed to Authorized leave or marked present. Holidays are skipped.';
 
 const NON_HR_RECENT_ABSENT_OPTIONS = [
     { key: 'on_office', label: 'On work' },
@@ -184,6 +186,26 @@ function hrCanClearAuthorizedLeave(mark, isHr, dateKey, todayKey) {
     if (!isHr || !dateKey || !todayKey || dateKey === todayKey) return false;
     if (String(mark?.key || '').trim() !== 'authorized_leave') return false;
     return isApprovedLeaveMark(mark);
+}
+
+const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+function weekdayKeyFromDate(dateKey) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return '';
+    const dayIndex = new Date(`${dateKey}T12:00:00.000Z`).getUTCDay();
+    return WEEKDAY_KEYS[dayIndex] || '';
+}
+
+function markForNonWorkingDay(mark, timeIn, timeOut, dayBaseline) {
+    const punched =
+        (timeIn && timeIn !== '—') || (timeOut && timeOut !== '—');
+    const key = String(mark?.key || '').trim();
+    const blank = !key || key === 'not_marked' || key === 'absent' || key === 'unauthorized_leave';
+    if (!dayBaseline || punched || !blank) return mark;
+    if (dayBaseline === 'holiday') {
+        return { ...(mark || {}), key: 'holiday', label: 'Holiday', reason: 'Holiday' };
+    }
+    return { ...(mark || {}), key: 'weekly_off', label: 'Off Day', reason: 'Weekly off' };
 }
 
 function formatStatusLabel(mark, timeIn, pastDay = false) {
@@ -463,7 +485,10 @@ function EmployeeRow({
     onRequestOt,
     onSettleCompOff,
     canRequestOt = false,
+    otDirect = false,
+    canReviewOt = false,
     pastDay = false,
+    dayBaseline = '',
     actionLocked = false,
     actionTitle = '',
     menuOptions = MARK_OPTIONS,
@@ -486,7 +511,8 @@ function EmployeeRow({
 
     const timeIn = employee.timeIn || '—';
     const timeOut = employee.timeOut || '—';
-    const statusText = formatStatusLabel(mark, timeIn, pastDay);
+    const shownMark = markForNonWorkingDay(mark, timeIn, timeOut, dayBaseline);
+    const statusText = formatStatusLabel(shownMark, timeIn, pastDay);
     const statusFull = statusHoverTitle(statusText);
     const duration = punchDurationLabel(
         mark?.rawTimeIn || timeIn,
@@ -531,14 +557,14 @@ function EmployeeRow({
             <td className="px-3 py-3 align-middle min-w-[140px]">
                 <div className="flex flex-col gap-0.5 min-w-0">
                     <span
-                        className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${statusChipClass(mark, statusText)}`}
+                        className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${statusChipClass(shownMark, statusText)}`}
                         title={[statusFull, mark?.reason].filter(Boolean).join(' — ')}
                     >
                         {statusText}
                     </span>
-                    {mark?.reason ? (
-                        <span className="text-[10px] text-gray-500 max-w-[180px] truncate" title={mark.reason}>
-                            {mark.reason}
+                    {shownMark?.reason ? (
+                        <span className="text-[10px] text-gray-500 max-w-[180px] truncate" title={shownMark.reason}>
+                            {shownMark.reason}
                         </span>
                     ) : null}
                     {mark?.key === 'compoff_leave' ? (
@@ -571,18 +597,33 @@ function EmployeeRow({
                 {!shift.sun && !shift.moon ? <span className="text-gray-300">—</span> : null}
             </td>
             <td className="px-3 py-3 align-middle">
-                {otText ? (
+                {canReviewOt ? (
+                    <button
+                        type="button"
+                        onClick={() => onRequestOt?.(employee, mark)}
+                        className="rounded-lg border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700"
+                    >
+                        Review
+                    </button>
+                ) : otText ? (
                     <span className="text-xs font-bold text-slate-700">{otText}</span>
                 ) : showOtRequest ? (
                     <button
                         type="button"
                         disabled={!canRequestOt}
+                        title={
+                            canRequestOt
+                                ? otDirect
+                                    ? 'Apply overtime now'
+                                    : 'Request overtime for HR approval'
+                                : 'Only the primary reportee or flowchart HR can use overtime'
+                        }
                         onClick={() => {
                             if (canRequestOt) onRequestOt?.(employee, mark);
                         }}
                         className="rounded-lg border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                        Req OT
+                        {otDirect ? 'Apply OT' : 'Req OT'}
                     </button>
                 ) : (
                     <span className="text-gray-300">—</span>
@@ -634,6 +675,9 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
     const [formState, setFormState] = useState(null);
     const [isFlowchartHr, setIsFlowchartHr] = useState(false);
     const [hrReady, setHrReady] = useState(false);
+    const [holidayDates, setHolidayDates] = useState([]);
+    const [offWeekdays, setOffWeekdays] = useState([]);
+    const [holidaysReady, setHolidaysReady] = useState(false);
     const [dayReload, setDayReload] = useState(0);
     const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
     const [bulkAnchorRect, setBulkAnchorRect] = useState(null);
@@ -669,6 +713,47 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
             cancelled = true;
         };
     }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        setHolidaysReady(false);
+        const year = Number(dubaiDateKey().slice(0, 4));
+        (async () => {
+            try {
+                const [currentYear, previousYear] = await Promise.all([
+                    axiosInstance.get('/Holiday', {
+                        params: { year, staffType },
+                        skipToast: true,
+                    }),
+                    axiosInstance.get('/Holiday', {
+                        params: { year: year - 1, staffType },
+                        skipToast: true,
+                    }),
+                ]);
+                const dates = [currentYear, previousYear].flatMap((res) => {
+                    const rows = Array.isArray(res.data?.holidays) ? res.data.holidays : [];
+                    return rows.map((row) => String(row?.date || '').trim()).filter(Boolean);
+                });
+                const timeRes = await axiosInstance.get('/WorkingTime', { skipToast: true });
+                const week = weekForStaffType(timeRes.data?.workingTime || timeRes.data || {}, staffType);
+                const offs = WEEKDAY_KEYS.filter((key) => Boolean(week?.[key]?.isOffDay));
+                if (!cancelled) {
+                    setHolidayDates(dates);
+                    setOffWeekdays(offs);
+                }
+            } catch {
+                if (!cancelled) {
+                    setHolidayDates([]);
+                    setOffWeekdays([]);
+                }
+            } finally {
+                if (!cancelled) setHolidaysReady(true);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [staffType]);
 
     useEffect(() => {
         let cancelled = false;
@@ -764,14 +849,26 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
 
     const todayKey = dubaiDateKey();
     const earliestMarkKey = shiftDateKey(todayKey, -2);
+    const allowedMarkDates = useMemo(
+        () => nonHrMarkableDateKeys(todayKey, holidayDates),
+        [todayKey, holidayDates],
+    );
     const pastDay = Boolean(dateKey) && dateKey < todayKey;
+    const dayBaseline = holidayDates.includes(dateKey)
+        ? 'holiday'
+        : offWeekdays.includes(weekdayKeyFromDate(dateKey))
+          ? 'weekly_off'
+          : '';
+    const windowReady = hrReady && holidaysReady;
     const dayMode = isFlowchartHr
         ? 'full'
-        : !hrReady && dateKey < earliestMarkKey
-          ? 'locked'
-          : dateKey === todayKey
-            ? 'full'
-            : dateKey >= earliestMarkKey && dateKey < todayKey
+        : dateKey === todayKey
+          ? 'full'
+          : !windowReady
+            ? dateKey < todayKey && dateKey >= earliestMarkKey
+                ? 'absent-only'
+                : 'locked'
+            : allowedMarkDates.has(dateKey) && dateKey < todayKey
               ? 'absent-only'
               : 'locked';
     const baseMenuOptions =
@@ -1082,7 +1179,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
             ) : null}
             {dayMode === 'absent-only' ? (
                 <div className="px-1 pb-2 text-xs text-slate-500">
-                    Absent attendance from the last 2 days can be set to Authorized leave or marked present.
+                    Absent attendance from the two previous days can be set to Authorized leave or marked present. Holidays are skipped.
                 </div>
             ) : null}
 
@@ -1234,6 +1331,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                 onToggle={toggleOne}
                                 mark={marks[employee.id] || null}
                                 pastDay={pastDay}
+                                dayBaseline={dayBaseline}
                                 actionLocked={rowIsActionLocked(employee)}
                                 actionTitle={
                                     dayMode === 'locked' ? HR_ONLY_MARK_TITLE : ABSENT_ONLY_MARK_TITLE
@@ -1245,8 +1343,29 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                 }
                                 allowHrClear={canHrClearRow(marks[employee.id])}
                                 onRequestMark={handleRequestMark}
-                                canRequestOt={Boolean(viewerId) && viewerId === String(employee.primaryReportee || '')}
-                                onRequestOt={(row, mark) => setOtModal({ employee: row, mark, mode: 'request' })}
+                                canRequestOt={
+                                    isFlowchartHr ||
+                                    (Boolean(viewerId) &&
+                                        viewerId === String(employee.primaryReportee || ''))
+                                }
+                                otDirect={isFlowchartHr}
+                                canReviewOt={
+                                    isFlowchartHr &&
+                                    String(marks[employee.id]?.flexibleOtStatus || '') === 'pending'
+                                }
+                                onRequestOt={(row, mark) =>
+                                    setOtModal({
+                                        employee: row,
+                                        mark,
+                                        mode:
+                                            isFlowchartHr &&
+                                            String(mark?.flexibleOtStatus || '') === 'pending'
+                                                ? 'review'
+                                                : isFlowchartHr
+                                                  ? 'direct'
+                                                  : 'request',
+                                    })
+                                }
                                 onSettleCompOff={setCompOffEmployee}
                             />
                         ))}

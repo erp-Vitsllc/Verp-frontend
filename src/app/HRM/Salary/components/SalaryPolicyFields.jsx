@@ -632,7 +632,7 @@ export default function SalaryPolicyFields({
                     }
                 />
                 <p className="px-8 sm:px-10 pb-2 -mt-1 text-xs text-slate-500">
-                    Late in and late out share this event count. Deduction starts after that many combined events, not separately for each.
+                    Late in and late out share this event count. That many events deduct the selected part of one day, and fewer events deduct the same share of that day.
                 </p>
                 {(form.extraLateRules || []).map((row, index) => {
                     const extras = form.extraLateRules || [];

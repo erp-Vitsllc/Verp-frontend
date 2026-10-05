@@ -234,11 +234,18 @@ function deductDayLabel(deduct) {
     return '';
 }
 
-function chargeableUnits(count, events) {
-    const total = Math.max(0, Math.floor(Number(count) || 0));
+function eventBundle(events) {
     const per = Number(events);
-    if (!Number.isFinite(per) || per <= 0) return total;
-    return Math.floor(total / per);
+    return Number.isFinite(per) && per > 0 ? per : 0;
+}
+
+function policyDeductionAmount(daily, count, rule) {
+    const fraction = deductFraction(rule?.deduct);
+    if (!fraction) return 0;
+    const total = Math.max(0, Number(count) || 0);
+    const per = eventBundle(rule?.events);
+    const share = per > 0 ? total / per : total;
+    return money2((Number(daily) || 0) * fraction * share);
 }
 
 function money2(value) {
@@ -262,22 +269,30 @@ function splitMoney(total, weights) {
 }
 
 function mispunchRuleOf(rules) {
-    return (Array.isArray(rules) ? rules : []).find((row) =>
-        /mis[\s-]?punch|missed\s*punch/i.test(String(row?.title || '')),
-    ) || null;
+    const rows = (Array.isArray(rules) ? rules : []).filter((row) =>
+        String(row?.title || '').trim() || String(row?.deduct || '').trim() || eventBundle(row?.events),
+    );
+    const titled = rows.find((row) =>
+        /miss(?:ed)?[\s-]*punch|mis[\s-]*punch/i.test(String(row?.title || '')),
+    );
+    if (titled) return titled;
+    return rows.length === 1 ? rows[0] : null;
 }
 
-function eventPolicyNote(count, rule) {
+function eventPolicyNote(count, rule, daily) {
     const dayLabel = deductDayLabel(rule?.deduct);
     if (!dayLabel) return 'This group policy has no deduct amount for this status';
-    const bundle = Number(rule?.events);
-    const ruleText = Number.isFinite(bundle) && bundle > 0
-        ? `every ${bundle} event${bundle === 1 ? '' : 's'} deducts ${dayLabel}`
-        : `each event deducts ${dayLabel}`;
-    const units = chargeableUnits(count, rule?.events);
-    if (!count) return `Policy: ${ruleText}`;
-    if (!units) return `${count} so far · still inside “${ruleText}”`;
-    return `${units} chargeable · ${ruleText}`;
+    const fraction = deductFraction(rule?.deduct);
+    const per = eventBundle(rule?.events);
+    const unitAmount = money2((Number(daily) || 0) * fraction);
+    const ruleText = per > 0
+        ? `every ${per} event${per === 1 ? '' : 's'} deducts ${dayLabel} (${formatAed(unitAmount, 2)})`
+        : `each event deducts ${dayLabel} (${formatAed(unitAmount, 2)})`;
+    const total = Math.max(0, Number(count) || 0);
+    if (!total) return `Policy: ${ruleText}`;
+    const amount = policyDeductionAmount(daily, total, rule);
+    const shareText = per > 0 ? `${total}/${per}` : String(total);
+    return `${total} event${total === 1 ? '' : 's'} · ${ruleText} · ${formatAed(daily, 2)} × ${fraction} × ${shareText} = ${formatAed(amount, 2)}`;
 }
 
 function monthChoices(joinKey, todayKey) {
@@ -799,12 +814,10 @@ export default function EmployeeInformationDashboard({
         const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
         const lateRule = policy.lateRule || null;
         const combinedLate = lateCount + earlyCount;
-        const lateUnits = chargeableUnits(combinedLate, lateRule?.events);
-        const lateTotal = money2(daily * deductFraction(lateRule?.deduct) * lateUnits);
+        const lateTotal = policyDeductionAmount(daily, combinedLate, lateRule);
         const lateShares = splitMoney(lateTotal, { late: lateCount, early: earlyCount });
         const punchRule = mispunchRuleOf(policy.extraLateRules);
-        const punchUnits = punchRule ? chargeableUnits(missedCount, punchRule.events) : 0;
-        const punchAmount = punchRule ? money2(daily * deductFraction(punchRule.deduct) * punchUnits) : 0;
+        const punchAmount = punchRule ? policyDeductionAmount(daily, missedCount, punchRule) : 0;
         const dayRate = formatAed(daily, 2);
         return [
             {
@@ -812,14 +825,16 @@ export default function EmployeeInformationDashboard({
                 type: 'Late in',
                 count: lateCount,
                 amount: lateShares.late || 0,
-                note: eventPolicyNote(combinedLate, lateRule),
+                note: eventPolicyNote(combinedLate, lateRule, daily),
             },
             {
                 key: 'early_go',
                 type: 'Early out',
                 count: earlyCount,
                 amount: lateShares.early || 0,
-                note: 'Shares the late in / late out event count on this group policy',
+                note: lateRule
+                    ? `Same late in / late out rule · this share ${formatAed(lateShares.early || 0, 2)}`
+                    : 'Shares the late in / late out event count on this group policy',
             },
             {
                 key: 'mispunch',
@@ -827,7 +842,7 @@ export default function EmployeeInformationDashboard({
                 count: missedCount,
                 amount: punchAmount,
                 note: punchRule
-                    ? eventPolicyNote(missedCount, punchRule)
+                    ? eventPolicyNote(missedCount, punchRule, daily)
                     : 'No missed-punch rule on this employee group policy',
             },
             {

@@ -26,6 +26,7 @@ export default function FlexibleOtModal({
     const [reason, setReason] = useState(mark?.flexibleOtReason || '');
     const [saving, setSaving] = useState(false);
     const review = mode === 'review';
+    const direct = mode === 'direct';
 
     useEffect(() => {
         if (!open) return;
@@ -36,14 +37,24 @@ export default function FlexibleOtModal({
     if (!open || !mark) return null;
 
     const submitRequest = async () => {
+        const hours = Number(approvedHours);
+        const confirmNextDay =
+            direct && hours >= 9
+                ? window.confirm('Applying 9 hours or more will mark the next day as Present. Continue?')
+                : false;
+        if (direct && hours >= 9 && !confirmNextDay) return;
         setSaving(true);
         try {
             await axiosInstance.post('/Attendance/flexible-ot/request', {
                 attendanceId: mark.attendanceId,
-                approvedHours: Number(approvedHours),
+                approvedHours: hours,
                 reason,
+                confirmNextDay,
             });
-            toast({ title: 'Overtime request sent', description: 'HR has been notified.' });
+            toast({
+                title: direct ? 'Overtime applied' : 'Overtime request sent',
+                description: direct ? 'These hours are taken now.' : 'HR has been notified.',
+            });
             onSaved?.();
             onClose?.();
         } catch (error) {
@@ -90,7 +101,7 @@ export default function FlexibleOtModal({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
                 <h3 className="text-lg font-black text-slate-900">
-                    {review ? 'Review overtime' : 'Request overtime'}
+                    {review ? 'Review overtime' : direct ? 'Apply overtime' : 'Request overtime'}
                 </h3>
                 <p className="mt-1 text-sm text-slate-500">{employee?.name}</p>
                 <div className="mt-4">
@@ -157,7 +168,7 @@ export default function FlexibleOtModal({
                                 onClick={submitRequest}
                                 className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
                             >
-                                Submit
+                                {direct ? 'Apply' : 'Submit'}
                             </button>
                         </div>
                     </div>
