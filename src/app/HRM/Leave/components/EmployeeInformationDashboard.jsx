@@ -69,6 +69,58 @@ function n(value) {
     return Number(value) || 0;
 }
 
+const SALARY_MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+function yearMonthOf(value) {
+    const raw = String(value || '').trim();
+    if (/^\d{4}-\d{2}/.test(raw)) return raw.slice(0, 7);
+    const named = raw.match(/^([A-Za-z]+)\s+(\d{4})$/);
+    if (!named) return '';
+    const index = SALARY_MONTHS.indexOf(named[1].toLowerCase());
+    return index >= 0 ? `${named[2]}-${String(index + 1).padStart(2, '0')}` : '';
+}
+
+function salaryRowAmount(row) {
+    return n(row?.total) || n(row?.monthlySalary) || n(row?.basic);
+}
+
+function salaryForMonth(salary, history, monthKey) {
+    const rows = Array.isArray(history) ? history : [];
+    const fromOf = (row) => yearMonthOf(row?.fromDate) || yearMonthOf(row?.month);
+    const covers = rows
+        .filter((row) => {
+            const from = fromOf(row);
+            const to = yearMonthOf(row?.toDate);
+            if (!from && !to) return false;
+            if (from && monthKey && from > monthKey) return false;
+            if (to && monthKey && to < monthKey) return false;
+            return salaryRowAmount(row) > 0;
+        })
+        .sort((a, b) => fromOf(b).localeCompare(fromOf(a)));
+    let entry = covers[0] || null;
+    if (!entry) {
+        const started = rows
+            .filter((row) => {
+                const from = fromOf(row);
+                return salaryRowAmount(row) > 0 && (!from || !monthKey || from <= monthKey);
+            })
+            .sort((a, b) => fromOf(b).localeCompare(fromOf(a)));
+        entry = started[0] || null;
+    }
+    if (entry) {
+        const monthlySalary = salaryRowAmount(entry);
+        const basic = n(entry.basic);
+        return { monthlySalary, basic, other: Math.max(0, monthlySalary - basic) };
+    }
+    const monthlySalary = n(salary?.monthlySalary) || n(salary?.totalSalary);
+    const basic = n(salary?.basic);
+    return {
+        monthlySalary,
+        basic,
+        other: n(salary?.other) || Math.max(0, monthlySalary - basic),
+    };
+}
+
 function taskHref(task, employeeMongoId) {
     const id = String(task?.id || '').trim();
     if (task?.kind === 'leave') return '/HRM/Leave/annual-leave';
@@ -239,13 +291,18 @@ function eventBundle(events) {
     return Number.isFinite(per) && per > 0 ? per : 0;
 }
 
+function chargeableBundles(count, events) {
+    const total = Math.max(0, Math.floor(Number(count) || 0));
+    const per = eventBundle(events);
+    if (!per) return total;
+    if (total <= per) return 0;
+    return Math.floor((total - 1) / per);
+}
+
 function policyDeductionAmount(daily, count, rule) {
     const fraction = deductFraction(rule?.deduct);
     if (!fraction) return 0;
-    const total = Math.max(0, Number(count) || 0);
-    const per = eventBundle(rule?.events);
-    const share = per > 0 ? total / per : total;
-    return money2((Number(daily) || 0) * fraction * share);
+    return money2((Number(daily) || 0) * fraction * chargeableBundles(count, rule?.events));
 }
 
 function money2(value) {
@@ -282,17 +339,18 @@ function mispunchRuleOf(rules) {
 function eventPolicyNote(count, rule, daily) {
     const dayLabel = deductDayLabel(rule?.deduct);
     if (!dayLabel) return 'This group policy has no deduct amount for this status';
-    const fraction = deductFraction(rule?.deduct);
     const per = eventBundle(rule?.events);
-    const unitAmount = money2((Number(daily) || 0) * fraction);
+    const unitAmount = money2((Number(daily) || 0) * deductFraction(rule?.deduct));
+    const total = Math.max(0, Math.floor(Number(count) || 0));
+    const bundles = chargeableBundles(total, rule?.events);
+    const startsAt = per > 0 ? per + 1 : 1;
     const ruleText = per > 0
-        ? `every ${per} event${per === 1 ? '' : 's'} deducts ${dayLabel} (${formatAed(unitAmount, 2)})`
+        ? `events 1–${per} do not deduct. Event ${startsAt} deducts ${dayLabel} (${formatAed(unitAmount, 2)})`
         : `each event deducts ${dayLabel} (${formatAed(unitAmount, 2)})`;
-    const total = Math.max(0, Number(count) || 0);
     if (!total) return `Policy: ${ruleText}`;
+    if (!bundles) return `${total} so far · ${ruleText}`;
     const amount = policyDeductionAmount(daily, total, rule);
-    const shareText = per > 0 ? `${total}/${per}` : String(total);
-    return `${total} event${total === 1 ? '' : 's'} · ${ruleText} · ${formatAed(daily, 2)} × ${fraction} × ${shareText} = ${formatAed(amount, 2)}`;
+    return `${total} events · ${bundles} deduct${bundles === 1 ? '' : 's'} from event ${startsAt} · ${dayLabel} = ${formatAed(amount, 2)}`;
 }
 
 function monthChoices(joinKey, todayKey) {
@@ -744,8 +802,9 @@ export default function EmployeeInformationDashboard({
 
     const financial = profile?.financial || {};
     const salary = financial.salary || {};
-    const monthlySalary = n(salary.monthlySalary) || n(salary.totalSalary);
-    const salaryOther = n(salary.other) || Math.max(0, monthlySalary - n(salary.basic));
+    const monthPay = salaryForMonth(salary, financial.salaryHistory, monthKey);
+    const monthlySalary = monthPay.monthlySalary;
+    const salaryOther = monthPay.other;
     const increment = financial.increment;
     const loans = Array.isArray(financial.loans) ? financial.loans : [];
     const advances = Array.isArray(financial.advances) ? financial.advances : [];
@@ -1138,7 +1197,7 @@ export default function EmployeeInformationDashboard({
                             <button type="button" onClick={onOpenPayroll} className="rounded-xl bg-[#EFF6FF] px-3 py-2 text-left">
                                 <p className="text-[11px] text-[#64748B]">Monthly salary</p>
                                 <p className="mt-0.5 text-[18px] font-bold leading-none tabular-nums text-[#1B2A4A]">{formatAed(monthlySalary)}</p>
-                                <p className="mt-1 text-[10px] text-[#94A3B8]">Basic {formatAed(salary.basic)} · Other {formatAed(salaryOther)}</p>
+                                <p className="mt-1 text-[10px] text-[#94A3B8]">Basic {formatAed(monthPay.basic)} · Other {formatAed(salaryOther)}</p>
                             </button>
                             <div className="rounded-xl bg-[#ECFDF5] px-3 py-2">
                                 <p className="text-[11px] text-[#64748B]">Current accumulated salary</p>
@@ -1152,7 +1211,7 @@ export default function EmployeeInformationDashboard({
                                 <div className="mt-1 space-y-0.5 text-[11px] text-[#1B2A4A]">
                                     <p className="flex justify-between"><span className="text-[#94A3B8]">Previous</span><span>{increment?.fromTotal ? formatAed(increment.fromTotal) : '—'}</span></p>
                                     <p className="flex justify-between"><span className="text-[#94A3B8]">Increment</span><span className="font-semibold text-[#15803D]">{increment?.amount ? `+${formatAed(increment.amount)}` : formatAed(0)}</span></p>
-                                    <p className="flex justify-between"><span className="text-[#94A3B8]">New</span><span>{increment?.toTotal ? formatAed(increment.toTotal) : formatAed(monthlySalary)}</span></p>
+                                    <p className="flex justify-between"><span className="text-[#94A3B8]">New</span><span>{increment?.toTotal ? formatAed(increment.toTotal) : formatAed(n(salary.monthlySalary) || n(salary.totalSalary))}</span></p>
                                     <p className="flex justify-between"><span className="text-[#94A3B8]">Effective</span><span>{increment?.dateLabel || '—'}</span></p>
                                 </div>
                             </button>

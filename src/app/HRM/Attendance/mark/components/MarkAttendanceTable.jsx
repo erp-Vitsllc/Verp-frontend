@@ -128,23 +128,10 @@ function shiftDateKey(dateKey, deltaDays) {
 }
 
 const HR_ONLY_MARK_TITLE =
-    'Only the flowchart HR assignee can mark attendance outside today and the two previous days. Holidays are skipped.';
+    'Only the flowchart HR assignee can mark attendance outside today and the two previous days, including future days. Holidays are skipped.';
 const HR_ONLY_CLEAR_TITLE = 'Only the flowchart HR assignee can clear attendance.';
-const ABSENT_ONLY_MARK_TITLE =
-    'Only absent attendance from the two previous days can be changed to Authorized leave or marked present. Holidays are skipped.';
-
-const NON_HR_RECENT_ABSENT_OPTIONS = [
-    { key: 'on_office', label: 'On work' },
-    { key: 'authorized_leave', label: 'Authorized leave' },
-];
-
-function isAbsentMark(mark, timeIn) {
-    const key = String(mark?.key || '').trim();
-    const punched = Boolean(timeIn && timeIn !== '—');
-    if (key === 'unauthorized_leave') return true;
-    if (!key || key === 'not_marked' || key === 'absent') return !punched;
-    return false;
-}
+const RECENT_MARK_NOTE =
+    'Any status can be marked for today and the two previous days. Holidays are skipped.';
 
 function storedViewerUser() {
     if (typeof window === 'undefined') return null;
@@ -166,26 +153,6 @@ function viewerIsDesignatedFlowchartHr(user, holder) {
     const myEid = String(user.employeeId || '').trim().toLowerCase().replace(/\s+/g, '');
     const hrEid = String(holder.employeeId || '').trim().toLowerCase().replace(/\s+/g, '');
     return Boolean(myEid && hrEid && myEid === hrEid);
-}
-
-const APPROVED_LEAVE_KEYS = new Set([
-    'on_leave',
-    'authorized_leave',
-    'sick_leave',
-    'compoff_leave',
-]);
-
-function isApprovedLeaveMark(mark) {
-    if (!mark) return false;
-    if (String(mark.leaveRequestStatus || '').trim() !== 'approved') return false;
-    return APPROVED_LEAVE_KEYS.has(String(mark.key || '').trim());
-}
-
-/** Flowchart HR may clear an approved authorized leave on a past or future day. */
-function hrCanClearAuthorizedLeave(mark, isHr, dateKey, todayKey) {
-    if (!isHr || !dateKey || !todayKey || dateKey === todayKey) return false;
-    if (String(mark?.key || '').trim() !== 'authorized_leave') return false;
-    return isApprovedLeaveMark(mark);
 }
 
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -492,7 +459,6 @@ function EmployeeRow({
     actionLocked = false,
     actionTitle = '',
     menuOptions = MARK_OPTIONS,
-    allowHrClear = false,
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const [anchorRect, setAnchorRect] = useState(null);
@@ -520,13 +486,8 @@ function EmployeeRow({
         mark?.timeOutDate,
         mark?.date,
     );
-    const leaveLocked = isApprovedLeaveMark(mark) && !allowHrClear;
-    const rowLocked = leaveLocked || actionLocked;
-    const lockTitle = leaveLocked
-        ? `${statusFull} is approved for this day`
-        : actionLocked
-          ? actionTitle
-          : undefined;
+    const rowLocked = actionLocked;
+    const lockTitle = actionLocked ? actionTitle : undefined;
 
     const shift = shiftMarks(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
     const otText = otCellLabel(mark);
@@ -860,19 +821,11 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
           ? 'weekly_off'
           : '';
     const windowReady = hrReady && holidaysReady;
-    const dayMode = isFlowchartHr
-        ? 'full'
-        : dateKey === todayKey
-          ? 'full'
-          : !windowReady
-            ? dateKey < todayKey && dateKey >= earliestMarkKey
-                ? 'absent-only'
-                : 'locked'
-            : allowedMarkDates.has(dateKey) && dateKey < todayKey
-              ? 'absent-only'
-              : 'locked';
-    const baseMenuOptions =
-        dayMode === 'absent-only' ? NON_HR_RECENT_ABSENT_OPTIONS : MARK_OPTIONS;
+    const recentDayOpen = windowReady
+        ? allowedMarkDates.has(dateKey)
+        : Boolean(dateKey) && dateKey <= todayKey && dateKey >= earliestMarkKey;
+    const dayMode = isFlowchartHr || dateKey === todayKey || recentDayOpen ? 'full' : 'locked';
+    const baseMenuOptions = MARK_OPTIONS;
     const menuOptions = (
         baseMenuOptions.some((option) => option.key === 'clear_attendance')
             ? baseMenuOptions
@@ -886,15 +839,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
               }
             : option,
     );
-    const rowIsActionLocked = (employee) => {
-        if (dayMode === 'locked') return true;
-        if (dayMode === 'absent-only') {
-            return !isAbsentMark(marks[employee.id], employee.timeIn);
-        }
-        return false;
-    };
-    const canHrClearRow = (mark) =>
-        hrCanClearAuthorizedLeave(mark, isFlowchartHr, dateKey, todayKey);
+    const rowIsActionLocked = () => dayMode === 'locked';
     const filteredEmployees = useMemo(
         () => employees.filter((employee) => employeeMatchesSearch(employee, searchQuery)),
         [employees, searchQuery],
@@ -903,11 +848,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
         () => new Set(filteredEmployees.map((employee) => employee.id)),
         [filteredEmployees],
     );
-    const markableEmployees = filteredEmployees.filter((employee) => {
-        const mark = marks[employee.id];
-        if (isApprovedLeaveMark(mark) && !canHrClearRow(mark)) return false;
-        return !rowIsActionLocked(employee);
-    });
+    const markableEmployees = filteredEmployees.filter((employee) => !rowIsActionLocked(employee));
     const allChecked =
         markableEmployees.length > 0 && markableEmployees.every((employee) => selectedIds.has(employee.id));
     const someChecked =
@@ -939,20 +880,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
     const applyMarkToIds = async (ids, payload) => {
         if (dayMode === 'locked') return;
         if (payload?.markKey === 'clear_attendance' && !isFlowchartHr) return;
-        const allowedRecentKey =
-            payload?.markKey === 'on_office' || payload?.markKey === 'authorized_leave';
-        const idSet = new Set(
-            ids.filter((id) => {
-                const mark = marks[id];
-                if (isApprovedLeaveMark(mark)) {
-                    return payload?.markKey === 'clear_attendance' && canHrClearRow(mark);
-                }
-                if (dayMode !== 'absent-only') return true;
-                if (!allowedRecentKey) return false;
-                const employee = employeesRef.current.find((row) => row.id === id);
-                return isAbsentMark(marks[id], employee?.timeIn);
-            }),
-        );
+        const idSet = new Set(ids);
         if (idSet.size === 0) return;
         const { markKey, markLabel, timeIn, timeOut, reason, attachmentName, leavePayType } = payload;
         const isClear = markKey === 'clear_attendance';
@@ -1064,18 +992,8 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
     };
 
     const handleRequestMark = (employee, key, label) => {
-        const mark = marks[employee.id];
-        const hrClear = canHrClearRow(mark);
-        if (saving || (isApprovedLeaveMark(mark) && !hrClear) || rowIsActionLocked(employee)) return;
-        if (hrClear && key !== 'clear_attendance') return;
+        if (saving || rowIsActionLocked(employee)) return;
         if (key === 'clear_attendance' && !isFlowchartHr) return;
-        if (
-            dayMode === 'absent-only' &&
-            key !== 'on_office' &&
-            key !== 'authorized_leave'
-        ) {
-            return;
-        }
         const config = getMarkFormConfig(key);
         if (!config) {
             applyMarkToIds([employee.id], {
@@ -1100,23 +1018,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
     const handleBulkRequestMark = (key, label) => {
         if (saving || dayMode === 'locked') return;
         if (key === 'clear_attendance' && !isFlowchartHr) return;
-        if (
-            dayMode === 'absent-only' &&
-            key !== 'on_office' &&
-            key !== 'authorized_leave'
-        ) {
-            return;
-        }
-        const ids = Array.from(selectedIds).filter((id) => {
-            if (!filteredIdSet.has(id)) return false;
-            const mark = marks[id];
-            if (isApprovedLeaveMark(mark)) {
-                return key === 'clear_attendance' && canHrClearRow(mark);
-            }
-            if (dayMode !== 'absent-only') return true;
-            const employee = employees.find((row) => row.id === id);
-            return isAbsentMark(marks[id], employee?.timeIn);
-        });
+        const ids = Array.from(selectedIds).filter((id) => filteredIdSet.has(id));
         if (ids.length === 0) return;
         const config = getMarkFormConfig(key);
         if (!config) {
@@ -1177,10 +1079,8 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
             {dayMode === 'locked' ? (
                 <div className="px-1 pb-2 text-xs text-amber-700">{HR_ONLY_MARK_TITLE}</div>
             ) : null}
-            {dayMode === 'absent-only' ? (
-                <div className="px-1 pb-2 text-xs text-slate-500">
-                    Absent attendance from the two previous days can be set to Authorized leave or marked present. Holidays are skipped.
-                </div>
+            {!isFlowchartHr && dayMode === 'full' && dateKey && dateKey < todayKey ? (
+                <div className="px-1 pb-2 text-xs text-slate-500">{RECENT_MARK_NOTE}</div>
             ) : null}
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1 pb-3">
@@ -1333,15 +1233,8 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                 pastDay={pastDay}
                                 dayBaseline={dayBaseline}
                                 actionLocked={rowIsActionLocked(employee)}
-                                actionTitle={
-                                    dayMode === 'locked' ? HR_ONLY_MARK_TITLE : ABSENT_ONLY_MARK_TITLE
-                                }
-                                menuOptions={
-                                    canHrClearRow(marks[employee.id])
-                                        ? menuOptions.filter((option) => option.key === 'clear_attendance')
-                                        : menuOptions
-                                }
-                                allowHrClear={canHrClearRow(marks[employee.id])}
+                                actionTitle={dayMode === 'locked' ? HR_ONLY_MARK_TITLE : ''}
+                                menuOptions={menuOptions}
                                 onRequestMark={handleRequestMark}
                                 canRequestOt={
                                     isFlowchartHr ||
