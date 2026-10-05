@@ -103,6 +103,8 @@ function dayHasActivity(raw) {
             Number(raw?.workFromHome) ||
             Number(raw?.notMarked) ||
             Number(raw?.missedPunch) ||
+            Number(raw?.earlyGo) ||
+            Number(raw?.halfDay) ||
             Number(raw?.weeklyOff) ||
             Number(raw?.holiday) ||
             raw?.isWeeklyOff,
@@ -121,7 +123,11 @@ function summarizeDays(payload, from, to, today) {
             roster = active;
             rosterDate = date;
         }
-        totals.present += Number(raw?.present) || 0;
+        totals.present +=
+            (Number(raw?.present) || 0) +
+            (Number(raw?.lateArrived) || 0) +
+            (Number(raw?.earlyGo) || 0) +
+            (Number(raw?.halfDay) || 0);
         totals.late += Number(raw?.lateArrived) || 0;
         totals.leave +=
             (Number(raw?.onLeave) || 0) +

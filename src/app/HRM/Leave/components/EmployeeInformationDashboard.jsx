@@ -376,13 +376,21 @@ function timedPolicyCounts(records, rules, week) {
     const timed = (Array.isArray(rules) ? rules : [])
         .map((rule, index) => ({ rule, index, direction: ruleDirection(rule) }))
         .filter((row) => row.direction && deductFraction(row.rule?.deduct) && !isMispunchTitle(row.rule?.title));
+    if (String(week?.timingMode || '').toLowerCase() === 'flexible') {
+        return {
+            rows: timed.map((row) => ({ ...row, count: 0 })),
+            consumed: { in: 0, out: 0 },
+        };
+    }
     const counts = timed.map(() => 0);
+    const consumed = { in: 0, out: 0 };
     const order = { in: [], out: [] };
     timed.forEach((row, index) => order[row.direction].push(index));
     order.in.sort((a, b) => n(timed[b].rule.minutes) - n(timed[a].rule.minutes));
     order.out.sort((a, b) => n(timed[b].rule.minutes) - n(timed[a].rule.minutes));
     (Array.isArray(records) ? records : []).forEach((record) => {
-        if (TIMED_RULE_SKIP.has(String(record?.statusKey || ''))) return;
+        const key = String(record?.statusKey || '');
+        if (TIMED_RULE_SKIP.has(key)) return;
         const shift = shiftForDate(week, record?.date);
         if (!shift) return;
         const actualIn = clockToMinutes(record?.timeIn);
@@ -393,10 +401,33 @@ function timedPolicyCounts(records, rules, week) {
             const minutes = side === 'in' ? lateIn : lateOut;
             if (minutes <= 0) return;
             const match = order[side].find((index) => minutes >= Math.max(0, n(timed[index].rule.minutes)));
-            if (match != null) counts[match] += 1;
+            if (match == null) return;
+            counts[match] += 1;
+            if (side === 'in' && key === 'late_arrived') consumed.in += 1;
+            if (side === 'out' && key === 'early_go') consumed.out += 1;
         });
     });
-    return timed.map((row, index) => ({ ...row, count: counts[index] }));
+    return {
+        rows: timed.map((row, index) => ({ ...row, count: counts[index] })),
+        consumed,
+    };
+}
+
+function lateDirectionNote(extraRows, sharedCount, combinedShared, lateRule, daily, direction) {
+    const parts = [];
+    for (const row of extraRows) {
+        const minutes = Math.max(0, Math.floor(n(row.rule?.minutes)));
+        const band = minutes > 0 ? `${minutes} min` : 'the stricter rule';
+        parts.push(`${row.count} at ${band}: ${extraPolicyNote(row.count, row.rule, daily)}`);
+    }
+    if (sharedCount > 0) {
+        parts.push(
+            `${sharedCount} shorter ${direction} · ${eventPolicyNote(combinedShared, lateRule, daily)}`,
+        );
+    } else if (!parts.length) {
+        parts.push(eventPolicyNote(0, lateRule, daily));
+    }
+    return parts.join(' · ');
 }
 
 function extraPolicyNote(count, rule, daily) {
@@ -959,39 +990,38 @@ export default function EmployeeInformationDashboard({
         const authTimes = policy.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
         const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
         const lateRule = policy.lateRule || null;
-        const combinedLate = lateCount + earlyCount;
-        const lateTotal = policyDeductionAmount(daily, combinedLate, lateRule);
-        const lateShares = splitMoney(lateTotal, { late: lateCount, early: earlyCount });
+        const timed = timedPolicyCounts(countedRecords, policy.extraLateRules, scheduleWeek);
+        const extraIn = timed.rows.filter((row) => row.direction === 'in' && row.count > 0);
+        const extraOut = timed.rows.filter((row) => row.direction === 'out' && row.count > 0);
+        const sharedLateIn = Math.max(0, lateCount - timed.consumed.in);
+        const sharedLateOut = Math.max(0, earlyCount - timed.consumed.out);
+        const combinedShared = sharedLateIn + sharedLateOut;
+        const lateTotal = policyDeductionAmount(daily, combinedShared, lateRule);
+        const lateShares = splitMoney(lateTotal, { late: sharedLateIn, early: sharedLateOut });
+        const extraInAmount = extraIn.reduce((sum, row) => sum + policyDeductionAmount(daily, row.count, row.rule), 0);
+        const extraOutAmount = extraOut.reduce((sum, row) => sum + policyDeductionAmount(daily, row.count, row.rule), 0);
         const punchRule = deductFraction(policy.missedPunchRule?.deduct)
             ? policy.missedPunchRule
             : mispunchRuleOf(policy.extraLateRules);
         const punchAmount = punchRule ? policyDeductionAmount(daily, missedCount, punchRule) : 0;
         const dayRate = formatAed(daily, 2);
-        const extraRows = timedPolicyCounts(countedRecords, policy.extraLateRules, scheduleWeek).map((row) => ({
-            key: `extra-${row.index}`,
-            type: row.rule.title || (row.direction === 'out' ? 'Late out' : 'Late in'),
-            count: row.count,
-            amount: policyDeductionAmount(daily, row.count, row.rule),
-            note: extraPolicyNote(row.count, row.rule, daily),
-        }));
+        const lateInNote = lateDirectionNote(extraIn, sharedLateIn, combinedShared, lateRule, daily, 'late in');
+        const lateOutNote = lateDirectionNote(extraOut, sharedLateOut, combinedShared, lateRule, daily, 'late out');
         return [
             {
                 key: 'late_arrived',
                 type: 'Late in',
-                count: lateCount,
-                amount: lateShares.late || 0,
-                note: eventPolicyNote(combinedLate, lateRule, daily),
+                count: sharedLateIn + extraIn.reduce((sum, row) => sum + row.count, 0),
+                amount: money2((lateShares.late || 0) + extraInAmount),
+                note: lateInNote,
             },
             {
                 key: 'early_go',
-                type: 'Early out',
-                count: earlyCount,
-                amount: lateShares.early || 0,
-                note: lateRule
-                    ? `Same late in / late out rule · this share ${formatAed(lateShares.early || 0, 2)}`
-                    : 'Shares the late in / late out event count on this group policy',
+                type: 'Late out',
+                count: sharedLateOut + extraOut.reduce((sum, row) => sum + row.count, 0),
+                amount: money2((lateShares.early || 0) + extraOutAmount),
+                note: lateOutNote,
             },
-            ...extraRows,
             {
                 key: 'mispunch',
                 type: 'Missed punch',
