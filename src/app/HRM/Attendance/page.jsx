@@ -6,7 +6,6 @@ import { Bell } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
-import { HEADER_PAIR_CARD_DASHBOARD, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import axiosInstance from '@/utils/axios';
 import useWorkLocations from '@/hooks/useWorkLocations';
 import { fetchAttendancePendingInbox } from '@/utils/pendingInboxFetch';
@@ -14,45 +13,10 @@ import {
     ATTENDANCE_PENDING_INBOX_CHANGED,
     countVisibleAttendancePendingInbox,
 } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import AttendanceHeaderSummary from './components/AttendanceHeaderSummary';
 import AttendanceMonthCalendar from './components/AttendanceMonthCalendar';
 import PendingAttendanceRequestsModal from './components/PendingAttendanceRequestsModal';
 import { markAttendanceHref } from './utils/markAttendanceHref';
-
-const AnimatedCounter = ({ value, duration = 600 }) => {
-    const [count, setCount] = useState(0);
-
-    useEffect(() => {
-        let startTime;
-        let animationFrame;
-
-        const animate = (timestamp) => {
-            if (!startTime) startTime = timestamp;
-            const progress = timestamp - startTime;
-
-            if (progress < duration) {
-                const percentage = progress / duration;
-                const easeOut = 1 - Math.pow(1 - percentage, 4);
-                setCount(Math.floor(easeOut * value));
-                animationFrame = requestAnimationFrame(animate);
-            } else {
-                setCount(value);
-            }
-        };
-
-        animationFrame = requestAnimationFrame(animate);
-
-        return () => cancelAnimationFrame(animationFrame);
-    }, [value, duration]);
-
-    return <>{count}</>;
-};
-
-const OVERVIEW_STATS = [
-    { label: 'Half Day', value: 0 },
-    { label: 'Weekend', value: 0 },
-    { label: 'Holiday', value: 0 },
-    { label: 'Total Staff', value: 0 },
-];
 
 export default function AttendancePage() {
     const { tabs: staffTabs } = useWorkLocations();
@@ -136,43 +100,10 @@ export default function AttendancePage() {
                             </div>
                         </div>
 
-                        <div className={HEADER_PAIR_GRID}>
-                            <div
-                                className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
-                            >
-                                <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 sm:mb-3 shrink-0">
-                                    Attendance Overview
-                                </h3>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 flex-1">
-                                    {OVERVIEW_STATS.map((item) => (
-                                        <div
-                                            key={item.label}
-                                            className="bg-gray-50 p-2 sm:p-3 lg:p-4 rounded-xl flex flex-col items-center justify-center text-center border border-transparent"
-                                        >
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-2 break-words text-center leading-tight">
-                                                {item.label}
-                                            </span>
-                                            <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
-                                                <AnimatedCounter value={item.value} />
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div
-                                className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col ${HEADER_PAIR_CARD_DASHBOARD}`}
-                            >
-                                <h3 className="text-xs sm:text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-2 sm:mb-4 shrink-0">
-                                    Attendance Summary
-                                </h3>
-                                <div className="flex-1 flex items-center justify-center min-h-0">
-                                    <p className="text-sm text-slate-400 text-center px-4">
-                                        Charts and attendance trends will appear here.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
+                        <AttendanceHeaderSummary
+                            staffTabs={staffTabs}
+                            onSelectGroup={setStaffTab}
+                        />
 
                         <div className="mt-3 sm:mt-4 mb-3 flex items-center gap-2 bg-white p-1 rounded-xl border border-gray-100 w-full sm:w-fit overflow-x-auto">
                             {staffTabs.map((tab) => (
