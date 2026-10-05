@@ -4,8 +4,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Building2,
     Calendar,
+    CalendarDays,
     ChevronDown,
     ChevronRight,
+    Clock,
+    Fingerprint,
     HardHat,
     Users,
     UserX,
@@ -184,6 +187,33 @@ function PeopleCard({ title, hint, icon: Icon, totals, phrase, onOpen }) {
             value: totals.absent,
             valueClass: 'text-rose-600',
         },
+        {
+            key: 'late',
+            icon: Clock,
+            iconClass: 'bg-amber-100 text-amber-600',
+            rowClass: 'bg-amber-50/80 hover:bg-amber-50',
+            label: countLabel(phrase, 'Late-Arrival'),
+            value: totals.late,
+            valueClass: 'text-amber-500',
+        },
+        {
+            key: 'leave',
+            icon: CalendarDays,
+            iconClass: 'bg-blue-100 text-blue-600',
+            rowClass: 'bg-blue-50/80 hover:bg-blue-50',
+            label: countLabel(phrase, 'Leave'),
+            value: totals.leave,
+            valueClass: 'text-blue-600',
+        },
+        {
+            key: 'missed',
+            icon: Fingerprint,
+            iconClass: 'bg-orange-100 text-orange-600',
+            rowClass: 'bg-orange-50/80 hover:bg-orange-50',
+            label: countLabel(phrase, 'Missed Punch'),
+            value: totals.missed,
+            valueClass: 'text-orange-600',
+        },
     ];
 
     return (
@@ -208,6 +238,15 @@ function PeopleCard({ title, hint, icon: Icon, totals, phrase, onOpen }) {
                         onClick={onOpen}
                     />
                 ))}
+                <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+                        <Users size={14} />
+                    </span>
+                    <span className="min-w-0 flex-1 text-xs font-semibold text-slate-800">
+                        Total {title.replace('People', 'Employees')}
+                    </span>
+                    <span className="text-lg font-bold tabular-nums text-slate-900">{totals.total}</span>
+                </div>
             </div>
         </div>
     );
