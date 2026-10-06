@@ -354,6 +354,18 @@ export function buildVehicleDetailPath(vehicleId, params = {}) {
  * never hide a counted badge item because detailsPath meta is missing.
  */
 export function resolvePendingInboxRowPath(rawItem = {}) {
+    const rawType = String(rawItem?.requestType || rawItem?.type || '').trim();
+    if (rawType === 'Task Manager') {
+        let meta = null;
+        try {
+            meta = typeof rawItem?.extra3 === 'string' ? JSON.parse(rawItem.extra3) : rawItem?.extra3;
+        } catch {
+            meta = null;
+        }
+        if (meta?.module === 'vehicle') return meta.path || '/HRM/Asset/Vehicle';
+        if (meta?.path) return meta.path;
+        return '/task-manager';
+    }
     const normalized = normalizeAssetNotificationItem(rawItem);
     const primaryPath = buildAssetNotificationPath(normalized);
     if (primaryPath) return primaryPath;

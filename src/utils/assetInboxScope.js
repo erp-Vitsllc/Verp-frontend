@@ -81,6 +81,10 @@ export function isVehicleOnlyRequestType(type) {
 /** True when this inbox/stats row belongs in Vehicle Asset (never Tools). */
 export function isVehicleAssetInboxRow(row = {}) {
     const type = requestTypeOf(row);
+    if (type === 'Task Manager') {
+        const meta = parseAssetInboxExtra3(row.extra3);
+        return meta?.module === 'vehicle';
+    }
     if (type === 'Employee Vehicle Request') return true;
     if (type === 'Employee Asset Request') return hubAssetAreaOf(row) === 'Vehicle';
     if (isVehicleOnlyRequestType(type)) return true;
@@ -92,6 +96,7 @@ export function isVehicleAssetInboxRow(row = {}) {
 export function isToolsAssetInboxRow(row = {}) {
     const type = requestTypeOf(row);
     if (!type) return false;
+    if (type === 'Task Manager') return parseAssetInboxExtra3(row.extra3)?.module === 'tools';
     if (type === 'Employee Asset Request') {
         const area = hubAssetAreaOf(row);
         return area !== 'Vehicle' && area !== 'Utility Bill';
@@ -115,6 +120,7 @@ export function isToolsAssetInboxRow(row = {}) {
 /** Utility Bills inbox rows (from tools-scope API feed). Contract expiry bells are disabled. */
 export function isUtilityBillInboxRow(row = {}) {
     const type = requestTypeOf(row);
+    if (type === 'Task Manager') return parseAssetInboxExtra3(row.extra3)?.module === 'utility';
     if (type === 'Employee Asset Request') return hubAssetAreaOf(row) === 'Utility Bill';
     return (
         type === 'Utility Bill Payment' ||

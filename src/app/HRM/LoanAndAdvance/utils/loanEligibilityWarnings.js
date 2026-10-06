@@ -32,6 +32,14 @@ function isAdvanceType(type) {
         .includes('advance');
 }
 
+function requestKind(type) {
+    return isAdvanceType(type) ? 'advance' : 'loan';
+}
+
+function requestLabel(type) {
+    return isAdvanceType(type) ? 'Advance' : 'Loan';
+}
+
 const OPEN_APPLICATION_STATUSES = new Set([
     'pending',
     'pending hr',
@@ -68,11 +76,20 @@ function blocksAnotherRequest(loan) {
     return !isFullyRepaidByEmployee(loan);
 }
 
+function sameTypeBlockMessage(blocking) {
+    const kind = requestLabel(blocking?.type);
+    const ref = blocking?.loanId ? ` (${blocking.loanId})` : '';
+    if (OPEN_APPLICATION_STATUSES.has(loanStatus(blocking))) {
+        return `This employee already has a ${kind} application in progress${ref}. Another ${kind} cannot be added until that application is finished.`;
+    }
+    return `This employee still has an unpaid ${kind}${ref}. Another ${kind} can be added only after this ${kind} is fully repaid.`;
+}
+
 /**
  * Employee eligibility for Add Loan / Advance.
- * An open application, or any loan/advance the employee has not fully repaid,
- * stays hard-blocked. Visa / status issues are overrideable by the flowchart
- * HR assigned user after confirmation.
+ * A second advance, or a second loan, can be overridden by flowchart HR.
+ * A loan does not block an advance, and an advance does not block a loan.
+ * Visa / status issues are overrideable by the flowchart HR assigned user.
  */
 export function collectLoanEligibilityIssues(
     employee,
@@ -93,6 +110,7 @@ export function collectLoanEligibilityIssues(
             .filter(
                 (l) =>
                     l.employeeId === employee.employeeId &&
+                    requestKind(l.type) === requestKind(type) &&
                     (!initialData || (l.id !== initialData.id && l._id !== initialData._id)) &&
                     blocksAnotherRequest(l),
             )
@@ -102,17 +120,7 @@ export function collectLoanEligibilityIssues(
                 return aOpen - bOpen;
             })[0];
         if (blocking) {
-            const ref = blocking.loanId ? ` (${blocking.loanId})` : '';
-            const kind = blocking.type || type || 'loan';
-            if (OPEN_APPLICATION_STATUSES.has(loanStatus(blocking))) {
-                hardBlocks.push(
-                    `This employee already has a ${kind} application in progress${ref}.`,
-                );
-            } else {
-                hardBlocks.push(
-                    `This employee still has an unpaid ${kind}${ref}. A new loan or advance can be added only after every previous loan and advance is fully repaid.`,
-                );
-            }
+            overrideable.push(sameTypeBlockMessage(blocking));
         }
     }
 

@@ -408,6 +408,7 @@ export default function DashboardRequestHub() {
     const [leaveOffWeekdays, setLeaveOffWeekdays] = useState(null);
     const [leaveVariant, setLeaveVariant] = useState('');
     const [selfLoanEmployee, setSelfLoanEmployee] = useState(null);
+    const [selfExistingLoans, setSelfExistingLoans] = useState([]);
 
     const hubRequestId = String(searchParams?.get('hubRequestId') || '').trim();
 
@@ -483,6 +484,7 @@ export default function DashboardRequestHub() {
     useEffect(() => {
         if (composeKind !== 'loan' && composeKind !== 'advance') {
             setSelfLoanEmployee(null);
+            setSelfExistingLoans([]);
             return undefined;
         }
         let cancelled = false;
@@ -503,6 +505,7 @@ export default function DashboardRequestHub() {
                     return;
                 }
                 setSelfLoanEmployee(employee);
+                setSelfExistingLoans(Array.isArray(res.data?.loans) ? res.data.loans : []);
             } catch (err) {
                 if (cancelled) return;
                 toast({
@@ -773,6 +776,7 @@ export default function DashboardRequestHub() {
                     lockApplicant
                     selfService
                     employees={selfLoanEmployee ? [selfLoanEmployee] : []}
+                    existingLoans={selfExistingLoans}
                     onClose={() => {
                         setComposeKind('');
                         setSelfLoanEmployee(null);

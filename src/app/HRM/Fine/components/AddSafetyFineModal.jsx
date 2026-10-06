@@ -14,7 +14,6 @@ import {
     validateApprovedFineScheduleEdit,
     validateEmployeesDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
-import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import ZohoUpdateConfirmModal from './ZohoUpdateConfirmModal';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import {
@@ -64,9 +63,6 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const [companyAmount, setCompanyAmount] = useState('');
     const [description, setDescription] = useState('');
     const [companyDescription, setCompanyDescription] = useState('');
-    const [fineSource, setFineSource] = useState('');
-    const [zohoVendorId, setZohoVendorId] = useState('');
-    const [zohoVendorName, setZohoVendorName] = useState('');
     const [monthStart, setMonthStart] = useState(toFineMonthInputValue());
     const [awardedDate, setAwardedDate] = useState(toFineDateInputValue());
     const [payableDuration, setPayableDuration] = useState('1');
@@ -178,9 +174,6 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setDiscount(String(initialData.discount ?? ''));
             setDescription(initialData.description || '');
             setCompanyDescription(initialData.companyDescription || '');
-            setFineSource(initialData.fineSource || '');
-            setZohoVendorId(initialData.zohoVendorId || '');
-            setZohoVendorName(initialData.zohoVendorName || initialData.fineSource || '');
             setMonthStart(initialData.monthStart || toFineMonthInputValue());
             setAwardedDate(
                 initialData.awardedDate
@@ -247,9 +240,6 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setCompanyAmount('');
             setDescription('');
             setCompanyDescription('');
-            setFineSource('');
-            setZohoVendorId('');
-            setZohoVendorName('');
             setMonthStart(toFineMonthInputValue());
             setAwardedDate(toFineDateInputValue());
             setPayableDuration('1');
@@ -626,9 +616,6 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 responsibleFor: responsibleFor,
                 description: description,
                 companyDescription: companyDescription,
-                fineSource: fineSource || '',
-                zohoVendorId: zohoVendorId || '',
-                zohoVendorName: zohoVendorName || fineSource || '',
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'),
                 isBulk: true,
                 monthStart: monthStart,
@@ -962,20 +949,6 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             )}
                         </div>
                     )}
-
-                    {/* Fine Source */}
-                    <div className="space-y-1.5">
-                        <label className="text-sm font-medium text-gray-700">Fine Source</label>
-                        <ZohoVendorSelect
-                            value={fineSource}
-                            onChange={(nextValue, vendor) => {
-                                setFineSource(nextValue);
-                                setZohoVendorId(vendor?.id || '');
-                                setZohoVendorName(nextValue || '');
-                            }}
-                            placeholder="Select vendor..."
-                        />
-                    </div>
 
                     {/* Fine Description */}
                     <div className="space-y-1.5">

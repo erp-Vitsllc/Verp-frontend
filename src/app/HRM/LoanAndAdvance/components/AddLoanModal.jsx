@@ -577,10 +577,21 @@ export default function AddLoanModal({
 
         } catch (error) {
             console.error("Loan Request Error:", error);
+            const apiMessage = String(error.response?.data?.message || '').trim();
+            if (error.response?.data?.canContinue && canOverrideEligibility()) {
+                const policyMessage = apiMessage.replace(
+                    /\s*For more information, please contact your HOD\.?\s*$/i,
+                    '',
+                ).trim();
+                setEligibilityConfirmMessages(policyMessage ? [policyMessage] : []);
+                setPendingForcedStatus(forcedStatus);
+                setEligibilityConfirmOpen(true);
+                return;
+            }
             toast({
                 variant: "destructive",
                 title: "Error",
-                description: withHodContact(error.response?.data?.message || "Failed to submit application")
+                description: withHodContact(apiMessage || "Failed to submit application")
             });
         } finally {
             setSubmitting(false);

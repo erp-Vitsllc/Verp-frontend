@@ -74,6 +74,7 @@ export function isPendingInboxRowVisible(row) {
     if (!row) return false;
     if (isAcceptedAssignmentOutcomeInboxRow(row)) return false;
     const requestType = String(row.requestType || row.type || '').trim();
+    if (requestType === 'Task Manager') return true;
     if (requestType === 'Asset Assignment' || requestType === 'Asset') {
         let meta = null;
         try {

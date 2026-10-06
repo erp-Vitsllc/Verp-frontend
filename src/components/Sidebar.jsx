@@ -14,6 +14,7 @@ import {
     CalendarX2,
     Banknote,
     ClipboardList,
+    ListTodo,
     FileWarning,
     HandCoins,
     Award,
@@ -147,7 +148,7 @@ function SidebarNavIcon({ icon: Icon, active, size = 18, className = '' }) {
 
 // Menu items with their permission mappings
 const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permissionModule: 'dashboard' },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permissionModule: 'dashboard', href: '/dashboard' },
     {
         id: 'HRM',
         label: 'HRM',
@@ -181,6 +182,7 @@ const menuItems = [
             },
         ],
     },
+    { id: 'task-manager', label: 'Task Manager', icon: ListTodo, permissionModule: 'hrm', href: '/task-manager' },
     {
         id: 'CRM',
         label: 'CRM',
@@ -636,6 +638,9 @@ export default function Sidebar() {
             // Usually we don't need to force open anything for dashboard, but let's be clean
             // setOpenMenu('dashboard'); 
         }
+        else if (pathname === '/task-manager' || pathname.startsWith('/task-manager/')) {
+            setOpenMenu((prev) => (prev ? '' : prev));
+        }
     }, [pathname, mounted]);
 
     // Auto-scroll to opened dropdown
@@ -1025,10 +1030,14 @@ export default function Sidebar() {
                                 // Check if any submenu item is active (for visual indication only)
                                 const hasActiveSubmenu = item.submenu?.some(sub => isSubmenuActive(item.id, sub));
 
-                                // Check if dashboard is active
-                                const isDashboardActive = item.id === 'dashboard' && pathname === '/dashboard';
-                                // Visual active state: menu is open OR has active submenu OR is dashboard
-                                const finalIsActive = isMenuOpen || hasActiveSubmenu || isDashboardActive;
+                                const isHrefItem = Boolean(item.href && !item.submenu);
+                                const isHrefActive = isHrefItem && (
+                                    pathname === item.href || pathname.startsWith(`${item.href}/`)
+                                );
+                                // Visual active state: direct link, open menu, or an active submenu
+                                const finalIsActive = isHrefItem
+                                    ? isHrefActive
+                                    : isMenuOpen || hasActiveSubmenu;
 
                                 return (
                                     <div
@@ -1040,9 +1049,9 @@ export default function Sidebar() {
                                             }
                                         }}
                                     >
-                                        {item.id === 'dashboard' ? (
+                                        {isHrefItem ? (
                                             <Link
-                                                href="/dashboard"
+                                                href={item.href}
                                                 className={`flex items-center w-full px-4 py-3 rounded-lg transition-all group ${finalIsActive
                                                     ? 'bg-[#5e6c93] !text-white shadow-lg'
                                                     : 'text-slate-100 hover:bg-[#252943] hover:text-white'

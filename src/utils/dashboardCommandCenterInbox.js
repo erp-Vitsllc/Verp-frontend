@@ -16,6 +16,7 @@ import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import {
     isUtilityBillInboxRow,
     isVehicleAssetInboxRow,
+    parseAssetInboxExtra3,
 } from '@/utils/assetInboxScope';
 import { isDashboardPendingItem } from '@/utils/activationNotificationFilters';
 import { sortNotificationsStackOrder } from '@/utils/notificationSortOrder';
@@ -97,6 +98,23 @@ export function resolveDashboardModuleCategory(item = {}) {
 
     if (isCardDeletedNotificationHiddenType(type)) return 'Other';
 
+    if (type === 'Task Manager') {
+        const meta = parseAssetInboxExtra3(item.extra3);
+        const moduleName = String(meta?.module || '');
+        if (moduleName === 'vehicle') return 'Vehicle Asset';
+        if (moduleName === 'fine') return 'Fine';
+        if (moduleName === 'leave') return 'Leave';
+        if (moduleName === 'loan') return 'Loan and Advance';
+        if (moduleName === 'reward') return 'Reward';
+        if (moduleName === 'salary') return 'Salary';
+        if (moduleName === 'attendance') return 'Attendance';
+        if (moduleName === 'utility') return 'Utility Bills';
+        if (moduleName === 'tools') return 'Tools Asset';
+        if (moduleName === 'payment') return 'Payments';
+        if (moduleName === 'company') return 'Company';
+        if (moduleName === 'employees') return 'Employees';
+        return 'Other';
+    }
     if (type === 'Employee Leave Request') return 'Leave';
     if (type === 'Attendance Leave Request') return 'Attendance';
     if (type === 'Salary Enrollment' || type === 'Salary DMF Approval') return 'Salary';

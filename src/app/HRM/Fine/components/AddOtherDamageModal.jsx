@@ -14,7 +14,6 @@ import {
     validateApprovedFineScheduleEdit,
     validateEmployeesDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
-import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import ZohoUpdateConfirmModal from './ZohoUpdateConfirmModal';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import { applyFineDiscount, validateFineDiscount } from '../utils/fineDiscount';
@@ -38,7 +37,6 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
         companyDescription: '',
         serviceCharge: '',
         discount: '',
-        fineSource: '',
         sourceOfIncome: 'Salary',
     });
 
@@ -112,7 +110,6 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 attachmentMime: '',
                 serviceCharge: String(initialData.serviceCharge || ''),
                 discount: String(initialData.discount || ''),
-                fineSource: initialData.fineSource || '',
                 sourceOfIncome: initialData.sourceOfIncome || 'Salary',
             });
             setMonthStart(initialData.monthStart || toFineMonthInputValue());
@@ -160,7 +157,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
             setFormData({
                 description: '', deductionAmount: '', paidBy: 'Employee', employeeAmount: '', companyAmount: '',
                 attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '', companyDescription: '',
-                serviceCharge: '', discount: '', fineSource: '', sourceOfIncome: 'Salary',
+                serviceCharge: '', discount: '', sourceOfIncome: 'Salary',
             });
             setSelectedEmployees([]);
             setCurrentEmployeeId('');
@@ -391,7 +388,6 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 fineType: 'Other Fines',
                 assignedEmployees: selectedEmployees, responsibleFor: formData.paidBy,
                 description: formData.description, companyDescription: formData.companyDescription,
-                fineSource: formData.fineSource || '',
                 sourceOfIncome: formData.sourceOfIncome || 'Salary',
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'), isBulk: true,
                 monthStart: isEndOfServiceFineSource(formData.sourceOfIncome) ? '' : monthStart,
@@ -621,14 +617,6 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                     </div>
                     ) : null}
 
-                    <div className="space-y-1.5">
-                        <label className="text-sm font-medium">Vendor</label>
-                        <ZohoVendorSelect
-                            value={formData.fineSource}
-                            onChange={(nextValue) => setFormData((p) => ({ ...p, fineSource: nextValue }))}
-                            placeholder="Select vendor..."
-                        />
-                    </div>
                     <div className="space-y-1.5"><label className="text-sm font-medium">Description</label><textarea value={formData.description} onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} rows={2} className={`w-full px-4 py-3 rounded-xl border ${errors.description ? 'border-red-400' : 'border-gray-200'} bg-gray-50 resize-none`} /></div>
                     <div className="space-y-1.5">
                         <label className="text-sm font-medium">Attachment <span className="text-red-500">*</span></label>

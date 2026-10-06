@@ -336,6 +336,12 @@ export const buildDashboardNotificationPath = (item) => {
     const typeRaw = String(item.type || item.requestType || '').trim();
     const type = typeRaw.toLowerCase();
 
+    if (typeRaw === 'Task Manager') {
+        const meta = parseMeta(item.extra3);
+        if (meta?.path) return meta.path;
+        return '/task-manager';
+    }
+
     if (item.type === 'Document Expiry Reminder') {
         if (!item.id) return '';
         return buildCompanyDocumentExpiryPath(item.id, item.extra1, item.extra3);
