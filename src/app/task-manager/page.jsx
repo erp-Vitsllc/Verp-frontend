@@ -141,14 +141,17 @@ function formatDisplayDate(value) {
 
 function notificationTitle(task) {
     if (task?.manual) return task.taskName || task.requestType || 'Task';
+    const specific = String(task?.taskName || '').trim();
+    const type = String(task?.requestType || '').trim();
+    if (specific && specific.toLowerCase() !== type.toLowerCase()) return specific;
     try {
         const formatted = formatCommandCenterNotificationMessage(task);
         const title = String(formatted?.title || '').trim();
-        if (title) return title;
+        if (title && title.toLowerCase() !== type.toLowerCase()) return title;
     } catch {
         /* Stored notification text is the fallback. */
     }
-    return task?.taskName || task?.requestType || 'Notification';
+    return specific || type || 'Notification';
 }
 
 function initials(name) {
