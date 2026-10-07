@@ -79,7 +79,7 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
                             <p className="text-xs text-slate-500">Current Assignee: {task.assigneeName || 'Unassigned'}</p>
                         </div>
                         <div className="flex shrink-0 gap-1.5">
-                            <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700">{task.taskCategory}</span>
+                            <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700">{task.taskCategory === 'Work Flow Task' ? 'Workflow Task' : task.taskCategory}</span>
                             <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-600">{task.priority}</span>
                         </div>
                     </div>

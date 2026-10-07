@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
     Building2,
@@ -8,7 +8,6 @@ import {
     Check,
     Link2,
     Mail,
-    MessageSquare,
     MoreHorizontal,
     Pencil,
     Plus,
@@ -28,7 +27,6 @@ const TABS = [
     { id: 'overview', label: 'Overview' },
     { id: 'workflow', label: 'Workflow' },
     { id: 'updates', label: 'Work Updates' },
-    { id: 'comments', label: 'Comments' },
     { id: 'email', label: 'Email Notification Preview' },
     { id: 'attachments', label: 'Attachments' },
     { id: 'history', label: 'History' },
@@ -132,16 +130,11 @@ function EmailChips({ item }) {
     );
 }
 
-function safeHtml(value) {
-    return String(value || '').replace(/<(?!\/?(b|strong|i|em|br)\b)[^>]*>/gi, '');
-}
-
 function TaskDetailsPage() {
     const params = useParams();
     const router = useRouter();
     const { toast } = useToast();
     const taskKey = decodeURIComponent(String(params?.taskKey || ''));
-    const editorRef = useRef(null);
     const [taskNumber, setTaskNumber] = useState('');
     const [tab, setTab] = useState('overview');
     const [task, setTask] = useState(null);
@@ -151,8 +144,9 @@ function TaskDetailsPage() {
     const [menuOpen, setMenuOpen] = useState(false);
     const [updateText, setUpdateText] = useState('');
     const [updateOpen, setUpdateOpen] = useState(false);
+    const [people, setPeople] = useState([]);
+    const [mentionIds, setMentionIds] = useState([]);
     const [busy, setBusy] = useState(false);
-    const [emailView, setEmailView] = useState('update');
     const [showMailHistory, setShowMailHistory] = useState(false);
 
     const load = useCallback(async () => {
@@ -164,7 +158,8 @@ function TaskDetailsPage() {
         const query = new URLSearchParams(window.location.search);
         setTaskNumber(query.get('no') || '');
         const requested = query.get('tab');
-        if (TABS.some((item) => item.id === requested)) setTab(requested);
+        if (requested === 'comments') setTab('updates');
+        else if (TABS.some((item) => item.id === requested)) setTab(requested);
     }, []);
 
     useEffect(() => {
@@ -194,42 +189,56 @@ function TaskDetailsPage() {
         }
     };
 
+    useEffect(() => {
+        if (!updateOpen || people.length) return undefined;
+        let cancelled = false;
+        axiosInstance.get('/Employee/task-manager/assignees', { skipToast: true })
+            .then((res) => {
+                if (!cancelled) setPeople(Array.isArray(res.data?.employees) ? res.data.employees : []);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [updateOpen, people.length]);
+
+    const pendingMention = (updateText.match(/(?:^|\s)@([^\n@]*)$/) || [])[1];
+    const mentionChoices = pendingMention == null
+        ? []
+        : people.filter((person) => person.name.toLowerCase().includes(pendingMention.trim().toLowerCase())).slice(0, 8);
+
+    const chooseMention = (person) => {
+        setUpdateText((current) => current.replace(/(^|\s)@[^\n@]*$/, `$1@${person.name} `));
+        setMentionIds((current) => (current.includes(person.id) ? current : [...current, person.id]));
+    };
+
     const addUpdate = async () => {
         if (!updateText.trim()) return;
+        const mentioned = people
+            .filter((person) => updateText.toLowerCase().includes(`@${String(person.name || '').toLowerCase()}`))
+            .map((person) => person.id);
+        const mentions = [...new Set([...mentionIds, ...mentioned])];
         setBusy(true);
         try {
             const res = await axiosInstance.post(
                 `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/updates`,
-                { text: updateText.trim() },
+                { text: updateText.trim(), mentions },
                 { skipToast: true },
             );
             setTask(res.data?.task || null);
             setUpdateText('');
+            setMentionIds([]);
             setUpdateOpen(false);
-            toast({ title: 'Work update added', description: res.data?.task?.notifications?.workUpdate === false ? 'Email notifications are off.' : 'Assignee and requester were notified when email is available.' });
+            toast({
+                title: 'Work update added',
+                description: res.data?.task?.notifications?.workUpdate === false
+                    ? 'Email notifications are off.'
+                    : mentions.length
+                        ? 'The mentioned people were emailed with the task link.'
+                        : 'The current assignee was emailed with the task link.',
+            });
         } catch (err) {
             toast({ title: 'Could not add the update', description: err?.response?.data?.message || 'Try again.' });
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const addComment = async () => {
-        const html = editorRef.current?.innerHTML || '';
-        const text = html.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
-        if (!text) return;
-        setBusy(true);
-        try {
-            const res = await axiosInstance.post(
-                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/comments`,
-                { text: html },
-                { skipToast: true },
-            );
-            setTask(res.data?.task || null);
-            if (editorRef.current) editorRef.current.innerHTML = '';
-            toast({ title: 'Comment posted' });
-        } catch (err) {
-            toast({ title: 'Could not post the comment', description: err?.response?.data?.message || 'Try again.' });
         } finally {
             setBusy(false);
         }
@@ -270,7 +279,6 @@ function TaskDetailsPage() {
     const comments = Array.isArray(task.comments) ? task.comments : [];
     const number = taskNumber || task.taskNumber || '';
     const latestUpdate = updates[0];
-    const latestComment = comments[0];
     const mailHistory = [
         ...updates.filter((item) => item.emailSent).map((item) => ({ ...item, channel: 'Task updated' })),
         ...comments.filter((item) => item.emailSent).map((item) => ({ ...item, channel: 'New comment' })),
@@ -328,7 +336,7 @@ function TaskDetailsPage() {
                     </div>
 
                     <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-                        <Fact label="Task Type" value={task.taskCategory} pill="bg-violet-50 text-violet-700" />
+                        <Fact label="Task Type" value={task.taskCategory === 'Work Flow Task' ? 'Workflow Task' : task.taskCategory} pill="bg-violet-50 text-violet-700" />
                         <Fact label="Task Priority" value={task.priority} pill={PRIORITY_STYLE[task.priority]} />
                         <Fact label="Request Date" value={formatWhen(task.requestDate)} icon={Calendar} />
                         <Fact label="Task Completion Date" value={formatDay(task.completionDate)} icon={Calendar} />
@@ -351,7 +359,6 @@ function TaskDetailsPage() {
                                 className={`whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-semibold ${tab === item.id ? 'border-[#2563EB] text-[#2563EB]' : 'border-transparent text-slate-500'}`}
                             >
                                 {item.label}
-                                {item.id === 'comments' ? ` (${comments.length})` : ''}
                                 {item.id === 'attachments' ? ` (${(task.attachments || []).length})` : ''}
                             </button>
                         ))}
@@ -361,8 +368,13 @@ function TaskDetailsPage() {
                         {tab === 'overview' && (
                             <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-700">
                                 <p className="font-semibold text-slate-800">Overview</p>
-                                <p className="mt-2">{task.description || 'No description.'}</p>
-                                <p className="mt-3 text-slate-500">Open Workflow for the approval steps, Work Updates for the activity timeline, Comments for discussion, and Email Notification Preview for the message that goes out.</p>
+                                <p className="mt-2 whitespace-pre-wrap">{task.description || 'No description.'}</p>
+                                {task.accessPath ? (
+                                    <a href={task.accessPath} className="mt-3 inline-flex text-sm font-semibold text-[#2563EB]">
+                                        Open this section
+                                    </a>
+                                ) : null}
+                                <p className="mt-3 text-slate-500">Open Workflow to see who acted on each step. Work Updates keep the notes, and Email Notification Preview shows the messages sent for this task.</p>
                             </div>
                         )}
                         {tab === 'workflow' && <WorkflowBoard actionId={task.actionId} onChanged={load} />}
@@ -376,7 +388,22 @@ function TaskDetailsPage() {
                                 </div>
                                 {updateOpen && (
                                     <div className="mb-4 rounded-xl border border-slate-200 p-3">
-                                        <textarea value={updateText} onChange={(event) => setUpdateText(event.target.value)} rows={3} placeholder="Write the work update" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                                        <textarea value={updateText} onChange={(event) => setUpdateText(event.target.value)} rows={3} placeholder="Write the work update. Type @ and a name to email that person." className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                                        {mentionChoices.length > 0 && (
+                                            <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                                                {mentionChoices.map((person) => (
+                                                    <button
+                                                        key={person.id}
+                                                        type="button"
+                                                        onClick={() => chooseMention(person)}
+                                                        className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                                                    >
+                                                        @{person.name}{person.employeeId ? ` (${person.employeeId})` : ''}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <p className="mt-1 text-xs text-slate-500">Type @Name to email that person. With no @, the email goes to the current assignee.</p>
                                         <div className="mt-2 flex justify-end gap-2">
                                             <button type="button" onClick={() => setUpdateOpen(false)} className="h-8 rounded-lg border border-slate-200 px-3 text-sm">Cancel</button>
                                             <button type="button" disabled={busy} onClick={addUpdate} className="h-8 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-60">Post update</button>
@@ -415,45 +442,6 @@ function TaskDetailsPage() {
                                 </div>
                             </div>
                         )}
-                        {tab === 'comments' && (
-                            <div>
-                                <div className="mb-3 flex items-center justify-between">
-                                    <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-800"><MessageSquare size={16} /> Comments ({comments.length})</h3>
-                                </div>
-                                <div className="rounded-xl border border-slate-200">
-                                    <div className="flex gap-2 border-b border-slate-100 px-3 py-2 text-slate-500">
-                                        <button type="button" className="rounded px-2 py-1 text-sm font-bold hover:bg-slate-100" onClick={() => document.execCommand('bold')}>B</button>
-                                        <button type="button" className="rounded px-2 py-1 text-sm italic hover:bg-slate-100" onClick={() => document.execCommand('italic')}>I</button>
-                                    </div>
-                                    <div
-                                        ref={editorRef}
-                                        contentEditable
-                                        role="textbox"
-                                        aria-label="Add a comment"
-                                        data-placeholder="Add a comment..."
-                                        className="min-h-16 px-3 py-2 text-sm outline-none empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)]"
-                                    />
-                                    <div className="flex justify-end px-3 py-2">
-                                        <button type="button" disabled={busy} onClick={addComment} className="h-9 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-60">Post Comment</button>
-                                    </div>
-                                </div>
-                                <div className="mt-4 space-y-4">
-                                    {comments.map((item, index) => (
-                                        <article key={`${item.createdAt}-${index}`} className="flex gap-3">
-                                            <Avatar name={item.authorName} />
-                                            <div className="min-w-0 flex-1">
-                                                <p className="text-sm font-semibold text-slate-800">
-                                                    {item.authorName} <span className="font-normal text-slate-500">({item.authorRole || 'User'})</span>
-                                                    <span className="ml-2 text-xs font-normal text-slate-400">{formatWhen(item.createdAt)}</span>
-                                                </p>
-                                                <p className="mt-1 text-sm text-slate-700" dangerouslySetInnerHTML={{ __html: safeHtml(item.text) }} />
-                                                <EmailChips item={item} />
-                                            </div>
-                                        </article>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
                         {tab === 'email' && (
                             <div>
                                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -475,15 +463,14 @@ function TaskDetailsPage() {
                                     </div>
                                 ) : (
                                     <div>
-                                        <div className="mb-3 flex gap-2">
-                                            <button type="button" onClick={() => setEmailView('update')} className={`h-9 rounded-lg px-3 text-sm font-semibold ${emailView === 'update' ? 'bg-[#2563EB] text-white' : 'border border-slate-200 text-slate-600'}`}>Task Updated Email</button>
-                                            <button type="button" onClick={() => setEmailView('comment')} className={`h-9 rounded-lg px-3 text-sm font-semibold ${emailView === 'comment' ? 'bg-[#2563EB] text-white' : 'border border-slate-200 text-slate-600'}`}>New Comment Email</button>
-                                        </div>
+                                        {task.accessPath ? (
+                                            <a href={task.accessPath} className="mb-3 inline-flex text-sm font-semibold text-[#2563EB]">Open the related page</a>
+                                        ) : null}
                                         <EmailPreview
-                                            mode={emailView}
+                                            mode="update"
                                             task={task}
                                             number={number}
-                                            item={emailView === 'update' ? latestUpdate : latestComment}
+                                            item={latestUpdate}
                                         />
                                     </div>
                                 )}
@@ -519,8 +506,8 @@ function TaskDetailsPage() {
                         <div className="flex gap-2">
                             <Mail className="mt-0.5 text-emerald-600" size={18} />
                             <div>
-                                <p className="text-sm font-semibold text-emerald-800">Automatic email notification on every update/comment</p>
-                                <p className="mt-1 text-xs text-emerald-700">Assigned user and requester will be notified via email whenever a work update or comment is added to this task.</p>
+                                <p className="text-sm font-semibold text-emerald-800">Automatic email notification on every work update</p>
+                                <p className="mt-1 text-xs text-emerald-700">A mentioned person receives the email. If nobody is mentioned, the current assignee receives it, with the task link.</p>
                             </div>
                         </div>
                     </div>
@@ -528,15 +515,9 @@ function TaskDetailsPage() {
                         <h3 className="text-sm font-semibold text-slate-800">Notification Settings</h3>
                         <SettingRow
                             title="Send email on work update"
-                            hint="Notify assignee and requester"
+                            hint="Notify a mentioned person, or the assignee"
                             checked={notes.workUpdate !== false}
                             onChange={(workUpdate) => saveNotifications({ ...notes, workUpdate })}
-                        />
-                        <SettingRow
-                            title="Send email on comment"
-                            hint="Notify assignee and requester"
-                            checked={notes.comment !== false}
-                            onChange={(comment) => saveNotifications({ ...notes, comment })}
                         />
                         <h3 className="mb-2 mt-4 text-sm font-semibold text-slate-800">Notification Recipients</h3>
                         <Recipient name={task.assigneeName} role="Assignee" email={task.assigneeEmail} photo={task.assigneePhoto} active={notes.workUpdate !== false || notes.comment !== false} />

@@ -22,9 +22,15 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { formatCommandCenterNotificationMessage } from '@/utils/dashboardCommandCenterInbox';
 
-const PAGE_SIZE = 5;
-const TABS = ['All Tasks', 'System Task', 'Work Flow Task', 'General Task'];
-const STATUSES = ['All Status', 'Pending', 'Pending Due', 'In Progress', 'On Hold', 'Completed', 'Cancelled', 'Rejected', 'Dismissed'];
+const PAGE_SIZE_OPTIONS = [
+    { id: '10', label: '10' },
+    { id: '50', label: '50' },
+    { id: '100', label: '100' },
+    { id: 'all', label: 'All' },
+];
+const SCOPES = ['My Tasks', 'All Tasks'];
+const TYPE_FILTERS = ['All Types', 'System Task', 'Workflow Task', 'General Task'];
+const STATUSES = ['All Status', 'Pending', 'Overdue', 'Completed', 'Cancelled'];
 const PRIORITIES = ['All Priority', 'High', 'Medium', 'Low'];
 
 const EMPTY_SUMMARY = {
@@ -43,6 +49,7 @@ const AVATAR_COLORS = ['#3B82F6', '#8B5CF6', '#F59E0B', '#10B981', '#EF4444', '#
 const STATUS_STYLE = {
     Pending: 'bg-rose-50 text-rose-600',
     'Pending Due': 'bg-red-50 text-red-600',
+    Overdue: 'bg-red-50 text-red-600',
     'In Progress': 'bg-sky-50 text-sky-700',
     Completed: 'bg-emerald-50 text-emerald-600',
     Cancelled: 'bg-slate-100 text-slate-500',
@@ -59,9 +66,54 @@ const PRIORITY_STYLE = {
 
 const TYPE_STYLE = {
     'System Task': 'bg-sky-50 text-sky-700',
+    'Workflow Task': 'bg-violet-50 text-violet-700',
     'Work Flow Task': 'bg-violet-50 text-violet-700',
     'General Task': 'bg-orange-50 text-orange-700',
 };
+
+function displayTaskType(value) {
+    return value === 'Work Flow Task' ? 'Workflow Task' : value || '';
+}
+
+function readViewer() {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = localStorage.getItem('user') || localStorage.getItem('employeeUser');
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
+    }
+}
+
+function listStatus(task) {
+    const status = task?.displayStatus || '';
+    if (status === 'In Progress' || status === 'On Hold') return 'Pending';
+    if (status === 'Pending Due') return 'Overdue';
+    if (status === 'Rejected' || status === 'Dismissed') return 'Cancelled';
+    if (status === 'Pending') {
+        const started = new Date(task.requestDate).getTime();
+        if (!Number.isNaN(started) && Date.now() - started > 48 * 60 * 60 * 1000) return 'Overdue';
+    }
+    return status || 'Pending';
+}
+
+function isMyTask(task, viewer) {
+    if (!viewer) return false;
+    const ids = [viewer.employeeObjectId, viewer.empObjectId, viewer._id, viewer.id]
+        .map((value) => String(value || ''))
+        .filter(Boolean);
+    if (task.assigneeId && ids.includes(String(task.assigneeId))) return true;
+    const codes = [viewer.employeeId, viewer.empId]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean);
+    if (task.assigneeEmpId && codes.includes(String(task.assigneeEmpId).trim().toLowerCase())) return true;
+    const names = [viewer.name, viewer.username]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean);
+    const assignee = String(task.assigneeName || '').trim().toLowerCase();
+    const requester = String(task.requesterName || '').trim().toLowerCase();
+    return (assignee && names.includes(assignee)) || (requester && names.includes(requester));
+}
 
 function dateKey(value) {
     if (!value) return '';
@@ -189,12 +241,17 @@ function TaskManagerContent() {
     const [error, setError] = useState('');
     const [summary, setSummary] = useState(EMPTY_SUMMARY);
     const [tasks, setTasks] = useState([]);
-    const [tab, setTab] = useState('All Tasks');
+    const [viewer, setViewer] = useState(null);
+    const [scope, setScope] = useState('My Tasks');
+    const [typeFilter, setTypeFilter] = useState('All Types');
     const [query, setQuery] = useState('');
+    const [requesterQuery, setRequesterQuery] = useState('');
+    const [assigneeQuery, setAssigneeQuery] = useState('');
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
     const [status, setStatus] = useState('All Status');
     const [priority, setPriority] = useState('All Priority');
+    const [pageSizeChoice, setPageSizeChoice] = useState('10');
     const [page, setPage] = useState(1);
     const [selected, setSelected] = useState(() => new Set());
     const [openMenu, setOpenMenu] = useState(null);
@@ -219,6 +276,7 @@ function TaskManagerContent() {
 
     useEffect(() => {
         document.title = 'Task Manager';
+        setViewer(readViewer());
         load();
     }, [load]);
 
@@ -241,14 +299,24 @@ function TaskManagerContent() {
 
     const filtered = useMemo(() => {
         const needle = query.trim().toLowerCase();
+        const requesterNeedle = requesterQuery.trim().toLowerCase();
+        const assigneeNeedle = assigneeQuery.trim().toLowerCase();
         return tasks.filter((task) => {
-            if (tab !== 'All Tasks' && task.taskCategory !== tab) return false;
-            if (status !== 'All Status' && task.displayStatus !== status) return false;
+            const shown = listStatus(task);
+            if (scope === 'My Tasks' && !isMyTask(task, viewer)) return false;
+            if (typeFilter !== 'All Types' && displayTaskType(task.taskCategory) !== typeFilter) return false;
+            if (scope === 'All Tasks' && status === 'All Status' && (shown === 'Completed' || shown === 'Cancelled')) return false;
+            if (status !== 'All Status' && shown !== status) return false;
             if (priority !== 'All Priority' && task.priority !== priority) return false;
             const key = dateKey(task.requestDate);
             if ((fromDate || toDate) && !key) return false;
             if (fromDate && key < fromDate) return false;
             if (toDate && key > toDate) return false;
+            if (requesterNeedle && !String(task.requesterName || '').toLowerCase().includes(requesterNeedle)) return false;
+            if (assigneeNeedle) {
+                const assigneeText = [task.assigneeName, task.assigneeEmpId].filter(Boolean).join(' ').toLowerCase();
+                if (!assigneeText.includes(assigneeNeedle)) return false;
+            }
             if (!needle) return true;
             const title = (titles.get(task.actionId) || task.taskName || '').toLowerCase();
             return [
@@ -256,11 +324,8 @@ function TaskManagerContent() {
                 title,
                 task.taskName,
                 task.requestType,
-                task.taskCategory,
-                task.requesterName,
-                task.assigneeName,
-                task.assigneeEmpId,
-                task.displayStatus,
+                displayTaskType(task.taskCategory),
+                shown,
                 task.priority,
                 task.description,
             ]
@@ -268,12 +333,13 @@ function TaskManagerContent() {
                 .toLowerCase()
                 .includes(needle);
         });
-    }, [tasks, titles, tab, query, fromDate, toDate, status, priority]);
+    }, [tasks, titles, viewer, scope, typeFilter, query, requesterQuery, assigneeQuery, fromDate, toDate, status, priority]);
 
-    const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    const pageSize = pageSizeChoice === 'all' ? Math.max(filtered.length, 1) : Number(pageSizeChoice);
+    const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
     const safePage = Math.min(page, pageCount);
-    const start = filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE;
-    const pageRows = filtered.slice(start, start + PAGE_SIZE);
+    const start = filtered.length === 0 ? 0 : (safePage - 1) * pageSize;
+    const pageRows = filtered.slice(start, start + pageSize);
 
     const openDetails = (task, tab) => {
         const query = new URLSearchParams();
@@ -289,8 +355,12 @@ function TaskManagerContent() {
     }, [page, pageCount]);
 
     const resetFilters = () => {
-        setTab('All Tasks');
+        setScope('My Tasks');
+        setTypeFilter('All Types');
+        setPageSizeChoice('10');
         setQuery('');
+        setRequesterQuery('');
+        setAssigneeQuery('');
         setFromDate('');
         setToDate('');
         setStatus('All Status');
@@ -392,20 +462,60 @@ function TaskManagerContent() {
                                         setQuery(event.target.value);
                                         setPage(1);
                                     }}
-                                    placeholder="Search by task name, number, user..."
+                                    placeholder="Search by task name, number..."
+                                    aria-label="Search tasks"
+                                    className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
+                                />
+                            </div>
+                            <div className="relative w-[180px] shrink-0">
+                                <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    value={requesterQuery}
+                                    onChange={(event) => {
+                                        setRequesterQuery(event.target.value);
+                                        setPage(1);
+                                    }}
+                                    placeholder="Requester"
+                                    aria-label="Search requester"
+                                    className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
+                                />
+                            </div>
+                            <div className="relative w-[180px] shrink-0">
+                                <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    value={assigneeQuery}
+                                    onChange={(event) => {
+                                        setAssigneeQuery(event.target.value);
+                                        setPage(1);
+                                    }}
+                                    placeholder="Assignee"
+                                    aria-label="Search assignee"
                                     className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
                                 />
                             </div>
                             <select
-                                value={tab}
+                                value={scope}
                                 onChange={(event) => {
-                                    setTab(event.target.value);
+                                    setScope(event.target.value);
+                                    setPage(1);
+                                }}
+                                aria-label="My tasks or all tasks"
+                                className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
+                            >
+                                {SCOPES.map((item) => (
+                                    <option key={item}>{item}</option>
+                                ))}
+                            </select>
+                            <select
+                                value={typeFilter}
+                                onChange={(event) => {
+                                    setTypeFilter(event.target.value);
                                     setPage(1);
                                 }}
                                 aria-label="Task type"
                                 className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
                             >
-                                {TABS.map((item) => (
+                                {TYPE_FILTERS.map((item) => (
                                     <option key={item}>{item}</option>
                                 ))}
                             </select>
@@ -440,6 +550,19 @@ function TaskManagerContent() {
                             >
                                 {STATUSES.map((item) => (
                                     <option key={item}>{item}</option>
+                                ))}
+                            </select>
+                            <select
+                                value={pageSizeChoice}
+                                onChange={(event) => {
+                                    setPageSizeChoice(event.target.value);
+                                    setPage(1);
+                                }}
+                                aria-label="Tasks per page"
+                                className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-600"
+                            >
+                                {PAGE_SIZE_OPTIONS.map((item) => (
+                                    <option key={item.id} value={item.id}>{item.label} / page</option>
                                 ))}
                             </select>
                             <select
@@ -536,8 +659,8 @@ function TaskManagerContent() {
                                                         {formatDisplayDate(task.requestDate) || '—'}
                                                     </td>
                                                     <td className="px-3 py-3.5">
-                                                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${TYPE_STYLE[task.taskCategory] || 'bg-slate-100 text-slate-600'}`}>
-                                                            {task.taskCategory}
+                                                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${TYPE_STYLE[displayTaskType(task.taskCategory)] || TYPE_STYLE[task.taskCategory] || 'bg-slate-100 text-slate-600'}`}>
+                                                            {displayTaskType(task.taskCategory)}
                                                         </span>
                                                     </td>
                                                     <td className="max-w-[280px] px-3 py-3.5">
@@ -564,8 +687,8 @@ function TaskManagerContent() {
                                                         {formatDisplayDate(task.completionDate) || '—'}
                                                     </td>
                                                     <td className="px-3 py-3.5">
-                                                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${STATUS_STYLE[task.displayStatus] || 'bg-slate-100 text-slate-600'}`}>
-                                                            {task.displayStatus}
+                                                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${STATUS_STYLE[listStatus(task)] || 'bg-slate-100 text-slate-600'}`}>
+                                                            {listStatus(task)}
                                                         </span>
                                                     </td>
                                                     <td className="px-3 py-3.5 text-right">
@@ -595,7 +718,7 @@ function TaskManagerContent() {
 
                         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-[13px] text-slate-500">
                             <p>
-                                Showing {filtered.length === 0 ? 0 : start + 1} to {Math.min(start + PAGE_SIZE, filtered.length)} of {filtered.length} tasks
+                                Showing {filtered.length === 0 ? 0 : start + 1} to {Math.min(start + pageSize, filtered.length)} of {filtered.length} tasks
                             </p>
                             <div className="flex items-center gap-1">
                                 {pageList(safePage, pageCount).map((item, index) =>
@@ -632,8 +755,11 @@ function TaskManagerContent() {
                 }}
                 onCreated={(created) => {
                     if (!editTask) {
-                        setTab(created?.taskType || created?.taskCategory || 'All Tasks');
+                        setScope('My Tasks');
+                        setTypeFilter(displayTaskType(created?.taskType || created?.taskCategory) || 'All Types');
                         setQuery('');
+                        setRequesterQuery('');
+                        setAssigneeQuery('');
                         setFromDate('');
                         setToDate('');
                         setStatus('All Status');
@@ -656,24 +782,19 @@ function TaskManagerContent() {
                         { id: 'workflow', label: 'Workflow' },
                     ].map((item) => {
                         const task = tasks.find((row) => row.actionId === openMenu.id);
-                        const disabled = item.id === 'reassign' && task && !task.canReassign;
+                        const disabled = (item.id === 'reassign' && task && !task.canReassign)
+                            || (item.id === 'delete' && task && !task.canDelete);
                         return (
                             <button
                                 key={item.id}
                                 type="button"
                                 disabled={disabled}
-                                title={disabled ? 'Only the current assignee or admin super user can reassign' : undefined}
+                                title={disabled ? (item.id === 'delete' ? 'Only the task creator or an admin super user can delete' : 'Only the current assignee or admin super user can reassign') : undefined}
                                 onClick={() => {
                                     setOpenMenu(null);
                                     if (!task) return;
                                     if (item.id === 'delete') {
-                                        if (task.workflowLocked) {
-                                            toast({
-                                                title: 'This request stays on its page',
-                                                description: 'Leave, fine, and other module requests are not deleted from Task Manager.',
-                                            });
-                                            return;
-                                        }
+                                        if (!task.canDelete) return;
                                         setDeleteTask(task);
                                     } else if (item.id === 'edit') {
                                         setEditTask(task);

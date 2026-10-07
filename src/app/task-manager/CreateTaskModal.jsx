@@ -6,7 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
-const TASK_TYPES = ['System Task', 'Work Flow Task', 'General Task'];
+const TASK_TYPES = ['System Task', 'Workflow Task', 'General Task'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
 
 const EMPTY_FORM = {
@@ -37,7 +37,8 @@ function FieldLabel({ children, required }) {
 }
 
 function normalizeTaskType(value) {
-    return TASK_TYPES.includes(value) ? value : 'Work Flow Task';
+    if (value === 'Work Flow Task') return 'Workflow Task';
+    return TASK_TYPES.includes(value) ? value : 'Workflow Task';
 }
 
 function toDateInput(value) {
@@ -171,9 +172,10 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                     data: await fileToDataUrl(file),
                 })),
             );
+            const priority = form.taskType === 'System Task' ? 'High' : form.priority;
             const payload = {
                 taskType: form.taskType,
-                priority: form.priority,
+                priority,
                 taskName: form.taskName.trim(),
                 description: form.description.trim(),
                 assigneeId: form.assigneeId,
@@ -186,12 +188,12 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                 : await axiosInstance.post('/Employee/task-manager/tasks', payload, { skipToast: true });
             toast({
                 title: editing ? 'Task updated' : 'Task created',
-                description: `${form.taskName.trim()} is listed under ${form.priority} priority.`,
+                description: `${form.taskName.trim()} is listed under ${priority} priority.`,
             });
             onCreated?.(res.data?.task || {
                 actionId: initialTask?.actionId,
                 taskType: form.taskType,
-                priority: form.priority,
+                priority,
                 taskName: form.taskName,
             });
             onClose();
@@ -231,7 +233,14 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                             <FieldLabel required>Task Type</FieldLabel>
                             <select
                                 value={form.taskType}
-                                onChange={(event) => setField('taskType', event.target.value)}
+                                onChange={(event) => {
+                                    const next = event.target.value;
+                                    setForm((current) => ({
+                                        ...current,
+                                        taskType: next,
+                                        priority: next === 'System Task' ? 'High' : current.priority,
+                                    }));
+                                }}
                                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500"
                             >
                                 {TASK_TYPES.map((item) => (
@@ -242,7 +251,8 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                         <label>
                             <FieldLabel required>Task Priority</FieldLabel>
                             <select
-                                value={form.priority}
+                                value={form.taskType === 'System Task' ? 'High' : form.priority}
+                                disabled={form.taskType === 'System Task'}
                                 onChange={(event) => setField('priority', event.target.value)}
                                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500"
                             >

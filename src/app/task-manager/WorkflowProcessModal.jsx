@@ -98,6 +98,12 @@ export function WorkflowBoard({ actionId, onChanged }) {
 
     const steps = Array.isArray(data.steps) ? data.steps : [];
     return (
+        <div>
+            {data.accessPath ? (
+                <a href={data.accessPath} className="mb-4 inline-flex text-sm font-semibold text-[#2563EB]">
+                    Open this section
+                </a>
+            ) : null}
         <ol className="space-y-0">
             {steps.map((step, index) => {
                 const done = step.status === 'Completed';
@@ -125,7 +131,11 @@ export function WorkflowBoard({ actionId, onChanged }) {
                             <div className="flex items-start gap-2">
                                 <PersonMark step={step} />
                                 <div className="min-w-0">
-                                    <p className="text-sm font-semibold text-slate-800">{step.title}</p>
+                                    {data.accessPath ? (
+                                        <a href={data.accessPath} className="text-sm font-semibold text-[#2563EB] hover:underline">{step.title}</a>
+                                    ) : (
+                                        <p className="text-sm font-semibold text-slate-800">{step.title}</p>
+                                    )}
                                     <p className="text-xs text-slate-500">{step.detail}</p>
                                     {step.at && <p className="text-xs text-slate-400">{formatWhen(step.at)}</p>}
                                 </div>
@@ -163,6 +173,7 @@ export function WorkflowBoard({ actionId, onChanged }) {
                 );
             })}
         </ol>
+        </div>
     );
 }
 
