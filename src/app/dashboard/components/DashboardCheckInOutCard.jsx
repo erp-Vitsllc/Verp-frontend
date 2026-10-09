@@ -11,6 +11,7 @@ import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
     salaryLockFromAttendancePayload,
 } from './DashboardSalaryEnrollLock';
+import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import LocationTurnOnModal from '@/components/LocationTurnOnModal';
 import {
     buildDashboardPunchBody,
@@ -88,6 +89,14 @@ function formatElapsed(totalSeconds) {
     return `${h}:${m}:${s}`;
 }
 
+/** Hours and minutes already worked, for the checkout confirmation. */
+function formatWorkedHoursMinutes(totalSeconds) {
+    const sec = Math.max(0, Math.floor(totalSeconds));
+    const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+    return `${h}:${m}`;
+}
+
 /** Current Dubai clock HH:mm:ss — used for optimistic check-in when API omits time. */
 function getDubaiClockNow() {
     const sec = getDubaiNowSeconds();
@@ -163,6 +172,7 @@ export default function DashboardCheckInOutCard() {
     const [locationModalOpen, setLocationModalOpen] = useState(false);
     const [locationBusy, setLocationBusy] = useState(false);
     const [locationError, setLocationError] = useState('');
+    const [confirmAction, setConfirmAction] = useState(null);
     const pendingPunchRef = useRef('');
     const tickRef = useRef(null);
 
@@ -495,7 +505,7 @@ export default function DashboardCheckInOutCard() {
                 <button
                     type="button"
                     disabled={salaryLock.locked || Boolean(contactLock) || saving || loading || checkedIn}
-                    onClick={() => handleCheckIn()}
+                    onClick={() => setConfirmAction('in')}
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0B7A3E] hover:bg-[#086433] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#0B7A3E] disabled:hover:translate-y-0 disabled:!text-white"
                     title={checkedIn ? `Checked in at ${formatClock(timeIn)}` : 'Check in'}
                 >
@@ -509,7 +519,7 @@ export default function DashboardCheckInOutCard() {
                 <button
                     type="button"
                     disabled={salaryLock.locked || Boolean(contactLock) || saving || loading || !checkedIn || checkedOut}
-                    onClick={() => handleCheckOut()}
+                    onClick={() => setConfirmAction('out')}
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#B71C1C] hover:bg-[#9A1616] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#B71C1C] disabled:hover:translate-y-0 disabled:!text-white"
                     title={
                         checkedOut
@@ -528,6 +538,32 @@ export default function DashboardCheckInOutCard() {
                 </button>
             </div>
             <DashboardSalaryEnrollLock {...salaryLock} />
+            <ConfirmAlertDialog
+                open={confirmAction != null}
+                onOpenChange={(next) => {
+                    if (!next && !saving) setConfirmAction(null);
+                }}
+                title={
+                    confirmAction === 'out'
+                        ? 'Are you sure to checkout?'
+                        : 'Are you sure to check in?'
+                }
+                description={
+                    confirmAction === 'out'
+                        ? `You have ${formatWorkedHoursMinutes(elapsed)} worked.`
+                        : ''
+                }
+                confirmLabel="OK"
+                cancelLabel="Cancel"
+                destructive={confirmAction === 'out'}
+                loading={saving}
+                onConfirm={async () => {
+                    const action = confirmAction;
+                    if (action === 'out') await handleCheckOut();
+                    else await handleCheckIn();
+                    setConfirmAction(null);
+                }}
+            />
             <LocationTurnOnModal
                 open={locationModalOpen}
                 busy={locationBusy || saving}

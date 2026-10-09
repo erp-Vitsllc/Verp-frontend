@@ -7,6 +7,8 @@ export function formatAssetDashboardRequestType(requestType, row = null) {
     if (t === 'Utility Entry Status Change') return 'Utility Activate / Deactivate';
     if (t === 'Asset Overdue') return 'Asset Service overdue';
     if (t === 'Asset Leave') {
+        const extra1 = String(row?.extra1 || '').trim();
+        if (/is complete leave take action/i.test(extra1)) return extra1;
         try {
             const meta = typeof row?.extra3 === 'string' ? JSON.parse(row.extra3) : row?.extra3;
             if (meta?.focusCard === 'operationalExpiry') return 'On Leave duration expired';

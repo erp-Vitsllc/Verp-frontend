@@ -368,8 +368,6 @@ export function getHandoverAssigneeCanSelfAcknowledge(vehicle, assignee = null, 
 
     const target = assignee || resolveHandoverAssigneeRef(vehicle, historyEntry);
     if (!target || typeof target !== 'object') return false;
-    const hasEmail = Boolean(target.companyEmail && String(target.companyEmail).trim());
-    if (!hasEmail) return false;
     const loginThrough = target.loginThrough;
     const hasStored =
         loginThrough &&

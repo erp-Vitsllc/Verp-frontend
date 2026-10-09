@@ -183,8 +183,6 @@ function localGetHandoverAssigneeCanSelfAcknowledge(vehicle, assignee = null, hi
 
     const target = assignee || localResolveHandoverAssigneeRef(vehicle, historyEntry);
     if (!target || typeof target !== 'object') return false;
-    const hasEmail = Boolean(target.companyEmail && String(target.companyEmail).trim());
-    if (!hasEmail) return false;
     const loginThrough = target.loginThrough;
     const hasStored =
         loginThrough &&

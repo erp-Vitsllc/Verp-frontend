@@ -6,14 +6,15 @@ import { X } from 'lucide-react';
 export function emptyDayDetailStats(totalStaff = 0) {
     const total = Number(totalStaff) || 0;
     return {
+        activeEmployees: total,
         totalStaff: total,
         officePresent: 0,
         officeTotal: total,
         sitePresent: 0,
         siteTotal: 0,
         totalPresent: 0,
+        onLeave: 0,
         absentAuthorized: 0,
-        // Unauthorized leave is counted with not marked (same bucket).
         absentUnauthorized: total,
         sickLeave: 0,
         workFromHome: 0,
@@ -61,10 +62,14 @@ export default function AttendanceDayDetailPanel({
     const companyTotal = Number(totalStaff) || 0;
     const resolved = stats || emptyDayDetailStats(groupCount ?? companyTotal);
     const dateLabel = format(day, 'EEEE, d MMMM yyyy');
-    // Unauthorized and not marked are the same count.
+    // Same headcount as the calendar cell for this day and staff group.
+    const dayStaff =
+        Number(resolved.activeEmployees) ||
+        Number(resolved.totalStaff) ||
+        Number(groupCount) ||
+        companyTotal;
     const notMarkedOrUnauthorized = Number(resolved.notMarked) || 0;
-    const selectedGroupCount =
-        groupCount == null ? Number(resolved.totalStaff) || 0 : Number(groupCount) || 0;
+    const onLeave = Number(resolved.onLeave ?? resolved.absentAuthorized) || 0;
 
     return (
         <div className="h-full min-h-[320px] bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
@@ -72,6 +77,9 @@ export default function AttendanceDayDetailPanel({
                 <div className="min-w-0">
                     <h3 className="text-sm sm:text-base font-semibold text-gray-900">Attendance detail</h3>
                     <p className="text-[11px] sm:text-xs text-gray-500 mt-0.5 break-words">{dateLabel}</p>
+                    {groupLabel ? (
+                        <p className="text-[11px] font-semibold text-gray-700 mt-0.5">{groupLabel}</p>
+                    ) : null}
                 </div>
                 {onClose ? (
                     <button
@@ -86,28 +94,23 @@ export default function AttendanceDayDetailPanel({
             </div>
 
             <div className="px-4 py-1 flex-1 overflow-y-auto">
-                <StatRow label="Total staff" value={companyTotal} />
-                {groupLabel ? <StatRow label={groupLabel} value={selectedGroupCount} /> : null}
-                <StatRow label="Total present" value={resolved.totalPresent} />
+                <StatRow label="Total staff" value={dayStaff} />
+                <StatRow label="Present" value={resolved.present ?? resolved.totalPresent} />
                 {resolved.isWeeklyOff || (resolved.weeklyOff || 0) > 0 ? (
                     <StatRow
                         label="Off Day (weekly)"
-                        value={resolved.weeklyOff || selectedGroupCount}
+                        value={resolved.weeklyOff || dayStaff}
                         subValue="From Working Time schedule for this staff group"
                     />
                 ) : null}
                 {(resolved.holiday || 0) > 0 ? (
                     <StatRow label="Holiday" value={resolved.holiday} />
                 ) : null}
-                <StatRow
-                    label="Absent"
-                    value={`${(Number(resolved.absentAuthorized) || 0) + notMarkedOrUnauthorized}`}
-                    subValue={`Authorized (${resolved.absentAuthorized || 0}) · Unauthorized (${notMarkedOrUnauthorized})`}
-                />
+                <StatRow label="On leave" value={onLeave} />
                 <StatRow label="Sick leave" value={resolved.sickLeave} />
                 <StatRow label="Work from home" value={resolved.workFromHome} />
                 <StatRow label="Late arrived" value={resolved.lateArrived} />
-                <StatRow label="Not marked attendance" value={notMarkedOrUnauthorized} />
+                <StatRow label="Not marked / Unauthorized" value={notMarkedOrUnauthorized} />
             </div>
         </div>
     );

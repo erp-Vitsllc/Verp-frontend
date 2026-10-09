@@ -31,10 +31,14 @@ export default function AttendanceDayDetailModal({
 
     const companyTotal = Number(totalStaff) || 0;
     const resolved = stats || emptyDayDetailStats(groupCount ?? companyTotal);
-    const selectedGroupCount =
-        groupCount == null ? Number(resolved.totalStaff) || 0 : Number(groupCount) || 0;
     const dateLabel = format(day, 'EEEE, d MMMM yyyy');
+    const dayStaff =
+        Number(resolved.activeEmployees) ||
+        Number(resolved.totalStaff) ||
+        Number(groupCount) ||
+        companyTotal;
     const notMarkedOrUnauthorized = Number(resolved.notMarked) || 0;
+    const onLeave = Number(resolved.onLeave ?? resolved.absentAuthorized) || 0;
 
     return (
         <div
@@ -58,6 +62,9 @@ export default function AttendanceDayDetailModal({
                             Attendance detail
                         </h2>
                         <p className="text-xs sm:text-sm text-gray-500 mt-0.5">{dateLabel}</p>
+                        {groupLabel ? (
+                            <p className="text-xs font-semibold text-gray-700 mt-0.5">{groupLabel}</p>
+                        ) : null}
                     </div>
                     <button
                         type="button"
@@ -70,18 +77,13 @@ export default function AttendanceDayDetailModal({
                 </div>
 
                 <div className="px-5 py-2 max-h-[70vh] overflow-y-auto">
-                    <StatRow label="Total staff" value={companyTotal} />
-                    {groupLabel ? <StatRow label={groupLabel} value={selectedGroupCount} /> : null}
-                    <StatRow label="Total present" value={resolved.totalPresent} />
-                    <StatRow
-                        label="Absent"
-                        value={`${(Number(resolved.absentAuthorized) || 0) + notMarkedOrUnauthorized}`}
-                        subValue={`Authorized (${resolved.absentAuthorized || 0}) · Unauthorized (${notMarkedOrUnauthorized})`}
-                    />
+                    <StatRow label="Total staff" value={dayStaff} />
+                    <StatRow label="Present" value={resolved.present ?? resolved.totalPresent} />
+                    <StatRow label="On leave" value={onLeave} />
                     <StatRow label="Sick leave" value={resolved.sickLeave} />
                     <StatRow label="Work from home" value={resolved.workFromHome} />
                     <StatRow label="Late arrived" value={resolved.lateArrived} />
-                    <StatRow label="Not marked attendance" value={notMarkedOrUnauthorized} />
+                    <StatRow label="Not marked / Unauthorized" value={notMarkedOrUnauthorized} />
                 </div>
             </div>
         </div>

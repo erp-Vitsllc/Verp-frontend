@@ -64,8 +64,8 @@ function otCellLabel(mark) {
     const status = String(mark?.flexibleOtStatus || '');
     const approved = Number(mark?.flexibleOtApprovedHours) || 0;
     if (status === 'approved') {
-        const shown = approved >= 9 ? Math.max(0, Math.round((approved - 9) * 100) / 100) : approved;
-        return `OT: ${shown} hr`;
+        if (approved > 10) return 'Next day';
+        return `OT: ${Math.floor(approved + 1e-9)} hr`;
     }
     if (status === 'rejected') return 'OT: 0 hr';
     if (status === 'pending') return 'Pending';
@@ -492,6 +492,7 @@ function EmployeeRow({
     const shift = shiftMarks(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
     const otText = otCellLabel(mark);
     const showOtRequest = Number(mark?.flexibleOtHours) > 0 && !otText;
+    const nextDayOt = Number(mark?.flexibleOtHours) > 10;
 
     return (
         <tr className="border-b border-gray-100 hover:bg-slate-50/80 transition-colors">
@@ -575,7 +576,9 @@ function EmployeeRow({
                         title={
                             canRequestOt
                                 ? otDirect
-                                    ? 'Apply overtime now'
+                                    ? nextDayOt
+                                        ? 'Mark the next day Present (On time). This day’s overtime is fully used.'
+                                        : 'Apply overtime now'
                                     : 'Request overtime for HR approval'
                                 : 'Only the primary reportee or flowchart HR can use overtime'
                         }
@@ -584,7 +587,7 @@ function EmployeeRow({
                         }}
                         className="rounded-lg border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                        {otDirect ? 'Apply OT' : 'Req OT'}
+                        {otDirect ? (nextDayOt ? 'Next day present' : 'Apply OT') : 'Req OT'}
                     </button>
                 ) : (
                     <span className="text-gray-300">—</span>

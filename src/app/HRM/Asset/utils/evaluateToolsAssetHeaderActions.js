@@ -1,6 +1,7 @@
 import {
     isAssetAssignmentAcknowledgmentPending,
     isLeaveActive,
+    isLeaveDurationComplete,
     isServiceActive,
 } from '@/utils/assetStatusHelpers';
 import {
@@ -12,12 +13,13 @@ import {
 
 function shouldIncludeHeaderAction(action, asset) {
     if (action.label === 'TRANSFER ASSET') {
-        if (isLeaveActive(asset)) return false;
+        if (isLeaveActive(asset) && !isLeaveDurationComplete(asset)) return false;
         // Reassign menu — available when assigned, or Assign when in pool.
+        // After leave ends, Asset Controller can reassign to another employee.
         return true;
     }
     if (action.label.startsWith('Reassign') || action.label === 'Assign') {
-        return !isLeaveActive(asset);
+        return !isLeaveActive(asset) || isLeaveDurationComplete(asset);
     }
     if (action.label === 'Return Asset') {
         return String(asset?.status || '').trim().toLowerCase() !== 'lost';
@@ -211,12 +213,22 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
                 hasPermission = false;
             }
 
+            const leaveStillOpen = isLeaveActive(asset) && !isLeaveDurationComplete(asset);
             const isDisabled =
                 action.disabled ||
                 (isTransferReassignBtn && isZeroValueAsset) ||
                 isOutOfService ||
                 (isRequestOnDutyBtn && !!pendingOwnerOnDutyAcRequestId && isAssignedUser && !isAuthorized) ||
+                (leaveStillOpen &&
+                    !isReturnAssetBtn &&
+                    !isLossDamageBtn &&
+                    !isRequestOnDutyBtn &&
+                    !isConfirmOnDutyBtn &&
+                    !isServiceBtn &&
+                    !isExtendServiceBtn) ||
                 (isLeaveActive(asset) &&
+                    isLeaveDurationComplete(asset) &&
+                    !isTransferReassignBtn &&
                     !isReturnAssetBtn &&
                     !isLossDamageBtn &&
                     !isRequestOnDutyBtn &&

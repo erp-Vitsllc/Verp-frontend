@@ -155,8 +155,7 @@ export const getAssetWaitingForMeta = (asset) => {
                 return { name: reporteeName, kind: 'reportee' };
             }
             if (showingAc) {
-                const noCompanyEmail = !String(asset.assignedTo?.companyEmail || '').trim();
-                if ((assigneeHasNoPortal || noCompanyEmail) && reporteeName) {
+                if (assigneeHasNoPortal && reporteeName) {
                     return { name: reporteeName, kind: 'reportee' };
                 }
                 if (assigneeName) return { name: assigneeName, kind: 'employee' };
@@ -356,8 +355,19 @@ export const categorizeAssetsForBulkLeave = (assets, selectedIds) => {
 
 export const canReassignDuringParking = () => false;
 
+/** True the day after the on-leave end date. The end date itself is still inside the leave. */
+export const isLeaveDurationComplete = (asset) => {
+    if (!isLeaveActive(asset)) return false;
+    const end = asset?.onLeaveEndDate ? new Date(asset.onLeaveEndDate) : null;
+    if (!end || Number.isNaN(end.getTime())) return false;
+    end.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return end.getTime() < today.getTime();
+};
+
 export const isTransferBlockedForAsset = (asset) =>
-    isLeaveActive(asset) || hasActiveParkingContext(asset);
+    isLeaveActive(asset) && !isLeaveDurationComplete(asset);
 
 const startOfCalendarDay = (value) => {
     const d = new Date(value);

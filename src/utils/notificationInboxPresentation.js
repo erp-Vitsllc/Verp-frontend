@@ -409,6 +409,11 @@ export function buildUnderstandableNotificationTitle(item = {}) {
         case 'Vehicle Value Missing':
         case 'Asset Value Missing':
             return sanitizeNotificationText(item.extra1 || '') || type;
+        case 'Asset Leave': {
+            const leaveTitle = sanitizeNotificationText(item.extra1 || '');
+            if (/is complete leave take action/i.test(leaveTitle)) return leaveTitle;
+            return type || 'Asset Leave';
+        }
         default:
             return expiryTitle || type || 'Request';
     }
@@ -503,6 +508,9 @@ function buildUtilityCategoryLine(item = {}) {
     }
     if (type === 'Utility Bill Payment Reminder') {
         return e1 || e2 || 'Pending utility task';
+    }
+    if (type === 'Asset Leave' && /is complete leave take action/i.test(e1)) {
+        return e2 && e2 !== e1 ? e2 : '';
     }
     const isUtility =
         type === 'Utility Contract Expiry' ||

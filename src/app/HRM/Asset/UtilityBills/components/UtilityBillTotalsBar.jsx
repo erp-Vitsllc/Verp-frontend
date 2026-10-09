@@ -354,9 +354,129 @@ export function computeRowPayTotals(row = {}) {
     };
 }
 
+function classifyLineParty(line) {
+    const empId = String(line?.payByEmployeeId || '').trim();
+    const empName = String(line?.payByEmployeeName || '').trim();
+    const coId = String(line?.payByCompanyId || '').trim();
+    const coName = String(line?.payByCompanyName || '').trim();
+    const payBy = String(line?.payBy || '').trim();
+    const isEmployee = payBy === 'employee' || ((empId || empName) && payBy !== 'company');
+    if (isEmployee && (empId || empName)) {
+        return { type: 'employee', id: empId, name: empName };
+    }
+    if (payBy === 'company' || coId || coName) {
+        return { type: 'company', id: coId, name: coName };
+    }
+    return null;
+}
+
+function addPayParty(map, type, id, name, amount) {
+    const amt = Number(amount) || 0;
+    if (!(amt > 0.009)) return;
+    const fullName = String(name || '').trim();
+    const idStr = String(id || '').trim();
+    const shortName = shortAllocationPartyName(
+        fullName || idStr,
+        type,
+    );
+    if (!shortName) return;
+    const key = `${type}:${(idStr || shortName).toLowerCase()}`;
+    const prev = map.get(key);
+    if (!prev) {
+        map.set(key, {
+            key,
+            type,
+            id: idStr,
+            fullName: fullName || shortName,
+            name: shortName,
+            amount: amt,
+        });
+        return;
+    }
+    prev.amount += amt;
+    if (fullName && fullName.length >= String(prev.fullName || '').length) {
+        prev.fullName = fullName;
+        prev.name = shortAllocationPartyName(fullName, type);
+    }
+}
+
+function linePartyMaps(lines) {
+    const employees = new Map();
+    const companies = new Map();
+    (Array.isArray(lines) ? lines : []).forEach((line) => {
+        const amt = Number(line?.amount);
+        if (!Number.isFinite(amt) || amt <= 0) return;
+        const party = classifyLineParty(line);
+        if (!party) return;
+        const bucket = party.type === 'employee' ? employees : companies;
+        addPayParty(bucket, party.type, party.id, party.name, amt);
+    });
+    return { employees, companies };
+}
+
+/**
+ * Put this row's pay on each named company / employee.
+ * Several people on one bill stay separate — never folded into the first name.
+ */
+function contributeRowPayParties(target, row, pay) {
+    const lines = Array.isArray(row.lineItems)
+        ? row.lineItems
+        : Array.isArray(row.zohoLineItems)
+          ? row.zohoLineItems
+          : [];
+    const { employees, companies } = linePartyMaps(lines);
+    const payBy = String(row.payBy || '').trim();
+    const coName =
+        String(pay.payByCompanyName || row.payByCompanyName || '').trim() ||
+        (payBy === 'company' ? String(row.assignedToName || '').trim() : '');
+    const empName =
+        String(pay.payByEmployeeName || row.payByEmployeeName || '').trim() ||
+        (['employee', 'employee_balance', 'employee_and_company'].includes(payBy)
+            ? String(row.assignedToName || '').trim()
+            : '');
+
+    const addSide = (type, fallbackId, fallbackName, totalAmount, lineMap) => {
+        const total = Number(totalAmount) || 0;
+        const entries = [...lineMap.values()].filter((entry) => entry.amount > 0.009);
+        const lineSum = entries.reduce((sum, entry) => sum + entry.amount, 0);
+        const linesMatchTotal =
+            total > 0.009 && lineSum > 0.009 && Math.abs(lineSum - total) <= 0.05;
+
+        if (entries.length > 1 && lineSum > 0.009 && total > 0.009) {
+            entries.forEach((entry) => {
+                const amount = linesMatchTotal ? entry.amount : (entry.amount / lineSum) * total;
+                addPayParty(target, type, entry.id, entry.fullName, amount);
+            });
+            return;
+        }
+
+        if (total > 0.009) {
+            const named = entries[0];
+            addPayParty(
+                target,
+                type,
+                named?.id || fallbackId,
+                named?.fullName || fallbackName || (type === 'employee' ? 'Employee' : 'Company'),
+                total,
+            );
+        }
+    };
+
+    addSide('company', row.payByCompanyId, coName, pay.companyPayAmount, companies);
+    addSide('employee', row.payByEmployeeId, empName, pay.employeePayAmount, employees);
+}
+
+function partyListLabel(party, shortNameCounts) {
+    const full = String(party.fullName || party.name || '')
+        .replace(/\s*\([^)]*\)\s*$/g, '')
+        .trim();
+    if ((shortNameCounts.get(party.name) || 0) > 1 && full) return full;
+    return party.name;
+}
+
 /**
  * Totals for selected rows — Company/Employee match computeRowPayTotals.
- * Also resolves display names for TOTAL / Difference labels.
+ * payParties lists every company and employee on the selected bills once, with their own amount.
  */
 export function summarizeSelectedBillRows(rows = []) {
     let contractTotal = 0;
@@ -367,6 +487,7 @@ export function summarizeSelectedBillRows(rows = []) {
     let employeeTotal = 0;
     let payByCompanyName = '';
     let payByEmployeeName = '';
+    const partyMap = new Map();
 
     (rows || [])
         .filter((r) => r.selected)
@@ -385,6 +506,7 @@ export function summarizeSelectedBillRows(rows = []) {
             employeeDiffShare += pay.employeeDiffShare;
             companyTotal += pay.companyPayAmount;
             employeeTotal += pay.employeePayAmount;
+            contributeRowPayParties(partyMap, r, pay);
 
             const coName =
                 String(pay.payByCompanyName || r.payByCompanyName || '').trim() ||
@@ -405,6 +527,37 @@ export function summarizeSelectedBillRows(rows = []) {
     const payByDiffTotal = companyDiffShare + employeeDiffShare;
     // Display difference = Actual − Contract (positive when over budget).
     const billDifference = actualTotal - contractTotal;
+    const mergedParties = [];
+    partyMap.forEach((party) => {
+        const match = mergedParties.find((prev) => {
+            if (prev.type !== party.type) return false;
+            if (prev.name.toLowerCase() !== party.name.toLowerCase()) return false;
+            if (prev.id && party.id && prev.id !== party.id) return false;
+            return true;
+        });
+        if (!match) {
+            mergedParties.push({ ...party });
+            return;
+        }
+        match.amount += party.amount;
+        if (party.id && !match.id) match.id = party.id;
+        if (String(party.fullName || '').length >= String(match.fullName || '').length) {
+            match.fullName = party.fullName;
+        }
+    });
+    const payParties = mergedParties.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'company' ? -1 : 1;
+        return b.amount - a.amount;
+    });
+    const shortNameCounts = new Map();
+    payParties.forEach((party) => {
+        shortNameCounts.set(party.name, (shortNameCounts.get(party.name) || 0) + 1);
+    });
+    const labeledParties = payParties.map((party) => ({
+        ...party,
+        label: partyListLabel(party, shortNameCounts),
+    }));
+    const payByTotal = labeledParties.reduce((sum, party) => sum + party.amount, 0);
 
     return {
         contractTotal,
@@ -416,6 +569,8 @@ export function summarizeSelectedBillRows(rows = []) {
         employeeDiffShare,
         companyTotal,
         employeeTotal,
+        payByTotal,
+        payParties: labeledParties,
         payByCompanyName,
         payByEmployeeName,
         companyLabel: shortAllocationPartyName(payByCompanyName, 'company'),
@@ -423,113 +578,108 @@ export function summarizeSelectedBillRows(rows = []) {
     };
 }
 
+function MetricCard({ label, value, hint, accentClass, valueClass }) {
+    return (
+        <div className={`rounded-xl bg-white border border-slate-100 shadow-sm px-3.5 py-3 border-l-4 ${accentClass}`}>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                {label}
+            </p>
+            <p className={`text-lg font-bold tabular-nums leading-none ${valueClass}`}>
+                {formatMoney(value)}{' '}
+                <span className="text-[11px] font-semibold text-slate-400">AED</span>
+            </p>
+            {hint ? <p className="mt-1.5 text-[10px] font-medium text-slate-400">{hint}</p> : null}
+        </div>
+    );
+}
+
 export default function UtilityBillTotalsBar({ rows = [] }) {
     const t = summarizeSelectedBillRows(rows);
-    const showCompanyDiff = t.companyDiffShare > 0;
-    const showEmployeeDiff = t.employeeDiffShare > 0;
-    const showCompanyTotal = t.companyTotal > 0;
-    const showEmployeeTotal = t.employeeTotal > 0;
     const billDiffAbs = Math.abs(Number(t.billDifference) || 0);
     const isOverage = Number(t.billDifference) > 0.009;
     const isUnder = Number(t.billDifference) < -0.009;
     const diffColorClass = isOverage
-        ? 'text-red-600'
+        ? 'text-rose-600'
         : isUnder
           ? 'text-emerald-600'
-          : 'text-gray-500';
-    const companyLabel = t.companyLabel || 'Company';
-    const employeeLabel = t.employeeLabel || 'Employee';
+          : 'text-slate-700';
+    const diffHint = billDiffAbs <= 0.009
+        ? 'No difference'
+        : isOverage
+          ? 'Actual is over contract'
+          : 'Actual is under contract';
+    const parties = Array.isArray(t.payParties) ? t.payParties : [];
+    const payByTotal = parties.length
+        ? Number(t.payByTotal) || 0
+        : Number(t.companyTotal || 0) + Number(t.employeeTotal || 0);
 
     return (
-        <div className="mx-4 sm:mx-5 mb-2 rounded-xl border border-gray-200 bg-gray-50/80 px-3 sm:px-4 py-3 shrink-0">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                <div className="rounded-lg bg-white border border-gray-100 px-3 py-2.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                        Contract Amount
+        <div className="mx-4 sm:mx-5 mb-3 shrink-0 rounded-2xl border border-teal-100 bg-gradient-to-br from-white via-teal-50/70 to-amber-50/50 p-3 sm:p-3.5 shadow-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5">
+                <MetricCard
+                    label="Contract Amount"
+                    value={t.contractTotal}
+                    accentClass="border-l-slate-400"
+                    valueClass="text-slate-800"
+                />
+                <MetricCard
+                    label="Actual Amount"
+                    value={t.actualTotal}
+                    accentClass="border-l-sky-500"
+                    valueClass="text-slate-800"
+                />
+                <MetricCard
+                    label="Difference"
+                    value={billDiffAbs}
+                    hint={diffHint}
+                    accentClass={isOverage ? 'border-l-rose-500' : isUnder ? 'border-l-emerald-500' : 'border-l-slate-300'}
+                    valueClass={diffColorClass}
+                />
+                <div className="rounded-xl bg-gradient-to-br from-teal-600 to-teal-700 px-3.5 py-3 text-white shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-teal-100 mb-1">
+                        Pays by
                     </p>
-                    <p className="text-sm font-bold tabular-nums text-gray-800">
-                        {formatMoney(t.contractTotal)}{' '}
-                        <span className="text-[11px] font-semibold text-gray-400">AED</span>
+                    <p className="text-lg font-bold tabular-nums leading-none">
+                        {formatMoney(payByTotal)}{' '}
+                        <span className="text-[11px] font-semibold text-teal-100">AED</span>
                     </p>
-                </div>
-
-                <div className="rounded-lg bg-white border border-gray-100 px-3 py-2.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                        Actual Amount
+                    <p className="mt-1.5 text-[10px] font-medium text-teal-100">
+                        {parties.length
+                            ? `${parties.length} included`
+                            : 'No pay split yet'}
                     </p>
-                    <p className="text-sm font-bold tabular-nums text-gray-800">
-                        {formatMoney(t.actualTotal)}{' '}
-                        <span className="text-[11px] font-semibold text-gray-400">AED</span>
-                    </p>
-                </div>
-
-                <div className="rounded-lg bg-white border border-gray-100 px-3 py-2.5 sm:col-span-2 lg:col-span-1">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                        Difference
-                    </p>
-                    <p className={`text-sm font-bold tabular-nums mb-1 ${diffColorClass}`}>
-                        {formatMoney(billDiffAbs)}{' '}
-                        <span className="text-[11px] font-semibold text-gray-400">AED</span>
-                    </p>
-                    <div className="space-y-0.5 text-[11px] text-gray-700">
-                        {showCompanyDiff ? (
-                            <p className="whitespace-nowrap" title={t.payByCompanyName || companyLabel}>
-                                <span className="font-semibold text-gray-800">{companyLabel}</span>
-                                <span className="text-gray-400">: </span>
-                                <strong className="tabular-nums font-semibold text-gray-700">
-                                    {formatMoney(t.companyDiffShare)}
-                                </strong>
-                            </p>
-                        ) : null}
-                        {showEmployeeDiff ? (
-                            <p className="whitespace-nowrap" title={t.payByEmployeeName || employeeLabel}>
-                                <span className="font-semibold text-gray-800">{employeeLabel}</span>
-                                <span className="text-gray-400">: </span>
-                                <strong className="tabular-nums font-semibold text-gray-700">
-                                    {formatMoney(t.employeeDiffShare)}
-                                </strong>
-                            </p>
-                        ) : null}
-                        {billDiffAbs > 0.009 && !showCompanyDiff && !showEmployeeDiff ? (
-                            <p className="text-[10px] text-gray-400">
-                                {isOverage ? 'Actual − Contract' : 'Contract − Actual'}
-                            </p>
-                        ) : null}
-                        {billDiffAbs <= 0.009 && !showCompanyDiff && !showEmployeeDiff ? (
-                            <p className="text-[10px] text-gray-400">No difference</p>
-                        ) : null}
-                    </div>
-                </div>
-
-                <div className="rounded-lg bg-red-50 border border-red-100 px-3 py-2.5 sm:col-span-2 lg:col-span-1">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-red-600 mb-1">
-                        Total
-                    </p>
-                    <div className="space-y-1 text-[11px] text-gray-700">
-                        {showCompanyTotal ? (
-                            <p className="whitespace-nowrap" title={t.payByCompanyName || companyLabel}>
-                                <span className="font-semibold text-gray-800">{companyLabel}</span>
-                                <span className="text-gray-400">: </span>
-                                <strong className="text-sm tabular-nums text-emerald-600">
-                                    {formatMoney(t.companyTotal)} AED
-                                </strong>
-                            </p>
-                        ) : null}
-                        {showEmployeeTotal ? (
-                            <p className="whitespace-nowrap" title={t.payByEmployeeName || employeeLabel}>
-                                <span className="font-semibold text-gray-800">{employeeLabel}</span>
-                                <span className="text-gray-400">: </span>
-                                <strong className="text-sm tabular-nums text-emerald-600">
-                                    {formatMoney(t.employeeTotal)} AED
-                                </strong>
-                            </p>
-                        ) : null}
-                        {!showCompanyTotal && !showEmployeeTotal ? (
-                            <p className="text-[10px] text-gray-400">—</p>
-                        ) : null}
-                    </div>
                 </div>
             </div>
+
+            {parties.length ? (
+                <div className="mt-3 rounded-xl border border-white/80 bg-white/80 px-3 py-2.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                        Included on this bill
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+                        {parties.map((party) => {
+                            const isEmployee = party.type === 'employee';
+                            return (
+                                <span
+                                    key={party.key}
+                                    title={`${party.fullName || party.label}: ${formatMoney(party.amount)} AED`}
+                                    className={`inline-flex items-baseline gap-1 rounded-full border px-2.5 py-1 text-xs shadow-sm ${
+                                        isEmployee
+                                            ? 'border-amber-200 bg-amber-50 text-amber-950'
+                                            : 'border-teal-200 bg-teal-50 text-teal-950'
+                                    }`}
+                                >
+                                    <span className="font-semibold">{party.label}</span>
+                                    <span className="opacity-50">:</span>
+                                    <span className="font-bold tabular-nums">
+                                        {formatMoney(party.amount)}
+                                    </span>
+                                </span>
+                            );
+                        })}
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }

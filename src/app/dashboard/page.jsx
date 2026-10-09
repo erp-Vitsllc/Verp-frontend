@@ -681,22 +681,36 @@ function DashboardContent() {
 
                 const manager = res.data.manager;
 
-                if (manager) {
+                const companyScope = res.data?.scope === "company";
 
-                    const tree = buildTree(manager, flatList);
+                if (companyScope || manager) {
+
+                    const tree = companyScope
+                        ? flatList.map((person) => ({ ...person, children: [] }))
+                        : buildTree(manager, flatList);
 
                     setHierarchyData(tree);
 
                     setTeamStats({});
 
-                    // Only warm the visible top-level row(s). Children load on expand
-                    // (TeamTableRow) — avoid N× module-feed fan-out for the whole tree.
-                    const roots = Array.isArray(tree) ? tree : [tree];
-                    roots.forEach((person) => {
-                        if (person?._id) {
-                            fetchEmployeeStats(person._id, person.employeeId);
+                    const people = Array.isArray(tree) ? tree : [tree];
+                    if (companyScope) {
+                        const queue = people.filter((person) => person?._id);
+                        for (let index = 0; index < queue.length; index += 6) {
+                            if (cancelled) return;
+                            await Promise.all(
+                                queue.slice(index, index + 6).map((person) =>
+                                    fetchEmployeeStats(person._id, person.employeeId, { force: true }),
+                                ),
+                            );
                         }
-                    });
+                    } else {
+                        people.forEach((person) => {
+                            if (person?._id) {
+                                fetchEmployeeStats(person._id, person.employeeId);
+                            }
+                        });
+                    }
 
                 } else {
 

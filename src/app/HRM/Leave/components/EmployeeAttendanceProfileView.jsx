@@ -13,7 +13,6 @@ import {
     Clock,
     Paperclip,
     Plane,
-    Sparkle,
     Stethoscope,
     X,
 } from 'lucide-react';
@@ -529,58 +528,6 @@ function financialTakenRows(key, ctx) {
     return [];
 }
 
-function AnnualLeaveEligibilityCard({ annualLeave }) {
-    const eligibleDays = n(annualLeave?.eligibleDays);
-    const leaveSalaryDays = n(annualLeave?.leaveSalaryDays);
-    const remainingDays = n(annualLeave?.remainingDays);
-    const requiredDays = n(annualLeave?.requiredPresentDays);
-    const airTicket = annualLeave?.airTicketEligible ? 'Eligible' : 'Pending';
-    const lastLeave = formatLeaveDate(annualLeave?.lastAnnualLeaveEnd || annualLeave?.lastAnnualLeaveDate);
-    const cycleHint = annualLeave?.lastAnnualLeaveEnd || annualLeave?.lastAnnualLeaveDate
-        ? `After annual leave on ${lastLeave} · next entitlement ${requiredDays || remainingDays + eligibleDays} working days`
-        : `From joining · ${requiredDays || remainingDays + eligibleDays} working days per cycle`;
-
-    const metrics = [
-        { label: 'Eligible days', value: eligibleDays },
-        { label: 'Leave salary days', value: leaveSalaryDays },
-        { label: 'Remaining', value: `${remainingDays} days`, accent: true },
-        { label: 'Air ticket', value: airTicket },
-    ];
-
-    return (
-        <div className="rounded-xl bg-[#E8F4FB] px-3.5 py-2">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-                <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="h-8 w-8 rounded-lg bg-[#C5E4F4] text-[#1B4F72] inline-flex items-center justify-center shrink-0">
-                        <Sparkle size={14} fill="currentColor" />
-                    </span>
-                    <div className="min-w-0">
-                        <p className="text-[13px] font-bold text-[#1B2A4A] leading-tight">
-                            Current annual leave eligibility
-                        </p>
-                        <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{cycleHint}</p>
-                    </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                    {metrics.map((item) => (
-                        <div key={item.label} className="shrink-0">
-                            <p className="text-[10px] text-slate-400 leading-none">{item.label}</p>
-                            <p
-                                className={`mt-0.5 text-[13px] font-bold tabular-nums leading-tight ${
-                                    item.accent ? 'text-[#1A9B8C]' : 'text-[#1B2A4A]'
-                                }`}
-                            >
-                                {item.value}
-                            </p>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </div>
-    );
-}
-
 function ProfileHero({ employee, year, presentDays, nextBirthday }) {
     const nameParts = String(employee?.name || '').trim().split(/\s+/);
     const initials = getEmployeeInitials(nameParts[0], nameParts.slice(1).join(' '));
@@ -873,13 +820,15 @@ function TakenItemsModal({ open, title, hint, rows, columns, onClose, onSelect }
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {rows.map((row) => (
+                                {rows.map((row) => {
+                                    const linked = Boolean(String(row?.href || '').trim());
+                                    return (
                                     <tr key={row.id}>
                                         <td colSpan={cols.length + 1} className="p-0">
                                             <button
                                                 type="button"
-                                                onClick={() => onSelect(row)}
-                                                className="w-full flex items-center px-5 py-3 text-left hover:bg-slate-50/90 gap-3"
+                                                onClick={() => linked && onSelect(row)}
+                                                className={`w-full flex items-center px-5 py-3 text-left gap-3 ${linked ? 'hover:bg-slate-50/90' : 'cursor-default'}`}
                                             >
                                                 {cols.map((col) => (
                                                     <span
@@ -895,11 +844,12 @@ function TakenItemsModal({ open, title, hint, rows, columns, onClose, onSelect }
                                                         {row[col.key] || '—'}
                                                     </span>
                                                 ))}
-                                                <ChevronRight size={16} className="text-slate-300 shrink-0" />
+                                                {linked ? <ChevronRight size={16} className="text-slate-300 shrink-0" /> : <span className="w-4 shrink-0" />}
                                             </button>
                                         </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     )}
@@ -957,6 +907,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     const [expandedStatKey, setExpandedStatKey] = useState('');
     const [annualLeaveOpen, setAnnualLeaveOpen] = useState(false);
     const [financialModalKey, setFinancialModalKey] = useState('');
+    const [deductionList, setDeductionList] = useState(null);
     const [historicalAnnualLeave, setHistoricalAnnualLeave] = useState([]);
     const [historicalAnnualLoading, setHistoricalAnnualLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('attendance');
@@ -1114,7 +1065,6 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     }, [employee?.employeeId, employee?.name]);
     const financial = profile?.financial || {};
     const salary = financial.salary || {};
-    const annualLeave = profile?.annualLeave || {};
     const yearPresentDays = n(profile?.summary?.yearPresentDays ?? profile?.summary?.counts?.on_office);
     const loans = approvedFinancialRows(financial.loans);
     const advances = approvedFinancialRows(financial.advances);
@@ -1139,7 +1089,16 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         navigateFromList(router, payrollRegisterHref, portalReturnHref());
     }
     const financialModalMeta = FINANCIAL_MODAL_META[financialModalKey] || null;
-    const financialModalRows = financialTakenRows(financialModalKey, {
+    const usingDeductionList = financialModalKey === 'deductions' && deductionList;
+    const deductionColumns = [
+        { key: 'date', label: 'Date' },
+        { key: 'type', label: 'Type' },
+        { key: 'detail', label: 'Detail' },
+        { key: 'amount', label: 'Amount', align: 'right', wide: true },
+    ];
+    const financialModalRows = usingDeductionList
+        ? deductionList.rows || []
+        : financialTakenRows(financialModalKey, {
         salaryHref,
         salary,
         salaryOther,
@@ -1191,7 +1150,6 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                 <EmployeeInformationDashboard
                     employeeMongoId={employeeMongoId}
                     profile={profile}
-                    eligibility={<AnnualLeaveEligibilityCard annualLeave={annualLeave} />}
                     annualCalendarHref={annualLeaveCalendarHref}
                     onYearChange={(nextYear) => {
                         if (nextYear && nextYear !== year) setYear(nextYear);
@@ -1201,7 +1159,11 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                         setCategoryRows(Array.isArray(rows) ? rows : []);
                         setExpandedStatKey(key);
                     }}
-                    onOpenFinancial={(key) => setFinancialModalKey(key)}
+                    onDeductionDetails={setDeductionList}
+                    onOpenFinancial={(key, extra) => {
+                        setFinancialModalKey(key);
+                        setDeductionList(key === 'deductions' ? extra || deductionList || { rows: [], hint: '' } : null);
+                    }}
                     onDownload={() => downloadSummaryCsv(profile)}
                     onOpenPayroll={openFilteredSalaryRegister}
                     onOpenSalary={() => {
@@ -1252,15 +1214,20 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
             />
             <TakenItemsModal
                 open={Boolean(financialModalMeta)}
-                title={financialModalMeta?.title || ''}
+                title={usingDeductionList ? 'Deduction details' : financialModalMeta?.title || ''}
                 hint={
-                    financialModalMeta
-                        ? `${financialModalRows.length} record(s) · ${financialModalMeta.hint}`
-                        : ''
+                    usingDeductionList
+                        ? deductionList.hint || `${financialModalRows.length} record(s)`
+                        : financialModalMeta
+                          ? `${financialModalRows.length} record(s) · ${financialModalMeta.hint}`
+                          : ''
                 }
                 rows={financialModalRows}
-                columns={financialModalMeta?.columns}
-                onClose={() => setFinancialModalKey('')}
+                columns={usingDeductionList ? deductionColumns : financialModalMeta?.columns}
+                onClose={() => {
+                    setFinancialModalKey('');
+                    setDeductionList(null);
+                }}
                 onSelect={openFinancialItem}
             />
         </>

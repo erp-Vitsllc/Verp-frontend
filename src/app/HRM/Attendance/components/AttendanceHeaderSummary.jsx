@@ -12,6 +12,7 @@ import {
     HardHat,
     Users,
     UserX,
+    X,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 
@@ -111,23 +112,32 @@ function dayHasActivity(raw) {
     );
 }
 
+const EMPTY_PEOPLE = { present: [], absent: [], late: [], leave: [], missed: [], total: [] };
+
 function summarizeDays(payload, from, to, today) {
     const days = payload?.days && typeof payload.days === 'object' ? payload.days : {};
     const totals = { present: 0, absent: 0, late: 0, leave: 0, missed: 0, total: 0 };
+    const people = {
+        present: [],
+        absent: [],
+        late: [],
+        leave: [],
+        missed: [],
+        total: [],
+    };
     let roster = Number(payload?.totalStaff) || 0;
     let rosterDate = '';
     for (const [date, raw] of Object.entries(days)) {
         if (date < from || date > to) continue;
         const active = Number(raw?.activeEmployees) || 0;
+        const dayPeople = raw?.people || {};
         if (active && date <= today && date >= rosterDate) {
             roster = active;
             rosterDate = date;
+            people.total = Array.isArray(dayPeople.total) ? dayPeople.total : [];
         }
-        totals.present +=
-            (Number(raw?.present) || 0) +
-            (Number(raw?.lateArrived) || 0) +
-            (Number(raw?.earlyGo) || 0) +
-            (Number(raw?.halfDay) || 0);
+        // Present is on-time only. Late stays in its own row so the header matches the calendar.
+        totals.present += Number(raw?.present) || 0;
         totals.late += Number(raw?.lateArrived) || 0;
         totals.leave +=
             (Number(raw?.onLeave) || 0) +
@@ -140,12 +150,119 @@ function summarizeDays(payload, from, to, today) {
         } else {
             totals.absent += unmarked;
         }
+        if (date > today) continue;
+        for (const key of ['present', 'absent', 'late', 'leave', 'missed']) {
+            if (key === 'absent' && raw?.isWeeklyOff) continue;
+            const list = dayPeople[key];
+            if (Array.isArray(list) && list.length) people[key].push(...list);
+        }
+    }
+    for (const key of ['present', 'absent', 'late', 'leave', 'missed']) {
+        people[key].sort(
+            (a, b) => String(a.date).localeCompare(String(b.date)) || String(a.name).localeCompare(String(b.name)),
+        );
     }
     totals.total = roster;
+    totals.people = people;
     return totals;
 }
 
-const EMPTY_TOTALS = { present: 0, absent: 0, late: 0, leave: 0, missed: 0, total: 0 };
+const EMPTY_TOTALS = {
+    present: 0,
+    absent: 0,
+    late: 0,
+    leave: 0,
+    missed: 0,
+    total: 0,
+    people: EMPTY_PEOPLE,
+};
+
+function formatListDate(key) {
+    const [year, month, day] = String(key || '').split('-').map(Number);
+    if (!year || !month || !day) return key || '';
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${day} ${months[month - 1]} ${year}`;
+}
+
+function HeaderPeopleModal({ open, title, hint, rows, onClose }) {
+    useEffect(() => {
+        if (!open) return undefined;
+        const onKey = (event) => {
+            if (event.key === 'Escape') onClose?.();
+        };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [open, onClose]);
+
+    if (!open) return null;
+    const list = Array.isArray(rows) ? rows : [];
+    const dates = new Set(list.map((row) => row.date).filter(Boolean));
+    const showDate = dates.size > 1;
+
+    return (
+        <div
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
+            onClick={onClose}
+            role="presentation"
+        >
+            <div
+                className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+                onClick={(event) => event.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="attendance-header-people-title"
+            >
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                    <div className="min-w-0">
+                        <h3 id="attendance-header-people-title" className="text-base font-bold text-slate-900">
+                            {title}
+                        </h3>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                            {hint}
+                            {list.length ? ` · ${list.length}` : ''}
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        aria-label="Close"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                    {list.length === 0 ? (
+                        <p className="px-5 py-10 text-center text-sm text-slate-400">No employees in this list.</p>
+                    ) : (
+                        <table className="w-full text-left">
+                            <thead className="sticky top-0 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                <tr>
+                                    <th className="px-5 py-2 font-semibold">#</th>
+                                    <th className="px-2 py-2 font-semibold">Employee</th>
+                                    <th className="px-2 py-2 font-semibold">Emp No</th>
+                                    {showDate ? <th className="px-5 py-2 font-semibold">Date</th> : null}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {list.map((row, index) => (
+                                    <tr key={`${row.employeeMongoId}-${row.date}-${index}`} className="border-t border-slate-100 text-sm text-slate-800">
+                                        <td className="px-5 py-2.5 text-slate-400 tabular-nums">{index + 1}</td>
+                                        <td className="px-2 py-2.5 font-medium">{row.name || 'Employee'}</td>
+                                        <td className="px-2 py-2.5 tabular-nums text-slate-500">{row.employeeId || '—'}</td>
+                                        {showDate ? (
+                                            <td className="px-5 py-2.5 text-slate-500">{formatListDate(row.date)}</td>
+                                        ) : null}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
 
 function SummaryRow({ icon: Icon, iconClass, rowClass, label, hint, value, valueClass, onClick }) {
     return (
@@ -235,10 +352,14 @@ function PeopleCard({ title, hint, icon: Icon, totals, phrase, onOpen }) {
                         hint={hint}
                         value={row.value}
                         valueClass={row.valueClass}
-                        onClick={onOpen}
+                        onClick={() => onOpen?.(row.key)}
                     />
                 ))}
-                <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5">
+                <button
+                    type="button"
+                    onClick={() => onOpen?.('total')}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left hover:bg-slate-50"
+                >
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
                         <Users size={14} />
                     </span>
@@ -246,7 +367,8 @@ function PeopleCard({ title, hint, icon: Icon, totals, phrase, onOpen }) {
                         Total {title.replace('People', 'Employees')}
                     </span>
                     <span className="text-lg font-bold tabular-nums text-slate-900">{totals.total}</span>
-                </div>
+                    <ChevronRight size={14} className="shrink-0 text-slate-300" />
+                </button>
             </div>
         </div>
     );
@@ -261,6 +383,7 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
     const rangeRef = useRef(null);
     const [office, setOffice] = useState(EMPTY_TOTALS);
     const [site, setSite] = useState(EMPTY_TOTALS);
+    const [listModal, setListModal] = useState(null);
 
     const range = useMemo(
         () => rangeForPeriod(period, today, customFrom, customTo),
@@ -283,7 +406,7 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
         let cancelled = false;
         const loadGroup = async (staffType) => {
             const res = await axiosInstance.get('/Attendance/calendar', {
-                params: { from: range.from, to: range.to, staffType },
+                params: { from: range.from, to: range.to, staffType, includePeople: '1' },
                 skipToast: true,
             });
             return summarizeDays(res.data, range.from, range.to, today);
@@ -303,6 +426,26 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
             cancelled = true;
         };
     }, [range.from, range.to, today]);
+
+    const openPeopleList = (staffType, key) => {
+        onSelectGroup?.(staffType);
+        const totals = staffType === 'site' ? site : office;
+        const label = staffType === 'site' ? siteLabel : officeLabel;
+        const noun = {
+            present: 'Present',
+            absent: 'Absent',
+            late: 'Late-Arrival',
+            leave: 'Leave',
+            missed: 'Missed Punch',
+        }[key];
+        setListModal({
+            title: key === 'total'
+                ? `Total ${staffType === 'site' ? 'Site' : 'Office'} Employees`
+                : countLabel(phrase, noun || 'Employees'),
+            hint: label,
+            rows: totals.people?.[key] || [],
+        });
+    };
 
     const filterButtonClass = (selected) =>
         `h-8 px-2.5 rounded-lg text-xs font-medium whitespace-nowrap border transition-colors ${
@@ -383,7 +526,7 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
                     icon={Building2}
                     totals={office}
                     phrase={phrase}
-                    onOpen={() => onSelectGroup?.('office')}
+                    onOpen={(key) => openPeopleList('office', key)}
                 />
                 <PeopleCard
                     title="Site People"
@@ -391,9 +534,16 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
                     icon={HardHat}
                     totals={site}
                     phrase={phrase}
-                    onOpen={() => onSelectGroup?.('site')}
+                    onOpen={(key) => openPeopleList('site', key)}
                 />
             </div>
+            <HeaderPeopleModal
+                open={Boolean(listModal)}
+                title={listModal?.title || ''}
+                hint={listModal?.hint || ''}
+                rows={listModal?.rows || []}
+                onClose={() => setListModal(null)}
+            />
         </section>
     );
 }

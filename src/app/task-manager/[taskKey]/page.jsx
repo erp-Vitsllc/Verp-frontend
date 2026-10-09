@@ -27,7 +27,7 @@ const TABS = [
     { id: 'overview', label: 'Overview' },
     { id: 'workflow', label: 'Workflow' },
     { id: 'updates', label: 'Work Updates' },
-    { id: 'email', label: 'Email Notification Preview' },
+    { id: 'email', label: 'Emails' },
     { id: 'attachments', label: 'Attachments' },
     { id: 'history', label: 'History' },
 ];
@@ -147,7 +147,6 @@ function TaskDetailsPage() {
     const [people, setPeople] = useState([]);
     const [mentionIds, setMentionIds] = useState([]);
     const [busy, setBusy] = useState(false);
-    const [showMailHistory, setShowMailHistory] = useState(false);
 
     const load = useCallback(async () => {
         const res = await axiosInstance.get(`/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}`, { skipToast: true });
@@ -278,8 +277,9 @@ function TaskDetailsPage() {
     const updates = Array.isArray(task.updates) ? task.updates : [];
     const comments = Array.isArray(task.comments) ? task.comments : [];
     const number = taskNumber || task.taskNumber || '';
-    const latestUpdate = updates[0];
-    const mailHistory = [
+    const sentEmails = Array.isArray(task.emails) ? task.emails : [];
+    const loggedTaskMail = sentEmails.some((item) => /task update|work update|task comment|task created|task reassigned/i.test(`${item.emailType || ''} ${item.subject || ''}`));
+    const updateMails = loggedTaskMail ? [] : [
         ...updates.filter((item) => item.emailSent).map((item) => ({ ...item, channel: 'Task updated' })),
         ...comments.filter((item) => item.emailSent).map((item) => ({ ...item, channel: 'New comment' })),
     ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -374,7 +374,7 @@ function TaskDetailsPage() {
                                         Open this section
                                     </a>
                                 ) : null}
-                                <p className="mt-3 text-slate-500">Open Workflow to see who acted on each step. Work Updates keep the notes, and Email Notification Preview shows the messages sent for this task.</p>
+                                <p className="mt-3 text-slate-500">Open Workflow to see who acted on each step. Work Updates keep the notes, and Emails shows each message sent for this task.</p>
                             </div>
                         )}
                         {tab === 'workflow' && <WorkflowBoard actionId={task.actionId} onChanged={load} />}
@@ -445,33 +445,27 @@ function TaskDetailsPage() {
                         {tab === 'email' && (
                             <div>
                                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                                    <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-800"><Mail size={16} /> Email Notification Preview</h3>
-                                    <button type="button" onClick={() => setShowMailHistory((open) => !open)} className="h-9 rounded-lg border border-[#2563EB] px-3 text-sm font-semibold text-[#2563EB]">
-                                        {showMailHistory ? 'View email preview' : 'View Notification History'}
-                                    </button>
+                                    <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-800"><Mail size={16} /> Emails for this task</h3>
+                                    {task.accessPath ? (
+                                        <a href={task.accessPath} className="text-sm font-semibold text-[#2563EB]">Open the related page</a>
+                                    ) : null}
                                 </div>
-                                {showMailHistory ? (
-                                    <div className="space-y-2">
-                                        {mailHistory.length === 0 && <p className="text-sm text-slate-500">No emails have been sent for this task yet.</p>}
-                                        {mailHistory.map((item, index) => (
-                                            <div key={`${item.createdAt}-${index}`} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                                                <p className="font-semibold text-slate-800">{item.channel}</p>
-                                                <p className="text-slate-600">{String(item.text || '').replace(/<[^>]+>/g, '')}</p>
-                                                <p className="text-xs text-slate-400">{formatWhen(item.createdAt)}</p>
-                                            </div>
-                                        ))}
-                                    </div>
+                                {sentEmails.length === 0 && updateMails.length === 0 ? (
+                                    <p className="text-sm text-slate-500">No emails have been sent for this task yet.</p>
                                 ) : (
-                                    <div>
-                                        {task.accessPath ? (
-                                            <a href={task.accessPath} className="mb-3 inline-flex text-sm font-semibold text-[#2563EB]">Open the related page</a>
-                                        ) : null}
-                                        <EmailPreview
-                                            mode="update"
-                                            task={task}
-                                            number={number}
-                                            item={latestUpdate}
-                                        />
+                                    <div className="space-y-4">
+                                        {sentEmails.map((item) => (
+                                            <SentEmailBlock key={item.id || `${item.subject}-${item.sentAt}`} email={item} />
+                                        ))}
+                                        {updateMails.map((item, index) => (
+                                            <EmailPreview
+                                                key={`${item.createdAt}-${index}`}
+                                                mode={item.channel === 'New comment' ? 'comment' : 'update'}
+                                                task={task}
+                                                number={number}
+                                                item={item}
+                                            />
+                                        ))}
                                     </div>
                                 )}
                             </div>
@@ -612,6 +606,35 @@ function Recipient({ name, role, email, photo, active }) {
                 {active && email ? 'Will be notified' : 'Not notified'}
             </span>
         </div>
+    );
+}
+
+function SentEmailBlock({ email }) {
+    const to = (email.to || []).filter(Boolean).join(', ') || '—';
+    const cc = (email.cc || []).filter(Boolean).join(', ');
+    return (
+        <article className="overflow-hidden rounded-xl border border-slate-200">
+            <div className="border-b border-slate-100 px-4 py-3">
+                <p className="text-sm font-semibold text-slate-800">{email.subject || 'Email'}</p>
+                {email.emailType ? <p className="text-xs text-slate-500">{email.emailType}</p> : null}
+            </div>
+            <div className="space-y-1 px-4 py-3 text-sm text-slate-600">
+                <p><span className="text-slate-400">From:</span> {email.from || 'VeRP Notifications'}</p>
+                <p><span className="text-slate-400">To:</span> {to}</p>
+                {cc ? <p><span className="text-slate-400">Cc:</span> {cc}</p> : null}
+                <p><span className="text-slate-400">Date:</span> {formatWhen(email.sentAt)}</p>
+            </div>
+            {email.html ? (
+                <iframe
+                    title={email.subject || 'Email'}
+                    sandbox=""
+                    srcDoc={email.html}
+                    className="h-[420px] w-full border-t border-slate-100 bg-white"
+                />
+            ) : (
+                <p className="px-4 pb-4 text-sm text-slate-500">This email was sent before the message copy was saved. The subject and recipients above are the record of it.</p>
+            )}
+        </article>
     );
 }
 

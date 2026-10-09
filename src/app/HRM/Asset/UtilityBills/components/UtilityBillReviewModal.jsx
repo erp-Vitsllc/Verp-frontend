@@ -1267,19 +1267,19 @@ export default function UtilityBillReviewModal({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/45">
-            <div className="bg-white rounded-xl shadow-lg w-full max-w-[100rem] max-h-[95vh] overflow-hidden flex flex-col border border-gray-200">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0 bg-gradient-to-r from-gray-50 to-white">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-[2px]">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[100rem] max-h-[95vh] overflow-hidden flex flex-col border border-slate-200">
+                <div className="flex items-center justify-between px-5 py-4 shrink-0 bg-gradient-to-r from-teal-700 via-teal-600 to-slate-800">
                     <div>
-                        <h2 className="text-xl font-bold text-gray-800 tracking-tight">
+                        <h2 className="text-xl font-bold text-white tracking-tight">
                             {headerTitle}
                         </h2>
-                        <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
                             {batch?.utilityType ? (
-                                <p className="text-xs font-medium text-teal-700">{batch.utilityType}</p>
+                                <p className="text-xs font-medium text-teal-50">{batch.utilityType}</p>
                             ) : null}
                             {batch?.statusLabel ? (
-                                <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200">
+                                <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-white/15 text-white border border-white/25">
                                     {batch.statusLabel}
                                 </span>
                             ) : null}
@@ -1288,7 +1288,7 @@ export default function UtilityBillReviewModal({
                     <button
                         type="button"
                         onClick={onClose}
-                        className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors"
+                        className="p-2 rounded-xl hover:bg-white/15 text-white/90 transition-colors"
                         aria-label="Close"
                     >
                         <X size={18} />
@@ -1344,10 +1344,10 @@ export default function UtilityBillReviewModal({
                             </div>
 
                             <div className="overflow-auto flex-1 min-h-0 px-4 sm:px-5 pb-3">
-                                <div className="rounded-xl border border-gray-200 overflow-x-auto">
+                                <div className="rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
                                     <table className="min-w-[80rem] w-full text-sm">
-                                        <thead className="sticky top-0 z-10 bg-gray-50">
-                                            <tr className="border-b border-gray-200 text-[10px] uppercase tracking-wider text-gray-400">
+                                        <thead className="sticky top-0 z-10 bg-slate-800 shadow-sm">
+                                            <tr className="text-[10px] uppercase tracking-wider text-slate-100 [&_th]:bg-slate-800">
                                                 {singleBillMode ? null : (
                                                 <th className="w-12 px-3 py-3 text-center font-bold">
                                                     <input
@@ -1374,7 +1374,7 @@ export default function UtilityBillReviewModal({
                                                 </th>
                                                 <th className="px-2 py-3 text-center font-bold whitespace-nowrap min-w-[10rem]">
                                                     Account <span className="text-red-500">*</span>
-                                                    <span className="block text-[10px] font-normal text-gray-400 normal-case">
+                                                    <span className="block text-[10px] font-normal text-slate-300 normal-case">
                                                         to vendor
                                                     </span>
                                                 </th>
@@ -1977,7 +1977,7 @@ export default function UtilityBillReviewModal({
                                 <p className="px-5 pb-2 text-sm text-red-600 shrink-0">{error}</p>
                             ) : null}
 
-                            <div className="px-5 py-3.5 border-t border-gray-100 flex flex-wrap justify-end gap-2 shrink-0 bg-white">
+                            <div className="px-5 py-3.5 border-t border-slate-100 flex flex-wrap justify-end gap-2 shrink-0 bg-slate-50">
                                 <button
                                     type="button"
                                     onClick={onClose}

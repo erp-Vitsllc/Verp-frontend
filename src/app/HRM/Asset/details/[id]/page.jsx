@@ -56,7 +56,7 @@ import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingI
 import EmployeeNameLink from '@/components/EmployeeNameLink';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { isAccessoryHiddenFromLiveAssetView, isAssetStatusBlockingUnattach, isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
-import { isLeaveActive, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, getAssetDetailsPrimaryStatusLabel, getAssetWaitingForDisplayName, userIsPendingAssetActionApprover } from '@/utils/assetStatusHelpers';
+import { isLeaveActive, isLeaveDurationComplete, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, getAssetDetailsPrimaryStatusLabel, getAssetWaitingForDisplayName, userIsPendingAssetActionApprover } from '@/utils/assetStatusHelpers';
 // AccessoriesModal import removed - no longer needed
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
 import AssignAssetModal from '../../components/AssignAssetModal';
@@ -2721,7 +2721,38 @@ function AssetDetailsPageContent() {
                                     );
                                 }
 
-                                // On Service / On Leave duration expiry (today or overdue) — AC + assigned owner
+                                const leaveDurationComplete = isLeaveDurationComplete(asset);
+                                const canReassignCompletedLeave = isAssetController || userIsAdmin;
+                                if (leaveDurationComplete && canReassignCompletedLeave) {
+                                    const toolNo = String(asset?.assetId || '').trim() || 'Tool';
+                                    return (
+                                        <div
+                                            id="asset-focus-operationalExpiry"
+                                            className="flex flex-wrap items-center gap-4 px-6 py-4 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm"
+                                        >
+                                            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+                                                <AlertTriangle size={20} />
+                                            </div>
+                                            <div className="flex-1 min-w-[200px]">
+                                                <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest leading-none mb-1">
+                                                    Leave complete
+                                                </p>
+                                                <p className="text-[13px] font-bold text-amber-950 leading-snug">
+                                                    {toolNo} is complete leave take action. Leave cannot be extended. Reassign this asset to another employee.
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowAssignModal(true)}
+                                                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                            >
+                                                Reassign
+                                            </button>
+                                        </div>
+                                    );
+                                }
+
+                                // On Service duration expiry (today or overdue) — AC + assigned owner
                                 const activeServiceRecord = getActiveServiceRecord(asset);
                                 const serviceDaysRemaining = activeServiceRecord?.expiryDate
                                     ? getRemainingDaysUntil(activeServiceRecord.expiryDate)

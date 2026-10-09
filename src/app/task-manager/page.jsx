@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     AlertTriangle,
@@ -245,6 +245,7 @@ function TaskManagerContent() {
     const [summary, setSummary] = useState(EMPTY_SUMMARY);
     const [tasks, setTasks] = useState([]);
     const [viewer, setViewer] = useState(null);
+    const [canSeeAllTasks, setCanSeeAllTasks] = useState(false);
     const [scope, setScope] = useState('My Tasks');
     const [typeFilter, setTypeFilter] = useState('All Types');
     const [query, setQuery] = useState('');
@@ -262,7 +263,7 @@ function TaskManagerContent() {
     const [editTask, setEditTask] = useState(null);
     const [reassignTask, setReassignTask] = useState(null);
     const [deleteTask, setDeleteTask] = useState(null);
-    const [deleting, setDeleting] = useState(false);
+    const superScoped = useRef(false);
 
     const load = useCallback(async () => {
         setError('');
@@ -270,6 +271,13 @@ function TaskManagerContent() {
             const res = await axiosInstance.get('/Employee/task-manager/notifications', { skipToast: true });
             setSummary(res.data?.summary || EMPTY_SUMMARY);
             setTasks(Array.isArray(res.data?.tasks) ? res.data.tasks : []);
+            const canSeeAll = Boolean(res.data?.canSeeAllTasks);
+            setCanSeeAllTasks(canSeeAll);
+            if (canSeeAll && !superScoped.current) {
+                superScoped.current = true;
+                setScope('All Tasks');
+            }
+            if (!canSeeAll) setScope('My Tasks');
         } catch (err) {
             setError(err?.response?.data?.message || 'Could not load notifications.');
         } finally {
@@ -496,6 +504,7 @@ function TaskManagerContent() {
                                     className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
                                 />
                             </div>
+                            {canSeeAllTasks ? (
                             <select
                                 value={scope}
                                 onChange={(event) => {
@@ -509,6 +518,7 @@ function TaskManagerContent() {
                                     <option key={item}>{item}</option>
                                 ))}
                             </select>
+                            ) : null}
                             <select
                                 value={typeFilter}
                                 onChange={(event) => {
@@ -553,19 +563,6 @@ function TaskManagerContent() {
                             >
                                 {STATUSES.map((item) => (
                                     <option key={item}>{item}</option>
-                                ))}
-                            </select>
-                            <select
-                                value={pageSizeChoice}
-                                onChange={(event) => {
-                                    setPageSizeChoice(event.target.value);
-                                    setPage(1);
-                                }}
-                                aria-label="Tasks per page"
-                                className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-600"
-                            >
-                                {PAGE_SIZE_OPTIONS.map((item) => (
-                                    <option key={item.id} value={item.id}>{item.label} / page</option>
                                 ))}
                             </select>
                             <select
@@ -720,9 +717,24 @@ function TaskManagerContent() {
                         </div>
 
                         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-[13px] text-slate-500">
-                            <p>
-                                Showing {filtered.length === 0 ? 0 : start + 1} to {Math.min(start + pageSize, filtered.length)} of {filtered.length} tasks
-                            </p>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <p>
+                                    Showing {filtered.length === 0 ? 0 : start + 1} to {Math.min(start + pageSize, filtered.length)} of {filtered.length} tasks
+                                </p>
+                                <select
+                                    value={pageSizeChoice}
+                                    onChange={(event) => {
+                                        setPageSizeChoice(event.target.value);
+                                        setPage(1);
+                                    }}
+                                    aria-label="Tasks per page"
+                                    className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-600"
+                                >
+                                    {PAGE_SIZE_OPTIONS.map((item) => (
+                                        <option key={item.id} value={item.id}>{item.label} / page</option>
+                                    ))}
+                                </select>
+                            </div>
                             <div className="flex items-center gap-1">
                                 {pageList(safePage, pageCount).map((item, index) =>
                                     item === '…' ? (

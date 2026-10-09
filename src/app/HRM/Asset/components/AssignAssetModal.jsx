@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import {
     isAssetAssignmentAcknowledgmentPending,
-    isLeaveActive,
+    isLeaveDurationComplete,
     isPoolAssignableAssetStatus,
 } from '@/utils/assetStatusHelpers';
 import { hasPositiveAssetValue, ZERO_ASSET_VALUE_TRANSFER_MESSAGE } from '../utils/canPerformAssetAction';
@@ -391,9 +391,10 @@ export default function AssignAssetModal({
                             company email. The new assignee must approve or reject.
                         </div>
                     )}
-                    {selectedAsset && isLeaveActive(selectedAsset) && !isTransferAssignee && (
-                        <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-900">
-                            <strong>Parking transfer:</strong> This asset is on leave. The new holder will be <strong>Assigned</strong> with <strong>On Leave = Yes</strong>. Parking duration and settings stay unchanged until the period ends or Asset Controller extends/returns.
+                    {selectedAsset && isLeaveDurationComplete(selectedAsset) && !isTransferAssignee && (
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950">
+                            Leave for <strong>{selectedAsset.assetId}</strong> is complete and cannot be extended.
+                            Reassigning moves this asset to the new employee.
                         </div>
                     )}
 
