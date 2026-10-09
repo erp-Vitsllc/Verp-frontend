@@ -961,6 +961,14 @@ function kindLabel(kind) {
     return LEGEND.find((item) => item.key === kind)?.label || 'No mark';
 }
 
+function attentionLabel(record) {
+    const key = String(record?.statusKey || '');
+    if (key === 'mispunch') return 'Missed Punch';
+    if (key === 'early_go') return 'Early Out';
+    if (key === 'late_arrived') return 'Late Arrival';
+    return '';
+}
+
 function eventRowsFromRecords(records, key) {
     return (records || [])
         .filter((row) => String(row?.statusKey || '') === key)
@@ -2188,34 +2196,34 @@ export default function EmployeeInformationDashboard({
                 </div>
 
                 <div className="flex min-w-0 flex-col gap-3">
-                    <section className="relative rounded-2xl border border-[#E6EDF5] bg-white p-4">
-                        <div className="mb-3 flex items-center gap-2.5">
-                            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#EEF2FF] text-[#2563EB]">
-                                <CalendarDays size={16} strokeWidth={2.25} />
+                    <section className="relative rounded-2xl border border-[#E6EDF5] bg-white p-3">
+                        <div className="mb-2 flex items-center gap-2">
+                            <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#EEF2FF] text-[#2563EB]">
+                                <CalendarDays size={14} strokeWidth={2.25} />
                             </span>
-                            <h2 className="text-[15px] font-bold text-[#1B2A4A]">Attendance Calendar</h2>
+                            <h2 className="text-[14px] font-bold text-[#1B2A4A]">Attendance Calendar</h2>
                         </div>
-                        <div className="mb-3 flex items-center justify-between gap-2">
-                            <div className="inline-flex h-9 items-center rounded-lg border border-[#E6EDF5] bg-white">
-                                <button type="button" onClick={() => shiftMonth(-1)} className="inline-flex h-9 w-9 items-center justify-center text-[#64748B]" aria-label="Previous month"><ChevronLeft size={16} /></button>
-                                <span className="min-w-[8.5rem] text-center text-[14px] font-semibold text-[#1B2A4A]">{formatMonthLabel(monthKey)}</span>
-                                <button type="button" onClick={() => shiftMonth(1)} className="inline-flex h-9 w-9 items-center justify-center text-[#64748B]" aria-label="Next month"><ChevronRight size={16} /></button>
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="inline-flex h-8 items-center rounded-lg border border-[#E6EDF5] bg-white">
+                                <button type="button" onClick={() => shiftMonth(-1)} className="inline-flex h-8 w-8 items-center justify-center text-[#64748B]" aria-label="Previous month"><ChevronLeft size={14} /></button>
+                                <span className="min-w-[7.5rem] text-center text-[13px] font-semibold text-[#1B2A4A]">{formatMonthLabel(monthKey)}</span>
+                                <button type="button" onClick={() => shiftMonth(1)} className="inline-flex h-8 w-8 items-center justify-center text-[#64748B]" aria-label="Next month"><ChevronRight size={14} /></button>
                             </div>
-                            <button type="button" onClick={() => selectMonth(currentMonth)} className="h-9 rounded-lg border border-[#E6EDF5] px-3.5 text-[13px] font-semibold text-[#2563EB]">Today</button>
+                            <button type="button" onClick={() => selectMonth(currentMonth)} className="h-8 rounded-lg border border-[#E6EDF5] px-3 text-[12px] font-semibold text-[#2563EB]">Today</button>
                         </div>
                         {monthError ? (
                             <button type="button" onClick={loadMonth} className="py-6 text-[12px] text-red-500">{monthError} · Retry</button>
                         ) : monthLoading ? (
                             <p className="py-6 text-center text-[12px] text-[#94A3B8]">Loading calendar…</p>
                         ) : (
-                            <div className="flex items-start gap-4">
-                                <div className="min-w-0 flex-1">
-                                    <div className="mb-2 grid grid-cols-7 gap-2">
+                            <div className="flex items-start gap-3">
+                                <div className="w-max max-w-full">
+                                    <div className="mb-1 grid grid-cols-7 gap-1">
                                         {WEEKDAYS.map((day) => (
-                                            <div key={day} className="text-center text-[12px] font-medium text-[#94A3B8]">{day}</div>
+                                            <div key={day} className="w-8 text-center text-[11px] font-medium text-[#94A3B8]">{day}</div>
                                         ))}
                                     </div>
-                                    <div className="grid grid-cols-7 gap-2">
+                                    <div className="grid w-max grid-cols-7 gap-1">
                                         {calendarDays.map((day) => {
                                             const dateKey = format(day, 'yyyy-MM-dd');
                                             const inMonth = dateKey.slice(0, 7) === monthKey;
@@ -2234,6 +2242,7 @@ export default function EmployeeInformationDashboard({
                                             const tone = TIP_TONE[kind] || TIP_TONE.empty;
                                             const column = (getDay(day) + 6) % 7;
                                             const placeText = place.label || (place.hasMap ? `${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}` : '—');
+                                            const yellowLabel = kind === 'attention' ? attentionLabel(record) : '';
                                             return (
                                                 <div
                                                     key={dateKey}
@@ -2241,27 +2250,31 @@ export default function EmployeeInformationDashboard({
                                                     onMouseEnter={() => inMonth && setHoveredDate(dateKey)}
                                                     onMouseLeave={() => setHoveredDate('')}
                                                 >
-                                                    <div className={`flex aspect-square items-center justify-center rounded-lg text-[14px] font-semibold tabular-nums ${DAY_STYLE[kind] || DAY_STYLE.empty}`}>{format(day, 'd')}</div>
+                                                    <div className={`flex h-8 w-8 items-center justify-center rounded-md text-[12px] font-semibold tabular-nums ${DAY_STYLE[kind] || DAY_STYLE.empty}`}>{format(day, 'd')}</div>
                                                     {hoveredDate === dateKey && inMonth && !salaryLock.locked ? (
-                                                        <div className={`absolute z-30 w-56 rounded-xl border border-[#E6EDF5] bg-white p-3 text-left shadow-xl ${column >= 4 ? 'right-full mr-1.5' : 'left-full ml-1.5'} ${Number(format(day, 'd')) > 20 ? 'bottom-0' : 'top-0'}`}>
-                                                            <p className="text-[13px] font-bold text-[#1B2A4A]">{format(day, 'd MMMM yyyy')}</p>
+                                                        <div className={`absolute z-30 w-52 rounded-xl border border-[#E6EDF5] bg-white p-2.5 text-left shadow-xl ${column >= 4 ? 'right-full mr-1.5' : 'left-full ml-1.5'} ${Number(format(day, 'd')) > 20 ? 'bottom-0' : 'top-0'}`}>
+                                                            <p className="text-[12px] font-bold text-[#1B2A4A]">{format(day, 'd MMMM yyyy')}</p>
                                                             <p className={`mt-1 flex items-center gap-1.5 text-[12px] font-semibold ${tone.text}`}>
                                                                 <span className={`h-2 w-2 rounded-full ${tone.dot}`} />
-                                                                {kindLabel(kind)}
-                                                                {holidayNamesByDate[dateKey] ? ` · ${holidayNamesByDate[dateKey]}` : ''}
+                                                                {yellowLabel || kindLabel(kind)}
+                                                                {!yellowLabel && holidayNamesByDate[dateKey] ? ` · ${holidayNamesByDate[dateKey]}` : ''}
                                                             </p>
-                                                            <div className="mt-2 space-y-1.5 text-[12px] text-[#1B2A4A]">
-                                                                <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Time In</span><span className="font-medium">{formatClock12(record?.timeIn)}</span></p>
-                                                                <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Time Out</span><span className="font-medium">{formatClock12(record?.timeOut)}</span></p>
-                                                                <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Worked</span><span className="font-medium">{worked == null ? '—' : formatDuration(worked)}</span></p>
-                                                                <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Late</span><span className="font-medium">{dayLateText(record, scheduleWeek)}</span></p>
-                                                                <p className="flex items-start justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><MapPin size={12} /> Location</span><span className="text-right font-medium">{placeText}</span></p>
-                                                            </div>
-                                                            {place.mapHref ? (
-                                                                <a href={place.mapHref} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold text-[#2563EB]">
-                                                                    View on Map <ExternalLink size={12} />
-                                                                </a>
-                                                            ) : null}
+                                                            {yellowLabel ? null : (
+                                                                <>
+                                                                    <div className="mt-2 space-y-1.5 text-[12px] text-[#1B2A4A]">
+                                                                        <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Time In</span><span className="font-medium">{formatClock12(record?.timeIn)}</span></p>
+                                                                        <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Time Out</span><span className="font-medium">{formatClock12(record?.timeOut)}</span></p>
+                                                                        <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Worked</span><span className="font-medium">{worked == null ? '—' : formatDuration(worked)}</span></p>
+                                                                        <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Late</span><span className="font-medium">{dayLateText(record, scheduleWeek)}</span></p>
+                                                                        <p className="flex items-start justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><MapPin size={12} /> Location</span><span className="text-right font-medium">{placeText}</span></p>
+                                                                    </div>
+                                                                    {place.mapHref ? (
+                                                                        <a href={place.mapHref} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold text-[#2563EB]">
+                                                                            View on Map <ExternalLink size={12} />
+                                                                        </a>
+                                                                    ) : null}
+                                                                </>
+                                                            )}
                                                         </div>
                                                     ) : null}
                                                 </div>
@@ -2269,11 +2282,11 @@ export default function EmployeeInformationDashboard({
                                         })}
                                     </div>
                                 </div>
-                                <div className="w-[9.25rem] shrink-0 space-y-2 pt-7">
-                                    <p className="text-[13px] font-semibold text-[#64748B]">Legend</p>
+                                <div className="w-[8.5rem] shrink-0 space-y-1 pt-5">
+                                    <p className="text-[12px] font-semibold text-[#64748B]">Legend</p>
                                     {LEGEND.map((item) => (
-                                        <span key={item.key} className="flex items-center gap-2 text-[12px] leading-tight text-[#64748B]">
-                                            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${item.swatch}`} />
+                                        <span key={item.key} className="flex items-center gap-1.5 text-[11px] leading-tight text-[#64748B]">
+                                            <span className={`h-2 w-2 shrink-0 rounded-full ${item.swatch}`} />
                                             {item.label}
                                         </span>
                                     ))}
