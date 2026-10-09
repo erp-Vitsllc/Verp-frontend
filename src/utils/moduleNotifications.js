@@ -37,6 +37,7 @@ import {
     isNotificationTypeHidden,
     loadNotificationChannelMap,
 } from '@/utils/notificationChannelPermissionUi';
+import { isTaskManagerHubRequest } from '@/utils/employeeHubRequest';
 import {
     fetchAssetPendingInbox,
     fetchFinePendingInbox,
@@ -670,9 +671,9 @@ export function buildModuleNotificationBundle(feeds = {}) {
     const loan = (Array.isArray(loanItems) ? loanItems : []).map((row) =>
         pendingInboxToItem(row, 'Loan and Advance'),
     );
-    const attendance = (Array.isArray(attendanceItems) ? attendanceItems : []).map((row) =>
-        pendingInboxToItem(row, 'Attendance'),
-    );
+    const attendance = (Array.isArray(attendanceItems) ? attendanceItems : [])
+        .filter((row) => !isTaskManagerHubRequest(row))
+        .map((row) => pendingInboxToItem(row, 'Attendance'));
     const leave = (Array.isArray(leaveItems) ? leaveItems : []).map((row) =>
         pendingInboxToItem(row, 'Leave'),
     );

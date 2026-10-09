@@ -12,6 +12,7 @@ import MarkAttendanceDetailsModal, {
 } from './MarkAttendanceDetailsModal';
 import { PunchLocationPinCell, PunchTypeCell } from './MarkAttendancePunchCells';
 import FlexibleOtModal from './FlexibleOtModal';
+import HourAdjustModal, { hourAdjustOffer } from './HourAdjustModal';
 import CompOffSettleModal from '../../components/CompOffSettleModal';
 
 const MARK_OPTIONS = [
@@ -178,6 +179,7 @@ function markForNonWorkingDay(mark, timeIn, timeOut, dayBaseline) {
 function formatStatusLabel(mark, timeIn, pastDay = false) {
     const key = String(mark?.key || '').trim();
     const raw = String(mark?.label || '').trim();
+    if (/\(Approved\)/i.test(raw)) return raw;
     const kind = String(mark?.leaveRequestKind || '').trim();
     const punchedIn = Boolean(timeIn && timeIn !== '—');
     const missedDay = pastDay ? 'Unauth' : 'Absent';
@@ -264,6 +266,13 @@ function applyDayRecordsToState(employees, records) {
             checkOutLocation: rec.checkOutLocation || null,
             leaveRequestStatus: rec.leaveRequestStatus || '',
             leaveRequestKind: rec.leaveRequestKind || '',
+            leaveRequestSession: rec.leaveRequestSession || '',
+            hourAdjustStatus: rec.hourAdjustStatus || '',
+            hourAdjustKind: rec.hourAdjustKind || '',
+            hoursTaken: rec.hoursTaken || 0,
+            hoursMax: rec.hoursMax || 0,
+            hoursApproved: rec.hoursApproved || 0,
+            hourAdjustReason: rec.hourAdjustReason || '',
             approvalStatus: rec.approvalStatus || '',
             attendanceId: String(rec._id || ''),
             date: rec.date || '',
@@ -451,6 +460,8 @@ function EmployeeRow({
     onRequestMark,
     onRequestOt,
     onSettleCompOff,
+    onRequestHour,
+    canReviewHour = false,
     canRequestOt = false,
     otDirect = false,
     canReviewOt = false,
@@ -491,6 +502,8 @@ function EmployeeRow({
 
     const shift = shiftMarks(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
     const otText = otCellLabel(mark);
+    const hourOffer = hourAdjustOffer(shownMark);
+    const hourPending = String(shownMark?.hourAdjustStatus || '') === 'pending';
     const showOtRequest = Number(mark?.flexibleOtHours) > 0 && !otText;
     const nextDayOt = Number(mark?.flexibleOtHours) > 10;
 
@@ -595,6 +608,19 @@ function EmployeeRow({
             </td>
             <td className="px-2 py-3 align-middle text-right">
                 <div className="relative inline-flex items-center justify-end min-h-[32px]">
+                    {hourOffer && String(mark?.hourAdjustStatus || '') !== 'approved' ? (
+                        <button
+                            type="button"
+                            disabled={rowLocked || (hourPending && !canReviewHour)}
+                            title={lockTitle || hourOffer.title}
+                            onClick={() => {
+                                if (!rowLocked) onRequestHour?.(employee, mark);
+                            }}
+                            className="h-7 whitespace-nowrap rounded-md border border-blue-200 bg-white px-2 text-[10px] font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                            {hourPending ? (canReviewHour ? 'Review hours' : 'Pending') : hourOffer.button}
+                        </button>
+                    ) : (
                     <button
                         ref={buttonRef}
                         type="button"
@@ -610,6 +636,7 @@ function EmployeeRow({
                     >
                         Mark
                     </button>
+                    )}
                     {menuOpen && anchorRect ? (
                         <MarkAttendanceMenu
                             anchorRect={anchorRect}
@@ -627,7 +654,7 @@ function EmployeeRow({
     );
 }
 
-export default function MarkAttendanceTable({ dateKey, staffType = 'office', otAttendanceId = '' }) {
+export default function MarkAttendanceTable({ dateKey, staffType = 'office', otAttendanceId = '', hourAttendanceId = '' }) {
     const [allEmployees, setAllEmployees] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -647,6 +674,8 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
     const [bulkAnchorRect, setBulkAnchorRect] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [otModal, setOtModal] = useState(null);
+    const [hourModal, setHourModal] = useState(null);
+    const [scheduleWeek, setScheduleWeek] = useState(null);
     const [compOffEmployee, setCompOffEmployee] = useState(null);
     const viewerId = useMemo(() => currentEmployeeMongoId(), []);
     const bulkButtonRef = useRef(null);
@@ -704,6 +733,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                 if (!cancelled) {
                     setHolidayDates(dates);
                     setOffWeekdays(offs);
+                    setScheduleWeek(week);
                 }
             } catch {
                 if (!cancelled) {
@@ -784,6 +814,14 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                         setOtModal({ employee: match, mark: nextMarks[match.id], mode: 'review' });
                     }
                 }
+                if (hourAttendanceId) {
+                    const match = nextEmployees.find(
+                        (row) => nextMarks[row.id]?.attendanceId === String(hourAttendanceId),
+                    );
+                    if (match && nextMarks[match.id]?.hourAdjustStatus === 'pending') {
+                        setHourModal({ employee: match, mark: nextMarks[match.id], mode: 'review' });
+                    }
+                }
             } catch {
                 if (!cancelled) {
                     dayRecordsRef.current = [];
@@ -798,7 +836,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
         return () => {
             cancelled = true;
         };
-    }, [dateKey, loading, allEmployees, dayReload, otAttendanceId]);
+    }, [dateKey, loading, allEmployees, dayReload, otAttendanceId, hourAttendanceId]);
 
     useEffect(() => {
         setSearchQuery('');
@@ -1263,6 +1301,22 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                     })
                                 }
                                 onSettleCompOff={setCompOffEmployee}
+                                canReviewHour={
+                                    isFlowchartHr &&
+                                    String(marks[employee.id]?.hourAdjustStatus || '') === 'pending'
+                                }
+                                onRequestHour={(row, mark) =>
+                                    setHourModal({
+                                        employee: row,
+                                        mark,
+                                        mode:
+                                            isFlowchartHr && String(mark?.hourAdjustStatus || '') === 'pending'
+                                                ? 'review'
+                                                : isFlowchartHr
+                                                  ? 'direct'
+                                                  : 'request',
+                                    })
+                                }
                             />
                         ))}
                     </tbody>
@@ -1289,6 +1343,15 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                     setFormState(null);
                     if (ids.length) applyMarkToIds(ids, payload);
                 }}
+            />
+            <HourAdjustModal
+                open={Boolean(hourModal)}
+                mode={hourModal?.mode}
+                employee={hourModal?.employee}
+                mark={hourModal?.mark}
+                week={scheduleWeek}
+                onClose={() => setHourModal(null)}
+                onSaved={() => setDayReload((value) => value + 1)}
             />
             <CompOffSettleModal
                 open={Boolean(compOffEmployee)}

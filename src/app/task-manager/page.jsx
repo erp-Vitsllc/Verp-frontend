@@ -6,6 +6,7 @@ import {
     AlertTriangle,
     ArrowDown,
     ArrowUp,
+    Calendar,
     CheckCircle2,
     Clock,
     FileText,
@@ -28,7 +29,17 @@ const PAGE_SIZE_OPTIONS = [
     { id: '100', label: '100' },
     { id: 'all', label: 'All' },
 ];
-const SCOPES = ['My Tasks', 'All Tasks'];
+const SCOPES = ['My Task', 'All Task'];
+const DATE_RANGES = [
+    { id: 'all', label: 'All Days' },
+    { id: 'today', label: 'Today' },
+    { id: 'prevDay', label: 'Prev Day' },
+    { id: 'thisMonth', label: 'This Month' },
+    { id: 'prevMonth', label: 'Prev Month' },
+    { id: 'thisYear', label: 'This Year' },
+    { id: 'prevYear', label: 'Prev Year' },
+    { id: 'custom', label: 'Custom' },
+];
 const TYPE_FILTERS = ['All Types', 'System Task', 'Workflow Task', 'General Task'];
 const STATUSES = ['All Status', 'Pending', 'Overdue', 'Completed', 'Cancelled'];
 const PRIORITIES = ['All Priority', 'High', 'Medium', 'Low'];
@@ -111,8 +122,44 @@ function isMyTask(task, viewer) {
         .map((value) => String(value || '').trim().toLowerCase())
         .filter(Boolean);
     const assignee = String(task.assigneeName || '').trim().toLowerCase();
-    const requester = String(task.requesterName || '').trim().toLowerCase();
-    return (assignee && names.includes(assignee)) || (requester && names.includes(requester));
+    return Boolean(assignee && names.includes(assignee));
+}
+
+function addDays(key, days) {
+    const [year, month, day] = key.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day + days));
+    const y = date.getUTCFullYear();
+    const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(date.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function monthBounds(year, month) {
+    const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const mm = String(month).padStart(2, '0');
+    return { from: `${year}-${mm}-01`, to: `${year}-${mm}-${String(last).padStart(2, '0')}` };
+}
+
+function resolveDateRange(preset, customFrom, customTo) {
+    if (preset === 'custom') return { from: customFrom || '', to: customTo || '' };
+    if (preset === 'all') return { from: '', to: '' };
+    const today = dateKey(new Date());
+    if (!today) return { from: '', to: '' };
+    const [year, month] = today.split('-').map(Number);
+    if (preset === 'today') return { from: today, to: today };
+    if (preset === 'prevDay') {
+        const prev = addDays(today, -1);
+        return { from: prev, to: prev };
+    }
+    if (preset === 'thisMonth') return monthBounds(year, month);
+    if (preset === 'prevMonth') {
+        const prevMonth = month === 1 ? 12 : month - 1;
+        const prevYear = month === 1 ? year - 1 : year;
+        return monthBounds(prevYear, prevMonth);
+    }
+    if (preset === 'thisYear') return { from: `${year}-01-01`, to: `${year}-12-31` };
+    if (preset === 'prevYear') return { from: `${year - 1}-01-01`, to: `${year - 1}-12-31` };
+    return { from: '', to: '' };
 }
 
 function dateKey(value) {
@@ -245,15 +292,16 @@ function TaskManagerContent() {
     const [summary, setSummary] = useState(EMPTY_SUMMARY);
     const [tasks, setTasks] = useState([]);
     const [viewer, setViewer] = useState(null);
-    const [canSeeAllTasks, setCanSeeAllTasks] = useState(false);
-    const [scope, setScope] = useState('My Tasks');
+    const [scope, setScope] = useState('My Task');
     const [typeFilter, setTypeFilter] = useState('All Types');
     const [query, setQuery] = useState('');
     const [requesterQuery, setRequesterQuery] = useState('');
     const [assigneeQuery, setAssigneeQuery] = useState('');
+    const [datePreset, setDatePreset] = useState('all');
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
-    const [status, setStatus] = useState('All Status');
+    const [customOpen, setCustomOpen] = useState(false);
+    const [status, setStatus] = useState('Pending');
     const [priority, setPriority] = useState('All Priority');
     const [pageSizeChoice, setPageSizeChoice] = useState('10');
     const [page, setPage] = useState(1);
@@ -263,7 +311,8 @@ function TaskManagerContent() {
     const [editTask, setEditTask] = useState(null);
     const [reassignTask, setReassignTask] = useState(null);
     const [deleteTask, setDeleteTask] = useState(null);
-    const superScoped = useRef(false);
+    const [deleting, setDeleting] = useState(false);
+    const customRef = useRef(null);
 
     const load = useCallback(async () => {
         setError('');
@@ -271,13 +320,6 @@ function TaskManagerContent() {
             const res = await axiosInstance.get('/Employee/task-manager/notifications', { skipToast: true });
             setSummary(res.data?.summary || EMPTY_SUMMARY);
             setTasks(Array.isArray(res.data?.tasks) ? res.data.tasks : []);
-            const canSeeAll = Boolean(res.data?.canSeeAllTasks);
-            setCanSeeAllTasks(canSeeAll);
-            if (canSeeAll && !superScoped.current) {
-                superScoped.current = true;
-                setScope('All Tasks');
-            }
-            if (!canSeeAll) setScope('My Tasks');
         } catch (err) {
             setError(err?.response?.data?.message || 'Could not load notifications.');
         } finally {
@@ -290,6 +332,15 @@ function TaskManagerContent() {
         setViewer(readViewer());
         load();
     }, [load]);
+
+    useEffect(() => {
+        if (!customOpen) return undefined;
+        const close = (event) => {
+            if (customRef.current && !customRef.current.contains(event.target)) setCustomOpen(false);
+        };
+        window.addEventListener('mousedown', close);
+        return () => window.removeEventListener('mousedown', close);
+    }, [customOpen]);
 
     useEffect(() => {
         if (!openMenu) return undefined;
@@ -308,21 +359,26 @@ function TaskManagerContent() {
         return map;
     }, [tasks]);
 
+    const activeRange = useMemo(
+        () => resolveDateRange(datePreset, fromDate, toDate),
+        [datePreset, fromDate, toDate],
+    );
+
     const filtered = useMemo(() => {
         const needle = query.trim().toLowerCase();
         const requesterNeedle = requesterQuery.trim().toLowerCase();
         const assigneeNeedle = assigneeQuery.trim().toLowerCase();
         return tasks.filter((task) => {
             const shown = listStatus(task);
-            if (scope === 'My Tasks' && !isMyTask(task, viewer)) return false;
+            if (scope === 'My Task' && !isMyTask(task, viewer)) return false;
             if (typeFilter !== 'All Types' && displayTaskType(task.taskCategory) !== typeFilter) return false;
-            if (scope === 'All Tasks' && status === 'All Status' && (shown === 'Completed' || shown === 'Cancelled')) return false;
+            if (scope === 'All Task' && status === 'All Status' && (shown === 'Completed' || shown === 'Cancelled')) return false;
             if (status !== 'All Status' && shown !== status) return false;
             if (priority !== 'All Priority' && task.priority !== priority) return false;
             const key = dateKey(task.requestDate);
-            if ((fromDate || toDate) && !key) return false;
-            if (fromDate && key < fromDate) return false;
-            if (toDate && key > toDate) return false;
+            if ((activeRange.from || activeRange.to) && !key) return false;
+            if (activeRange.from && key < activeRange.from) return false;
+            if (activeRange.to && key > activeRange.to) return false;
             if (requesterNeedle && !String(task.requesterName || '').toLowerCase().includes(requesterNeedle)) return false;
             if (assigneeNeedle) {
                 const assigneeText = [task.assigneeName, task.assigneeEmpId].filter(Boolean).join(' ').toLowerCase();
@@ -344,7 +400,7 @@ function TaskManagerContent() {
                 .toLowerCase()
                 .includes(needle);
         });
-    }, [tasks, titles, viewer, scope, typeFilter, query, requesterQuery, assigneeQuery, fromDate, toDate, status, priority]);
+    }, [tasks, titles, viewer, scope, typeFilter, query, requesterQuery, assigneeQuery, activeRange, status, priority]);
 
     const pageSize = pageSizeChoice === 'all' ? Math.max(filtered.length, 1) : Number(pageSizeChoice);
     const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -366,15 +422,17 @@ function TaskManagerContent() {
     }, [page, pageCount]);
 
     const resetFilters = () => {
-        setScope('My Tasks');
+        setScope('My Task');
         setTypeFilter('All Types');
         setPageSizeChoice('10');
         setQuery('');
         setRequesterQuery('');
         setAssigneeQuery('');
+        setDatePreset('all');
         setFromDate('');
         setToDate('');
-        setStatus('All Status');
+        setCustomOpen(false);
+        setStatus('Pending');
         setPriority('All Priority');
         setPage(1);
     };
@@ -504,21 +562,19 @@ function TaskManagerContent() {
                                     className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
                                 />
                             </div>
-                            {canSeeAllTasks ? (
                             <select
                                 value={scope}
                                 onChange={(event) => {
                                     setScope(event.target.value);
                                     setPage(1);
                                 }}
-                                aria-label="My tasks or all tasks"
+                                aria-label="My task or all tasks"
                                 className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
                             >
                                 {SCOPES.map((item) => (
                                     <option key={item}>{item}</option>
                                 ))}
                             </select>
-                            ) : null}
                             <select
                                 value={typeFilter}
                                 onChange={(event) => {
@@ -532,26 +588,67 @@ function TaskManagerContent() {
                                     <option key={item}>{item}</option>
                                 ))}
                             </select>
-                            <input
-                                type="date"
-                                value={fromDate}
-                                onChange={(event) => {
-                                    setFromDate(event.target.value);
-                                    setPage(1);
-                                }}
-                                aria-label="From date"
-                                className="h-9 shrink-0 rounded-lg border border-slate-200 px-2 text-[13px] text-slate-600"
-                            />
-                            <input
-                                type="date"
-                                value={toDate}
-                                onChange={(event) => {
-                                    setToDate(event.target.value);
-                                    setPage(1);
-                                }}
-                                aria-label="To date"
-                                className="h-9 shrink-0 rounded-lg border border-slate-200 px-2 text-[13px] text-slate-600"
-                            />
+                            <div className="relative shrink-0" ref={customRef}>
+                                <select
+                                    value={datePreset}
+                                    onChange={(event) => {
+                                        const value = event.target.value;
+                                        setDatePreset(value);
+                                        setPage(1);
+                                        if (value === 'custom') {
+                                            setCustomOpen(true);
+                                        } else {
+                                            setCustomOpen(false);
+                                        }
+                                    }}
+                                    onClick={() => {
+                                        if (datePreset === 'custom') setCustomOpen(true);
+                                    }}
+                                    aria-label="Request date"
+                                    className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
+                                >
+                                    {DATE_RANGES.map((item) => (
+                                        <option key={item.id} value={item.id}>{item.label}</option>
+                                    ))}
+                                </select>
+                                {customOpen && (
+                                    <div className="absolute right-0 top-11 z-30 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+                                        <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                                            <Calendar size={13} /> Custom dates
+                                        </p>
+                                        <label className="block text-[11px] font-medium text-slate-400">
+                                            From
+                                            <input
+                                                type="date"
+                                                value={fromDate}
+                                                onChange={(event) => setFromDate(event.target.value)}
+                                                aria-label="From date"
+                                                className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-[13px] text-slate-700"
+                                            />
+                                        </label>
+                                        <label className="mt-2 block text-[11px] font-medium text-slate-400">
+                                            To
+                                            <input
+                                                type="date"
+                                                value={toDate}
+                                                onChange={(event) => setToDate(event.target.value)}
+                                                aria-label="To date"
+                                                className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-[13px] text-slate-700"
+                                            />
+                                        </label>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setCustomOpen(false);
+                                                setPage(1);
+                                            }}
+                                            className="mt-3 h-8 w-full rounded-lg bg-[#2563EB] text-[13px] font-semibold text-white"
+                                        >
+                                            Apply
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                             <select
                                 value={status}
                                 onChange={(event) => {
@@ -770,14 +867,16 @@ function TaskManagerContent() {
                 }}
                 onCreated={(created) => {
                     if (!editTask) {
-                        setScope('My Tasks');
+                        setScope('My Task');
                         setTypeFilter(displayTaskType(created?.taskType || created?.taskCategory) || 'All Types');
                         setQuery('');
                         setRequesterQuery('');
                         setAssigneeQuery('');
+                        setDatePreset('all');
                         setFromDate('');
                         setToDate('');
-                        setStatus('All Status');
+                        setCustomOpen(false);
+                        setStatus('Pending');
                         setPriority(created?.priority || 'All Priority');
                     }
                     setPage(1);

@@ -332,6 +332,7 @@ export default function Sidebar() {
         status: 'online'
     });
     const [sidebarCounts, setSidebarCounts] = useState(EMPTY_SIDEBAR_COUNTS);
+    const [taskManagerCount, setTaskManagerCount] = useState(0);
     const [canRestoreRecovery, setCanRestoreRecovery] = useState(false);
     const [canWhatsAppInbox, setCanWhatsAppInbox] = useState(false);
     const [canNotificationEmails, setCanNotificationEmails] = useState(false);
@@ -413,6 +414,14 @@ export default function Sidebar() {
 
         const loadSidebarCounts = async () => {
             if (shouldSkipSidebarPolling()) return;
+
+            axiosInstance
+                .get('/Employee/task-manager/assignee-count', { skipToast: true })
+                .then((res) => {
+                    const count = Number(res.data?.count) || 0;
+                    setTaskManagerCount((prev) => (prev === count ? prev : count));
+                })
+                .catch(() => {});
 
             const peeked =
                 peekCachedModuleNotificationBundle()?.counts ||
@@ -1059,6 +1068,11 @@ export default function Sidebar() {
                                             >
                                                 <Icon size={20} strokeWidth={SIDEBAR_ICON_STROKE} className={`shrink-0 ${finalIsActive ? '!text-white' : 'text-slate-400 group-hover:text-slate-200'}`} />
                                                 <span className={`ml-3 text-sm font-medium flex-1 text-left ${finalIsActive ? '!text-white' : ''}`}>{item.label}</span>
+                                                {item.id === 'task-manager' && taskManagerCount > 0 && (
+                                                    <span className="ml-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622] tabular-nums">
+                                                        {taskManagerCount > 99 ? '99+' : taskManagerCount}
+                                                    </span>
+                                                )}
                                             </Link>
                                         ) : (
                                             <button

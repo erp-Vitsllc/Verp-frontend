@@ -240,12 +240,6 @@ function formatClock12(value) {
     return `${hour}:${String(mins).padStart(2, '0')} ${suffix}`;
 }
 
-function wholeOtHours(value) {
-    const hours = Number(value);
-    if (!Number.isFinite(hours) || hours <= 0) return 0;
-    return Math.floor(hours + 1e-9);
-}
-
 function formatDuration(minutes) {
     if (minutes == null || minutes < 0) return '—';
     const hours = Math.floor(minutes / 60);
@@ -606,6 +600,11 @@ function dayCountLabel(count) {
     return `${total} ${total === 1 ? 'Day' : 'Days'}`;
 }
 
+function hourCountLabel(hours) {
+    const total = Math.round((Number(hours) || 0) * 100) / 100;
+    return `${total} ${total === 1 ? 'Hour' : 'Hours'}`;
+}
+
 function summarizeOvertimeDetails(records) {
     const byDate = new Map();
     (records || []).forEach((row) => {
@@ -729,9 +728,55 @@ function leaveChargeDays(records, key) {
     }, 0);
 }
 
+function deductionKind(row) {
+    if (String(row?.hourAdjustStatus || '') === 'approved' && row?.hourAdjustKind) {
+        return String(row.hourAdjustKind);
+    }
+    const key = String(row?.statusKey || '');
+    const text = `${row?.statusLabel || ''} ${row?.reason || ''}`;
+    const session = String(row?.leaveRequestSession || '');
+    if (key === 'mispunch' || /mispunch/i.test(text)) return 'mispunch';
+    if (key === 'early_go') return 'early_go';
+    if (key === 'late_arrived') return 'late_arrived';
+    if (key === 'unauthorized_leave' && (session === 'pm' || /early/i.test(text) || /\(PM\)/i.test(text))) return 'early_go';
+    if (key === 'unauthorized_leave' && (session === 'am' || /\(AM\)/i.test(text) || /late arrival/i.test(text))) {
+        return 'late_arrived';
+    }
+    return key;
+}
+
+function dayHoursOf(week, dateKey) {
+    const shift = shiftForDate(week, dateKey);
+    if (shift) return (shift.end - shift.start) / 60;
+    return 8;
+}
+
+function takenHoursOf(row, week, kind) {
+    const shift = shiftForDate(week, row?.date);
+    if (kind === 'early_go' && shift) {
+        const out = clockToMinutes(row?.timeOut);
+        if (out != null) return Math.max(0, (shift.end - out) / 60);
+    }
+    if (kind === 'late_arrived' && shift) {
+        const inn = clockToMinutes(row?.timeIn);
+        if (inn != null) return Math.max(0, (inn - shift.start) / 60);
+    }
+    return dayHoursOf(week, row?.date);
+}
+
+function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
+    const dayHours = dayHoursOf(week, row?.date) || 8;
+    const approved = String(row?.hourAdjustStatus || '') === 'approved' && n(row?.hoursApproved) > 0;
+    const hours = approved
+        ? n(row.hoursApproved)
+        : (n(row?.hoursTaken) || takenHoursOf(row, week, kind)) * unauthTimes;
+    if (!(hours > 0) || !(daily > 0)) return 0;
+    return money2((hours / dayHours) * daily);
+}
+
 const ATTENDANCE_DEDUCTION_LABEL = {
-    late_arrived: 'Late In',
-    early_go: 'Early Out',
+    late_arrived: 'Late Arrival',
+    early_go: 'Early Go',
     mispunch: 'Missed Punch',
     authorized_leave: 'Authorized Leave',
     unauthorized_leave: 'Unauthorized Leave',
@@ -751,7 +796,7 @@ function parseLabelDate(label) {
 }
 
 function deductionEventDetail(record, week) {
-    const key = String(record?.statusKey || '');
+    const key = deductionKind(record);
     if (key === 'late_arrived') {
         const minutes = dayLateText(record, week);
         const time = formatClock12(record?.timeIn);
@@ -780,55 +825,29 @@ function deductionEventDetail(record, week) {
 }
 
 function attendanceDeductionRows(records, policy, week, daily) {
-    const labeled = (records || []).filter((row) => ATTENDANCE_DEDUCTION_LABEL[String(row?.statusKey || '')]);
+    const labeled = (records || []).filter((row) => ATTENDANCE_DEDUCTION_LABEL[deductionKind(row)]);
     const byMonth = new Map();
     labeled.forEach((row) => {
         const month = String(row?.date || '').slice(0, 7) || 'unknown';
         if (!byMonth.has(month)) byMonth.set(month, []);
         byMonth.get(month).push(row);
     });
-    const flexible = String(week?.timingMode || '').toLowerCase() === 'flexible';
-    const lateRule = policy?.lateRule || null;
-    const punchRule = deductFraction(policy?.missedPunchRule?.deduct)
-        ? policy.missedPunchRule
-        : mispunchRuleOf(policy?.extraLateRules);
     const authTimes = policy?.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
     const unauthTimes = policy?.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
-    const timed = flexible
-        ? []
-        : (Array.isArray(policy?.extraLateRules) ? policy.extraLateRules : [])
-            .map((rule, index) => ({ rule, index, direction: ruleDirection(rule) }))
-            .filter((row) => row.direction && deductFraction(row.rule?.deduct) && !isMispunchTitle(row.rule?.title));
     const rows = [];
     for (const monthRows of byMonth.values()) {
         const ordered = [...monthRows].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
-        let sharedCount = 0;
-        let punchCount = 0;
-        const extraCounts = new Map();
         ordered.forEach((record) => {
-            const key = String(record?.statusKey || '');
+            const key = deductionKind(record);
             let amount = 0;
-            if (key === 'authorized_leave' || key === 'unauthorized_leave') {
-                const times = key === 'authorized_leave' ? authTimes : unauthTimes;
-                amount = money2(leaveDayWeight(record, key === 'authorized_leave') * times * (Number(daily) || 0));
-            } else if (key === 'mispunch') {
-                punchCount += 1;
-                amount = punchRule ? incrementalPolicyAmount(punchCount, punchRule, daily) : 0;
-            } else {
-                const direction = key === 'early_go' ? 'out' : 'in';
-                const shift = shiftForDate(week, record?.date);
-                const actual = clockToMinutes(direction === 'in' ? record?.timeIn : record?.timeOut);
-                const minutes = !shift || actual == null ? 0 : direction === 'in' ? actual - shift.start : shift.end - actual;
-                const extra = timed
-                    .filter((row) => row.direction === direction && minutes >= Math.max(0, n(row.rule?.minutes)))
-                    .sort((a, b) => n(b.rule.minutes) - n(a.rule.minutes))[0];
-                if (extra) {
-                    const next = (extraCounts.get(extra.index) || 0) + 1;
-                    extraCounts.set(extra.index, next);
-                    amount = incrementalPolicyAmount(next, extra.rule, daily);
+            if (key === 'early_go' || key === 'late_arrived' || key === 'mispunch') {
+                amount = hourDeductionAmount(record, week, daily, key, 2);
+            } else if (key === 'authorized_leave' || key === 'unauthorized_leave') {
+                if (String(record?.hourAdjustStatus || '') === 'approved' && n(record?.hoursApproved) > 0) {
+                    amount = hourDeductionAmount(record, week, daily, key, 1);
                 } else {
-                    sharedCount += 1;
-                    amount = lateRule ? incrementalPolicyAmount(sharedCount, lateRule, daily) : 0;
+                    const times = key === 'authorized_leave' ? authTimes : unauthTimes;
+                    amount = money2(leaveDayWeight(record, key === 'authorized_leave') * times * (Number(daily) || 0));
                 }
             }
             const pending = key === 'mispunch' && !amount;
@@ -1494,63 +1513,129 @@ export default function EmployeeInformationDashboard({
         const daily = monthlySalary > 0 && calendarDays > 0 ? money2(monthlySalary / workingDays) : 0;
         return { calendarDays, weekOffs, workingDays, daily };
     }, [days, offWeekdays, monthlySalary]);
+    const salaryAddition = useMemo(() => {
+        const daily = salaryBasis.daily;
+        const otHours = overtime.overtimeMinutes / 60;
+        const overDays = overtime.overDays;
+        const otAmount = money2((daily / 10) * otHours);
+        const overDayAmount = money2(daily * overDays);
+        let coverHours = 0;
+        detailRecords.forEach((row) => {
+            if (String(row?.statusKey || '') !== 'compoff_leave') return;
+            if (String(row?.compOff?.state || '') !== 'adjusted') return;
+            const charge = String(row?.compOff?.chargeMonth || '').trim() || String(row?.date || '').slice(0, 7);
+            if (charge !== monthKey) return;
+            coverHours += Number(row?.compOff?.otHoursDeducted) || 10;
+        });
+        const coverApplied = Math.min(coverHours, otHours);
+        const coverAmount = money2((daily / 10) * coverApplied);
+        let requiredDays = 0;
+        let requiredHours = 0;
+        if (detailWindow.from && detailWindow.to) {
+            days.forEach((day) => {
+                const dateKey = format(day, 'yyyy-MM-dd');
+                if (dateKey < detailWindow.from || dateKey > detailWindow.to) return;
+                if (joinKey && dateKey < joinKey) return;
+                const record = recordsByDate[dateKey];
+                const weekdayKey = WEEKDAY_KEYS[getDay(day)];
+                const isHoliday = holidayDates.has(dateKey) || record?.statusKey === 'holiday';
+                const isWeeklyOff = !isHoliday && (record?.statusKey === 'weekly_off' || offWeekdays.has(weekdayKey));
+                if (isHoliday || isWeeklyOff) return;
+                requiredDays += 1;
+                requiredHours += dayHoursOf(scheduleWeek, dateKey);
+            });
+        }
+        const rows = [
+            { key: 'overtime', type: 'Over time', count: hourCountLabel(otHours), amount: otAmount },
+            { key: 'over_days', type: 'Over days', count: dayCountLabel(overDays), amount: overDayAmount },
+            {
+                key: 'compoff_cover',
+                type: 'Comp off cover',
+                count: hourCountLabel(coverApplied),
+                amount: coverAmount ? -coverAmount : 0,
+                underline: true,
+            },
+            { key: 'required_days', type: 'Required working days', count: dayCountLabel(requiredDays), amount: null },
+            { key: 'required_hours', type: 'Required working hours', count: hourCountLabel(requiredHours), amount: null },
+            { key: 'worked_days', type: 'Actual worked days', count: dayCountLabel(overtime.workedDays), amount: null },
+        ];
+        return {
+            rows,
+            total: money2(otAmount + overDayAmount - coverAmount),
+        };
+    }, [
+        overtime,
+        detailRecords,
+        salaryBasis.daily,
+        monthKey,
+        days,
+        detailWindow.from,
+        detailWindow.to,
+        joinKey,
+        recordsByDate,
+        holidayDates,
+        offWeekdays,
+        scheduleWeek,
+    ]);
     const deductionRows = useMemo(() => {
         const policy = profile?.leavePolicy || {};
         const daily = salaryBasis.daily;
-        const lateCount = n(monthStats.lateIn);
-        const earlyCount = n(monthStats.earlyOut);
-        const missedCount = n(monthStats.missed);
-        const authDays = money2(leaveChargeDays(countedRecords, 'authorized_leave'));
-        const unauthDays = money2(leaveChargeDays(countedRecords, 'unauthorized_leave'));
+        const authDays = money2(countedRecords.reduce((sum, row) => {
+            if (deductionKind(row) !== 'authorized_leave' && String(row?.statusKey || '') !== 'authorized_leave') return sum;
+            if (String(row?.hourAdjustStatus || '') === 'approved') {
+                return sum + (n(row.hoursApproved) / (dayHoursOf(scheduleWeek, row.date) || 8));
+            }
+            return String(row?.statusKey || '') === 'authorized_leave' ? sum + leaveDayWeight(row, true) : sum;
+        }, 0));
+        const unauthDays = money2(countedRecords.reduce((sum, row) => {
+            if (deductionKind(row) !== 'unauthorized_leave') return sum;
+            return sum + leaveDayWeight(row, false);
+        }, 0));
         const authTimes = policy.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
         const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
-        const lateRule = policy.lateRule || null;
-        const timed = timedPolicyCounts(countedRecords, policy.extraLateRules, scheduleWeek);
-        const extraIn = timed.rows.filter((row) => row.direction === 'in' && row.count > 0);
-        const extraOut = timed.rows.filter((row) => row.direction === 'out' && row.count > 0);
-        const sharedLateIn = Math.max(0, lateCount - timed.consumed.in);
-        const sharedLateOut = Math.max(0, earlyCount - timed.consumed.out);
-        const combinedShared = sharedLateIn + sharedLateOut;
-        const lateTotal = policyDeductionAmount(daily, combinedShared, lateRule);
-        const lateShares = splitMoney(lateTotal, { late: sharedLateIn, early: sharedLateOut });
-        const extraInAmount = extraIn.reduce((sum, row) => sum + policyDeductionAmount(daily, row.count, row.rule), 0);
-        const extraOutAmount = extraOut.reduce((sum, row) => sum + policyDeductionAmount(daily, row.count, row.rule), 0);
-        const punchRule = deductFraction(policy.missedPunchRule?.deduct)
-            ? policy.missedPunchRule
-            : mispunchRuleOf(policy.extraLateRules);
-        const punchAmount = punchRule ? policyDeductionAmount(daily, missedCount, punchRule) : 0;
+        const punchAmountOf = (kind) => countedRecords.reduce((sum, row) => {
+            if (deductionKind(row) !== kind) return sum;
+            return sum + hourDeductionAmount(row, scheduleWeek, daily, kind, 2);
+        }, 0);
+        const punchCountOf = (kind) => countedRecords.filter((row) => deductionKind(row) === kind).length;
+        const punchAmount = punchAmountOf('mispunch');
         const dayRate = formatAed(daily, 2);
-        const lateInNote = lateDirectionNote(extraIn, sharedLateIn, combinedShared, lateRule, daily, 'late in');
-        const lateOutNote = lateDirectionNote(extraOut, sharedLateOut, combinedShared, lateRule, daily, 'late out');
+        const hourNote = 'Hours taken × 2 until HR approves. After approval, only the approved hours are deducted.';
         return [
             {
                 key: 'late_arrived',
-                type: 'Late in',
-                count: sharedLateIn + extraIn.reduce((sum, row) => sum + row.count, 0),
-                amount: money2((lateShares.late || 0) + extraInAmount),
-                note: lateInNote,
+                type: 'Late arrival',
+                count: punchCountOf('late_arrived'),
+                amount: money2(punchAmountOf('late_arrived')),
+                note: hourNote,
             },
             {
                 key: 'early_go',
-                type: 'Late out',
-                count: sharedLateOut + extraOut.reduce((sum, row) => sum + row.count, 0),
-                amount: money2((lateShares.early || 0) + extraOutAmount),
-                note: lateOutNote,
+                type: 'Early go',
+                count: punchCountOf('early_go'),
+                amount: money2(punchAmountOf('early_go')),
+                note: hourNote,
             },
             {
                 key: 'mispunch',
                 type: 'Missed punch',
-                count: missedCount,
+                count: punchCountOf('mispunch'),
                 amount: punchAmount,
-                note: punchRule
-                    ? eventPolicyNote(missedCount, punchRule, daily)
-                    : 'No missed-punch rule on this employee group policy',
+                note: hourNote,
             },
             {
                 key: 'authorized_leave',
                 type: 'Authorized leave',
                 count: authDays,
-                amount: money2(authDays * authTimes * daily),
+                amount: money2(countedRecords.reduce((sum, row) => {
+                    if (deductionKind(row) !== 'authorized_leave' && String(row?.statusKey || '') !== 'authorized_leave') return sum;
+                    if (String(row?.hourAdjustStatus || '') === 'approved' && n(row?.hoursApproved) > 0) {
+                        return sum + hourDeductionAmount(row, scheduleWeek, daily, 'authorized_leave', 1);
+                    }
+                    return String(row?.statusKey || '') === 'authorized_leave'
+                        ? sum + leaveDayWeight(row, true) * authTimes * daily
+                        : sum;
+                }, 0)),
                 note: authDays
                     ? `${authDays} × ${authTimes} day × ${dayRate}`
                     : `1 authorized day deducts ${authTimes} × ${dayRate}`,
@@ -1565,7 +1650,7 @@ export default function EmployeeInformationDashboard({
                     : `1 unauthorized day deducts ${unauthTimes} × ${dayRate}`,
             },
         ];
-    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, monthStats, scheduleWeek]);
+    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek]);
     const deductionDetailRows = useMemo(() => {
         const attendance = attendanceDeductionRows(detailRecords, profile?.leavePolicy || {}, scheduleWeek, salaryBasis.daily);
         const moneyRows = financialDeductionRows({
@@ -2120,25 +2205,39 @@ export default function EmployeeInformationDashboard({
                                     <span className="block text-[11px] text-[#64748B]">Reason: <span className="font-medium text-[#1B2A4A]">{rewardLead?.type || (rewardAmount ? 'Reward' : `None in ${monthRewardLabel}`)}</span></span>
                                 </span>
                             </button>
-                            <div className="rounded-xl border border-[#E7EEF6] bg-white px-2.5 py-2">
-                                <div className="flex items-start gap-2">
-                                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#3B82F6] text-white">
-                                        <Clock size={15} strokeWidth={2.2} />
-                                    </span>
-                                    <div className="min-w-0 flex-1">
-                                        <p className="text-[12px] font-semibold leading-tight text-[#1B2A4A]">
-                                            Overtime details
-                                            <span className="font-medium text-[#64748B]"> (working days {overtimeRange})</span>
-                                        </p>
-                                        <div className="mt-1.5 space-y-0.5 text-[11px]">
-                                            <p className="flex justify-between gap-2"><span className="text-[#64748B]">Over time</span><span className="font-semibold tabular-nums text-[#1B2A4A]">{overtimeReady ? wholeOtHours(overtime.overtimeMinutes / 60) : '—'}</span></p>
-                                            <p className="flex justify-between gap-2"><span className="text-[#64748B]">Over days</span><span className="font-semibold tabular-nums text-[#1B2A4A]">{overtimeReady ? dayCountLabel(overtime.overDays) : '—'}</span></p>
-                                            <p className="flex justify-between gap-2"><span className="text-[#64748B]">Worked hours</span><span className="font-semibold tabular-nums text-[#1B2A4A]">{overtimeReady ? formatDuration(overtime.workedMinutes) : '—'}</span></p>
-                                            <p className="flex justify-between gap-2"><span className="text-[#64748B]">Worked days</span><span className="font-semibold tabular-nums text-[#1B2A4A]">{overtimeReady ? dayCountLabel(overtime.workedDays) : '—'}</span></p>
-                                        </div>
-                                    </div>
-                                </div>
+                        </div>
+                        <div className="mt-2 overflow-hidden rounded-xl border border-[#E7EEF6]">
+                            <div className="px-3 py-2.5">
+                                <p className="text-[13px] font-bold text-[#1B2A4A]">
+                                    Salary Addition ({overtimeRange})
+                                </p>
                             </div>
+                            <table className="w-full border-collapse text-left">
+                                <thead>
+                                    <tr className="border-t border-[#EEF2F6]">
+                                        <th className={`${TH} w-8`}>#</th>
+                                        <th className={TH}>Description Type</th>
+                                        <th className={TH}>Count / Days</th>
+                                        <th className="whitespace-nowrap px-2.5 py-2 text-right text-[11px] font-medium text-[#94A3B8]">Amount (AED)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {salaryAddition.rows.map((row, index) => (
+                                        <tr key={row.key} className={`border-t border-[#F4F7FB] ${row.underline ? 'border-b-2 border-b-[#CBD5E1]' : ''}`}>
+                                            <td className={`${TD} text-[#94A3B8]`}>{index + 1}</td>
+                                            <td className={`${TD} ${row.underline ? 'underline' : ''}`}>{row.type}</td>
+                                            <td className={`${TD} tabular-nums`}>{overtimeReady ? row.count : '—'}</td>
+                                            <td className={`${TD} text-right font-medium tabular-nums ${row.amount < 0 ? 'text-[#DC2626]' : ''}`}>
+                                                {overtimeReady ? (row.amount == null ? '—' : formatAedNumber(row.amount)) : '—'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    <tr className="border-t border-[#E2E8F0]">
+                                        <td className={`${TD} font-bold`} colSpan={3}>Total Addition</td>
+                                        <td className={`${TD} text-right font-bold tabular-nums text-[#16A34A]`}>{overtimeReady ? formatAedNumber(salaryAddition.total) : '—'}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                         <div className="mt-2 overflow-hidden rounded-xl border border-[#E7EEF6]">
                             <div className="flex items-center justify-between gap-2 px-3 py-2.5">
@@ -2208,22 +2307,23 @@ export default function EmployeeInformationDashboard({
                         ) : monthLoading ? (
                             <p className="py-6 text-center text-[12px] text-[#94A3B8]">Loading calendar…</p>
                         ) : (
-                            <div className="flex items-start gap-4">
-                                <div className="min-w-0 flex-1">
-                                    <div className="relative mb-3 flex h-9 items-center justify-center">
-                                        <div className="inline-flex h-9 items-center rounded-lg border border-[#E6EDF5] bg-white">
-                                            <button type="button" onClick={() => shiftMonth(-1)} className="inline-flex h-9 w-9 items-center justify-center text-[#64748B]" aria-label="Previous month"><ChevronLeft size={16} /></button>
-                                            <span className="min-w-[8rem] text-center text-[14px] font-semibold text-[#1B2A4A]">{formatMonthLabel(monthKey)}</span>
-                                            <button type="button" onClick={() => shiftMonth(1)} className="inline-flex h-9 w-9 items-center justify-center text-[#64748B]" aria-label="Next month"><ChevronRight size={16} /></button>
-                                        </div>
-                                        <button type="button" onClick={() => selectMonth(currentMonth)} className="absolute right-0 h-9 rounded-lg border border-[#E6EDF5] bg-white px-3.5 text-[13px] font-semibold text-[#2563EB]">Today</button>
+                            <>
+                                <div className="relative mb-3 flex h-9 items-center justify-center">
+                                    <div className="inline-flex h-9 items-center rounded-lg border border-[#E6EDF5] bg-white">
+                                        <button type="button" onClick={() => shiftMonth(-1)} className="inline-flex h-9 w-9 items-center justify-center text-[#64748B]" aria-label="Previous month"><ChevronLeft size={16} /></button>
+                                        <span className="min-w-[8rem] text-center text-[14px] font-semibold text-[#1B2A4A]">{formatMonthLabel(monthKey)}</span>
+                                        <button type="button" onClick={() => shiftMonth(1)} className="inline-flex h-9 w-9 items-center justify-center text-[#64748B]" aria-label="Next month"><ChevronRight size={16} /></button>
                                     </div>
-                                    <div className="mb-1.5 grid grid-cols-7 gap-1.5">
+                                    <button type="button" onClick={() => selectMonth(currentMonth)} className="absolute right-0 h-9 rounded-lg border border-[#E6EDF5] bg-white px-3 text-[13px] font-semibold text-[#2563EB]">Today</button>
+                                </div>
+                                <div className="flex items-start gap-4">
+                                <div className="min-w-0 flex-1">
+                                    <div className="mb-1.5 grid grid-cols-7 gap-2">
                                         {WEEKDAYS.map((day) => (
-                                            <div key={day} className="text-center text-[12px] font-medium text-[#94A3B8]">{day}</div>
+                                            <div key={day} className="text-center text-[11px] font-medium text-[#94A3B8]">{day}</div>
                                         ))}
                                     </div>
-                                    <div className="grid grid-cols-7 gap-1.5">
+                                    <div className="grid grid-cols-7 gap-2">
                                         {calendarDays.map((day) => {
                                             const dateKey = format(day, 'yyyy-MM-dd');
                                             const inMonth = dateKey.slice(0, 7) === monthKey;
@@ -2250,7 +2350,7 @@ export default function EmployeeInformationDashboard({
                                                     onMouseEnter={() => inMonth && setHoveredDate(dateKey)}
                                                     onMouseLeave={() => setHoveredDate('')}
                                                 >
-                                                    <div className={`flex aspect-square items-center justify-center rounded-lg text-[13px] font-semibold tabular-nums ${DAY_STYLE[kind] || DAY_STYLE.empty}`}>{format(day, 'd')}</div>
+                                                    <div className={`flex aspect-square w-full items-center justify-center rounded-lg text-[13px] font-semibold tabular-nums ${DAY_STYLE[kind] || DAY_STYLE.empty}`}>{format(day, 'd')}</div>
                                                     {hoveredDate === dateKey && inMonth && !salaryLock.locked ? (
                                                         <div className={`absolute z-30 w-56 rounded-xl border border-[#E6EDF5] bg-white p-3 text-left shadow-xl ${column >= 4 ? 'right-0' : 'left-1/2'} top-full mt-1`}>
                                                             <p className="text-[13px] font-bold text-[#1B2A4A]">{format(day, 'd MMMM yyyy')}</p>
@@ -2282,16 +2382,17 @@ export default function EmployeeInformationDashboard({
                                         })}
                                     </div>
                                 </div>
-                                <div className="w-[9.25rem] shrink-0 space-y-1.5 pt-2">
+                                <div className="w-[9.5rem] shrink-0 space-y-1.5 pt-1">
                                     <p className="text-[13px] font-semibold text-[#64748B]">Legend</p>
                                     {LEGEND.map((item) => (
-                                        <span key={item.key} className="flex items-center gap-2 text-[12px] leading-tight text-[#64748B]">
-                                            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${item.swatch}`} />
+                                        <span key={item.key} className="flex items-center gap-1.5 text-[11px] leading-tight text-[#64748B]">
+                                            <span className={`h-2 w-2 shrink-0 rounded-full ${item.swatch}`} />
                                             {item.label}
                                         </span>
                                     ))}
                                 </div>
                             </div>
+                            </>
                         )}
                         <DashboardSalaryEnrollLock {...salaryLock} />
                     </section>

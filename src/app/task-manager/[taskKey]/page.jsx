@@ -10,7 +10,6 @@ import {
     Mail,
     MoreHorizontal,
     Pencil,
-    Plus,
     RefreshCw,
     UserRound,
 } from 'lucide-react';
@@ -143,7 +142,6 @@ function TaskDetailsPage() {
     const [reassignOpen, setReassignOpen] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const [updateText, setUpdateText] = useState('');
-    const [updateOpen, setUpdateOpen] = useState(false);
     const [people, setPeople] = useState([]);
     const [mentionIds, setMentionIds] = useState([]);
     const [busy, setBusy] = useState(false);
@@ -189,7 +187,7 @@ function TaskDetailsPage() {
     };
 
     useEffect(() => {
-        if (!updateOpen || people.length) return undefined;
+        if (tab !== 'updates' || people.length) return undefined;
         let cancelled = false;
         axiosInstance.get('/Employee/task-manager/assignees', { skipToast: true })
             .then((res) => {
@@ -199,7 +197,7 @@ function TaskDetailsPage() {
         return () => {
             cancelled = true;
         };
-    }, [updateOpen, people.length]);
+    }, [tab, people.length]);
 
     const pendingMention = (updateText.match(/(?:^|\s)@([^\n@]*)$/) || [])[1];
     const mentionChoices = pendingMention == null
@@ -227,7 +225,6 @@ function TaskDetailsPage() {
             setTask(res.data?.task || null);
             setUpdateText('');
             setMentionIds([]);
-            setUpdateOpen(false);
             toast({
                 title: 'Work update added',
                 description: res.data?.task?.notifications?.workUpdate === false
@@ -300,7 +297,6 @@ function TaskDetailsPage() {
                                 </span>
                             </div>
                             <h2 className="mt-1 text-2xl font-bold text-slate-900">{task.taskName}</h2>
-                            <p className="mt-1 max-w-3xl text-sm text-slate-500">{task.description || '—'}</p>
                         </div>
                         <div className="flex items-center gap-2">
                             <button
@@ -367,7 +363,7 @@ function TaskDetailsPage() {
                     <div className="pt-4">
                         {tab === 'overview' && (
                             <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-700">
-                                <p className="font-semibold text-slate-800">Overview</p>
+                                <p className="font-semibold text-slate-800">Description</p>
                                 <p className="mt-2 whitespace-pre-wrap">{task.description || 'No description.'}</p>
                                 {task.accessPath ? (
                                     <a href={task.accessPath} className="mt-3 inline-flex text-sm font-semibold text-[#2563EB]">
@@ -380,36 +376,28 @@ function TaskDetailsPage() {
                         {tab === 'workflow' && <WorkflowBoard actionId={task.actionId} onChanged={load} />}
                         {tab === 'updates' && (
                             <div>
-                                <div className="mb-4 flex items-center justify-between">
-                                    <h3 className="text-base font-semibold text-slate-800">Work Updates</h3>
-                                    <button type="button" onClick={() => setUpdateOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white">
-                                        <Plus size={14} /> Add Work Update
-                                    </button>
-                                </div>
-                                {updateOpen && (
-                                    <div className="mb-4 rounded-xl border border-slate-200 p-3">
-                                        <textarea value={updateText} onChange={(event) => setUpdateText(event.target.value)} rows={3} placeholder="Write the work update. Type @ and a name to email that person." className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                                        {mentionChoices.length > 0 && (
-                                            <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white">
-                                                {mentionChoices.map((person) => (
-                                                    <button
-                                                        key={person.id}
-                                                        type="button"
-                                                        onClick={() => chooseMention(person)}
-                                                        className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                                                    >
-                                                        @{person.name}{person.employeeId ? ` (${person.employeeId})` : ''}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
-                                        <p className="mt-1 text-xs text-slate-500">Type @Name to email that person. With no @, the email goes to the current assignee.</p>
-                                        <div className="mt-2 flex justify-end gap-2">
-                                            <button type="button" onClick={() => setUpdateOpen(false)} className="h-8 rounded-lg border border-slate-200 px-3 text-sm">Cancel</button>
-                                            <button type="button" disabled={busy} onClick={addUpdate} className="h-8 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-60">Post update</button>
+                                <h3 className="mb-3 text-base font-semibold text-slate-800">Work Updates</h3>
+                                <div className="mb-4 rounded-xl border border-slate-200 p-3">
+                                    <textarea value={updateText} onChange={(event) => setUpdateText(event.target.value)} rows={3} placeholder="Write the work update. Type @ and a name to email that person." className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                                    {mentionChoices.length > 0 && (
+                                        <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                                            {mentionChoices.map((person) => (
+                                                <button
+                                                    key={person.id}
+                                                    type="button"
+                                                    onClick={() => chooseMention(person)}
+                                                    className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                                                >
+                                                    @{person.name}{person.employeeId ? ` (${person.employeeId})` : ''}
+                                                </button>
+                                            ))}
                                         </div>
+                                    )}
+                                    <p className="mt-1 text-xs text-slate-500">Type @Name to email that person. With no @, the email goes to the current assignee.</p>
+                                    <div className="mt-2 flex justify-end">
+                                        <button type="button" disabled={busy || !updateText.trim()} onClick={addUpdate} className="h-8 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-60">Post update</button>
                                     </div>
-                                )}
+                                </div>
                                 <div className="space-y-4">
                                     {updates.length === 0 && <p className="text-sm text-slate-500">No work updates yet.</p>}
                                     {updates.map((item, index) => (

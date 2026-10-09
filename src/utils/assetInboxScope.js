@@ -3,6 +3,8 @@
  * Shared by module bells, Command Center, and pending-inbox consumers.
  */
 
+import { isTaskManagerHubRequest } from '@/utils/employeeHubRequest';
+
 const VEHICLE_ONLY_TYPES = new Set([
     'Vehicle Service Request',
     'Vehicle Profile Activation',
@@ -80,6 +82,7 @@ export function isVehicleOnlyRequestType(type) {
 
 /** True when this inbox/stats row belongs in Vehicle Asset (never Tools). */
 export function isVehicleAssetInboxRow(row = {}) {
+    if (isTaskManagerHubRequest(row)) return false;
     const type = requestTypeOf(row);
     if (type === 'Task Manager') {
         const meta = parseAssetInboxExtra3(row.extra3);
@@ -94,6 +97,7 @@ export function isVehicleAssetInboxRow(row = {}) {
 
 /** True when this row belongs in Tools Asset (never Vehicle). */
 export function isToolsAssetInboxRow(row = {}) {
+    if (isTaskManagerHubRequest(row)) return false;
     const type = requestTypeOf(row);
     if (!type) return false;
     if (type === 'Task Manager') return parseAssetInboxExtra3(row.extra3)?.module === 'tools';
@@ -119,6 +123,7 @@ export function isToolsAssetInboxRow(row = {}) {
 
 /** Utility Bills inbox rows (from tools-scope API feed). Contract expiry bells are disabled. */
 export function isUtilityBillInboxRow(row = {}) {
+    if (isTaskManagerHubRequest(row)) return false;
     const type = requestTypeOf(row);
     if (type === 'Task Manager') return parseAssetInboxExtra3(row.extra3)?.module === 'utility';
     if (type === 'Employee Asset Request') return hubAssetAreaOf(row) === 'Utility Bill';

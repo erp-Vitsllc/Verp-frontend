@@ -48,6 +48,20 @@ export function isEmployeeHubRequestItem(item = {}) {
     return Boolean(parseHubRequestMeta(item?.extra3));
 }
 
+/** Dashboard requests that belong on Task Manager, not on another module badge. */
+const TASK_MANAGER_HUB_TYPES = new Set([
+    'Employee Salary Request',
+    'Employee Certificate Request',
+    'Employee Asset Request',
+    'Employee Vehicle Request',
+    'Employee Utility Request',
+]);
+
+export function isTaskManagerHubRequest(item = {}) {
+    const type = String(item?.type || item?.requestType || '').trim();
+    return TASK_MANAGER_HUB_TYPES.has(type);
+}
+
 export function buildEmployeeHubDashboardPath(item = {}) {
     const meta = parseHubRequestMeta(item?.extra3) || {};
     if (meta.kind === 'leave' || String(item?.type || item?.requestType || '').trim() === 'Employee Leave Request') {

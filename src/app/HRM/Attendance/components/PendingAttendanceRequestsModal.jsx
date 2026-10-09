@@ -36,6 +36,14 @@ function buildAttendancePath(row) {
         });
         return `/HRM/Attendance/mark?${qs.toString()}`;
     }
+    if (row?.leaveRequestKind === 'hour_adjust' || row?.requestType === 'Hour Approval Request') {
+        const qs = new URLSearchParams({
+            date: String(date || ''),
+            staffType: String(row?.staffType || row?.raw?.staffType || 'office'),
+            hourAttendanceId: String(row?.id || row?.dashboardActionId || ''),
+        });
+        return `/HRM/Attendance/mark?${qs.toString()}`;
+    }
     if (!empId) return '';
     const qs = new URLSearchParams({
         focusAttendance: '1',

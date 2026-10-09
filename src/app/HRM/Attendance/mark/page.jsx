@@ -218,6 +218,7 @@ function MarkAttendanceContent() {
                     dateKey={dateKey}
                     staffType={staffTab}
                     otAttendanceId={searchParams.get('otAttendanceId') || ''}
+                    hourAttendanceId={searchParams.get('hourAttendanceId') || ''}
                 />
             </div>
         </div>
