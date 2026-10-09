@@ -187,7 +187,13 @@ function formatStatusLabel(mark, timeIn, pastDay = false) {
     if (key === 'late_arrived' || /late arrival/i.test(raw)) return 'Present (Late Arrival)';
     if (key === 'early_go' || /early go/i.test(raw)) return 'Present (Early Go)';
     if (key === 'mispunch') return raw || 'Mispunched';
-    if (key === 'unauthorized_leave') return 'Unauth';
+    if (key === 'unauthorized_leave') {
+        const session = String(mark?.leaveRequestSession || '');
+        const text = `${raw} ${mark?.reason || ''}`;
+        if (session === 'pm' || /early/i.test(text) || /\(PM\)/i.test(text)) return 'Present (Early Go)';
+        if (session === 'am' || /late arrival/i.test(text) || /\(AM\)/i.test(text)) return 'Present (Late Arrival)';
+        return 'Unauth';
+    }
     if (key === 'authorized_leave') {
         const halfAt = raw.indexOf('·');
         if (halfAt >= 0) return `Auth ${raw.slice(halfAt).trim()}`;
@@ -221,8 +227,34 @@ function statusHoverTitle(statusText) {
     return text;
 }
 
+function rowMenuOptions(baseOptions, mark, { canReviewHour = false } = {}) {
+    const offer = hourAdjustOffer(mark);
+    if (!offer || String(mark?.hourAdjustStatus || '') === 'approved') return baseOptions;
+    const pending = String(mark?.hourAdjustStatus || '') === 'pending';
+    const hourItem = {
+        key: 'hour_adjust',
+        label: pending ? (canReviewHour ? 'Review hours' : 'Hours pending') : offer.button,
+        disabled: pending && !canReviewHour,
+        disabledTitle: 'Waiting for HR approval',
+    };
+    const next = [];
+    let placed = false;
+    for (const option of baseOptions) {
+        if (!placed && option.key === 'clear_attendance') {
+            next.push(hourItem);
+            placed = true;
+        }
+        next.push(option);
+    }
+    if (!placed) next.push(hourItem);
+    return next;
+}
+
 function statusChipClass(mark, label) {
     const key = String(mark?.key || '').trim();
+    if (/\(Approved\)/i.test(label) || label === 'Present (Early Go)' || label === 'Present (Late Arrival)') {
+        return 'text-amber-800 bg-amber-50';
+    }
     if (
         label === 'Absent' ||
         label === 'Unauth' ||
@@ -440,7 +472,15 @@ function MarkAttendanceMenu({ anchorRect, onSelect, onClose, options = MARK_OPTI
                             opt.key === 'clear_attendance'
                                 ? 'border-t border-gray-100 mt-0.5'
                                 : ''
-                        } ${itemDisabled ? '' : opt.key === 'clear_attendance' ? 'text-gray-500' : 'text-gray-700'}`}
+                        } ${
+                            itemDisabled
+                                ? ''
+                                : opt.key === 'hour_adjust'
+                                  ? 'font-semibold text-blue-700'
+                                  : opt.key === 'clear_attendance'
+                                    ? 'text-gray-500'
+                                    : 'text-gray-700'
+                        }`}
                     >
                         {opt.label}
                     </button>
@@ -502,8 +542,7 @@ function EmployeeRow({
 
     const shift = shiftMarks(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
     const otText = otCellLabel(mark);
-    const hourOffer = hourAdjustOffer(shownMark);
-    const hourPending = String(shownMark?.hourAdjustStatus || '') === 'pending';
+    const actionMenuOptions = rowMenuOptions(menuOptions, shownMark, { canReviewHour });
     const showOtRequest = Number(mark?.flexibleOtHours) > 0 && !otText;
     const nextDayOt = Number(mark?.flexibleOtHours) > 10;
 
@@ -608,19 +647,6 @@ function EmployeeRow({
             </td>
             <td className="px-2 py-3 align-middle text-right">
                 <div className="relative inline-flex items-center justify-end min-h-[32px]">
-                    {hourOffer && String(mark?.hourAdjustStatus || '') !== 'approved' ? (
-                        <button
-                            type="button"
-                            disabled={rowLocked || (hourPending && !canReviewHour)}
-                            title={lockTitle || hourOffer.title}
-                            onClick={() => {
-                                if (!rowLocked) onRequestHour?.(employee, mark);
-                            }}
-                            className="h-7 whitespace-nowrap rounded-md border border-blue-200 bg-white px-2 text-[10px] font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                            {hourPending ? (canReviewHour ? 'Review hours' : 'Pending') : hourOffer.button}
-                        </button>
-                    ) : (
                     <button
                         ref={buttonRef}
                         type="button"
@@ -636,14 +662,17 @@ function EmployeeRow({
                     >
                         Mark
                     </button>
-                    )}
                     {menuOpen && anchorRect ? (
                         <MarkAttendanceMenu
                             anchorRect={anchorRect}
-                            options={menuOptions}
+                            options={actionMenuOptions}
                             onClose={closeMenu}
                             onSelect={(key, label) => {
                                 closeMenu();
+                                if (key === 'hour_adjust') {
+                                    onRequestHour?.(employee, mark);
+                                    return;
+                                }
                                 onRequestMark(employee, key, label);
                             }}
                         />

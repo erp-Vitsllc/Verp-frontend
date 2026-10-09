@@ -499,7 +499,13 @@ export default function Sidebar() {
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', handleVisibility);
         }
+        const handleTaskManagerCount = (event) => {
+            const count = Number(event?.detail?.count);
+            if (!Number.isFinite(count)) return;
+            setTaskManagerCount(count);
+        };
         if (typeof window !== 'undefined') {
+            window.addEventListener('task-manager-assignee-count', handleTaskManagerCount);
             window.addEventListener(MODULE_NOTIFICATIONS_UPDATED, handleModuleNotificationsUpdated);
             window.addEventListener(ASSET_PENDING_INBOX_CHANGED, handleInboxChanged);
             window.addEventListener(FINE_PENDING_INBOX_CHANGED, handleInboxChanged);
@@ -516,6 +522,7 @@ export default function Sidebar() {
             if (inboxRefreshTimer) clearTimeout(inboxRefreshTimer);
             if (typeof window !== 'undefined') {
                 window.removeEventListener('focus', handleFocus);
+                window.removeEventListener('task-manager-assignee-count', handleTaskManagerCount);
                 window.removeEventListener(MODULE_NOTIFICATIONS_UPDATED, handleModuleNotificationsUpdated);
                 window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, handleInboxChanged);
                 window.removeEventListener(FINE_PENDING_INBOX_CHANGED, handleInboxChanged);

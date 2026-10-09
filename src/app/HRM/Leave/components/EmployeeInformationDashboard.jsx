@@ -770,8 +770,25 @@ function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
     const hours = approved
         ? n(row.hoursApproved)
         : (n(row?.hoursTaken) || takenHoursOf(row, week, kind)) * unauthTimes;
-    if (!(hours > 0) || !(daily > 0)) return 0;
+    if (!(hours > 0) || !(daily > 0) || !(dayHours > 0)) return 0;
     return money2((hours / dayHours) * daily);
+}
+
+function attendanceDeductionAmount(record, week, daily, policy) {
+    const key = deductionKind(record);
+    const authTimes = policy?.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
+    const unauthTimes = policy?.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
+    if (key === 'early_go' || key === 'late_arrived' || key === 'mispunch') {
+        return hourDeductionAmount(record, week, daily, key, unauthTimes);
+    }
+    if (key === 'authorized_leave' || key === 'unauthorized_leave') {
+        if (String(record?.hourAdjustStatus || '') === 'approved' && n(record?.hoursApproved) > 0) {
+            return hourDeductionAmount(record, week, daily, key, 1);
+        }
+        const times = key === 'authorized_leave' ? authTimes : unauthTimes;
+        return money2(leaveDayWeight(record, key === 'authorized_leave') * times * (Number(daily) || 0));
+    }
+    return 0;
 }
 
 const ATTENDANCE_DEDUCTION_LABEL = {
@@ -803,6 +820,8 @@ function deductionEventDetail(record, week) {
         return [time !== '—' ? `In ${time}` : '', minutes !== '—' ? minutes : ''].filter(Boolean).join(' · ') || 'Late in';
     }
     if (key === 'early_go') {
+        const approved = String(record?.hourAdjustStatus || '') === 'approved' && n(record?.hoursApproved) > 0;
+        if (approved) return `${n(record.hoursApproved)} approved hr`;
         const shift = shiftForDate(week, record?.date);
         const actual = clockToMinutes(record?.timeOut);
         const gap = shift && actual != null ? Math.max(0, shift.end - actual) : null;
@@ -832,24 +851,12 @@ function attendanceDeductionRows(records, policy, week, daily) {
         if (!byMonth.has(month)) byMonth.set(month, []);
         byMonth.get(month).push(row);
     });
-    const authTimes = policy?.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
-    const unauthTimes = policy?.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
     const rows = [];
     for (const monthRows of byMonth.values()) {
         const ordered = [...monthRows].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
         ordered.forEach((record) => {
             const key = deductionKind(record);
-            let amount = 0;
-            if (key === 'early_go' || key === 'late_arrived' || key === 'mispunch') {
-                amount = hourDeductionAmount(record, week, daily, key, 2);
-            } else if (key === 'authorized_leave' || key === 'unauthorized_leave') {
-                if (String(record?.hourAdjustStatus || '') === 'approved' && n(record?.hoursApproved) > 0) {
-                    amount = hourDeductionAmount(record, week, daily, key, 1);
-                } else {
-                    const times = key === 'authorized_leave' ? authTimes : unauthTimes;
-                    amount = money2(leaveDayWeight(record, key === 'authorized_leave') * times * (Number(daily) || 0));
-                }
-            }
+            const amount = attendanceDeductionAmount(record, week, daily, policy);
             const pending = key === 'mispunch' && !amount;
             rows.push({
                 id: String(record?._id || `${record?.date}-${key}`),
@@ -1374,8 +1381,14 @@ export default function EmployeeInformationDashboard({
     const monthStats = useMemo(() => {
         const annual = leaveTallies(countedRecords, 'on_leave');
         const sick = leaveTallies(countedRecords, 'sick_leave');
-        const authorized = leaveTallies(countedRecords, 'authorized_leave');
-        const unauthorized = leaveTallies(countedRecords, 'unauthorized_leave');
+        const authorized = leaveTallies(
+            countedRecords.filter((row) => deductionKind(row) === 'authorized_leave'),
+            'authorized_leave',
+        );
+        const unauthorized = leaveTallies(
+            countedRecords.filter((row) => deductionKind(row) === 'unauthorized_leave'),
+            'unauthorized_leave',
+        );
         let present = 0;
         let wfh = 0;
         let lateIn = 0;
@@ -1385,11 +1398,12 @@ export default function EmployeeInformationDashboard({
         let compoffPending = 0;
         countedRecords.forEach((row) => {
             const key = String(row?.statusKey || '');
+            const kind = deductionKind(row);
             if (key === 'on_office') present += 1;
             if (key === 'work_from_home') wfh += 1;
-            if (key === 'late_arrived') lateIn += 1;
-            if (key === 'early_go') earlyOut += 1;
-            if (key === 'mispunch') missed += 1;
+            if (kind === 'late_arrived') lateIn += 1;
+            if (kind === 'early_go') earlyOut += 1;
+            if (kind === 'mispunch') missed += 1;
             if (key === 'compoff_leave') {
                 compoffUsed += 1;
                 const state = String(row?.compOff?.state || '');
@@ -1581,11 +1595,11 @@ export default function EmployeeInformationDashboard({
         const policy = profile?.leavePolicy || {};
         const daily = salaryBasis.daily;
         const authDays = money2(countedRecords.reduce((sum, row) => {
-            if (deductionKind(row) !== 'authorized_leave' && String(row?.statusKey || '') !== 'authorized_leave') return sum;
-            if (String(row?.hourAdjustStatus || '') === 'approved') {
+            if (deductionKind(row) !== 'authorized_leave') return sum;
+            if (String(row?.hourAdjustStatus || '') === 'approved' && n(row?.hoursApproved) > 0) {
                 return sum + (n(row.hoursApproved) / (dayHoursOf(scheduleWeek, row.date) || 8));
             }
-            return String(row?.statusKey || '') === 'authorized_leave' ? sum + leaveDayWeight(row, true) : sum;
+            return sum + leaveDayWeight(row, true);
         }, 0));
         const unauthDays = money2(countedRecords.reduce((sum, row) => {
             if (deductionKind(row) !== 'unauthorized_leave') return sum;
@@ -1595,12 +1609,12 @@ export default function EmployeeInformationDashboard({
         const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
         const punchAmountOf = (kind) => countedRecords.reduce((sum, row) => {
             if (deductionKind(row) !== kind) return sum;
-            return sum + hourDeductionAmount(row, scheduleWeek, daily, kind, 2);
+            return sum + attendanceDeductionAmount(row, scheduleWeek, daily, policy);
         }, 0);
         const punchCountOf = (kind) => countedRecords.filter((row) => deductionKind(row) === kind).length;
         const punchAmount = punchAmountOf('mispunch');
         const dayRate = formatAed(daily, 2);
-        const hourNote = 'Hours taken × 2 until HR approves. After approval, only the approved hours are deducted.';
+        const hourNote = 'Until approval this uses the unauthorized leave rate. After approval, only the approved hours are deducted.';
         return [
             {
                 key: 'late_arrived',
@@ -1628,13 +1642,8 @@ export default function EmployeeInformationDashboard({
                 type: 'Authorized leave',
                 count: authDays,
                 amount: money2(countedRecords.reduce((sum, row) => {
-                    if (deductionKind(row) !== 'authorized_leave' && String(row?.statusKey || '') !== 'authorized_leave') return sum;
-                    if (String(row?.hourAdjustStatus || '') === 'approved' && n(row?.hoursApproved) > 0) {
-                        return sum + hourDeductionAmount(row, scheduleWeek, daily, 'authorized_leave', 1);
-                    }
-                    return String(row?.statusKey || '') === 'authorized_leave'
-                        ? sum + leaveDayWeight(row, true) * authTimes * daily
-                        : sum;
+                    if (deductionKind(row) !== 'authorized_leave') return sum;
+                    return sum + attendanceDeductionAmount(row, scheduleWeek, daily, policy);
                 }, 0)),
                 note: authDays
                     ? `${authDays} × ${authTimes} day × ${dayRate}`

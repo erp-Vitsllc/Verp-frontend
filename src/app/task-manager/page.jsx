@@ -98,14 +98,14 @@ function readViewer() {
 
 function listStatus(task) {
     const status = task?.displayStatus || '';
-    if (status === 'In Progress' || status === 'On Hold') return 'Pending';
     if (status === 'Pending Due') return 'Overdue';
+    if (status === 'In Progress' || status === 'On Hold') return 'Pending';
     if (status === 'Rejected' || status === 'Dismissed') return 'Cancelled';
-    if (status === 'Pending') {
-        const started = new Date(task.requestDate).getTime();
-        if (!Number.isNaN(started) && Date.now() - started > 48 * 60 * 60 * 1000) return 'Overdue';
-    }
     return status || 'Pending';
+}
+
+function isOpenPending(shown) {
+    return shown === 'Pending' || shown === 'Overdue';
 }
 
 function isMyTask(task, viewer) {
@@ -359,6 +359,31 @@ function TaskManagerContent() {
         return map;
     }, [tasks]);
 
+    const scopedTasks = useMemo(
+        () => (scope === 'My Task' ? tasks.filter((task) => isMyTask(task, viewer)) : tasks),
+        [tasks, scope, viewer],
+    );
+
+    const cardSummary = useMemo(() => {
+        const next = { total: scopedTasks.length, pending: 0, pendingDue: 0, completed: 0 };
+        scopedTasks.forEach((task) => {
+            const shown = listStatus(task);
+            if (isOpenPending(shown)) {
+                next.pending += 1;
+                if (shown === 'Overdue') next.pendingDue += 1;
+            } else if (shown === 'Completed') {
+                next.completed += 1;
+            }
+        });
+        return next;
+    }, [scopedTasks]);
+
+    useEffect(() => {
+        const mine = tasks.filter((task) => isMyTask(task, viewer));
+        const count = mine.filter((task) => isOpenPending(listStatus(task))).length;
+        window.dispatchEvent(new CustomEvent('task-manager-assignee-count', { detail: { count } }));
+    }, [tasks, viewer]);
+
     const activeRange = useMemo(
         () => resolveDateRange(datePreset, fromDate, toDate),
         [datePreset, fromDate, toDate],
@@ -373,7 +398,8 @@ function TaskManagerContent() {
             if (scope === 'My Task' && !isMyTask(task, viewer)) return false;
             if (typeFilter !== 'All Types' && displayTaskType(task.taskCategory) !== typeFilter) return false;
             if (scope === 'All Task' && status === 'All Status' && (shown === 'Completed' || shown === 'Cancelled')) return false;
-            if (status !== 'All Status' && shown !== status) return false;
+            if (status === 'Pending' && !isOpenPending(shown)) return false;
+            if (status !== 'All Status' && status !== 'Pending' && shown !== status) return false;
             if (priority !== 'All Priority' && task.priority !== priority) return false;
             const key = dateKey(task.requestDate);
             if ((activeRange.from || activeRange.to) && !key) return false;
@@ -481,8 +507,8 @@ function TaskManagerContent() {
                     <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                         <StatCard
                             label="Total Tasks"
-                            value={summary.total}
-                            change={summary.totalChange}
+                            value={cardSummary.total}
+                            change={scope === 'All Task' ? summary.totalChange : 0}
                             goodWhenUp
                             icon={FileText}
                             wrap="bg-[#EAF3FF]"
@@ -491,8 +517,8 @@ function TaskManagerContent() {
                         />
                         <StatCard
                             label="Pending Tasks"
-                            value={summary.pending}
-                            change={summary.pendingChange}
+                            value={cardSummary.pending}
+                            change={scope === 'All Task' ? summary.pendingChange : 0}
                             goodWhenUp={false}
                             icon={Clock}
                             wrap="bg-[#FDECEC]"
@@ -501,8 +527,8 @@ function TaskManagerContent() {
                         />
                         <StatCard
                             label="Pending Due"
-                            value={summary.pendingDue}
-                            change={summary.pendingDueChange}
+                            value={cardSummary.pendingDue}
+                            change={scope === 'All Task' ? summary.pendingDueChange : 0}
                             goodWhenUp={false}
                             icon={AlertTriangle}
                             wrap="bg-[#FFF6E8]"
@@ -511,8 +537,8 @@ function TaskManagerContent() {
                         />
                         <StatCard
                             label="Completed Tasks"
-                            value={summary.completed}
-                            change={summary.completedChange}
+                            value={cardSummary.completed}
+                            change={scope === 'All Task' ? summary.completedChange : 0}
                             goodWhenUp
                             icon={CheckCircle2}
                             wrap="bg-[#E8F8EF]"
