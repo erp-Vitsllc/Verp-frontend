@@ -193,6 +193,7 @@ function LeaveApprovalTable({
     onAccept,
     onEdit,
     onDelete,
+    onReturn,
     emptyLabel,
 }) {
     if (!rows.length) {
@@ -324,6 +325,21 @@ function LeaveApprovalTable({
                                     title="Remove leave from this day"
                                 >
                                     <Trash2 size={13} />
+                                </button>
+                            ) : null}
+                            {statusKey === 'approved' && canEdit ? (
+                                <button
+                                    type="button"
+                                    disabled={decidingId === row.id}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        onReturn?.(row);
+                                    }}
+                                    onDoubleClick={(event) => event.stopPropagation()}
+                                    className="h-7 whitespace-nowrap rounded-md border border-[#BFDBFE] bg-[#EFF6FF] px-2 text-[11px] font-semibold text-[#1D4ED8] hover:bg-[#DBEAFE] disabled:opacity-50"
+                                    title="Put this leave back as a request"
+                                >
+                                    Return to request
                                 </button>
                             ) : null}
                         </div>
@@ -601,6 +617,7 @@ export default function LeaveDashboard({
                 skipToast: true,
             });
             setPendingItems(Array.isArray(response.data?.items) ? response.data.items : []);
+            notifyLeavePendingInboxChanged();
         } catch (err) {
             setPendingItems([]);
             setPendingError(err?.response?.data?.message || err.message || 'Failed to load leave requests.');
@@ -695,6 +712,40 @@ export default function LeaveDashboard({
                 onDataChanged?.();
             } catch (err) {
                 setPendingError(err?.response?.data?.message || err.message || 'Failed to remove leave request.');
+            } finally {
+                setDecidingId('');
+            }
+        },
+        [decidingId, fetchPendingRequests, fetchTeamTrack, onDataChanged, trackYear],
+    );
+
+    const handleReturn = useCallback(
+        async (row) => {
+            if (!row?.id || decidingId) return;
+            const leaveLabel = row.leaveType || 'leave';
+            const when = row.startDate && row.endDate && row.startDate !== row.endDate
+                ? `${row.startDate} to ${row.endDate}`
+                : row.startDate || 'this day';
+            const confirmed = window.confirm(
+                `Return ${row.name || 'this employee'}'s ${leaveLabel} (${when}) to a request? Attendance for those days goes back, and it shows again in requests and the notification bell.`,
+            );
+            if (!confirmed) return;
+            setDecidingId(row.id);
+            try {
+                await axiosInstance.post(
+                    '/Leave/pending-requests/return',
+                    { attendanceId: row.id },
+                    { skipToast: true },
+                );
+                setApprovalCategory(APPROVAL_CATEGORY_PENDING);
+                setBlinkRowId(row.id);
+                window.setTimeout(() => setBlinkRowId(''), 1800);
+                await fetchPendingRequests();
+                await fetchTeamTrack(trackYear);
+                notifyLeavePendingInboxChanged();
+                onDataChanged?.();
+            } catch (err) {
+                setPendingError(err?.response?.data?.message || err.message || 'Failed to return this leave to a request.');
             } finally {
                 setDecidingId('');
             }
@@ -1166,6 +1217,7 @@ export default function LeaveDashboard({
                                         onAccept={handleAccept}
                                         onEdit={handleEdit}
                                         onDelete={handleDelete}
+                                        onReturn={handleReturn}
                                         blinkRowId={blinkRowId}
                                         emptyLabel={approvalEmptyLabel}
                                     />
@@ -1445,6 +1497,7 @@ export default function LeaveDashboard({
                                                 handleEdit(row);
                                             }}
                                             onDelete={handleDelete}
+                                            onReturn={handleReturn}
                                             blinkRowId={blinkRowId}
                                             emptyLabel={approvalEmptyLabel}
                                         />

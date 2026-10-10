@@ -119,12 +119,12 @@ function titleForKind(kind) {
     return 'Check-in location';
 }
 
-export function LocationMapPin({ coords, time = '', kind = 'in' }) {
+export function LocationMapPin({ coords, time = '', kind = 'in', nextDay = false }) {
     if (!coords) return null;
-    return <LocationPinButton coords={coords} time={time} kind={kind} />;
+    return <LocationPinButton coords={coords} time={time} kind={kind} nextDay={nextDay} />;
 }
 
-function LocationPinButton({ coords, time, kind }) {
+function LocationPinButton({ coords, time, kind, nextDay = false }) {
     const maps = mapsHref(coords, coords.label || titleForKind(kind));
     const title = titleForKind(kind);
     const pinClass =
@@ -149,15 +149,22 @@ function LocationPinButton({ coords, time, kind }) {
                         />
                     </span>
                     {time ? (
-                        <span className="text-[10px] font-semibold tabular-nums text-gray-600">{time}</span>
+                        <span className={`text-[10px] font-semibold tabular-nums ${nextDay ? 'text-[#DC2626]' : 'text-gray-600'}`}>
+                            {nextDay ? `${time} (next day)` : time}
+                        </span>
                     ) : null}
                 </button>
             </PopoverTrigger>
             <PopoverContent className="w-80 p-0 overflow-hidden" align="start" side="bottom">
                 <div className="px-3 py-2 border-b border-gray-100">
                     <p className="text-xs font-semibold text-gray-900">{title}</p>
-                    <p className="text-[11px] text-gray-500 tabular-nums mt-0.5">
-                        {time ? `${time} · ` : ''}
+                    <p className="text-[11px] tabular-nums mt-0.5 text-gray-500">
+                        {time ? (
+                            <span className={nextDay ? 'font-semibold text-[#DC2626]' : undefined}>
+                                {nextDay ? `${time} (next day)` : time}
+                                {' · '}
+                            </span>
+                        ) : null}
                         {coords.latitude.toFixed(5)}, {coords.longitude.toFixed(5)}
                     </p>
                     {coords.label ? (
@@ -189,10 +196,10 @@ function LocationPinButton({ coords, time, kind }) {
     );
 }
 
-export function PunchLocationPinCell({ location, time, kind = 'in' }) {
+export function PunchLocationPinCell({ location, time, kind = 'in', nextDay = false }) {
     const coords = punchCoords(location);
     if (!coords) {
         return <span className="text-sm text-gray-400">—</span>;
     }
-    return <LocationMapPin coords={coords} time={formatClock(time)} kind={kind} />;
+    return <LocationMapPin coords={coords} time={formatClock(time)} kind={kind} nextDay={kind === 'out' && nextDay} />;
 }

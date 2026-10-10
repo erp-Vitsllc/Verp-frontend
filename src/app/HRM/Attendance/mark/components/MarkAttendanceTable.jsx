@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight, ChevronUp, Search, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import { isNextDayCheckout, NextDayCheckoutTime } from '@/app/HRM/Attendance/utils/nextDayCheckout';
 import { nonHrMarkableDateKeys } from '@/app/HRM/Attendance/utils/nonHrMarkWindow';
 import { weekForStaffType } from '@/utils/workLocations';
 import MarkAttendanceDetailsModal, {
@@ -86,11 +87,12 @@ function hoursDurationLabel(hours) {
     return `${whole}h ${String(mins).padStart(2, '0')}m`;
 }
 
-function coversWorkingDay(otHours, requiredHours) {
-    const hours = Number(otHours) || 0;
-    const required = Number(requiredHours) || 0;
-    if (required > 0) return hours + 1e-9 >= required;
-    return hours > 10;
+function workedHoursValue(mark) {
+    const stored = Number(mark?.flexibleWorkedHours);
+    if (Number.isFinite(stored) && stored > 0) return stored;
+    const seconds = punchSpanSeconds(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
+    if (seconds == null) return 0;
+    return seconds / 3600;
 }
 
 function scheduleDayHours(week, dateKey) {
@@ -239,6 +241,14 @@ function markForNonWorkingDay(mark, timeIn, timeOut, dayBaseline) {
 function formatStatusLabel(mark, timeIn, pastDay = false) {
     const key = String(mark?.key || '').trim();
     const raw = String(mark?.label || '').trim();
+    if (key === 'authorized_leave' || /auth(?:orized)? leave/i.test(raw)) {
+        const halfAt = raw.indexOf('·');
+        if (halfAt >= 0) {
+            const rest = raw.slice(halfAt).replace(/\(approved\)/ig, '').trim();
+            if (rest && !/leave/i.test(rest)) return `Auth ${rest}`;
+        }
+        return 'Auth';
+    }
     if (/\(Approved\)/i.test(raw)) return raw;
     const kind = String(mark?.leaveRequestKind || '').trim();
     const punchedIn = Boolean(timeIn && timeIn !== '—');
@@ -253,11 +263,6 @@ function formatStatusLabel(mark, timeIn, pastDay = false) {
         if (session === 'pm' || /early/i.test(text) || /\(PM\)/i.test(text)) return 'Present (Early Go)';
         if (session === 'am' || /late arrival/i.test(text) || /\(AM\)/i.test(text)) return 'Present (Late Arrival)';
         return 'Unauth';
-    }
-    if (key === 'authorized_leave') {
-        const halfAt = raw.indexOf('·');
-        if (halfAt >= 0) return `Auth ${raw.slice(halfAt).trim()}`;
-        return 'Auth';
     }
     if (key === 'sick_leave') return raw || 'Sick Leave';
     if (key === 'compoff_leave') return raw || 'Comp Off Leave';
@@ -501,7 +506,7 @@ function otSortText(mark, ctx) {
     if (text) return text;
     if (!(Number(mark?.flexibleOtHours) > 0)) return null;
     if (ctx.isFlowchartHr) {
-        return coversWorkingDay(mark?.flexibleOtHours, mark?.flexibleRequiredHours) ? 'next day present' : 'apply ot';
+        return workedHoursValue(mark) > 19 ? 'next day present' : 'apply ot';
     }
     return 'req ot';
 }
@@ -561,8 +566,7 @@ function ColumnSortArrows({ label, columnKey, sortKey, sortDirection, onSort }) 
     const upOn = sortKey === columnKey && sortDirection === 'asc';
     const downOn = sortKey === columnKey && sortDirection === 'desc';
     const buttonClass = (on) =>
-        `flex h-3.5 w-3.5 items-center justify-center rounded-sm leading-none ${
-            on ? 'text-[#EA3D2F]' : 'text-gray-300 hover:text-gray-600'
+        `flex h-3.5 w-3.5 items-center justify-center rounded-sm leading-none ${on ? 'text-[#EA3D2F]' : 'text-gray-300 hover:text-gray-600'
         }`;
     return (
         <span className="inline-flex shrink-0 flex-col">
@@ -715,23 +719,20 @@ function MarkAttendanceMenu({ anchorRect, onSelect, onClose, options = MARK_OPTI
                             if (itemDisabled) return;
                             onSelect(opt.key, opt.label);
                         }}
-                        className={`w-full px-3 py-2 text-left text-sm ${
-                            itemDisabled
+                        className={`w-full px-3 py-2 text-left text-sm ${itemDisabled
                                 ? 'cursor-not-allowed text-gray-300'
                                 : 'hover:bg-gray-50'
-                        } ${
-                            opt.key === 'clear_attendance'
+                            } ${opt.key === 'clear_attendance'
                                 ? 'border-t border-gray-100 mt-0.5'
                                 : ''
-                        } ${
-                            itemDisabled
+                            } ${itemDisabled
                                 ? ''
                                 : opt.key === 'hour_adjust'
-                                  ? 'font-semibold text-blue-700'
-                                  : opt.key === 'clear_attendance'
-                                    ? 'text-gray-500'
-                                    : 'text-gray-700'
-                        }`}
+                                    ? 'font-semibold text-blue-700'
+                                    : opt.key === 'clear_attendance'
+                                        ? 'text-gray-500'
+                                        : 'text-gray-700'
+                            }`}
                     >
                         {opt.label}
                     </button>
@@ -761,7 +762,6 @@ function EmployeeRow({
     actionLocked = false,
     actionTitle = '',
     menuOptions = MARK_OPTIONS,
-    dayHoursFallback = 0,
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const [anchorRect, setAnchorRect] = useState(null);
@@ -780,6 +780,12 @@ function EmployeeRow({
 
     const timeIn = employee.timeIn || '—';
     const timeOut = employee.timeOut || '—';
+    const checkoutNextDay = isNextDayCheckout({
+        date: mark?.date,
+        timeIn: mark?.rawTimeIn || timeIn,
+        timeOut: mark?.rawTimeOut || timeOut,
+        timeOutDate: mark?.timeOutDate,
+    });
     const shownMark = markForNonWorkingDay(mark, timeIn, timeOut, dayBaseline);
     const statusText = formatStatusLabel(shownMark, timeIn, pastDay);
     const statusFull = statusHoverTitle(statusText);
@@ -799,21 +805,14 @@ function EmployeeRow({
     const adjustTitle = adjustDate
         ? `Adjusted with ${formatAdjDay(adjustDate)}`
         : compOffAdjusted
-          ? 'Adjusted from overtime'
-          : '';
+            ? 'Adjusted from overtime'
+            : '';
     const actionMenuOptions = rowMenuOptions(menuOptions, shownMark, { canReviewHour });
-    const dayHours =
-        Number(mark?.flexibleRequiredHours) > 0 ? Number(mark.flexibleRequiredHours) : Number(dayHoursFallback) || 0;
     const showOtRequest = Number(mark?.flexibleOtHours) > 0 && !otText;
-    const nextDayOt = coversWorkingDay(mark?.flexibleOtHours, dayHours);
-    const remainingOt = syntheticOt && !nextDayOt && Number(mark?.flexibleOtHours) > 0;
-    const otButtonLabel = nextDayOt
-        ? 'Next day present'
-        : remainingOt
-          ? `OT ${wholeHourCount(mark?.flexibleOtHours)} hr`
-          : otDirect
-            ? 'Apply OT'
-            : 'Req OT';
+    const spanSeconds = syntheticOt ? null : punchSpanSeconds(rawIn, rawOut, mark?.timeOutDate, mark?.date);
+    const durationHours = spanSeconds != null ? spanSeconds / 3600 : workedHoursValue(mark);
+    const showNextDayPresent = showOtRequest && !syntheticOt && durationHours > 19;
+    const otButtonLabel = otDirect ? 'Apply OT' : 'Req OT';
 
     return (
         <tr className="border-b border-gray-100 hover:bg-slate-50/80 transition-colors">
@@ -835,7 +834,9 @@ function EmployeeRow({
             </td>
             <td className="px-3 py-3 text-sm text-gray-600 tabular-nums align-middle">{employee.empNo}</td>
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{isOtPunch(timeIn) ? '—' : timeIn}</td>
-            <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{isOtPunch(timeOut) ? '—' : timeOut}</td>
+            <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">
+                {isOtPunch(timeOut) ? '—' : <NextDayCheckoutTime time={timeOut} nextDay={checkoutNextDay} />}
+            </td>
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle whitespace-nowrap">{duration}</td>
             <td className="px-3 py-3 align-middle min-w-[140px]">
                 <div className="flex flex-col gap-0.5 min-w-0">
@@ -887,7 +888,12 @@ function EmployeeRow({
                 <PunchLocationPinCell location={mark?.checkInLocation} time={timeIn} kind="in" />
             </td>
             <td className="px-3 py-3 align-middle text-center min-w-[88px]">
-                <PunchLocationPinCell location={mark?.checkOutLocation} time={timeOut} kind="out" />
+                <PunchLocationPinCell
+                    location={mark?.checkOutLocation}
+                    time={timeOut}
+                    kind="out"
+                    nextDay={checkoutNextDay}
+                />
             </td>
             <td className="px-3 py-3 align-middle min-w-[90px]">
                 <PunchTypeCell
@@ -913,27 +919,38 @@ function EmployeeRow({
                 ) : otText ? (
                     <span className="text-xs font-bold text-slate-700">{otText}</span>
                 ) : showOtRequest ? (
-                    <button
-                        type="button"
-                        disabled={!canRequestOt}
-                        title={
-                            canRequestOt
-                                ? remainingOt
-                                    ? 'Apply the remaining overtime from the previous day'
-                                    : otDirect
-                                      ? nextDayOt
-                                          ? 'Mark the next day Present (On time) for one working day. Hours above that day stay as overtime there.'
-                                          : 'Apply overtime now'
-                                      : 'Request overtime for HR approval'
-                                : 'Only the primary reportee or flowchart HR can use overtime'
-                        }
-                        onClick={() => {
-                            if (canRequestOt) onRequestOt?.(employee, mark);
-                        }}
-                        className="rounded-lg border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                        {otButtonLabel}
-                    </button>
+                    <div className="flex flex-col items-start gap-1">
+                        {showNextDayPresent ? (
+                            <button
+                                type="button"
+                                disabled={!canRequestOt}
+                                title="Choose an authorized leave day. That day becomes Present. It is not set on the next calendar day unless you select it."
+                                onClick={() => {
+                                    if (canRequestOt) onRequestOt?.(employee, mark, 'next-day');
+                                }}
+                                className="rounded-lg border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                Next day present
+                            </button>
+                        ) : null}
+                        <button
+                            type="button"
+                            disabled={!canRequestOt}
+                            title={
+                                canRequestOt
+                                    ? otDirect
+                                        ? 'Apply overtime now'
+                                        : 'Request overtime for HR approval'
+                                    : 'Only the primary reportee or flowchart HR can use overtime'
+                            }
+                            onClick={() => {
+                                if (canRequestOt) onRequestOt?.(employee, mark, 'apply');
+                            }}
+                            className="rounded-lg border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            {otButtonLabel}
+                        </button>
+                    </div>
                 ) : (
                     <span className="text-gray-300">—</span>
                 )}
@@ -1187,8 +1204,8 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
     const dayBaseline = holidayDates.includes(dateKey)
         ? 'holiday'
         : offWeekdays.includes(weekdayKeyFromDate(dateKey))
-          ? 'weekly_off'
-          : '';
+            ? 'weekly_off'
+            : '';
     const windowReady = hrReady && holidaysReady;
     const recentDayOpen = windowReady
         ? allowedMarkDates.has(dateKey)
@@ -1202,10 +1219,10 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
     ).map((option) =>
         option.key === 'clear_attendance'
             ? {
-                  ...option,
-                  disabled: !isFlowchartHr,
-                  disabledTitle: HR_ONLY_CLEAR_TITLE,
-              }
+                ...option,
+                disabled: !isFlowchartHr,
+                disabledTitle: HR_ONLY_CLEAR_TITLE,
+            }
             : option,
     );
     const rowIsActionLocked = () => dayMode === 'locked';
@@ -1704,7 +1721,6 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                 dayBaseline={dayBaseline}
                                 actionLocked={rowIsActionLocked(employee)}
                                 actionTitle={dayMode === 'locked' ? HR_ONLY_MARK_TITLE : ''}
-                                dayHoursFallback={scheduleDayHours(scheduleWeek, dateKey)}
                                 menuOptions={menuOptions}
                                 onRequestMark={handleRequestMark}
                                 canRequestOt={
@@ -1717,17 +1733,18 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                     isFlowchartHr &&
                                     String(marks[employee.id]?.flexibleOtStatus || '') === 'pending'
                                 }
-                                onRequestOt={(row, mark) =>
+                                onRequestOt={(row, mark, intent) =>
                                     setOtModal({
                                         employee: row,
                                         mark,
+                                        intent: intent === 'next-day' ? 'next-day' : 'apply',
                                         mode:
                                             isFlowchartHr &&
-                                            String(mark?.flexibleOtStatus || '') === 'pending'
+                                                String(mark?.flexibleOtStatus || '') === 'pending'
                                                 ? 'review'
                                                 : isFlowchartHr
-                                                  ? 'direct'
-                                                  : 'request',
+                                                    ? 'direct'
+                                                    : 'request',
                                     })
                                 }
                                 onSettleCompOff={setCompOffEmployee}
@@ -1743,8 +1760,8 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                             isFlowchartHr && String(mark?.hourAdjustStatus || '') === 'pending'
                                                 ? 'review'
                                                 : isFlowchartHr
-                                                  ? 'direct'
-                                                  : 'request',
+                                                    ? 'direct'
+                                                    : 'request',
                                     })
                                 }
                             />
@@ -1768,8 +1785,8 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                     const ids = formState?.employeeIds?.length
                         ? formState.employeeIds
                         : formState?.employee?.id
-                          ? [formState.employee.id]
-                          : [];
+                            ? [formState.employee.id]
+                            : [];
                     setFormState(null);
                     if (ids.length) applyMarkToIds(ids, payload);
                 }}
@@ -1793,6 +1810,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
             <FlexibleOtModal
                 open={Boolean(otModal)}
                 mode={otModal?.mode || 'request'}
+                intent={otModal?.intent || 'apply'}
                 employee={otModal?.employee}
                 mark={otModal?.mark}
                 dayHours={

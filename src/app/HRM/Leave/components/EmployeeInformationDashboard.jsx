@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { isNextDayCheckout, NextDayCheckoutTime } from '@/app/HRM/Attendance/utils/nextDayCheckout';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -30,7 +31,6 @@ import {
     Fingerprint,
     Gift,
     LogOut,
-    MapPin,
     Plane,
     Plus,
     Search,
@@ -50,10 +50,11 @@ import DashboardSalaryEnrollLock, {
     salaryLockFromAttendancePayload,
 } from '@/app/dashboard/components/DashboardSalaryEnrollLock';
 import {
+    buildMonthAdditionChoices,
     buildMonthWorkWeeks,
     buildWeeklySalaryAddition,
-    defaultWorkWeekIndex,
     emptyWeeklySalaryAddition,
+    formatHourMeasure,
 } from '../utils/weeklySalaryAddition';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -252,9 +253,30 @@ function formatClock12(value) {
 
 function formatDuration(minutes) {
     if (minutes == null || minutes < 0) return '—';
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return `${hours}h ${String(mins).padStart(2, '0')}m`;
+    return formatHourMinute(minutes);
+}
+
+function formatHourMinute(totalMinutes) {
+    if (totalMinutes == null || !Number.isFinite(Number(totalMinutes))) return '—';
+    const sign = Number(totalMinutes) < 0 ? '-' : '';
+    const abs = Math.abs(Math.round(Number(totalMinutes)));
+    const hours = Math.floor(abs / 60);
+    const mins = abs % 60;
+    return `${sign}${hours}h ${String(mins).padStart(2, '0')}m`;
+}
+
+/** Calendar gaps are hours. 39 minutes is 0 Hours 39 Minutes, never "39 minutes". */
+function formatHourlyGap(totalMinutes) {
+    if (totalMinutes == null || !Number.isFinite(Number(totalMinutes))) return '—';
+    const negative = Number(totalMinutes) < -0.5;
+    const abs = Math.abs(Math.round(Number(totalMinutes)));
+    const hours = Math.floor(abs / 60);
+    const mins = abs % 60;
+    const sign = negative ? '-' : '';
+    const hourText = `${hours} ${hours === 1 ? 'Hour' : 'Hours'}`;
+    if (!mins) return `${sign}${hourText}`;
+    const minuteText = `${mins} ${mins === 1 ? 'Minute' : 'Minutes'}`;
+    return `${sign}${hourText} ${minuteText}`;
 }
 
 function minutesInReason(reason, pattern) {
@@ -314,7 +336,23 @@ function recordWorkedMinutes(record) {
         const hours = Number(record?.flexibleWorkedHours) || 0;
         return hours > 0 ? Math.round(hours * 60) : null;
     }
-    return record?.timeIn ? workedMinutes(record.timeIn, record.timeOut) : null;
+    const start = clockToMinutes(inn);
+    const end = clockToMinutes(out);
+    if (start != null && end != null) {
+        const date = String(record?.date || '').trim();
+        const outDate = String(record?.timeOutDate || '').trim();
+        if (outDate && date && outDate > date) {
+            const from = new Date(`${date}T12:00:00.000Z`);
+            const to = new Date(`${outDate}T12:00:00.000Z`);
+            const days = Math.round((to.getTime() - from.getTime()) / 86400000);
+            if (days > 0) return end - start + days * 24 * 60;
+        }
+        let diff = end - start;
+        if (diff <= 0) diff += 24 * 60;
+        return diff;
+    }
+    const hours = Number(record?.flexibleWorkedHours) || 0;
+    return hours > 0 ? Math.round(hours * 60) : null;
 }
 
 function dubaiNowMinutes() {
@@ -338,12 +376,7 @@ function meaningfulPlaceLabel(value) {
     return label;
 }
 
-function locationOf(record) {
-    const spot = record?.checkInLocation?.latitude != null
-        ? record.checkInLocation
-        : record?.checkOutLocation?.latitude != null
-          ? record.checkOutLocation
-          : record?.checkInLocation || record?.checkOutLocation;
+function punchSpot(spot) {
     const label = meaningfulPlaceLabel(spot?.label);
     const latitude = Number(spot?.latitude);
     const longitude = Number(spot?.longitude);
@@ -357,19 +390,28 @@ function locationOf(record) {
     };
 }
 
+function locationOf(record) {
+    return punchSpot(
+        record?.checkInLocation?.latitude != null
+            ? record.checkInLocation
+            : record?.checkOutLocation?.latitude != null
+              ? record.checkOutLocation
+              : record?.checkInLocation || record?.checkOutLocation,
+    );
+}
+
 function dayLateText(record, week) {
     if (!record) return '—';
     const fromReason = minutesInReason(record.reason, /(\d+)\s*minutes?\s+late/i);
-    if (fromReason != null) return `${fromReason} ${fromReason === 1 ? 'minute' : 'minutes'}`;
+    if (fromReason != null) return formatHourlyGap(fromReason);
     const key = String(record.statusKey || '');
     if (key === 'late_arrived') {
         const shift = shiftForDate(week, record.date);
         const actual = clockToMinutes(record.timeIn);
         if (!shift || actual == null) return '—';
-        const gap = Math.max(0, actual - shift.start);
-        return `${gap} ${gap === 1 ? 'minute' : 'minutes'}`;
+        return formatHourlyGap(Math.max(0, actual - shift.start));
     }
-    if (record.timeIn) return '0 minutes';
+    if (record.timeIn) return formatHourlyGap(0);
     return '—';
 }
 
@@ -646,8 +688,7 @@ function adjInk(kind) {
 }
 
 function hourCountLabel(hours) {
-    const total = Math.round((Number(hours) || 0) * 100) / 100;
-    return `${total} ${total === 1 ? 'Hour' : 'Hours'}`;
+    return formatHourMeasure(hours);
 }
 
 function measureLabel(value, singular, plural) {
@@ -758,6 +799,31 @@ function dayHoursOf(week, dateKey) {
     return 8;
 }
 
+function flowchartMinutes(week, dateKey, record) {
+    const stored = Number(record?.flexibleRequiredHours);
+    if (stored > 0) return Math.round(stored * 60);
+    if (isFlexibleWeek(week)) {
+        const flexible = flexibleDayHours(week, dateKey);
+        return flexible > 0 ? Math.round(flexible * 60) : 0;
+    }
+    const shift = shiftForDate(week, dateKey);
+    if (shift) return Math.max(0, shift.end - shift.start);
+    return 0;
+}
+
+function isFlexibleWeek(week) {
+    return String(week?.timingMode || '').toLowerCase() === 'flexible';
+}
+
+/** Hours still short of that day's working time. Extra time is not a shortfall. */
+function flexibleShortMinutes(record, week) {
+    if (!isFlexibleWeek(week) || !record?.date) return null;
+    const required = flowchartMinutes(week, record.date, record);
+    const worked = recordWorkedMinutes(record);
+    if (!(required > 0) || worked == null) return null;
+    return required - worked;
+}
+
 function flexibleDayHours(week, dateKey) {
     if (String(week?.timingMode || '').toLowerCase() !== 'flexible') return 0;
     if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return 0;
@@ -784,7 +850,7 @@ function takenHoursOf(row, week, kind) {
 }
 
 function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
-    const approved = String(row?.hourAdjustStatus || '') === 'approved' && n(row?.hoursApproved) > 0;
+    const approved = String(row?.hourAdjustStatus || '') === 'approved';
     const dayHours = (approved ? flexibleDayHours(week, row?.date) : 0) || dayHoursOf(week, row?.date) || 8;
     const hours = approved
         ? n(row.hoursApproved)
@@ -801,7 +867,7 @@ function attendanceDeductionAmount(record, week, daily, policy) {
         return hourDeductionAmount(record, week, daily, key, unauthTimes);
     }
     if (key === 'authorized_leave' || key === 'unauthorized_leave') {
-        if (String(record?.hourAdjustStatus || '') === 'approved' && n(record?.hoursApproved) > 0) {
+        if (String(record?.hourAdjustStatus || '') === 'approved') {
             return hourDeductionAmount(record, week, daily, key, 1);
         }
         const times = key === 'authorized_leave' ? authTimes : unauthTimes;
@@ -839,14 +905,20 @@ function deductionEventDetail(record, week) {
         return [time !== '—' ? `In ${time}` : '', minutes !== '—' ? minutes : ''].filter(Boolean).join(' · ') || 'Late in';
     }
     if (key === 'early_go') {
-        const approved = String(record?.hourAdjustStatus || '') === 'approved' && n(record?.hoursApproved) > 0;
+        const approved = String(record?.hourAdjustStatus || '') === 'approved';
         if (approved) return `${n(record.hoursApproved)} approved hr`;
         const shift = shiftForDate(week, record?.date);
         const actual = clockToMinutes(record?.timeOut);
         const gap = shift && actual != null ? Math.max(0, shift.end - actual) : null;
         const time = formatClock12(record?.timeOut);
+        const nextDay = isNextDayCheckout({
+            date: record?.date,
+            timeIn: record?.timeIn,
+            timeOut: record?.timeOut,
+            timeOutDate: record?.timeOutDate,
+        });
         const minutes = gap == null ? '' : `${gap} ${gap === 1 ? 'minute' : 'minutes'}`;
-        return [time !== '—' ? `Out ${time}` : '', minutes, String(record?.reason || '').trim()].filter(Boolean).join(' · ') || 'Early out';
+        return [time !== '—' ? `Out ${time}${nextDay ? ' (next day)' : ''}` : '', minutes, String(record?.reason || '').trim()].filter(Boolean).join(' · ') || 'Early out';
     }
     if (key === 'mispunch') {
         const inn = String(record?.timeIn || '').trim();
@@ -864,7 +936,7 @@ function deductionEventDetail(record, week) {
 
 function deductionLossHours(record, week) {
     const key = deductionKind(record);
-    const approved = String(record?.hourAdjustStatus || '') === 'approved' && n(record?.hoursApproved) > 0;
+    const approved = String(record?.hourAdjustStatus || '') === 'approved';
     if (approved) return n(record.hoursApproved);
     if (key === 'authorized_leave' || key === 'unauthorized_leave') {
         const weight = leaveDayWeight(record, key === 'authorized_leave');
@@ -901,7 +973,17 @@ function attendanceDeductionRows(records, policy, week, daily) {
                 type: ATTENDANCE_DEDUCTION_LABEL[key],
                 detail: deductionEventDetail(record, week),
                 in: formatClock12(record?.timeIn),
-                out: formatClock12(record?.timeOut),
+                out: (
+                    <NextDayCheckoutTime
+                        time={formatClock12(record?.timeOut)}
+                        nextDay={isNextDayCheckout({
+                            date: record?.date,
+                            timeIn: record?.timeIn,
+                            timeOut: record?.timeOut,
+                            timeOutDate: record?.timeOutDate,
+                        })}
+                    />
+                ),
                 lossHrs: formatLossHours(deductionLossHours(record, week)),
                 amount: pending ? '0.00 (Pending)' : formatAedNumber(amount),
             });
@@ -1036,13 +1118,33 @@ function attentionLabel(record) {
 
 function dayEarlyText(record, week) {
     if (!record || String(record.statusKey || '') !== 'early_go') return '';
+    if (isFlexibleWeek(week)) return '';
     const fromReason = minutesInReason(record.reason, /(\d+)\s*minutes?\s+early/i);
-    if (fromReason != null) return `${fromReason} ${fromReason === 1 ? 'minute' : 'minutes'}`;
+    if (fromReason != null) return formatHourlyGap(fromReason);
     const shift = shiftForDate(week, record.date);
     const actual = clockToMinutes(record.timeOut);
     if (!shift || actual == null) return '—';
-    const gap = Math.max(0, shift.end - actual);
-    return `${gap} ${gap === 1 ? 'minute' : 'minutes'}`;
+    return formatHourlyGap(Math.max(0, shift.end - actual));
+}
+
+function dayApprovalLabel(record) {
+    if (!record) return '';
+    const marks = [
+        record.hourAdjustStatus,
+        record.leaveRequestStatus,
+        record.flexibleOtStatus,
+        record.approvalStatus,
+    ].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean);
+    if (marks.includes('approved')) return 'Approved';
+    if (marks.some((value) => value === 'pending' || value === 'rejected')) return 'Not approved';
+    const key = String(record.statusKey || '');
+    if (key === 'unauthorized_leave' || key === 'not_marked' || key === 'late_arrived' || key === 'early_go' || key === 'mispunch') {
+        return 'Not approved';
+    }
+    if (key === 'on_office' || key === 'work_from_home' || key === 'authorized_leave' || key === 'on_leave' || key === 'sick_leave' || key === 'compoff_leave') {
+        return 'Approved';
+    }
+    return '';
 }
 
 function dayDescription(record) {
@@ -1061,8 +1163,7 @@ function dayDescription(record) {
         seen.add(key);
         unique.push(part);
     });
-    const approved = String(record.hourAdjustStatus || '') === 'approved' && n(record.hoursApproved) > 0;
-    if (approved) unique.push(`${n(record.hoursApproved)} approved hr`);
+    if (String(record.hourAdjustStatus || '') === 'approved') unique.push(`${n(record.hoursApproved)} approved hr`);
     return unique.join(' · ');
 }
 
@@ -1083,6 +1184,95 @@ function eventRowsFromRecords(records, key) {
             leavePayType: String(row.leavePayType || '').trim(),
             };
         });
+}
+
+function TipMoney({ label, value, tone, wrap = false }) {
+    return (
+        <p className="min-w-0">
+            <span className="block text-[10px] font-medium uppercase tracking-wide text-[#94A3B8]">{label}</span>
+            <span className={`mt-0.5 block text-[12px] font-semibold ${wrap ? 'whitespace-normal leading-snug' : 'truncate'} ${tone || 'text-[#1B2A4A]'}`}>{value}</span>
+        </p>
+    );
+}
+
+function TipMap({ spot }) {
+    if (!spot?.hasMap && !spot?.label) return <span className="text-[12px] font-semibold text-[#1B2A4A]">—</span>;
+    if (!spot.hasMap) return <span className="block truncate text-[12px] font-semibold text-[#1B2A4A]">{spot.label}</span>;
+    return (
+        <a href={spot.mapHref} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 truncate text-[12px] font-semibold text-[#2563EB]">
+            <span className="truncate">{spot.label || 'Map'}</span>
+            <ExternalLink size={11} className="shrink-0" />
+        </a>
+    );
+}
+
+function DayTip({
+    dateLabel,
+    statusText,
+    statusClass,
+    dotClass,
+    timeIn,
+    timeOut,
+    timeOutNextDay = false,
+    inSpot,
+    outSpot,
+    workedText,
+    paymentText,
+    balanceText,
+    deductText,
+    moreLines,
+    alignRight,
+}) {
+    const [more, setMore] = useState(false);
+    return (
+        <div className={`absolute z-30 w-80 rounded-xl border border-[#E6EDF5] bg-white p-3 text-left shadow-xl ${alignRight ? 'right-0' : 'left-1/2'} top-full mt-1`}>
+            <p className="text-[13px] font-bold text-[#1B2A4A]">{dateLabel}</p>
+            <p className={`mt-1 flex items-center gap-1.5 text-[12px] font-semibold ${statusClass}`}>
+                <span className={`h-2 w-2 rounded-full ${dotClass}`} />
+                Status
+                <span>{statusText}</span>
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
+                <TipMoney label="Time In" value={timeIn} />
+                <TipMoney
+                    label="Time Out"
+                    wrap={timeOutNextDay}
+                    value={<NextDayCheckoutTime time={timeOut} nextDay={timeOutNextDay} />}
+                />
+                <p className="min-w-0">
+                    <span className="block text-[10px] font-medium uppercase tracking-wide text-[#94A3B8]">Location In</span>
+                    <span className="mt-0.5 block"><TipMap spot={inSpot} /></span>
+                </p>
+                <p className="min-w-0">
+                    <span className="block text-[10px] font-medium uppercase tracking-wide text-[#94A3B8]">Location Out</span>
+                    <span className="mt-0.5 block"><TipMap spot={outSpot} /></span>
+                </p>
+                <TipMoney label="Worked" value={workedText} />
+                <TipMoney label="Payment" value={paymentText} tone="text-[#16A34A]" />
+                <TipMoney label="Remaining" value={balanceText} />
+                <TipMoney label="Deduct" value={deductText} tone="text-[#DC2626]" />
+            </div>
+            {moreLines.length ? (
+                <button
+                    type="button"
+                    onClick={() => setMore((open) => !open)}
+                    className="mt-2 text-[12px] font-semibold text-[#2563EB]"
+                >
+                    {more ? 'Show less' : 'Show more'}
+                </button>
+            ) : null}
+            {more ? (
+                <div className="mt-2 space-y-1.5 border-t border-[#EEF2F6] pt-2">
+                    {moreLines.map((line) => (
+                        <p key={line.label} className="flex items-start justify-between gap-3 text-[12px]">
+                            <span className="shrink-0 text-[#94A3B8]">{line.label}</span>
+                            <span className="text-right font-medium text-[#1B2A4A]">{line.value}</span>
+                        </p>
+                    ))}
+                </div>
+            ) : null}
+        </div>
+    );
 }
 
 function Panel({ title, aside, children }) {
@@ -1189,52 +1379,36 @@ function figureParts(value, singular, plural) {
 }
 
 function AdjMark({ title }) {
-    const [open, setOpen] = useState(false);
     const [box, setBox] = useState(null);
-    const buttonRef = useRef(null);
-    useEffect(() => {
-        if (!open) return undefined;
-        function onPointer(event) {
-            if (buttonRef.current?.contains(event.target)) return;
-            setOpen(false);
-        }
-        function onKey(event) {
-            if (event.key === 'Escape') setOpen(false);
-        }
-        document.addEventListener('mousedown', onPointer);
-        document.addEventListener('keydown', onKey);
-        return () => {
-            document.removeEventListener('mousedown', onPointer);
-            document.removeEventListener('keydown', onKey);
-        };
-    }, [open]);
+    const markRef = useRef(null);
     if (!title) return null;
+    const show = () => {
+        const rect = markRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const left = Math.max(8, Math.min(rect.left, window.innerWidth - 240));
+        setBox({ top: rect.top, left, above: rect.top > 88 });
+    };
     return (
         <>
-            <button
-                ref={buttonRef}
-                type="button"
-                className="ml-1 inline-flex text-[11px] font-semibold text-[#DC2626]"
-                aria-label="Show which day this was adjusted with"
-                aria-expanded={open}
-                onClick={() => {
-                    const rect = buttonRef.current?.getBoundingClientRect();
-                    if (rect) {
-                        const left = Math.min(rect.left, window.innerWidth - 220);
-                        setBox({ top: rect.top, left: Math.max(8, left), above: rect.top > 96 });
-                    }
-                    setOpen((value) => !value);
-                }}
+            <span
+                ref={markRef}
+                className="ml-1 inline-flex cursor-default text-[11px] font-semibold text-[#DC2626]"
+                tabIndex={0}
+                onMouseEnter={show}
+                onMouseLeave={() => setBox(null)}
+                onFocus={show}
+                onBlur={() => setBox(null)}
             >
                 (adj)
-            </button>
-            {open && box && typeof document !== 'undefined'
+            </span>
+            {box && typeof document !== 'undefined'
                 ? createPortal(
                     <span
-                        className="fixed z-[280] w-max max-w-[16rem] whitespace-pre-line rounded-lg border border-[#FECACA] bg-white px-2 py-1.5 text-left text-[11px] font-medium leading-snug text-[#1B2A4A] shadow-lg"
+                        role="tooltip"
+                        className="pointer-events-none fixed z-[280] w-max max-w-[16rem] whitespace-pre-line rounded-lg border border-[#FECACA] bg-white px-2 py-1.5 text-left text-[11px] font-medium leading-snug text-[#1B2A4A] shadow-lg"
                         style={box.above
                             ? { left: box.left, top: box.top - 8, transform: 'translateY(-100%)' }
-                            : { left: box.left, top: box.top + 22 }}
+                            : { left: box.left, top: box.top + 18 }}
                     >
                         {title}
                     </span>,
@@ -1266,7 +1440,11 @@ function AdditionWeekSelect({ weeks, value, onChange, id }) {
         >
             {weeks.map((week) => (
                 <option key={week.id} value={week.id}>
-                    {`Week ${week.index} (${formatDayLabel(week.from)} to ${formatDayLabel(week.to)})`}
+                    {week.id === 'all'
+                        ? (week.empty
+                            ? 'All (current month)'
+                            : `All (${formatDayLabel(week.from)} to ${formatDayLabel(week.to)})`)
+                        : `Week ${week.index} (${formatDayLabel(week.from)} to ${formatDayLabel(week.to)})`}
                 </option>
             ))}
         </select>
@@ -1325,16 +1503,25 @@ function SalaryAdditionDetails({ open, weeks, weekId, onWeekChange, ready, repor
                                     <td className={TD}>
                                         <AdditionFigure
                                             ready={ready}
-                                            text={hourCountLabel(row.adjustedHours)}
-                                            title={row.title || (row.adjustedHours > 0 ? 'Adjusted from overtime' : '')}
+                                            text={row.adjustedDays > 0
+                                                ? measureLabel(row.adjustedDays, 'Day', 'Days')
+                                                : hourCountLabel(row.adjustedHours)}
+                                            title={row.adjustedDays > 0 || row.adjustedHours > 0 ? (row.title || 'Adjusted from overtime') : ''}
                                         />
                                     </td>
                                     <td className={`${TD} text-right font-medium tabular-nums ${row.amount < 0 ? 'text-[#DC2626]' : ''}`}>
-                                        {ready ? formatAedNumber(row.amount) : '—'}
+                                        {ready ? (
+                                            <>
+                                                <span className="block">{formatAedNumber(row.amount)}</span>
+                                                {row.calculation ? (
+                                                    <span className="mt-0.5 block text-[10px] font-medium leading-snug text-[#64748B]">{row.calculation}</span>
+                                                ) : null}
+                                            </>
+                                        ) : '—'}
                                     </td>
                                 </tr>
                             )) : (
-                                <tr><td colSpan={4} className="px-3 py-6 text-center text-[13px] text-[#94A3B8]">No days in this week.</td></tr>
+                                <tr><td colSpan={4} className="px-3 py-6 text-center text-[13px] text-[#94A3B8]">{weekId === 'all' ? 'No days from the 1st through yesterday.' : 'No days in this week.'}</td></tr>
                             )}
                         </tbody>
                         <tfoot>
@@ -1543,7 +1730,7 @@ export default function EmployeeInformationDashboard({
     const [pinnedPlace, setPinnedPlace] = useState('');
     const [spanRecords, setSpanRecords] = useState([]);
     const [spanLoading, setSpanLoading] = useState(false);
-    const [additionWeekId, setAdditionWeekId] = useState('');
+    const [additionWeekId, setAdditionWeekId] = useState('all');
     const [additionDetailsOpen, setAdditionDetailsOpen] = useState(false);
 
     const monthAnchor = useMemo(() => new Date(`${monthKey}-01T12:00:00`), [monthKey]);
@@ -1904,43 +2091,75 @@ export default function EmployeeInformationDashboard({
         return { calendarDays, weekOffs, workingDays, daily };
     }, [days, offWeekdays, monthlySalary]);
     const additionWeeks = useMemo(() => buildMonthWorkWeeks(monthKey), [monthKey]);
+    const additionChoices = useMemo(
+        () => buildMonthAdditionChoices(monthKey, todayKey),
+        [monthKey, todayKey],
+    );
     const additionWeek = useMemo(() => {
-        const picked = additionWeeks.find((week) => week.id === additionWeekId);
+        const picked = additionChoices.find((week) => week.id === (additionWeekId || 'all'));
         if (picked) return picked;
-        return additionWeeks[defaultWorkWeekIndex(additionWeeks, todayKey)] || null;
-    }, [additionWeeks, additionWeekId, todayKey]);
+        return additionChoices.find((week) => week.id === 'all') || additionChoices[0] || null;
+    }, [additionChoices, additionWeekId]);
     const additionReady = !monthLoading && !(period === 'month' && salaryLock.locked);
-    const salaryAddition = useMemo(() => {
-        if (!additionWeek) return emptyWeeklySalaryAddition();
-        return buildWeeklySalaryAddition({
+    const additionBundle = useMemo(() => {
+        const dayInfo = (dateKey) => {
+            const record = recordsByDate[dateKey];
+            const weekdayKey = WEEKDAY_KEYS[new Date(`${dateKey}T00:00:00Z`).getUTCDay()];
+            const isHoliday = holidayDates.has(dateKey) || record?.statusKey === 'holiday';
+            const isWeeklyOff = !isHoliday && (record?.statusKey === 'weekly_off' || offWeekdays.has(weekdayKey));
+            const required = Boolean(countTo)
+                && dateKey <= countTo
+                && (!joinKey || dateKey >= joinKey)
+                && dateKey.startsWith(monthKey)
+                && !isHoliday
+                && !isWeeklyOff;
+            const flexibleWeek = isFlexibleWeek(scheduleWeek);
+            return {
+                required,
+                scheduledHours: required
+                    ? (flexibleWeek ? flexibleDayHours(scheduleWeek, dateKey) : dayHoursOf(scheduleWeek, dateKey))
+                    : 0,
+                weeklyOff: isWeeklyOff,
+                holiday: isHoliday,
+            };
+        };
+        const payByDate = new Map();
+        const reports = additionWeeks.map((week) => buildWeeklySalaryAddition({
             monthKey,
             countTo,
             joinKey,
             records: monthRecords,
             daily: salaryBasis.daily,
             flexible: String(scheduleWeek?.timingMode || '').toLowerCase() === 'flexible',
-            weekDates: additionWeek.dates,
-            extraDates: additionWeek.extraDates,
-            dayInfo: (dateKey) => {
-                const record = recordsByDate[dateKey];
-                const weekdayKey = WEEKDAY_KEYS[new Date(`${dateKey}T00:00:00Z`).getUTCDay()];
-                const isHoliday = holidayDates.has(dateKey) || record?.statusKey === 'holiday';
-                const isWeeklyOff = !isHoliday && (record?.statusKey === 'weekly_off' || offWeekdays.has(weekdayKey));
-                const required = Boolean(countTo)
-                    && dateKey <= countTo
-                    && (!joinKey || dateKey >= joinKey)
-                    && dateKey.startsWith(monthKey)
-                    && !isHoliday
-                    && !isWeeklyOff;
-                return {
-                    required,
-                    scheduledHours: required ? dayHoursOf(scheduleWeek, dateKey) : 0,
-                    weeklyOff: isWeeklyOff,
-                    holiday: isHoliday,
-                };
-            },
+            weekDates: week.dates,
+            extraDates: week.extraDates,
+            dayInfo,
+        }));
+        reports.forEach((report) => {
+            report.details.forEach((row) => {
+                payByDate.set(row.date, money2((payByDate.get(row.date) || 0) + (Number(row.amount) || 0)));
+            });
         });
+        const picked = additionWeeks.findIndex((week) => week.id === additionWeek?.id);
+        const selected = additionWeek?.id === 'all'
+            ? buildWeeklySalaryAddition({
+                monthKey,
+                countTo,
+                joinKey,
+                records: monthRecords,
+                daily: salaryBasis.daily,
+                flexible: String(scheduleWeek?.timingMode || '').toLowerCase() === 'flexible',
+                weekDates: additionWeek.dates,
+                extraDates: additionWeek.extraDates,
+                dayInfo,
+            })
+            : reports[picked];
+        return {
+            report: selected || emptyWeeklySalaryAddition(),
+            payByDate,
+        };
     }, [
+        additionWeeks,
         additionWeek,
         monthKey,
         countTo,
@@ -1952,12 +2171,14 @@ export default function EmployeeInformationDashboard({
         holidayDates,
         offWeekdays,
     ]);
+    const salaryAddition = additionBundle.report;
+    const additionPayByDate = additionBundle.payByDate;
     const deductionRows = useMemo(() => {
         const policy = profile?.leavePolicy || {};
         const daily = salaryBasis.daily;
         const authDays = money2(countedRecords.reduce((sum, row) => {
             if (deductionKind(row) !== 'authorized_leave') return sum;
-            if (String(row?.hourAdjustStatus || '') === 'approved' && n(row?.hoursApproved) > 0) {
+            if (String(row?.hourAdjustStatus || '') === 'approved') {
                 const dayHours = flexibleDayHours(scheduleWeek, row.date) || dayHoursOf(scheduleWeek, row.date) || 8;
                 return sum + (n(row.hoursApproved) / dayHours);
             }
@@ -2602,7 +2823,7 @@ export default function EmployeeInformationDashboard({
                             <div className="px-3 pb-2 pt-1.5">
                                 <AdditionWeekSelect
                                     id="salary-addition-week"
-                                    weeks={additionWeeks}
+                                    weeks={additionChoices}
                                     value={additionWeek?.id}
                                     onChange={setAdditionWeekId}
                                 />
@@ -2625,37 +2846,37 @@ export default function EmployeeInformationDashboard({
                                         <tr className="border-t border-[#EEF2F6]">
                                             <th className={`${ADD_TH} w-8`}>#</th>
                                             <th className={ADD_TH}>Description Type</th>
-                                            <th className={ADD_TH}>Approved Hrs</th>
-                                            <th className={ADD_TH}>Adjusted Hrs</th>
-                                            <th className={ADD_TH}>Balance Hrs</th>
+                                            <th className={ADD_TH}>Approved</th>
+                                            <th className={ADD_TH}>Adjusted</th>
+                                            <th className={ADD_TH}>Balance</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         <tr className="border-t border-[#F4F7FB]">
                                             <td className={`${ADD_TD} text-[#94A3B8]`}>1</td>
                                             <td className={ADD_TD}>Overtime</td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.overtime.approved, 'Hour', 'Hours')} /></td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={formatHourMeasure(salaryAddition.overtime.approved)} /></td>
                                             <td className={ADD_TD}>
                                                 <AdditionFigure
                                                     ready={additionReady}
-                                                    text={measureLabel(salaryAddition.overtime.adjusted, 'Hour', 'Hours')}
+                                                    text={formatHourMeasure(salaryAddition.overtime.adjusted)}
                                                     title={salaryAddition.overtime.adjusted > 0 ? (salaryAddition.overtime.title || 'Adjusted from overtime') : ''}
                                                 />
                                             </td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.overtime.balance, 'Hour', 'Hours')} /></td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={formatHourMeasure(salaryAddition.overtime.balance)} /></td>
                                         </tr>
                                         <tr className="border-t border-[#F4F7FB]">
                                             <td className={`${ADD_TD} text-[#94A3B8]`}>2</td>
                                             <td className={ADD_TD}>Comp off</td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.compOff.approved, 'Hour', 'Hours')} /></td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.compOff.approved, 'Day', 'Days')} /></td>
                                             <td className={ADD_TD}>
                                                 <AdditionFigure
                                                     ready={additionReady}
-                                                    text={measureLabel(salaryAddition.compOff.adjusted, 'Hour', 'Hours')}
-                                                    title={salaryAddition.compOff.adjusted > 0 ? (salaryAddition.compOff.title || 'Adjusted from overtime') : ''}
+                                                    text={measureLabel(salaryAddition.compOff.adjusted, 'Day', 'Days')}
+                                                    title={salaryAddition.compOff.adjusted > 0 ? (salaryAddition.compOff.title || 'Adjusted with the next day') : ''}
                                                 />
                                             </td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.compOff.balance, 'Hour', 'Hours')} /></td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.compOff.balance, 'Day', 'Days')} /></td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -2693,15 +2914,15 @@ export default function EmployeeInformationDashboard({
                                         <tr className="border-t border-[#F4F7FB]">
                                             <td className={`${ADD_TD} text-[#94A3B8]`}>4</td>
                                             <td className={ADD_TD}>Working Hours</td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.workingHours.required, 'Hour', 'Hours')} /></td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={formatHourMeasure(salaryAddition.workingHours.required)} /></td>
                                             <td className={ADD_TD}>
                                                 <AdditionFigure
                                                     ready={additionReady}
-                                                    text={measureLabel(salaryAddition.workingHours.worked, 'Hour', 'Hours')}
+                                                    text={formatHourMeasure(salaryAddition.workingHours.worked)}
                                                     title={salaryAddition.workingHours.title}
                                                 />
                                             </td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.workingHours.balance, 'Hour', 'Hours')} /></td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={formatHourMeasure(salaryAddition.workingHours.balance)} /></td>
                                         </tr>
                                         <tr className="border-t border-[#E2E8F0]">
                                             <td className={`${ADD_TD} font-bold`} colSpan={4}>Total Addition (AED)</td>
@@ -2809,16 +3030,34 @@ export default function EmployeeInformationDashboard({
                                                 : salaryLock.locked
                                                   ? 'future'
                                                   : dayKind(record, { isFuture, isToday: dateKey === todayKey, isHoliday, isWeeklyOff });
-                                            const place = locationOf(record);
                                             const worked = recordWorkedMinutes(record);
                                             const tone = TIP_TONE[kind] || TIP_TONE.empty;
                                             const column = (getDay(day) + 6) % 7;
-                                            const placeText = place.label || (place.hasMap ? `${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}` : '—');
                                             const yellowLabel = kind === 'attention' ? attentionLabel(record) : '';
-                                            const earlyText = dayEarlyText(record, scheduleWeek);
+                                            const flexibleDay = isFlexibleWeek(scheduleWeek);
+                                            const earlyText = flexibleDay ? '' : dayEarlyText(record, scheduleWeek);
                                             const description = dayDescription(record);
                                             const adjustment = inMonth && !salaryLock.locked ? adjustmentByDate.get(dateKey) : null;
                                             const adjustmentText = adjustmentNote(adjustment ? { date: dateKey, ...adjustment } : null);
+                                            const approval = dayApprovalLabel(record);
+                                            const scheduled = flowchartMinutes(scheduleWeek, dateKey, record);
+                                            const balance = worked == null || !(scheduled > 0) ? null : scheduled - worked;
+                                            const flexibleShort = flexibleDay ? flexibleShortMinutes(record, scheduleWeek) : null;
+                                            const counted = Boolean(countTo) && dateKey >= countFrom && dateKey <= countTo;
+                                            const extraPay = additionPayByDate.get(dateKey) || 0;
+                                            const payment = counted ? money2(dailySalary + extraPay) : (extraPay > 0 ? extraPay : null);
+                                            const deduct = counted
+                                                ? money2(attendanceDeductionAmount(record, scheduleWeek, salaryBasis.daily, profile?.leavePolicy || {}))
+                                                : null;
+                                            const lateText = flexibleDay ? '' : dayLateText(record, scheduleWeek);
+                                            const typeLabel = yellowLabel || kindLabel(kind);
+                                            const moreLines = [];
+                                            if (approval && typeLabel && typeLabel !== approval) moreLines.push({ label: 'Type', value: typeLabel });
+                                            if (holidayNamesByDate[dateKey]) moreLines.push({ label: 'Holiday', value: holidayNamesByDate[dateKey] });
+                                            if (adjustmentText) moreLines.push({ label: 'Adjusted', value: adjustmentText });
+                                            if (lateText && lateText !== '—' && lateText !== '0 Hours') moreLines.push({ label: 'Late', value: lateText });
+                                            if (earlyText && earlyText !== '—' && earlyText !== '0 Hours') moreLines.push({ label: 'Early', value: earlyText });
+                                            if (description) moreLines.push({ label: 'Description', value: description });
                                             return (
                                                 <div
                                                     key={dateKey}
@@ -2831,35 +3070,28 @@ export default function EmployeeInformationDashboard({
                                                         {adjustment ? <span className={`mt-0.5 text-[9px] font-bold leading-none ${adjInk(kind)}`}>(Adj)</span> : null}
                                                     </div>
                                                     {hoveredDate === dateKey && inMonth && !salaryLock.locked ? (
-                                                        <div className={`absolute z-30 w-64 rounded-xl border border-[#E6EDF5] bg-white p-3 text-left shadow-xl ${column >= 4 ? 'right-0' : 'left-1/2'} top-full mt-1`}>
-                                                            <p className="text-[13px] font-bold text-[#1B2A4A]">{format(day, 'd MMMM yyyy')}</p>
-                                                            <p className={`mt-1 flex items-center gap-1.5 text-[12px] font-semibold ${tone.text}`}>
-                                                                <span className={`h-2 w-2 rounded-full ${tone.dot}`} />
-                                                                {yellowLabel || kindLabel(kind)}
-                                                                {holidayNamesByDate[dateKey] ? ` · ${holidayNamesByDate[dateKey]}` : ''}
-                                                            </p>
-                                                            {adjustmentText ? (
-                                                                <p className="mt-1 text-[12px] font-semibold text-[#7C3AED]">{adjustmentText}</p>
-                                                            ) : null}
-                                                            <div className="mt-2 space-y-1.5 text-[12px] text-[#1B2A4A]">
-                                                                <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Time In</span><span className="font-medium">{formatClock12(record?.timeIn)}</span></p>
-                                                                <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Time Out</span><span className="font-medium">{formatClock12(record?.timeOut)}</span></p>
-                                                                <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Worked</span><span className="font-medium">{worked == null ? '—' : formatDuration(worked)}</span></p>
-                                                                <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Late</span><span className="font-medium">{dayLateText(record, scheduleWeek)}</span></p>
-                                                                {earlyText ? (
-                                                                    <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Early</span><span className="font-medium">{earlyText}</span></p>
-                                                                ) : null}
-                                                                <p className="flex items-start justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><MapPin size={12} /> Location</span><span className="text-right font-medium">{placeText}</span></p>
-                                                                {description ? (
-                                                                    <p className="flex items-start justify-between gap-3"><span className="inline-flex shrink-0 items-center gap-1.5 text-[#94A3B8]">Description</span><span className="text-right font-medium">{description}</span></p>
-                                                                ) : null}
-                                                            </div>
-                                                            {place.mapHref ? (
-                                                                <a href={place.mapHref} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold text-[#2563EB]">
-                                                                    View on Map <ExternalLink size={12} />
-                                                                </a>
-                                                            ) : null}
-                                                        </div>
+                                                        <DayTip
+                                                            dateLabel={format(day, 'd MMMM yyyy')}
+                                                            statusText={approval || typeLabel}
+                                                            statusClass={approval === 'Approved' ? 'text-[#16A34A]' : approval === 'Not approved' ? 'text-[#DC2626]' : tone.text}
+                                                            dotClass={tone.dot}
+                                                            timeIn={formatClock12(record?.timeIn)}
+                                                            timeOut={formatClock12(record?.timeOut)}
+                                                            timeOutNextDay={isNextDayCheckout({
+                                                                date: dateKey,
+                                                                timeIn: record?.timeIn,
+                                                                timeOut: record?.timeOut,
+                                                                timeOutDate: record?.timeOutDate,
+                                                            })}
+                                                            inSpot={punchSpot(record?.checkInLocation)}
+                                                            outSpot={punchSpot(record?.checkOutLocation)}
+                                                            workedText={worked == null ? '—' : formatHourlyGap(worked)}
+                                                            paymentText={payment == null ? '—' : formatAed(payment, 2)}
+                                                            balanceText={flexibleShort != null ? formatHourlyGap(Math.max(0, flexibleShort)) : formatHourlyGap(balance)}
+                                                            deductText={deduct == null ? '—' : formatAed(deduct, 2)}
+                                                            moreLines={moreLines}
+                                                            alignRight={column >= 4}
+                                                        />
                                                     ) : null}
                                                 </div>
                                             );
@@ -3033,7 +3265,7 @@ export default function EmployeeInformationDashboard({
             </div>
             <SalaryAdditionDetails
                 open={additionDetailsOpen}
-                weeks={additionWeeks}
+                weeks={additionChoices}
                 weekId={additionWeek?.id}
                 onWeekChange={setAdditionWeekId}
                 ready={additionReady}

@@ -165,21 +165,19 @@ export default function HourAdjustModal({ open, mode = 'request', employee, mark
             return;
         }
         if (flexible) {
-            if (!/^\d+$/.test(typed) || hours <= 0 || hours > preview.max) {
+            if (!/^\d+$/.test(typed) || hours > preview.max) {
                 toast({
                     variant: 'destructive',
                     title: 'Check approved hours',
-                    description: preview.max > 0
-                        ? `Enter a whole number from 1 up to ${preview.max}.`
-                        : 'There are no lost hours to approve.',
+                    description: `Enter a whole number from 0 up to ${preview.max}.`,
                 });
                 return;
             }
-        } else if (hours <= 0 || hours > preview.max + 0.001) {
+        } else if (hours > preview.max + 0.001) {
             toast({
                 variant: 'destructive',
                 title: 'Check approved hours',
-                description: `Enter hours from 0.01 up to ${preview.max}.`,
+                description: `Enter hours from 0 up to ${preview.max}.`,
             });
             return;
         }
@@ -250,7 +248,7 @@ export default function HourAdjustModal({ open, mode = 'request', employee, mark
                         </div>
                         {review ? (
                             <>
-                                <Row label="Approved hours" value={shownApproved ? `${shownApproved} hrs` : '—'} />
+                                <Row label="Approved hours" value={`${shownApproved} hrs`} />
                                 <div className="mt-4 flex justify-end gap-2">
                                     <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Cancel</button>
                                     <button type="button" disabled={saving} onClick={() => decide('rejected')} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600">Reject</button>
@@ -264,7 +262,7 @@ export default function HourAdjustModal({ open, mode = 'request', employee, mark
                                     <input
                                         type="number"
                                         inputMode="numeric"
-                                        min="1"
+                                        min="0"
                                         max={preview.max}
                                         step="1"
                                         value={approvedHours}
@@ -279,7 +277,7 @@ export default function HourAdjustModal({ open, mode = 'request', employee, mark
                                     <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Cancel</button>
                                     <button
                                         type="button"
-                                        disabled={saving || preview.max < 1}
+                                        disabled={saving}
                                         onClick={submit}
                                         className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
                                     >
@@ -297,7 +295,7 @@ export default function HourAdjustModal({ open, mode = 'request', employee, mark
                         </div>
                         {review ? (
                             <>
-                                <Row label="Approved hours" value={String(mark.hoursApproved || '—')} />
+                                <Row label="Approved hours" value={mark.hoursApproved == null || mark.hoursApproved === '' ? '—' : String(mark.hoursApproved)} />
                                 <Row label="Description" value={mark.hourAdjustReason} />
                                 <div className="mt-4 flex justify-end gap-2">
                                     <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Close</button>
@@ -311,7 +309,7 @@ export default function HourAdjustModal({ open, mode = 'request', employee, mark
                                     Approved to (hrs)
                                     <input
                                         type="number"
-                                        min="0.01"
+                                        min="0"
                                         max={preview.max}
                                         step="0.5"
                                         value={approvedHours}

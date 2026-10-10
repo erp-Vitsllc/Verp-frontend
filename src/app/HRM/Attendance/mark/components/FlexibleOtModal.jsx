@@ -39,9 +39,31 @@ function coversWorkingDay(hours, dayHours) {
     return hours > 10;
 }
 
+function addDaysKey(dateKey, days) {
+    const date = new Date(`${dateKey}T12:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+}
+
+function isAuthLeaveRow(row) {
+    const key = String(row?.statusKey || '').trim();
+    const label = String(row?.statusLabel || '').trim();
+    if (key === 'authorized_leave') return true;
+    if (/^auth$/i.test(label)) return true;
+    return /auth(?:orized)? leave/i.test(label);
+}
+
+function choiceLabel(dateKey, offset) {
+    const [year, month, day] = String(dateKey || '').split('-').map(Number);
+    const monthName = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1] || '';
+    const when = offset === 1 ? 'Next day' : offset === -1 ? 'Yesterday' : 'This day';
+    return `${when} · ${String(day).padStart(2, '0')} ${monthName} ${year} · Auth`;
+}
+
 export default function FlexibleOtModal({
     open,
     mode = 'request',
+    intent = 'apply',
     employee,
     mark,
     dayHours = 0,
@@ -55,8 +77,12 @@ export default function FlexibleOtModal({
     });
     const [reason, setReason] = useState(mark?.flexibleOtReason || '');
     const [saving, setSaving] = useState(false);
+    const [targetDate, setTargetDate] = useState('');
+    const [dayChoices, setDayChoices] = useState([]);
+    const [daysLoading, setDaysLoading] = useState(false);
     const review = mode === 'review';
     const direct = mode === 'direct';
+    const nextDayIntent = intent === 'next-day' && !review;
 
     useEffect(() => {
         if (!open) return;
@@ -65,31 +91,80 @@ export default function FlexibleOtModal({
         setReason(mark?.flexibleOtReason || '');
     }, [open, mark?.attendanceId, mark?.flexibleOtApprovedHours, mark?.flexibleOtHours, mark?.flexibleOtReason]);
 
+    useEffect(() => {
+        if (!open || !nextDayIntent || !mark?.date || !employee?.id) return undefined;
+        let cancelled = false;
+        setDaysLoading(true);
+        const dates = [1, 0, -1].map((offset) => ({ offset, date: addDaysKey(mark.date, offset) }));
+        const months = [...new Set(dates.map((row) => row.date.slice(0, 7)))];
+        Promise.all(
+            months.map((month) =>
+                axiosInstance
+                    .get('/Attendance/me', {
+                        params: { month, forEmployeeId: employee.id },
+                        skipToast: true,
+                    })
+                    .then((response) => (Array.isArray(response.data?.records) ? response.data.records : []))
+                    .catch(() => []),
+            ),
+        )
+            .then((groups) => {
+                if (cancelled) return;
+                const byDate = new Map();
+                groups.flat().forEach((row) => {
+                    const date = String(row?.date || '').trim();
+                    if (date) byDate.set(date, row);
+                });
+                const choices = dates.filter((row) => isAuthLeaveRow(byDate.get(row.date)));
+                setDayChoices(choices);
+                setTargetDate('');
+            })
+            .finally(() => {
+                if (!cancelled) setDaysLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, nextDayIntent, mark?.date, employee?.id]);
+
     if (!open || !mark) return null;
 
     const hoursNow = wholeOtHours(approvedHours);
     const requiredDay = Number(dayHours) > 0 ? Number(dayHours) : Number(mark?.flexibleRequiredHours) || 0;
     const creditedDay = requiredDay > 0 ? requiredDay : 10;
-    const nextDayApply = coversWorkingDay(hoursNow, requiredDay);
+    const nextDayApply = nextDayIntent && coversWorkingDay(hoursNow, requiredDay);
     const remainderHours = nextDayApply ? Math.max(0, wholeOtHours(hoursNow - creditedDay)) : 0;
+    const selectedChoice = dayChoices.find((row) => row.date === targetDate);
 
     const submitRequest = async () => {
         const hours = hoursNow;
-        const nextDay = direct && nextDayApply;
+        if (nextDayIntent && !targetDate) {
+            toast({ variant: 'destructive', title: 'Choose an authorized leave day' });
+            return;
+        }
+        if (nextDayIntent && !nextDayApply) {
+            toast({
+                variant: 'destructive',
+                title: 'Approved hours must cover one working day',
+                description: `Enter at least ${dayHourLabel(creditedDay)} hours.`,
+            });
+            return;
+        }
         setSaving(true);
         try {
             await axiosInstance.post('/Attendance/flexible-ot/request', {
                 attendanceId: mark.attendanceId,
                 approvedHours: hours,
                 reason,
-                confirmNextDay: nextDay,
+                confirmNextDay: nextDayIntent,
+                targetDate: nextDayIntent ? targetDate : '',
             });
             toast({
-                title: nextDay ? 'Next day marked present' : direct ? 'Overtime applied' : 'Overtime request sent',
-                description: nextDay
+                title: nextDayIntent ? 'Present set on the selected day' : direct ? 'Overtime applied' : 'Overtime request sent',
+                description: nextDayIntent
                     ? remainderHours > 0
-                        ? `The next day is Present (On time) for ${dayHourLabel(creditedDay)} hr. The remaining ${remainderHours} hr is an overtime button on that day.`
-                        : `The next day is Present (On time) for ${dayHourLabel(creditedDay)} hr.`
+                        ? `${choiceLabel(targetDate, selectedChoice?.offset)} is Present for ${dayHourLabel(creditedDay)} hr. Apply OT stays on that day for the remaining ${remainderHours} hr.`
+                        : `${choiceLabel(targetDate, selectedChoice?.offset)} is Present for ${dayHourLabel(creditedDay)} hr.`
                     : direct
                       ? 'These hours are taken now.'
                       : 'HR has been notified.',
@@ -108,27 +183,15 @@ export default function FlexibleOtModal({
     };
 
     const decide = async (decision) => {
-        const hours = wholeOtHours(mark.flexibleOtApprovedHours);
-        const confirmNextDay = decision === 'approved' && coversWorkingDay(hours, requiredDay);
         setSaving(true);
         try {
             await axiosInstance.post('/Attendance/flexible-ot/decide', {
                 attendanceId: mark.attendanceId,
                 decision,
-                confirmNextDay,
+                confirmNextDay: false,
             });
             toast({
-                title:
-                    decision === 'approved'
-                        ? confirmNextDay
-                            ? 'Next day marked present'
-                            : 'Overtime approved'
-                        : 'Overtime rejected',
-                description: confirmNextDay
-                    ? remainderHours > 0
-                        ? `The next day is Present (On time) for ${dayHourLabel(creditedDay)} hr. The remaining ${remainderHours} hr is an overtime button on that day.`
-                        : `The next day is Present (On time) for ${dayHourLabel(creditedDay)} hr.`
-                    : undefined,
+                title: decision === 'approved' ? 'Overtime approved' : 'Overtime rejected',
             });
             onSaved?.();
             onClose?.();
@@ -147,13 +210,7 @@ export default function FlexibleOtModal({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
                 <h3 className="text-lg font-black text-slate-900">
-                    {review
-                        ? 'Review overtime'
-                        : direct && nextDayApply
-                          ? 'Apply next day attendance'
-                          : direct
-                            ? 'Apply overtime'
-                            : 'Request overtime'}
+                    {review ? 'Review overtime' : nextDayIntent ? 'Next day present' : direct ? 'Apply overtime' : 'Request overtime'}
                 </h3>
                 <p className="mt-1 text-sm text-slate-500">{employee?.name}</p>
                 <div className="mt-4">
@@ -184,9 +241,7 @@ export default function FlexibleOtModal({
                                 onClick={() => decide('approved')}
                                 className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white"
                             >
-                                {coversWorkingDay(wholeOtHours(mark.flexibleOtApprovedHours), requiredDay)
-                                    ? 'Next day present'
-                                    : 'Approve'}
+                                Approve
                             </button>
                         </div>
                     </>
@@ -203,11 +258,33 @@ export default function FlexibleOtModal({
                                 className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-semibold"
                             />
                         </label>
-                        {nextDayApply ? (
+                        {nextDayIntent ? (
+                            <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+                                Day to change
+                                <select
+                                    value={targetDate}
+                                    onChange={(event) => setTargetDate(event.target.value)}
+                                    disabled={daysLoading || dayChoices.length === 0}
+                                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800"
+                                >
+                                    <option value="">{daysLoading ? 'Loading days...' : 'Select a day'}</option>
+                                    {dayChoices.map((choice) => (
+                                        <option key={choice.date} value={choice.date}>
+                                            {choiceLabel(choice.date, choice.offset)}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        ) : null}
+                        {nextDayIntent ? (
                             <p className="text-xs leading-5 text-slate-500">
-                                {remainderHours > 0
-                                    ? `This covers one working day (${dayHourLabel(creditedDay)} hr). The next day is Present (On time) for those hours, and an overtime button is added there for the remaining ${remainderHours} hr.`
-                                    : `This matches one working day (${dayHourLabel(creditedDay)} hr). The next day is Present (On time) for those hours.`}
+                                {dayChoices.length === 0 && !daysLoading
+                                    ? 'Only Auth, Auth leave, or Authorized leave can be changed, from the next day through yesterday.'
+                                    : nextDayApply
+                                      ? remainderHours > 0
+                                          ? `The selected day becomes Present for ${dayHourLabel(creditedDay)} hr. Apply OT stays on that day for the remaining ${remainderHours} hr.`
+                                          : `The selected day becomes Present for ${dayHourLabel(creditedDay)} hr.`
+                                      : `Approved hours must cover one working day (${dayHourLabel(creditedDay)} hr) before that day can be changed.`}
                             </p>
                         ) : null}
                         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -225,11 +302,16 @@ export default function FlexibleOtModal({
                             </button>
                             <button
                                 type="button"
-                                disabled={saving || !String(reason).trim() || !(Number(approvedHours) > 0)}
+                                disabled={
+                                    saving ||
+                                    !String(reason).trim() ||
+                                    !(Number(approvedHours) > 0) ||
+                                    (nextDayIntent && (daysLoading || !targetDate || !nextDayApply))
+                                }
                                 onClick={submitRequest}
                                 className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
                             >
-                                {direct ? (nextDayApply ? 'Next day present' : 'Apply') : 'Submit'}
+                                {nextDayIntent ? 'Set present' : direct ? 'Apply' : 'Submit'}
                             </button>
                         </div>
                     </div>

@@ -6,6 +6,7 @@ import { Check, Clock, LogIn, LogOut } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { normalizeWorkLocationKey } from '@/utils/workLocations';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import { isNextDayCheckout, NextDayCheckoutTime } from '@/app/HRM/Attendance/utils/nextDayCheckout';
 import { dashboardHover, dashboardItem } from './dashboardMotion';
 import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
@@ -161,6 +162,7 @@ export default function DashboardCheckInOutCard() {
     const [dateKey, setDateKey] = useState(() => getDubaiDateKey());
     const [timeIn, setTimeIn] = useState('');
     const [timeOut, setTimeOut] = useState('');
+    const [timeOutDate, setTimeOutDate] = useState('');
     const [elapsed, setElapsed] = useState(0);
     const [staffType, setStaffType] = useState('office');
     const [openFlexiblePunch, setOpenFlexiblePunch] = useState(false);
@@ -195,6 +197,7 @@ export default function DashboardCheckInOutCard() {
                 setSalaryLock(lock);
                 setTimeIn('');
                 setTimeOut('');
+                setTimeOutDate('');
                 setContactLock(contactLockFromPayload(res.data));
                 setError('');
                 return;
@@ -204,6 +207,7 @@ export default function DashboardCheckInOutCard() {
             const nextStaff = normalizeWorkLocationKey(res.data?.employee?.staffType);
             setTimeIn(record?.timeIn || '');
             setTimeOut(record?.timeOut || '');
+            setTimeOutDate(record?.timeOutDate || '');
             setPunchDate(record?.date || today);
             setOpenFlexiblePunch(Boolean(res.data?.openFlexiblePunch));
             setStaffType(nextStaff);
@@ -216,12 +220,14 @@ export default function DashboardCheckInOutCard() {
                 setSalaryLock(salaryLockFromAttendancePayload(err.response.data));
                 setTimeIn('');
                 setTimeOut('');
+                setTimeOutDate('');
                 setError('');
                 return;
             }
             if (!soft) {
                 setTimeIn('');
                 setTimeOut('');
+                setTimeOutDate('');
             }
             setError(err?.response?.data?.message || 'Could not load check-in status.');
         } finally {
@@ -248,6 +254,7 @@ export default function DashboardCheckInOutCard() {
                 if (!openFlexiblePunch) {
                     setTimeIn('');
                     setTimeOut('');
+                    setTimeOutDate('');
                     setElapsed(0);
                 }
                 loadToday();
@@ -283,7 +290,9 @@ export default function DashboardCheckInOutCard() {
         }
 
         if (outSec != null) {
-            setElapsed(Math.max(0, outSec - inSec));
+            let span = outSec - inSec;
+            if (span < 0 || (timeOutDate && punchDate && timeOutDate > punchDate)) span += 24 * 3600;
+            setElapsed(Math.max(0, span));
             return undefined;
         }
 
@@ -306,7 +315,7 @@ export default function DashboardCheckInOutCard() {
         return () => {
             if (tickRef.current) clearInterval(tickRef.current);
         };
-    }, [timeIn, timeOut, openFlexiblePunch, punchDate]);
+    }, [timeIn, timeOut, timeOutDate, openFlexiblePunch, punchDate]);
 
     const handlePunchError = (err, fallbackMessage) => {
         if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
@@ -326,6 +335,7 @@ export default function DashboardCheckInOutCard() {
         const record = err?.response?.data?.record;
         if (record?.timeIn) setTimeIn(record.timeIn);
         if (record?.timeOut) setTimeOut(record.timeOut);
+        if (record?.timeOutDate) setTimeOutDate(record.timeOutDate);
     };
 
     const handleCheckIn = async (coords = null) => {
@@ -345,6 +355,7 @@ export default function DashboardCheckInOutCard() {
                 getDubaiClockNow();
             setTimeIn(nextIn);
             setTimeOut('');
+            setTimeOutDate('');
             notifyAttendanceChanged();
             setLocationModalOpen(false);
         } catch (err) {
@@ -370,6 +381,7 @@ export default function DashboardCheckInOutCard() {
                 res.data?.record?.timeOut ||
                 getDubaiClockNow();
             setTimeOut(nextOut);
+            setTimeOutDate(res.data?.record?.timeOutDate || res.data?.timeOutDate || '');
             notifyAttendanceChanged();
             setLocationModalOpen(false);
         } catch (err) {
@@ -414,11 +426,21 @@ export default function DashboardCheckInOutCard() {
         return 'Check In';
     }, [saving, checkedIn, timeIn]);
 
+    const checkoutNextDay = isNextDayCheckout({
+        date: punchDate || dateKey,
+        timeIn,
+        timeOut,
+        timeOutDate,
+    });
+
     const checkOutButtonLabel = useMemo(() => {
         if (saving && checkedIn && !checkedOut) return 'Saving…';
-        if (checkedOut) return `Out ${formatClock(timeOut) || '—'}`;
+        if (checkedOut) {
+            const clock = formatClock(timeOut) || '—';
+            return checkoutNextDay ? `Out ${clock} (next day)` : `Out ${clock}`;
+        }
         return 'Check Out';
-    }, [saving, checkedIn, checkedOut, timeOut]);
+    }, [saving, checkedIn, checkedOut, timeOut, checkoutNextDay]);
 
     return (
         <motion.div
@@ -473,7 +495,7 @@ export default function DashboardCheckInOutCard() {
                                 <>
                                     <span className="text-slate-300 mx-1.5">·</span>
                                     <span className="text-slate-400 font-medium">Out</span>{' '}
-                                    <span className="font-semibold">{formatClock(timeOut)}</span>
+                                    <NextDayCheckoutTime time={formatClock(timeOut)} nextDay={checkoutNextDay} />
                                 </>
                             ) : (
                                 <span className="text-amber-600 text-[11px] ml-1.5 font-medium">
@@ -523,7 +545,7 @@ export default function DashboardCheckInOutCard() {
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#B71C1C] hover:bg-[#9A1616] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#B71C1C] disabled:hover:translate-y-0 disabled:!text-white"
                     title={
                         checkedOut
-                            ? `Checked out at ${formatClock(timeOut)}`
+                            ? `Checked out at ${formatClock(timeOut)}${checkoutNextDay ? ' (next day)' : ''}`
                             : checkedIn
                                 ? 'Check out'
                                 : 'Check in first'

@@ -32,6 +32,7 @@ import {
     PunchTypeCell,
     punchCoords,
 } from '@/app/HRM/Attendance/mark/components/MarkAttendancePunchCells';
+import { isNextDayCheckout } from '@/app/HRM/Attendance/utils/nextDayCheckout';
 
 export default function UserProfilePage() {
     const router = useRouter();
@@ -995,6 +996,12 @@ function AttendancePunchPanel({ attendance }) {
                             location={attendance.checkOutLocation}
                             time={attendance.timeOut}
                             kind="out"
+                            nextDay={isNextDayCheckout({
+                                date: attendance.date,
+                                timeIn: attendance.timeIn,
+                                timeOut: attendance.timeOut,
+                                timeOutDate: attendance.timeOutDate,
+                            })}
                         />
                     </div>
                     <div className="flex flex-col gap-1">

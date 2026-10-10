@@ -20,6 +20,7 @@ import axiosInstance from '@/utils/axios';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { normalizeWorkLocationKey, workLocationLabel, weekForStaffType } from '@/utils/workLocations';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import { isNextDayCheckout, NextDayCheckoutTime } from '@/app/HRM/Attendance/utils/nextDayCheckout';
 import { notifyLeavePendingInboxChanged } from '@/app/HRM/Leave/utils/leavePendingInboxCount';
 import AttendanceTeamTreeModal from './AttendanceTeamTreeModal';
 import AttendanceLeaveRequestModal from './AttendanceLeaveRequestModal';
@@ -242,7 +243,12 @@ function CalendarDayTooltip({ hovered, reduceMotion }) {
                                     {hovered.expectedTimes ? 'Expected out' : 'Check out'}
                                 </p>
                                 <p className="text-lg font-black tabular-nums leading-none mt-1">
-                                    {hovered.timeOut || '—'}
+                                    <NextDayCheckoutTime
+                                        time={hovered.timeOut || '—'}
+                                        nextDay={Boolean(hovered.timeOutNextDay)}
+                                        colorClass="text-red-300"
+                                        className={hovered.timeOutNextDay ? 'block text-[13px] leading-snug whitespace-normal' : ''}
+                                    />
                                 </p>
                             </div>
                         </div>
@@ -622,6 +628,12 @@ export default function DashboardAttendanceCalendar({
     const leadingBlanks = getDay(startOfMonth(monthAnchor));
     const timeInLabel = formatClock(todayRecord?.timeIn);
     const timeOutLabel = formatClock(todayRecord?.timeOut);
+    const todayOutNextDay = isNextDayCheckout({
+        date: todayRecord?.date,
+        timeIn: todayRecord?.timeIn,
+        timeOut: todayRecord?.timeOut,
+        timeOutDate: todayRecord?.timeOutDate,
+    });
     const viewingOther = !isSelf;
     const earliestFutureDate = useMemo(
         () => firstEligibleAdvanceRequestDate(todayKey, holidayDates, offWeekdays),
@@ -894,7 +906,12 @@ export default function DashboardAttendanceCalendar({
                             <p className="inline-flex items-center gap-1 text-[11px] text-slate-500 tabular-nums">
                                 <Clock className="w-3 h-3" />
                                 {timeInLabel || '—'}
-                                {timeOutLabel ? ` – ${timeOutLabel}` : ''}
+                                {timeOutLabel ? (
+                                    <>
+                                        {' – '}
+                                        <NextDayCheckoutTime time={timeOutLabel} nextDay={todayOutNextDay} />
+                                    </>
+                                ) : null}
                             </p>
                         ) : null}
                     </div>
@@ -1040,6 +1057,14 @@ export default function DashboardAttendanceCalendar({
                                         expectedTimes: showExpected,
                                         timeIn: showExpected ? requestedIn : punchedIn,
                                         timeOut: showExpected ? requestedOut : punchedOut,
+                                        timeOutNextDay: showExpected
+                                            ? false
+                                            : isNextDayCheckout({
+                                                  date: dateKey,
+                                                  timeIn: record?.timeIn,
+                                                  timeOut: record?.timeOut,
+                                                  timeOutDate: record?.timeOutDate,
+                                              }),
                                         x: event.clientX,
                                         y: event.clientY,
                                     });

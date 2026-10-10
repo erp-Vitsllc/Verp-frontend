@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+    buildMonthAdditionChoices,
     buildMonthWorkWeeks,
     buildWeeklySalaryAddition,
     defaultWorkWeekIndex,
+    formatHourMeasure,
 } from './weeklySalaryAddition.js';
 
 const DAILY = 1000;
@@ -75,6 +77,36 @@ describe('salary addition weeks', () => {
         assert.equal(weeks.at(-1).to, '2026-02-28');
     });
 
+    it('offers the 1st through yesterday as All, ahead of the weeks', () => {
+        const choices = buildMonthAdditionChoices('2026-10', '2026-10-10');
+        assert.equal(choices[0].id, 'all');
+        assert.equal(choices[0].from, '2026-10-01');
+        assert.equal(choices[0].to, '2026-10-09');
+        assert.equal(choices[0].empty, false);
+        assert.ok(choices[0].dates.includes('2026-10-01'));
+        assert.ok(choices[0].dates.includes('2026-10-09'));
+        assert.equal(choices[0].dates.includes('2026-10-04'), false);
+        assert.deepEqual(choices[0].extraDates, ['2026-10-04']);
+        assert.equal(choices[1].from, '2026-10-01');
+        assert.equal(choices.at(-1).to, '2026-10-31');
+    });
+
+    it('uses the full month for All once that month is finished', () => {
+        const choices = buildMonthAdditionChoices('2026-09', '2026-10-10');
+        assert.equal(choices[0].from, '2026-09-01');
+        assert.equal(choices[0].to, '2026-09-30');
+        assert.equal(choices[0].empty, false);
+    });
+
+    it('writes hours and minutes instead of a decimal hour', () => {
+        assert.equal(formatHourMeasure(1.75), '1 Hour 45 Minutes');
+        assert.equal(formatHourMeasure(1), '1 Hour');
+        assert.equal(formatHourMeasure(2), '2 Hours');
+        assert.equal(formatHourMeasure(0.5), '30 Minutes');
+        assert.equal(formatHourMeasure(0), '0 Hours');
+        assert.equal(formatHourMeasure(-1.5), '-1 Hour 30 Minutes');
+    });
+
     it('defaults to the previous Monday–Saturday week', () => {
         const weeks = weeksOfOctober();
         assert.equal(weeks[defaultWorkWeekIndex(weeks, '2026-10-10')].from, '2026-10-01');
@@ -132,20 +164,24 @@ describe('weekly salary addition counts', () => {
             },
         ];
         const result = report(weeks[1], records);
-        assert.equal(result.overtime.approved, 12);
-        assert.equal(result.overtime.adjusted, 10);
+        assert.equal(result.overtime.approved, 2);
+        assert.equal(result.overtime.adjusted, 0);
         assert.equal(result.overtime.balance, 2);
         assert.equal(result.total, DAILY + 200);
-        assert.match(result.overtime.title, /05-Oct-2026 adjusted with 06-Oct-2026 \(10 Hours\)/);
-        assert.match(result.overtime.title, /2 Hours remain as overtime/);
-        assert.equal(result.compOff.approved, 10);
-        assert.equal(result.compOff.adjusted, 10);
+        assert.equal(result.overtime.title, '');
+        assert.equal(result.compOff.approved, 1);
+        assert.equal(result.compOff.adjusted, 1);
         assert.equal(result.compOff.balance, 0);
-        assert.match(result.compOff.title, /05-Oct-2026 adjusted with 06-Oct-2026 \(10 Hours\)/);
+        assert.match(result.compOff.title, /06-Oct-2026 adjusted with 05-Oct-2026/);
         assert.match(result.workingDay.title, /06-Oct-2026 adjusted with 05-Oct-2026/);
         assert.equal(result.workingDay.worked, 2);
+        assert.equal(result.workingHours.title, '');
         assert.equal(result.details.find((row) => row.date === '2026-10-06').amount, DAILY);
+        assert.equal(result.details.find((row) => row.date === '2026-10-06').adjustedDays, 1);
+        assert.match(result.details.find((row) => row.date === '2026-10-06').calculation, /1 Day × AED 1,000.00/);
         assert.equal(result.details.find((row) => row.date === '2026-10-05').amount, 200);
+        assert.equal(result.details.find((row) => row.date === '2026-10-05').adjustedDays, 0);
+        assert.match(result.details.find((row) => row.date === '2026-10-05').calculation, /2 Hours × AED 1,000.00 ÷ 10 Hours/);
     });
 
     it('keeps a next-day payment on the covered week when the overtime was the week before', () => {
@@ -162,11 +198,11 @@ describe('weekly salary addition counts', () => {
         }];
         const sourceWeek = report(weeks[1], records);
         const coveredWeek = report(weeks[2], records);
-        assert.equal(sourceWeek.overtime.approved, 9);
-        assert.equal(sourceWeek.overtime.adjusted, 8);
+        assert.equal(sourceWeek.overtime.approved, 1);
+        assert.equal(sourceWeek.overtime.adjusted, 0);
         assert.equal(sourceWeek.overtime.balance, 1);
-        assert.equal(sourceWeek.compOff.approved, 8);
-        assert.equal(sourceWeek.compOff.adjusted, 8);
+        assert.equal(sourceWeek.compOff.approved, 1);
+        assert.equal(sourceWeek.compOff.adjusted, 1);
         assert.equal(sourceWeek.compOff.balance, 0);
         assert.equal(coveredWeek.compOff.approved, 0);
         assert.equal(sourceWeek.total, 100);
@@ -201,8 +237,8 @@ describe('weekly salary addition counts', () => {
         assert.equal(otWeek.overtime.balance, 2);
         assert.equal(otWeek.total, 200);
         assert.match(otWeek.overtime.title, /05-Oct-2026 adjusted with comp off on 12-Oct-2026 \(10 Hours\)/);
-        assert.equal(compWeek.compOff.approved, 10);
-        assert.equal(compWeek.compOff.adjusted, 10);
+        assert.equal(compWeek.compOff.approved, 1);
+        assert.equal(compWeek.compOff.adjusted, 1);
         assert.equal(compWeek.compOff.balance, 0);
         assert.match(compWeek.compOff.title, /12-Oct-2026 adjusted from overtime on 05-Oct-2026 \(10 Hours\)/);
         assert.equal(compWeek.total, 0);
@@ -230,9 +266,9 @@ describe('weekly salary addition counts', () => {
         ];
         const result = report(weeks[1], records);
         assert.equal(result.overtime.balance, 10);
-        assert.equal(result.compOff.approved, 10);
+        assert.equal(result.compOff.approved, 1);
         assert.equal(result.compOff.adjusted, 0);
-        assert.equal(result.compOff.balance, 10);
+        assert.equal(result.compOff.balance, 1);
         assert.equal(result.total, DAILY);
     });
 
@@ -273,9 +309,9 @@ describe('weekly salary addition counts', () => {
         assert.equal(result.overtime.approved, 16);
         assert.equal(result.overtime.adjusted, 16);
         assert.equal(result.overtime.balance, 0);
-        assert.equal(result.compOff.approved, 20);
-        assert.equal(result.compOff.adjusted, 16);
-        assert.equal(result.compOff.balance, 4);
+        assert.equal(result.compOff.approved, 2);
+        assert.equal(result.compOff.adjusted, 2);
+        assert.equal(result.compOff.balance, 0);
         assert.equal(result.total, 0);
         assert.match(result.compOff.title, /08-Oct-2026 adjusted from overtime on 06-Oct-2026 \(6 Hours\)/);
     });
@@ -316,7 +352,8 @@ describe('weekly salary addition counts', () => {
         assert.equal(result.total, 200 + DAILY);
         assert.match(result.overtime.title, /10-Oct-2026 worked on a weekly off and counts as one day/);
         assert.equal(result.workingDay.required, 5);
-        assert.equal(result.workingHours.worked, 8);
+        assert.equal(result.workingHours.worked, 10);
+        assert.match(result.workingHours.title, /worked on a weekly off/);
     });
 
     it('does not pay flexible extra hours until they are approved', () => {
@@ -333,8 +370,8 @@ describe('weekly salary addition counts', () => {
         assert.equal(result.overtime.balance, 0);
         assert.equal(result.total, 0);
         assert.equal(result.workingHours.required, 48);
-        assert.equal(result.workingHours.worked, 8);
-        assert.equal(result.workingHours.balance, 40);
+        assert.equal(result.workingHours.worked, 12);
+        assert.equal(result.workingHours.balance, 36);
     });
 
     it('ignores comp off charged to another month', () => {
@@ -371,12 +408,13 @@ describe('weekly salary addition counts', () => {
         }];
         const result = report(weeks[1], records);
         assert.equal(result.total, DAILY);
-        assert.equal(result.compOff.approved, 8);
-        assert.equal(result.compOff.adjusted, 8);
+        assert.equal(result.compOff.approved, 1);
+        assert.equal(result.compOff.adjusted, 1);
         assert.equal(result.compOff.balance, 0);
         assert.match(result.compOff.title, /06-Oct-2026 adjusted with 30-Sep-2026/);
         assert.equal(result.workingDay.worked, 1);
-        assert.equal(result.details.find((row) => row.date === '2026-10-06').adjustedHours, 8);
+        assert.equal(result.details.find((row) => row.date === '2026-10-06').adjustedDays, 1);
+        assert.equal(result.details.find((row) => row.date === '2026-10-06').adjustedHours, 0);
         assert.match(result.workingDay.title, /06-Oct-2026 adjusted with 30-Sep-2026/);
     });
 

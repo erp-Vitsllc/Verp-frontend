@@ -1138,6 +1138,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     const usingDeductionList = financialModalKey === 'deductions' && deductionList;
     const deductionColumns = [
         { key: 'date', label: 'Date', cell: true },
+        { key: 'type', label: 'Type', cell: true },
         { key: 'in', label: 'In', cell: true },
         { key: 'out', label: 'Out', cell: true },
         { key: 'lossHrs', label: 'Loss of hrs', cell: true },
