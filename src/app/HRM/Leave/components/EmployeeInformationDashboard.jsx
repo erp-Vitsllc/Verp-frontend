@@ -1129,6 +1129,8 @@ function dayEarlyText(record, week) {
 
 function dayApprovalLabel(record) {
     if (!record) return '';
+    const key = String(record.statusKey || '');
+    if (key === 'on_office' || key === 'work_from_home') return '';
     const marks = [
         record.hourAdjustStatus,
         record.leaveRequestStatus,
@@ -1137,11 +1139,10 @@ function dayApprovalLabel(record) {
     ].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean);
     if (marks.includes('approved')) return 'Approved';
     if (marks.some((value) => value === 'pending' || value === 'rejected')) return 'Not approved';
-    const key = String(record.statusKey || '');
     if (key === 'unauthorized_leave' || key === 'not_marked' || key === 'late_arrived' || key === 'early_go' || key === 'mispunch') {
         return 'Not approved';
     }
-    if (key === 'on_office' || key === 'work_from_home' || key === 'authorized_leave' || key === 'on_leave' || key === 'sick_leave' || key === 'compoff_leave') {
+    if (key === 'authorized_leave' || key === 'on_leave' || key === 'sick_leave' || key === 'compoff_leave') {
         return 'Approved';
     }
     return '';
@@ -1210,6 +1211,7 @@ function DayTip({
     dateLabel,
     statusText,
     statusClass,
+    approvalText = '',
     dotClass,
     timeIn,
     timeOut,
@@ -1224,13 +1226,15 @@ function DayTip({
     alignRight,
 }) {
     const [more, setMore] = useState(false);
+    const approvalClass = approvalText === 'Approved' ? 'text-[#16A34A]' : 'text-[#DC2626]';
     return (
         <div className={`absolute z-30 w-80 rounded-xl border border-[#E6EDF5] bg-white p-3 text-left shadow-xl ${alignRight ? 'right-0' : 'left-1/2'} top-full mt-1`}>
             <p className="text-[13px] font-bold text-[#1B2A4A]">{dateLabel}</p>
-            <p className={`mt-1 flex items-center gap-1.5 text-[12px] font-semibold ${statusClass}`}>
+            <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] font-semibold">
                 <span className={`h-2 w-2 rounded-full ${dotClass}`} />
-                Status
-                <span>{statusText}</span>
+                <span className="font-medium text-[#64748B]">Status</span>
+                <span className={statusClass}>{statusText}</span>
+                {approvalText ? <span className={approvalClass}>· {approvalText}</span> : null}
             </p>
             <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
                 <TipMoney label="Time In" value={timeIn} />
@@ -1378,7 +1382,7 @@ function figureParts(value, singular, plural) {
     return { text: amount, word: amount === 1 ? singular : plural };
 }
 
-function AdjMark({ title }) {
+function AdjMark({ title, label = '(adj)' }) {
     const [box, setBox] = useState(null);
     const markRef = useRef(null);
     if (!title) return null;
@@ -1399,7 +1403,7 @@ function AdjMark({ title }) {
                 onFocus={show}
                 onBlur={() => setBox(null)}
             >
-                (adj)
+                {label}
             </span>
             {box && typeof document !== 'undefined'
                 ? createPortal(
@@ -2906,10 +2910,17 @@ export default function EmployeeInformationDashboard({
                                                 <AdditionFigure
                                                     ready={additionReady}
                                                     text={measureLabel(salaryAddition.workingDay.worked, 'Day', 'Days')}
-                                                    title={salaryAddition.workingDay.title}
                                                 />
                                             </td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.workingDay.balance, 'Day', 'Days')} /></td>
+                                            <td className={ADD_TD}>
+                                                <AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.workingDay.balance, 'Day', 'Days')} />
+                                                {additionReady && salaryAddition.workingDay.compOffDays > 0 ? (
+                                                    <AdjMark
+                                                        title={salaryAddition.workingDay.compOffTitle || 'Comp off'}
+                                                        label="C/DAY (comp off)"
+                                                    />
+                                                ) : null}
+                                            </td>
                                         </tr>
                                         <tr className="border-t border-[#F4F7FB]">
                                             <td className={`${ADD_TD} text-[#94A3B8]`}>4</td>
@@ -3045,14 +3056,18 @@ export default function EmployeeInformationDashboard({
                                             const flexibleShort = flexibleDay ? flexibleShortMinutes(record, scheduleWeek) : null;
                                             const counted = Boolean(countTo) && dateKey >= countFrom && dateKey <= countTo;
                                             const extraPay = additionPayByDate.get(dateKey) || 0;
-                                            const payment = counted ? money2(dailySalary + extraPay) : (extraPay > 0 ? extraPay : null);
+                                            const deductedLeave = kind === 'authorized' || kind === 'absent';
+                                            const payment = deductedLeave
+                                                ? (extraPay > 0 ? extraPay : (counted ? 0 : null))
+                                                : counted
+                                                  ? money2(dailySalary + extraPay)
+                                                  : (extraPay > 0 ? extraPay : null);
                                             const deduct = counted
                                                 ? money2(attendanceDeductionAmount(record, scheduleWeek, salaryBasis.daily, profile?.leavePolicy || {}))
                                                 : null;
                                             const lateText = flexibleDay ? '' : dayLateText(record, scheduleWeek);
                                             const typeLabel = yellowLabel || kindLabel(kind);
                                             const moreLines = [];
-                                            if (approval && typeLabel && typeLabel !== approval) moreLines.push({ label: 'Type', value: typeLabel });
                                             if (holidayNamesByDate[dateKey]) moreLines.push({ label: 'Holiday', value: holidayNamesByDate[dateKey] });
                                             if (adjustmentText) moreLines.push({ label: 'Adjusted', value: adjustmentText });
                                             if (lateText && lateText !== '—' && lateText !== '0 Hours') moreLines.push({ label: 'Late', value: lateText });
@@ -3072,8 +3087,9 @@ export default function EmployeeInformationDashboard({
                                                     {hoveredDate === dateKey && inMonth && !salaryLock.locked ? (
                                                         <DayTip
                                                             dateLabel={format(day, 'd MMMM yyyy')}
-                                                            statusText={approval || typeLabel}
-                                                            statusClass={approval === 'Approved' ? 'text-[#16A34A]' : approval === 'Not approved' ? 'text-[#DC2626]' : tone.text}
+                                                            statusText={typeLabel}
+                                                            statusClass={tone.text}
+                                                            approvalText={approval}
                                                             dotClass={tone.dot}
                                                             timeIn={formatClock12(record?.timeIn)}
                                                             timeOut={formatClock12(record?.timeOut)}

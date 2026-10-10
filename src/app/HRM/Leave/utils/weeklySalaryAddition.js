@@ -251,19 +251,22 @@ function emptyInfo() {
     return { required: false, scheduledHours: 0, weeklyOff: false, holiday: false };
 }
 
+/** Present, late arrival, early go, and work from home. OT and comp off stay out. */
 function countsAsWorked(day) {
+    if (!day || day.synthetic) return false;
+    return WORKED_STATUS_KEYS.has(day.statusKey);
+}
+
+function isCompOffRemainder(day) {
     if (!day) return false;
-    if (day.covered) return true;
-    if (day.synthetic) return Boolean(day.fromDay) || WORKED_STATUS_KEYS.has(day.statusKey);
-    if (WORKED_STATUS_KEYS.has(day.statusKey)) return true;
-    return day.workedHours > 0;
+    return day.statusKey === 'compoff_leave' || day.synthetic || day.covered;
 }
 
 export function emptyWeeklySalaryAddition() {
     return {
         overtime: { approved: 0, adjusted: 0, balance: 0, title: '' },
         compOff: { approved: 0, adjusted: 0, balance: 0, title: '' },
-        workingDay: { required: 0, worked: 0, balance: 0, title: '' },
+        workingDay: { required: 0, worked: 0, balance: 0, title: '', compOffDays: 0, compOffTitle: '' },
         workingHours: { required: 0, worked: 0, balance: 0, title: '' },
         total: 0,
         details: [],
@@ -459,9 +462,10 @@ export function buildWeeklySalaryAddition({
     let otBalance = 0;
     let compApproved = 0;
     let compAdjusted = 0;
-    let dayWasAdjusted = false;
     let requiredDays = 0;
     let workedDays = 0;
+    let compOffRemaining = 0;
+    const compOffLines = [];
     let requiredHours = 0;
     let workedHours = 0;
     const weekDays = [...ledger.values()].filter(inWeek);
@@ -471,7 +475,6 @@ export function buildWeeklySalaryAddition({
         otBalance = roundHours(otBalance + Math.max(0, day.payable - day.consumed));
         compApproved += day.compOffDays;
         compAdjusted += day.compOffDaysAdjusted;
-        if (day.compOffDaysAdjusted > 0 || day.nextDayCount > 0 || day.covered) dayWasAdjusted = true;
         const source = day.coverSource ? ledger.get(day.coverSource) : null;
         const sourceOwnsCompOff = Boolean(source && source.nextDayCount > 0);
         if (day.nextDayCount > 0) {
@@ -491,6 +494,12 @@ export function buildWeeklySalaryAddition({
         requiredHours = roundHours(requiredHours + info.scheduledHours);
         const day = ledger.get(date);
         if (countsAsWorked(day)) workedDays += 1;
+        else if (isCompOffRemainder(day)) {
+            compOffRemaining += 1;
+            const lines = [...(day.compOffLinks || []), ...(day.coverLinks || [])];
+            if (lines.length) lines.forEach((line) => addLink(compOffLines, line));
+            else addLink(compOffLines, `${formatAdditionDay(date)} is comp off`);
+        }
         workedHours = roundHours(workedHours + (day?.workedHours || 0));
     });
 
@@ -550,9 +559,9 @@ export function buildWeeklySalaryAddition({
             required: requiredDays,
             worked: workedDays,
             balance: requiredDays - workedDays,
-            title: dayWasAdjusted
-                ? (titles(weekDays, 'compOffLinks') || titles(weekDays, 'coverLinks') || 'Adjusted from comp off')
-                : '',
+            title: '',
+            compOffDays: compOffRemaining,
+            compOffTitle: compOffLines.join('\n'),
         },
         workingHours: {
             required: requiredHours,

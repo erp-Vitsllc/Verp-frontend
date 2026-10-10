@@ -276,15 +276,13 @@ export default function FlexibleOtModal({
                                 </select>
                             </label>
                         ) : null}
-                        {nextDayIntent ? (
+                        {nextDayIntent && !(dayChoices.length === 0 && !daysLoading) ? (
                             <p className="text-xs leading-5 text-slate-500">
-                                {dayChoices.length === 0 && !daysLoading
-                                    ? 'Only Auth, Auth leave, or Authorized leave can be changed, from the next day through yesterday.'
-                                    : nextDayApply
-                                      ? remainderHours > 0
-                                          ? `The selected day becomes Present for ${dayHourLabel(creditedDay)} hr. Apply OT stays on that day for the remaining ${remainderHours} hr.`
-                                          : `The selected day becomes Present for ${dayHourLabel(creditedDay)} hr.`
-                                      : `Approved hours must cover one working day (${dayHourLabel(creditedDay)} hr) before that day can be changed.`}
+                                {nextDayApply
+                                    ? remainderHours > 0
+                                        ? `The selected day becomes Present for ${dayHourLabel(creditedDay)} hr. Apply OT stays on that day for the remaining ${remainderHours} hr.`
+                                        : `The selected day becomes Present for ${dayHourLabel(creditedDay)} hr.`
+                                    : `Approved hours must cover one working day (${dayHourLabel(creditedDay)} hr) before that day can be changed.`}
                             </p>
                         ) : null}
                         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">

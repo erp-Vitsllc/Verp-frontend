@@ -173,8 +173,9 @@ describe('weekly salary addition counts', () => {
         assert.equal(result.compOff.adjusted, 1);
         assert.equal(result.compOff.balance, 0);
         assert.match(result.compOff.title, /06-Oct-2026 adjusted with 05-Oct-2026/);
-        assert.match(result.workingDay.title, /06-Oct-2026 adjusted with 05-Oct-2026/);
-        assert.equal(result.workingDay.worked, 2);
+        assert.equal(result.workingDay.worked, 1);
+        assert.equal(result.workingDay.compOffDays, 1);
+        assert.match(result.workingDay.compOffTitle, /06-Oct-2026 adjusted with 05-Oct-2026/);
         assert.equal(result.workingHours.title, '');
         assert.equal(result.details.find((row) => row.date === '2026-10-06').amount, DAILY);
         assert.equal(result.details.find((row) => row.date === '2026-10-06').adjustedDays, 1);
@@ -207,8 +208,9 @@ describe('weekly salary addition counts', () => {
         assert.equal(coveredWeek.compOff.approved, 0);
         assert.equal(sourceWeek.total, 100);
         assert.equal(coveredWeek.total, DAILY);
-        assert.equal(coveredWeek.workingDay.worked, 1);
-        assert.match(coveredWeek.workingDay.title, /12-Oct-2026 adjusted with 10-Oct-2026/);
+        assert.equal(coveredWeek.workingDay.worked, 0);
+        assert.equal(coveredWeek.workingDay.compOffDays, 1);
+        assert.match(coveredWeek.workingDay.compOffTitle, /12-Oct-2026 adjusted with 10-Oct-2026/);
         assert.equal(sourceWeek.total + coveredWeek.total, DAILY + 100);
     });
 
@@ -316,6 +318,34 @@ describe('weekly salary addition counts', () => {
         assert.match(result.compOff.title, /08-Oct-2026 adjusted from overtime on 06-Oct-2026 \(6 Hours\)/);
     });
 
+    it('counts present and late days as worked and leaves comp off in the balance', () => {
+        const records = [
+            { date: '2026-10-05', statusKey: 'on_office', timeIn: '08:00', timeOut: '16:00', flexibleWorkedHours: 8 },
+            { date: '2026-10-06', statusKey: 'late_arrived', timeIn: '09:30', timeOut: '16:00', flexibleWorkedHours: 6.5 },
+            { date: '2026-10-07', statusKey: 'early_go', timeIn: '08:00', timeOut: '14:00', flexibleWorkedHours: 6 },
+            {
+                date: '2026-10-08',
+                statusKey: 'on_office',
+                timeIn: 'OT',
+                timeOut: 'OT',
+                flexibleFromOtDate: '2026-10-05',
+            },
+            {
+                date: '2026-10-09',
+                statusKey: 'compoff_leave',
+                compOff: { state: 'open', chargeMonth: '2026-10' },
+            },
+        ];
+        const result = report(weeks[1], records, { countTo: '2026-10-10' });
+        assert.equal(result.workingDay.required, 6);
+        assert.equal(result.workingDay.worked, 3);
+        assert.equal(result.workingDay.balance, 3);
+        assert.equal(result.workingDay.compOffDays, 2);
+        assert.equal(result.workingDay.title, '');
+        assert.match(result.workingDay.compOffTitle, /08-Oct-2026/);
+        assert.match(result.workingDay.compOffTitle, /09-Oct-2026 is comp off/);
+    });
+
     it('counts required and worked days only inside the week and through the cutoff', () => {
         const records = [
             { date: '2026-10-05', statusKey: 'on_office', timeIn: '08:00', timeOut: '16:00', flexibleWorkedHours: 8 },
@@ -412,10 +442,11 @@ describe('weekly salary addition counts', () => {
         assert.equal(result.compOff.adjusted, 1);
         assert.equal(result.compOff.balance, 0);
         assert.match(result.compOff.title, /06-Oct-2026 adjusted with 30-Sep-2026/);
-        assert.equal(result.workingDay.worked, 1);
+        assert.equal(result.workingDay.worked, 0);
+        assert.equal(result.workingDay.compOffDays, 1);
         assert.equal(result.details.find((row) => row.date === '2026-10-06').adjustedDays, 1);
         assert.equal(result.details.find((row) => row.date === '2026-10-06').adjustedHours, 0);
-        assert.match(result.workingDay.title, /06-Oct-2026 adjusted with 30-Sep-2026/);
+        assert.match(result.workingDay.compOffTitle, /06-Oct-2026 adjusted with 30-Sep-2026/);
     });
 
     it('keeps Sunday overtime with the Monday week that Sunday opens', () => {
