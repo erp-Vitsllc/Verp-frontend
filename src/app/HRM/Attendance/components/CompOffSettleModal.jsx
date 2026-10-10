@@ -179,16 +179,6 @@ export default function CompOffSettleModal({
                     <button type="button" onClick={onClose} className="h-10 px-4 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600">
                         Close
                     </button>
-                    {detail?.canJump ? (
-                        <button
-                            type="button"
-                            disabled={Boolean(saving)}
-                            onClick={() => settle('jump')}
-                            className="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-slate-800 disabled:opacity-50"
-                        >
-                            {saving === 'jump' ? 'Moving…' : `Jump to next month`}
-                        </button>
-                    ) : null}
                     {detail?.canAuthorize ? (
                         <button
                             type="button"

@@ -116,7 +116,14 @@ export function resolveDashboardModuleCategory(item = {}) {
         return 'Other';
     }
     if (type === 'Employee Leave Request') return 'Leave';
-    if (type === 'Attendance Leave Request') return 'Attendance';
+    if (
+        type === 'Attendance Leave Request' ||
+        type === 'Attendance Change Request' ||
+        type === 'Flexible OT Request' ||
+        type === 'Hour Approval Request'
+    ) {
+        return 'Attendance';
+    }
     if (type === 'Salary Enrollment' || type === 'Salary DMF Approval') return 'Salary';
 
     // Exact types first so Document Expiry never fuzzy-matches into Loan / other modules.
@@ -327,6 +334,7 @@ export function formatCommandCenterSubtype(item = {}) {
     if (!type) return '';
     // Distinct labels so Company / Employees / Vehicle expiry does not look "cloned".
     if (type === 'Employee Leave Request') return 'Leave request';
+    if (type === 'Attendance Change Request') return 'Attendance change';
     if (type === 'Employee Fine Request') return 'Fine request';
     if (type === 'Employee Advance Request') return 'Advance request';
     if (type === 'Employee Loan Request') return 'Loan request';

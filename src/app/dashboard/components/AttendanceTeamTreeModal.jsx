@@ -127,6 +127,7 @@ export default function AttendanceTeamTreeModal({
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    const [notice, setNotice] = useState('');
     const [tree, setTree] = useState([]);
     const [checkedIds, setCheckedIds] = useState(() => new Set());
     const [markMenuOpen, setMarkMenuOpen] = useState(false);
@@ -192,7 +193,7 @@ export default function AttendanceTeamTreeModal({
         setSaving(true);
         setError('');
         try {
-            await axiosInstance.post('/Attendance/team/mark', {
+            const res = await axiosInstance.post('/Attendance/team/mark', {
                 employeeMongoIds: ids,
                 statusKey: payload.markKey || payload.statusKey,
                 statusLabel: payload.markLabel || payload.statusLabel,
@@ -202,6 +203,8 @@ export default function AttendanceTeamTreeModal({
                 attachmentName: payload.attachmentName || '',
                 leavePayType: payload.leavePayType || '',
             });
+            const pending = Array.isArray(res.data?.pending) ? res.data.pending : [];
+            setNotice(pending.length ? res.data?.message || 'Sent for approval.' : '');
             onMarked?.(ids);
             setMarkMenuOpen(false);
             setFormState(null);
@@ -343,6 +346,11 @@ export default function AttendanceTeamTreeModal({
                 </div>
 
                 <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
+                    {notice ? (
+                        <p className="mb-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            {notice}
+                        </p>
+                    ) : null}
                     {loading ? (
                         <p className="text-sm text-slate-400 text-center py-10">Loading team…</p>
                     ) : error ? (

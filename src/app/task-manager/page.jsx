@@ -44,17 +44,6 @@ const TYPE_FILTERS = ['All Types', 'System Task', 'Workflow Task', 'General Task
 const STATUSES = ['All Status', 'Pending', 'Overdue', 'Completed', 'Cancelled'];
 const PRIORITIES = ['All Priority', 'High', 'Medium', 'Low'];
 
-const EMPTY_SUMMARY = {
-    total: 0,
-    pending: 0,
-    pendingDue: 0,
-    completed: 0,
-    totalChange: 0,
-    pendingChange: 0,
-    pendingDueChange: 0,
-    completedChange: 0,
-};
-
 const AVATAR_COLORS = ['#3B82F6', '#8B5CF6', '#F59E0B', '#10B981', '#EF4444', '#0EA5E9', '#EC4899'];
 
 const STATUS_STYLE = {
@@ -98,14 +87,19 @@ function readViewer() {
 
 function listStatus(task) {
     const status = task?.displayStatus || '';
-    if (status === 'Pending Due') return 'Overdue';
-    if (status === 'In Progress' || status === 'On Hold') return 'Pending';
+    if (status === 'Pending Due' || status === 'Overdue') return 'Overdue';
+    if (status === 'Pending' || status === 'In Progress' || status === 'On Hold') return 'Pending';
     if (status === 'Rejected' || status === 'Dismissed') return 'Cancelled';
     return status || 'Pending';
 }
 
 function isOpenPending(shown) {
     return shown === 'Pending' || shown === 'Overdue';
+}
+
+function taskIsMine(task, viewer) {
+    if (typeof task?.mine === 'boolean') return task.mine;
+    return isMyTask(task, viewer);
 }
 
 function isMyTask(task, viewer) {
@@ -253,6 +247,19 @@ function PersonCell({ name, photo, hint }) {
     );
 }
 
+function percentChange(current, previous) {
+    if (!previous && !current) return 0;
+    if (!previous) return 100;
+    return Math.round(((current - previous) / previous) * 100);
+}
+
+function shiftMonthKey(monthKey, delta) {
+    const [year, month] = String(monthKey || '').split('-').map(Number);
+    if (!year || !month) return '';
+    const cursor = new Date(Date.UTC(year, month - 1 + delta, 1));
+    return `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 function ChangePill({ value, goodWhenUp }) {
     const up = value > 0;
     const down = value < 0;
@@ -267,9 +274,9 @@ function ChangePill({ value, goodWhenUp }) {
     );
 }
 
-function StatCard({ label, value, change, goodWhenUp, icon: Icon, wrap, bubble, figure }) {
+function StatCard({ label, value, change, goodWhenUp, icon: Icon, wrap, bubble, figure, onClick }) {
     return (
-        <div className={`rounded-2xl px-5 py-4 ${wrap}`}>
+        <button type="button" onClick={onClick} className={`w-full rounded-2xl px-5 py-4 text-left ${wrap}`}>
             <div className="flex items-center gap-3">
                 <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${bubble}`}>
                     <Icon size={20} />
@@ -280,7 +287,7 @@ function StatCard({ label, value, change, goodWhenUp, icon: Icon, wrap, bubble, 
                 </div>
             </div>
             <ChangePill value={change} goodWhenUp={goodWhenUp} />
-        </div>
+        </button>
     );
 }
 
@@ -289,7 +296,6 @@ function TaskManagerContent() {
     const { toast } = useToast();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [summary, setSummary] = useState(EMPTY_SUMMARY);
     const [tasks, setTasks] = useState([]);
     const [viewer, setViewer] = useState(null);
     const [scope, setScope] = useState('My Task');
@@ -318,7 +324,6 @@ function TaskManagerContent() {
         setError('');
         try {
             const res = await axiosInstance.get('/Employee/task-manager/notifications', { skipToast: true });
-            setSummary(res.data?.summary || EMPTY_SUMMARY);
             setTasks(Array.isArray(res.data?.tasks) ? res.data.tasks : []);
         } catch (err) {
             setError(err?.response?.data?.message || 'Could not load notifications.');
@@ -360,29 +365,61 @@ function TaskManagerContent() {
     }, [tasks]);
 
     const scopedTasks = useMemo(
-        () => (scope === 'My Task' ? tasks.filter((task) => isMyTask(task, viewer)) : tasks),
+        () => (scope === 'My Task' ? tasks.filter((task) => taskIsMine(task, viewer)) : tasks),
         [tasks, scope, viewer],
     );
 
     const cardSummary = useMemo(() => {
-        const next = { total: scopedTasks.length, pending: 0, pendingDue: 0, completed: 0 };
+        const thisMonth = dateKey(new Date()).slice(0, 7);
+        const lastMonth = shiftMonthKey(thisMonth, -1);
+        const next = {
+            total: scopedTasks.length,
+            pending: 0,
+            pendingDue: 0,
+            completed: 0,
+            totalChange: 0,
+            pendingChange: 0,
+            pendingDueChange: 0,
+            completedChange: 0,
+        };
+        const months = {
+            total: { current: 0, previous: 0 },
+            pending: { current: 0, previous: 0 },
+            pendingDue: { current: 0, previous: 0 },
+            completed: { current: 0, previous: 0 },
+        };
+        const bump = (bucket, month) => {
+            if (month === thisMonth) months[bucket].current += 1;
+            else if (month === lastMonth) months[bucket].previous += 1;
+        };
         scopedTasks.forEach((task) => {
             const shown = listStatus(task);
+            const requestedMonth = dateKey(task.requestDate).slice(0, 7);
+            bump('total', requestedMonth);
             if (isOpenPending(shown)) {
                 next.pending += 1;
-                if (shown === 'Overdue') next.pendingDue += 1;
+                bump('pending', requestedMonth);
+                if (shown === 'Overdue') {
+                    next.pendingDue += 1;
+                    bump('pendingDue', requestedMonth);
+                }
             } else if (shown === 'Completed') {
                 next.completed += 1;
+                bump('completed', dateKey(task.completionDate || task.requestDate).slice(0, 7));
             }
         });
+        next.totalChange = percentChange(months.total.current, months.total.previous);
+        next.pendingChange = percentChange(months.pending.current, months.pending.previous);
+        next.pendingDueChange = percentChange(months.pendingDue.current, months.pendingDue.previous);
+        next.completedChange = percentChange(months.completed.current, months.completed.previous);
         return next;
     }, [scopedTasks]);
 
     useEffect(() => {
-        const mine = tasks.filter((task) => isMyTask(task, viewer));
-        const count = mine.filter((task) => isOpenPending(listStatus(task))).length;
+        if (loading) return;
+        const count = tasks.filter((task) => taskIsMine(task, viewer) && isOpenPending(listStatus(task))).length;
         window.dispatchEvent(new CustomEvent('task-manager-assignee-count', { detail: { count } }));
-    }, [tasks, viewer]);
+    }, [tasks, viewer, loading]);
 
     const activeRange = useMemo(
         () => resolveDateRange(datePreset, fromDate, toDate),
@@ -395,9 +432,8 @@ function TaskManagerContent() {
         const assigneeNeedle = assigneeQuery.trim().toLowerCase();
         return tasks.filter((task) => {
             const shown = listStatus(task);
-            if (scope === 'My Task' && !isMyTask(task, viewer)) return false;
+            if (scope === 'My Task' && !taskIsMine(task, viewer)) return false;
             if (typeFilter !== 'All Types' && displayTaskType(task.taskCategory) !== typeFilter) return false;
-            if (scope === 'All Task' && status === 'All Status' && (shown === 'Completed' || shown === 'Cancelled')) return false;
             if (status === 'Pending' && !isOpenPending(shown)) return false;
             if (status !== 'All Status' && status !== 'Pending' && shown !== status) return false;
             if (priority !== 'All Priority' && task.priority !== priority) return false;
@@ -508,42 +544,58 @@ function TaskManagerContent() {
                         <StatCard
                             label="Total Tasks"
                             value={cardSummary.total}
-                            change={scope === 'All Task' ? summary.totalChange : 0}
+                            change={cardSummary.totalChange}
                             goodWhenUp
                             icon={FileText}
                             wrap="bg-[#EAF3FF]"
                             bubble="bg-[#3B82F6] text-white"
                             figure="text-[#2563EB]"
+                            onClick={() => {
+                                setStatus('All Status');
+                                setPage(1);
+                            }}
                         />
                         <StatCard
                             label="Pending Tasks"
                             value={cardSummary.pending}
-                            change={scope === 'All Task' ? summary.pendingChange : 0}
+                            change={cardSummary.pendingChange}
                             goodWhenUp={false}
                             icon={Clock}
                             wrap="bg-[#FDECEC]"
                             bubble="bg-[#EF4444] text-white"
                             figure="text-[#EF4444]"
+                            onClick={() => {
+                                setStatus('Pending');
+                                setPage(1);
+                            }}
                         />
                         <StatCard
                             label="Pending Due"
                             value={cardSummary.pendingDue}
-                            change={scope === 'All Task' ? summary.pendingDueChange : 0}
+                            change={cardSummary.pendingDueChange}
                             goodWhenUp={false}
                             icon={AlertTriangle}
                             wrap="bg-[#FFF6E8]"
                             bubble="bg-[#F59E0B] text-white"
                             figure="text-[#D97706]"
+                            onClick={() => {
+                                setStatus('Overdue');
+                                setPage(1);
+                            }}
                         />
                         <StatCard
                             label="Completed Tasks"
                             value={cardSummary.completed}
-                            change={scope === 'All Task' ? summary.completedChange : 0}
+                            change={cardSummary.completedChange}
                             goodWhenUp
                             icon={CheckCircle2}
                             wrap="bg-[#E8F8EF]"
                             bubble="bg-[#22C55E] text-white"
                             figure="text-[#16A34A]"
+                            onClick={() => {
+                                setStatus('Completed');
+                                setPage(1);
+                            }}
                         />
                     </div>
 
@@ -959,7 +1011,7 @@ function TaskManagerContent() {
                     <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
                         <h2 className="text-base font-semibold text-slate-800">Delete task</h2>
                         <p className="mt-2 text-sm text-slate-600">
-                            Delete {deleteTask.taskNumber ? `${deleteTask.taskNumber} — ` : ''}{deleteTask.taskName}? It will also leave the assignee’s page.
+                            Delete {deleteTask.taskNumber ? `${deleteTask.taskNumber} — ` : ''}{deleteTask.taskName}? The task, its notifications, and the request it started are removed. An assignment goes back to Unassigned.
                         </p>
                         <div className="mt-4 flex justify-end gap-2">
                             <button

@@ -19,6 +19,52 @@ function clockToMinutes(value) {
 
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
+function isFlexibleWeek(week) {
+    return String(week?.timingMode || '').toLowerCase() === 'flexible';
+}
+
+function wholeHours(value) {
+    const hours = Number(value);
+    if (!Number.isFinite(hours) || hours <= 0) return 0;
+    return Math.floor(hours + 1e-9);
+}
+
+function requiredHoursForDate(week, dateKey) {
+    if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return 0;
+    const day = week[WEEKDAY_KEYS[new Date(`${dateKey}T12:00:00Z`).getUTCDay()]];
+    if (!day || day.isOffDay) return 0;
+    const hours = Number(day.workingHours);
+    if (Number.isFinite(hours) && hours > 0) return Math.min(24, hours);
+    const weekHours = Number(week.hoursPerDay);
+    if (Number.isFinite(weekHours) && weekHours > 0) return Math.min(24, weekHours);
+    return 9;
+}
+
+function workedHoursOf(mark) {
+    const stored = Number(mark?.flexibleWorkedHours) || 0;
+    if (stored > 0) return stored;
+    const start = clockToMinutes(mark?.rawTimeIn);
+    const end = clockToMinutes(mark?.rawTimeOut);
+    if (start == null || end == null) return 0;
+    const date = String(mark?.date || '').trim();
+    const outDate = String(mark?.timeOutDate || '').trim();
+    let minutes;
+    if (outDate && date && outDate > date) {
+        const days = Math.round((new Date(`${outDate}T12:00:00.000Z`) - new Date(`${date}T12:00:00.000Z`)) / 86400000);
+        minutes = end - start + days * 24 * 60;
+    } else {
+        minutes = end - start;
+        if (minutes < 0) minutes += 24 * 60;
+    }
+    return Math.round((Math.max(0, minutes) / 60) * 100) / 100;
+}
+
+function flexibleLossHours(mark, week) {
+    const required = wholeHours(requiredHoursForDate(week, mark?.date));
+    const worked = wholeHours(workedHoursOf(mark));
+    return Math.max(0, required - worked);
+}
+
 function shiftMinutes(week, dateKey) {
     if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return null;
     const day = week[WEEKDAY_KEYS[new Date(`${dateKey}T12:00:00Z`).getUTCDay()]];
@@ -64,6 +110,10 @@ export function hourAdjustOffer(mark) {
 export function hourAdjustPreview(mark, week) {
     const offer = hourAdjustOffer(mark);
     if (!offer) return null;
+    if (isFlexibleWeek(week)) {
+        const taken = flexibleLossHours(mark, week);
+        return { ...offer, flexible: true, taken, unauth: taken * 2, max: taken };
+    }
     const shift = shiftMinutes(week, mark?.date);
     const dayHours = shift ? (shift.end - shift.start) / 60 : 8;
     let taken = dayHours;
@@ -99,20 +149,33 @@ export default function HourAdjustModal({ open, mode = 'request', employee, mark
 
     useEffect(() => {
         if (!open) return;
-        const source = mark?.hoursApproved || preview?.taken || '';
-        setApprovedHours(source ? String(source) : '');
-        setReason(mark?.hourAdjustReason || '');
-    }, [open, mark?.attendanceId, mark?.hoursApproved, mark?.hourAdjustReason, preview?.taken]);
+        const source = preview?.flexible ? preview?.taken : mark?.hoursApproved || preview?.taken || '';
+        setApprovedHours(source || source === 0 ? String(source) : '');
+        setReason(preview?.flexible ? '' : mark?.hourAdjustReason || '');
+    }, [open, mark?.attendanceId, mark?.hoursApproved, mark?.hourAdjustReason, preview?.taken, preview?.flexible]);
 
     if (!open || !mark || !preview) return null;
 
     const submit = async () => {
-        const hours = roundHours(approvedHours);
-        if (!String(reason || '').trim()) {
+        const flexible = Boolean(preview.flexible);
+        const typed = String(approvedHours ?? '').trim();
+        const hours = flexible ? wholeHours(approvedHours) : roundHours(approvedHours);
+        if (!flexible && !String(reason || '').trim()) {
             toast({ variant: 'destructive', title: 'Description is required' });
             return;
         }
-        if (hours <= 0 || hours > preview.max + 0.001) {
+        if (flexible) {
+            if (!/^\d+$/.test(typed) || hours <= 0 || hours > preview.max) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Check approved hours',
+                    description: preview.max > 0
+                        ? `Enter a whole number from 1 up to ${preview.max}.`
+                        : 'There are no lost hours to approve.',
+                });
+                return;
+            }
+        } else if (hours <= 0 || hours > preview.max + 0.001) {
             toast({
                 variant: 'destructive',
                 title: 'Check approved hours',
@@ -125,7 +188,7 @@ export default function HourAdjustModal({ open, mode = 'request', employee, mark
             await axiosInstance.post('/Attendance/hour-adjust/request', {
                 attendanceId: mark.attendanceId,
                 approvedHours: hours,
-                reason,
+                reason: flexible ? '' : reason,
             });
             toast({
                 title: mode === 'direct' ? 'Hours approved' : 'Request sent to HR',
@@ -170,55 +233,110 @@ export default function HourAdjustModal({ open, mode = 'request', employee, mark
         }
     };
 
+    const flexible = Boolean(preview.flexible);
+    const shownLoss = review ? wholeHours(mark.hoursTaken) || preview.taken : preview.taken;
+    const shownApproved = wholeHours(mark.hoursApproved);
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
                 <h3 className="text-lg font-black text-slate-900">{review ? 'Review hour request' : preview.title}</h3>
                 <p className="mt-1 text-sm text-slate-500">{employee?.name}</p>
-                <div className="mt-4">
-                    <Row label="Hours taken" value={String(preview.taken)} />
-                    <Row label="Maximum hours" value={`${preview.max} (${preview.taken} × 2)`} />
-                </div>
-                {review ? (
+                {flexible ? (
                     <>
-                        <Row label="Approved hours" value={String(mark.hoursApproved || '—')} />
-                        <Row label="Description" value={mark.hourAdjustReason} />
-                        <div className="mt-4 flex justify-end gap-2">
-                            <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Close</button>
-                            <button type="button" disabled={saving} onClick={() => decide('rejected')} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600">Reject</button>
-                            <button type="button" disabled={saving} onClick={() => decide('approved')} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white">Approve</button>
+                        <div className="mt-4">
+                            <Row label="Loss of hours" value={`${shownLoss} hrs`} />
+                            <Row label="Unauth taken" value={`${shownLoss * 2} hrs`} />
                         </div>
+                        {review ? (
+                            <>
+                                <Row label="Approved hours" value={shownApproved ? `${shownApproved} hrs` : '—'} />
+                                <div className="mt-4 flex justify-end gap-2">
+                                    <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Cancel</button>
+                                    <button type="button" disabled={saving} onClick={() => decide('rejected')} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600">Reject</button>
+                                    <button type="button" disabled={saving} onClick={() => decide('approved')} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white">Approve</button>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="mt-4 space-y-3">
+                                <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+                                    Approved hours
+                                    <input
+                                        type="number"
+                                        inputMode="numeric"
+                                        min="1"
+                                        max={preview.max}
+                                        step="1"
+                                        value={approvedHours}
+                                        onChange={(event) => {
+                                            const next = event.target.value;
+                                            if (next === '' || /^\d+$/.test(next)) setApprovedHours(next);
+                                        }}
+                                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800"
+                                    />
+                                </label>
+                                <div className="flex justify-end gap-2">
+                                    <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Cancel</button>
+                                    <button
+                                        type="button"
+                                        disabled={saving || preview.max < 1}
+                                        onClick={submit}
+                                        className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
+                                    >
+                                        {mode === 'direct' ? 'Approve' : 'Send to HR'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </>
                 ) : (
-                    <div className="mt-4 space-y-3">
-                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                            Approved to (hrs)
-                            <input
-                                type="number"
-                                min="0.01"
-                                max={preview.max}
-                                step="0.5"
-                                value={approvedHours}
-                                onChange={(event) => setApprovedHours(event.target.value)}
-                                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800"
-                            />
-                        </label>
-                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                            Description
-                            <textarea
-                                value={reason}
-                                onChange={(event) => setReason(event.target.value)}
-                                rows={3}
-                                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800"
-                            />
-                        </label>
-                        <div className="flex justify-end gap-2">
-                            <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Cancel</button>
-                            <button type="button" disabled={saving} onClick={submit} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white">
-                                {mode === 'direct' ? 'Approve' : 'Send to HR'}
-                            </button>
+                    <>
+                        <div className="mt-4">
+                            <Row label="Hours taken" value={String(preview.taken)} />
+                            <Row label="Maximum hours" value={`${preview.max} (${preview.taken} × 2)`} />
                         </div>
-                    </div>
+                        {review ? (
+                            <>
+                                <Row label="Approved hours" value={String(mark.hoursApproved || '—')} />
+                                <Row label="Description" value={mark.hourAdjustReason} />
+                                <div className="mt-4 flex justify-end gap-2">
+                                    <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Close</button>
+                                    <button type="button" disabled={saving} onClick={() => decide('rejected')} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600">Reject</button>
+                                    <button type="button" disabled={saving} onClick={() => decide('approved')} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white">Approve</button>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="mt-4 space-y-3">
+                                <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+                                    Approved to (hrs)
+                                    <input
+                                        type="number"
+                                        min="0.01"
+                                        max={preview.max}
+                                        step="0.5"
+                                        value={approvedHours}
+                                        onChange={(event) => setApprovedHours(event.target.value)}
+                                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800"
+                                    />
+                                </label>
+                                <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+                                    Description
+                                    <textarea
+                                        value={reason}
+                                        onChange={(event) => setReason(event.target.value)}
+                                        rows={3}
+                                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800"
+                                    />
+                                </label>
+                                <div className="flex justify-end gap-2">
+                                    <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Cancel</button>
+                                    <button type="button" disabled={saving} onClick={submit} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white">
+                                        {mode === 'direct' ? 'Approve' : 'Send to HR'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </div>

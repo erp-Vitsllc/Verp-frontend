@@ -147,6 +147,7 @@ export default function MarkAttendanceDetailsModal({
     const [mapOpen, setMapOpen] = useState(false);
     const [mapEmployeeId, setMapEmployeeId] = useState('');
     const [mapError, setMapError] = useState('');
+    const [mapNotice, setMapNotice] = useState('');
     const [mapSaving, setMapSaving] = useState(false);
     const fileRef = useRef(null);
     const bulkCount = Array.isArray(employeeIds) ? employeeIds.length : 0;
@@ -163,6 +164,7 @@ export default function MarkAttendanceDetailsModal({
         setMapOpen(false);
         setMapEmployeeId('');
         setMapError('');
+        setMapNotice('');
         setMapSaving(false);
         if (fileRef.current) fileRef.current.value = '';
 
@@ -230,7 +232,7 @@ export default function MarkAttendanceDetailsModal({
         setMapSaving(true);
         setMapError('');
         try {
-            await axiosInstance.post(
+            const res = await axiosInstance.post(
                 '/Attendance/map-punch',
                 {
                     date: dateKey,
@@ -239,8 +241,16 @@ export default function MarkAttendanceDetailsModal({
                 },
                 { skipToast: true },
             );
-            setMapOpen(false);
+            const pending = Array.isArray(res.data?.pending) ? res.data.pending : [];
             onMapped?.();
+            if (pending.length) {
+                setMapNotice(
+                    res.data?.message || 'Sent for approval. Attendance stays unchanged until HR approves.',
+                );
+                return;
+            }
+            setMapNotice('');
+            setMapOpen(false);
         } catch (err) {
             setMapError(err?.response?.data?.message || 'Could not map this employee.');
         } finally {
@@ -474,6 +484,7 @@ export default function MarkAttendanceDetailsModal({
                                     menuPosition="fixed"
                                 />
                             </label>
+                            {mapNotice ? <p className="text-sm text-amber-700">{mapNotice}</p> : null}
                             {mapError ? <p className="text-sm text-red-500">{mapError}</p> : null}
                             <div className="flex items-center justify-end gap-2">
                                 <button

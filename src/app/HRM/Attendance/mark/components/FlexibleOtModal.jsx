@@ -18,6 +18,12 @@ function wholeOtLabel(value) {
     return String(wholeOtHours(hours));
 }
 
+function dayHourLabel(value) {
+    const hours = Number(value);
+    if (!Number.isFinite(hours) || hours <= 0) return '—';
+    return String(Math.round(hours * 100) / 100);
+}
+
 function Row({ label, value }) {
     return (
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-2">
@@ -27,11 +33,18 @@ function Row({ label, value }) {
     );
 }
 
+function coversWorkingDay(hours, dayHours) {
+    const required = Number(dayHours) || 0;
+    if (required > 0) return hours + 1e-9 >= required;
+    return hours > 10;
+}
+
 export default function FlexibleOtModal({
     open,
     mode = 'request',
     employee,
     mark,
+    dayHours = 0,
     onClose,
     onSaved,
 }) {
@@ -55,11 +68,14 @@ export default function FlexibleOtModal({
     if (!open || !mark) return null;
 
     const hoursNow = wholeOtHours(approvedHours);
-    const nextDayApply = hoursNow > 10;
+    const requiredDay = Number(dayHours) > 0 ? Number(dayHours) : Number(mark?.flexibleRequiredHours) || 0;
+    const creditedDay = requiredDay > 0 ? requiredDay : 10;
+    const nextDayApply = coversWorkingDay(hoursNow, requiredDay);
+    const remainderHours = nextDayApply ? Math.max(0, wholeOtHours(hoursNow - creditedDay)) : 0;
 
     const submitRequest = async () => {
         const hours = hoursNow;
-        const nextDay = direct && hours > 10;
+        const nextDay = direct && nextDayApply;
         setSaving(true);
         try {
             await axiosInstance.post('/Attendance/flexible-ot/request', {
@@ -71,7 +87,9 @@ export default function FlexibleOtModal({
             toast({
                 title: nextDay ? 'Next day marked present' : direct ? 'Overtime applied' : 'Overtime request sent',
                 description: nextDay
-                    ? 'The next day is Present (On time). These hours are not kept as overtime.'
+                    ? remainderHours > 0
+                        ? `The next day is Present (On time) for ${dayHourLabel(creditedDay)} hr. The remaining ${remainderHours} hr is an overtime button on that day.`
+                        : `The next day is Present (On time) for ${dayHourLabel(creditedDay)} hr.`
                     : direct
                       ? 'These hours are taken now.'
                       : 'HR has been notified.',
@@ -91,7 +109,7 @@ export default function FlexibleOtModal({
 
     const decide = async (decision) => {
         const hours = wholeOtHours(mark.flexibleOtApprovedHours);
-        const confirmNextDay = decision === 'approved' && hours > 10;
+        const confirmNextDay = decision === 'approved' && coversWorkingDay(hours, requiredDay);
         setSaving(true);
         try {
             await axiosInstance.post('/Attendance/flexible-ot/decide', {
@@ -107,7 +125,9 @@ export default function FlexibleOtModal({
                             : 'Overtime approved'
                         : 'Overtime rejected',
                 description: confirmNextDay
-                    ? 'The next day is Present (On time). These hours are not kept as overtime.'
+                    ? remainderHours > 0
+                        ? `The next day is Present (On time) for ${dayHourLabel(creditedDay)} hr. The remaining ${remainderHours} hr is an overtime button on that day.`
+                        : `The next day is Present (On time) for ${dayHourLabel(creditedDay)} hr.`
                     : undefined,
             });
             onSaved?.();
@@ -164,7 +184,9 @@ export default function FlexibleOtModal({
                                 onClick={() => decide('approved')}
                                 className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white"
                             >
-                                {wholeOtHours(mark.flexibleOtApprovedHours) > 10 ? 'Next day present' : 'Approve'}
+                                {coversWorkingDay(wholeOtHours(mark.flexibleOtApprovedHours), requiredDay)
+                                    ? 'Next day present'
+                                    : 'Approve'}
                             </button>
                         </div>
                     </>
@@ -183,7 +205,9 @@ export default function FlexibleOtModal({
                         </label>
                         {nextDayApply ? (
                             <p className="text-xs leading-5 text-slate-500">
-                                More than 10 hours marks the next day Present (On time). The full overtime is used. None of it stays on this day.
+                                {remainderHours > 0
+                                    ? `This covers one working day (${dayHourLabel(creditedDay)} hr). The next day is Present (On time) for those hours, and an overtime button is added there for the remaining ${remainderHours} hr.`
+                                    : `This matches one working day (${dayHourLabel(creditedDay)} hr). The next day is Present (On time) for those hours.`}
                             </p>
                         ) : null}
                         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">

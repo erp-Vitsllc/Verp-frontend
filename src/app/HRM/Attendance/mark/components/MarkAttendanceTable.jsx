@@ -2,15 +2,21 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, Search, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Search, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { useToast } from '@/hooks/use-toast';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import { nonHrMarkableDateKeys } from '@/app/HRM/Attendance/utils/nonHrMarkWindow';
 import { weekForStaffType } from '@/utils/workLocations';
 import MarkAttendanceDetailsModal, {
     getMarkFormConfig,
 } from './MarkAttendanceDetailsModal';
-import { PunchLocationPinCell, PunchTypeCell } from './MarkAttendancePunchCells';
+import {
+    PunchLocationPinCell,
+    PunchTypeCell,
+    normalizePunchType,
+    punchCoords,
+} from './MarkAttendancePunchCells';
 import FlexibleOtModal from './FlexibleOtModal';
 import HourAdjustModal, { hourAdjustOffer } from './HourAdjustModal';
 import CompOffSettleModal from '../../components/CompOffSettleModal';
@@ -61,12 +67,59 @@ function currentEmployeeMongoId() {
     return '';
 }
 
+function wholeHourCount(value) {
+    const hours = Number(value);
+    if (!Number.isFinite(hours) || hours <= 0) return 0;
+    return Math.floor(hours + 1e-9);
+}
+
+function isOtPunch(value) {
+    return String(value || '').trim() === 'OT';
+}
+
+function hoursDurationLabel(hours) {
+    const value = Number(hours);
+    if (!Number.isFinite(value) || value <= 0) return '—';
+    const totalMinutes = Math.round(value * 60);
+    const whole = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    return `${whole}h ${String(mins).padStart(2, '0')}m`;
+}
+
+function coversWorkingDay(otHours, requiredHours) {
+    const hours = Number(otHours) || 0;
+    const required = Number(requiredHours) || 0;
+    if (required > 0) return hours + 1e-9 >= required;
+    return hours > 10;
+}
+
+function scheduleDayHours(week, dateKey) {
+    if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return 0;
+    const key = weekdayKeyFromDate(dateKey);
+    const day = key ? week[key] : null;
+    if (day && !day.isOffDay) {
+        const hours = Number(day.workingHours);
+        if (Number.isFinite(hours) && hours > 0) return hours;
+    }
+    const standard = Number(week.hoursPerDay);
+    return Number.isFinite(standard) && standard > 0 ? standard : 0;
+}
+
+function formatAdjDay(dateKey) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return '';
+    const [year, month, day] = dateKey.split('-').map(Number);
+    const monthName = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1];
+    return `${String(day).padStart(2, '0')}-${monthName}-${year}`;
+}
+
 function otCellLabel(mark) {
     const status = String(mark?.flexibleOtStatus || '');
     const approved = Number(mark?.flexibleOtApprovedHours) || 0;
+    const required = Number(mark?.flexibleRequiredHours) || 0;
+    const nextDay = String(mark?.flexibleOtNextDayDate || '').trim();
     if (status === 'approved') {
-        if (approved > 10) return 'Next day';
-        return `OT: ${Math.floor(approved + 1e-9)} hr`;
+        if (nextDay || (!required && approved > 10)) return 'Next day';
+        return `OT: ${wholeHourCount(approved)} hr`;
     }
     if (status === 'rejected') return 'OT: 0 hr';
     if (status === 'pending') return 'Pending';
@@ -89,22 +142,29 @@ function shortEmployeeName(name) {
     return letter ? `${parts[0]} ${letter}` : parts[0];
 }
 
-function punchDurationLabel(timeIn, timeOut, timeOutDate, date) {
-    const toSeconds = (value) => {
-        const text = String(value || '').trim();
-        if (!text || text === '—') return null;
-        const parts = text.split(':').map(Number);
-        if (parts.length < 2 || parts.slice(0, 2).some((n) => Number.isNaN(n))) return null;
-        const seconds = parts.length > 2 && !Number.isNaN(parts[2]) ? parts[2] : 0;
-        return parts[0] * 3600 + parts[1] * 60 + seconds;
-    };
-    const start = toSeconds(timeIn);
-    const end = toSeconds(timeOut);
-    if (start == null || end == null) return '—';
+function clockSortSeconds(value, nextDay = false) {
+    const text = String(value || '').trim();
+    if (!text || text === '—') return null;
+    const parts = text.split(':').map(Number);
+    if (parts.length < 2 || parts.slice(0, 2).some((n) => Number.isNaN(n))) return null;
+    const seconds = parts.length > 2 && !Number.isNaN(parts[2]) ? parts[2] : 0;
+    return parts[0] * 3600 + parts[1] * 60 + seconds + (nextDay ? 24 * 3600 : 0);
+}
+
+function punchSpanSeconds(timeIn, timeOut, timeOutDate, date) {
+    const start = clockSortSeconds(timeIn);
+    const end = clockSortSeconds(timeOut);
+    if (start == null || end == null) return null;
     let diff = end - start;
     const nextDay = Boolean(timeOutDate && date && timeOutDate !== date);
     if (nextDay || diff < 0) diff += 24 * 3600;
-    if (diff < 0) return '—';
+    if (diff < 0) return null;
+    return diff;
+}
+
+function punchDurationLabel(timeIn, timeOut, timeOutDate, date) {
+    const diff = punchSpanSeconds(timeIn, timeOut, timeOutDate, date);
+    if (diff == null) return '—';
     const hours = Math.floor(diff / 3600);
     const mins = Math.floor((diff % 3600) / 60);
     return `${hours}h ${String(mins).padStart(2, '0')}m`;
@@ -312,11 +372,14 @@ function applyDayRecordsToState(employees, records) {
             rawTimeOut: rec.timeOut || '',
             timeOutDate: rec.timeOutDate || '',
             flexibleWorkedHours: rec.flexibleWorkedHours || 0,
+            flexibleRequiredHours: rec.flexibleRequiredHours || 0,
             flexibleOtHours: rec.flexibleOtHours || 0,
             flexibleOtStatus: rec.flexibleOtStatus || '',
             flexibleOtApprovedHours: rec.flexibleOtApprovedHours || 0,
             flexibleOtReason: rec.flexibleOtReason || '',
+            flexibleOtNextDayDate: rec.flexibleOtNextDayDate || '',
             flexibleFromOtDate: rec.flexibleFromOtDate || '',
+            compOffState: rec.compOff?.state || '',
         };
         return {
             ...e,
@@ -325,6 +388,24 @@ function applyDayRecordsToState(employees, records) {
         };
     });
     return { nextEmployees, nextMarks };
+}
+
+function mergePendingChanges(nextMarks, pendingChanges) {
+    const next = { ...nextMarks };
+    for (const change of pendingChanges || []) {
+        const id = String(change?.employeeMongoId || '');
+        if (!id) continue;
+        next[id] = {
+            ...(next[id] || {}),
+            pendingChange: {
+                id: String(change.id || ''),
+                stage: change.stage || '',
+                statusLabel: change.statusLabel || '',
+                requestedByName: change.requestedByName || '',
+            },
+        };
+    }
+    return next;
 }
 
 function mapActiveEmployee(emp) {
@@ -372,6 +453,176 @@ function employeeMatchesSearch(employee, query) {
     const name = String(employee?.name || '').toLowerCase();
     const empNo = String(employee?.empNo || '').toLowerCase();
     return name.includes(q) || empNo.includes(q);
+}
+
+function compareAttendanceSortValues(a, b, direction) {
+    const dir = direction === 'desc' ? -1 : 1;
+    const aEmpty = a == null || a === '';
+    const bEmpty = b == null || b === '';
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;
+    if (bEmpty) return -1;
+    if (typeof a === 'number' && typeof b === 'number') return (a - b) * dir;
+    return (
+        String(a).localeCompare(String(b), undefined, {
+            numeric: true,
+            sensitivity: 'base',
+        }) * dir
+    );
+}
+
+function locationSortText(location) {
+    const coords = punchCoords(location);
+    if (!coords) return null;
+    if (coords.label) return coords.label;
+    return `${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`;
+}
+
+function typeSortText(mark, timeOut) {
+    const inType = normalizePunchType(mark?.punchSource);
+    const outType = normalizePunchType(mark?.checkOutSource);
+    const hasOut = Boolean(timeOut && timeOut !== '—');
+    if (!inType && !outType) return null;
+    if (hasOut && outType && inType && outType !== inType) return `${inType} / ${outType}`;
+    return inType || outType;
+}
+
+function shiftSortText(mark) {
+    const shift = shiftMarks(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
+    if (shift.sun) return 'day';
+    if (shift.moon) return 'night';
+    return null;
+}
+
+function otSortText(mark, ctx) {
+    const canReviewOt = ctx.isFlowchartHr && String(mark?.flexibleOtStatus || '') === 'pending';
+    if (canReviewOt) return 'review';
+    const text = otCellLabel(mark);
+    if (text) return text;
+    if (!(Number(mark?.flexibleOtHours) > 0)) return null;
+    if (ctx.isFlowchartHr) {
+        return coversWorkingDay(mark?.flexibleOtHours, mark?.flexibleRequiredHours) ? 'next day present' : 'apply ot';
+    }
+    return 'req ot';
+}
+
+function attendanceSortValue(column, employee, mark, ctx) {
+    const timeIn = employee.timeIn || '—';
+    const timeOut = employee.timeOut || '—';
+    const shownMark = markForNonWorkingDay(mark, timeIn, timeOut, ctx.dayBaseline);
+    const outNextDay = Boolean(mark?.timeOutDate && mark?.date && mark.timeOutDate !== mark.date);
+    switch (column) {
+        case 'slNo':
+            return ctx.rosterIndex;
+        case 'name':
+            return employee.name || '';
+        case 'empNo':
+            return employee.empNo || '';
+        case 'timeIn':
+            return clockSortSeconds(mark?.rawTimeIn || timeIn);
+        case 'timeOut':
+            return clockSortSeconds(mark?.rawTimeOut || timeOut, outNextDay);
+        case 'duration': {
+            if (isOtPunch(mark?.rawTimeIn || timeIn) || isOtPunch(mark?.rawTimeOut || timeOut)) {
+                const credited = Number(mark?.flexibleWorkedHours) || 0;
+                return credited > 0 ? Math.round(credited * 3600) : null;
+            }
+            return punchSpanSeconds(
+                mark?.rawTimeIn || timeIn,
+                mark?.rawTimeOut || timeOut,
+                mark?.timeOutDate,
+                mark?.date,
+            );
+        }
+        case 'status':
+            return formatStatusLabel(shownMark, timeIn, ctx.pastDay);
+        case 'location':
+            return [locationSortText(mark?.checkInLocation), locationSortText(mark?.checkOutLocation)]
+                .filter(Boolean)
+                .join(' / ') || null;
+        case 'checkIn':
+            return locationSortText(mark?.checkInLocation);
+        case 'checkOut':
+            return locationSortText(mark?.checkOutLocation);
+        case 'type':
+            return typeSortText(mark, timeOut);
+        case 'shift':
+            return shiftSortText(mark);
+        case 'ot':
+            return otSortText(mark, ctx);
+        case 'action':
+            return ctx.actionLocked ? 'locked' : 'mark';
+        default:
+            return employee.name || '';
+    }
+}
+
+function ColumnSortArrows({ label, columnKey, sortKey, sortDirection, onSort }) {
+    const upOn = sortKey === columnKey && sortDirection === 'asc';
+    const downOn = sortKey === columnKey && sortDirection === 'desc';
+    const buttonClass = (on) =>
+        `flex h-3.5 w-3.5 items-center justify-center rounded-sm leading-none ${
+            on ? 'text-[#EA3D2F]' : 'text-gray-300 hover:text-gray-600'
+        }`;
+    return (
+        <span className="inline-flex shrink-0 flex-col">
+            <button
+                type="button"
+                className={buttonClass(upOn)}
+                aria-label={`Sort ${label} ascending`}
+                aria-pressed={upOn}
+                title={`Sort ${label} ascending`}
+                onClick={() => onSort(columnKey, 'asc')}
+            >
+                <ChevronUp size={12} strokeWidth={2.75} />
+            </button>
+            <button
+                type="button"
+                className={buttonClass(downOn)}
+                aria-label={`Sort ${label} descending`}
+                aria-pressed={downOn}
+                title={`Sort ${label} descending`}
+                onClick={() => onSort(columnKey, 'desc')}
+            >
+                <ChevronDown size={12} strokeWidth={2.75} />
+            </button>
+        </span>
+    );
+}
+
+function SortableTh({
+    label,
+    columnKey,
+    sortKey,
+    sortDirection,
+    onSort,
+    className = '',
+    align = 'left',
+    rowSpan,
+    colSpan,
+}) {
+    const justify =
+        align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start';
+    const active = sortKey === columnKey;
+    return (
+        <th
+            rowSpan={rowSpan}
+            colSpan={colSpan}
+            className={className}
+            aria-sort={active ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+        >
+            <div className={`flex w-full items-center gap-0.5 whitespace-nowrap ${justify}`}>
+                <span>{label}</span>
+                <ColumnSortArrows
+                    label={label}
+                    columnKey={columnKey}
+                    sortKey={sortKey}
+                    sortDirection={sortDirection}
+                    onSort={onSort}
+                />
+            </div>
+        </th>
+    );
 }
 
 function MarkAttendanceMenu({ anchorRect, onSelect, onClose, options = MARK_OPTIONS }) {
@@ -510,6 +761,7 @@ function EmployeeRow({
     actionLocked = false,
     actionTitle = '',
     menuOptions = MARK_OPTIONS,
+    dayHoursFallback = 0,
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const [anchorRect, setAnchorRect] = useState(null);
@@ -531,20 +783,37 @@ function EmployeeRow({
     const shownMark = markForNonWorkingDay(mark, timeIn, timeOut, dayBaseline);
     const statusText = formatStatusLabel(shownMark, timeIn, pastDay);
     const statusFull = statusHoverTitle(statusText);
-    const duration = punchDurationLabel(
-        mark?.rawTimeIn || timeIn,
-        mark?.rawTimeOut || timeOut,
-        mark?.timeOutDate,
-        mark?.date,
-    );
+    const rawIn = mark?.rawTimeIn || timeIn;
+    const rawOut = mark?.rawTimeOut || timeOut;
+    const syntheticOt = isOtPunch(rawIn) || isOtPunch(rawOut);
+    const duration = syntheticOt
+        ? hoursDurationLabel(mark?.flexibleWorkedHours)
+        : punchDurationLabel(rawIn, rawOut, mark?.timeOutDate, mark?.date);
     const rowLocked = actionLocked;
     const lockTitle = actionLocked ? actionTitle : undefined;
 
     const shift = shiftMarks(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
     const otText = otCellLabel(mark);
+    const adjustDate = String(mark?.flexibleOtNextDayDate || mark?.flexibleFromOtDate || '').trim();
+    const compOffAdjusted = String(mark?.key || '') === 'compoff_leave' && String(mark?.compOffState || '') === 'adjusted';
+    const adjustTitle = adjustDate
+        ? `Adjusted with ${formatAdjDay(adjustDate)}`
+        : compOffAdjusted
+          ? 'Adjusted from overtime'
+          : '';
     const actionMenuOptions = rowMenuOptions(menuOptions, shownMark, { canReviewHour });
+    const dayHours =
+        Number(mark?.flexibleRequiredHours) > 0 ? Number(mark.flexibleRequiredHours) : Number(dayHoursFallback) || 0;
     const showOtRequest = Number(mark?.flexibleOtHours) > 0 && !otText;
-    const nextDayOt = Number(mark?.flexibleOtHours) > 10;
+    const nextDayOt = coversWorkingDay(mark?.flexibleOtHours, dayHours);
+    const remainingOt = syntheticOt && !nextDayOt && Number(mark?.flexibleOtHours) > 0;
+    const otButtonLabel = nextDayOt
+        ? 'Next day present'
+        : remainingOt
+          ? `OT ${wholeHourCount(mark?.flexibleOtHours)} hr`
+          : otDirect
+            ? 'Apply OT'
+            : 'Req OT';
 
     return (
         <tr className="border-b border-gray-100 hover:bg-slate-50/80 transition-colors">
@@ -565,17 +834,39 @@ function EmployeeRow({
                 {shortEmployeeName(employee.name)}
             </td>
             <td className="px-3 py-3 text-sm text-gray-600 tabular-nums align-middle">{employee.empNo}</td>
-            <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{timeIn}</td>
-            <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{timeOut}</td>
+            <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{isOtPunch(timeIn) ? '—' : timeIn}</td>
+            <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{isOtPunch(timeOut) ? '—' : timeOut}</td>
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle whitespace-nowrap">{duration}</td>
             <td className="px-3 py-3 align-middle min-w-[140px]">
                 <div className="flex flex-col gap-0.5 min-w-0">
                     <span
                         className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${statusChipClass(shownMark, statusText)}`}
-                        title={[statusFull, mark?.reason].filter(Boolean).join(' — ')}
+                        title={[statusFull, mark?.reason, adjustTitle].filter(Boolean).join(' — ')}
                     >
                         {statusText}
                     </span>
+                    {mark?.pendingChange ? (
+                        <span
+                            className="text-[10px] font-semibold text-amber-700"
+                            title={
+                                mark.pendingChange.stage === 'pending_hr'
+                                    ? 'Waiting for HR approval'
+                                    : 'Waiting for primary reportee approval'
+                            }
+                        >
+                            {mark.pendingChange.stage === 'pending_hr'
+                                ? 'Waiting for HR'
+                                : 'Waiting for primary reportee'}
+                            {mark.pendingChange.statusLabel
+                                ? ` · ${mark.pendingChange.statusLabel}`
+                                : ''}
+                        </span>
+                    ) : null}
+                    {adjustTitle ? (
+                        <span className="text-[10px] font-semibold text-violet-700" title={adjustTitle}>
+                            (Adj)
+                        </span>
+                    ) : null}
                     {shownMark?.reason ? (
                         <span className="text-[10px] text-gray-500 max-w-[180px] truncate" title={shownMark.reason}>
                             {shownMark.reason}
@@ -627,11 +918,13 @@ function EmployeeRow({
                         disabled={!canRequestOt}
                         title={
                             canRequestOt
-                                ? otDirect
-                                    ? nextDayOt
-                                        ? 'Mark the next day Present (On time). This day’s overtime is fully used.'
-                                        : 'Apply overtime now'
-                                    : 'Request overtime for HR approval'
+                                ? remainingOt
+                                    ? 'Apply the remaining overtime from the previous day'
+                                    : otDirect
+                                      ? nextDayOt
+                                          ? 'Mark the next day Present (On time) for one working day. Hours above that day stay as overtime there.'
+                                          : 'Apply overtime now'
+                                      : 'Request overtime for HR approval'
                                 : 'Only the primary reportee or flowchart HR can use overtime'
                         }
                         onClick={() => {
@@ -639,7 +932,7 @@ function EmployeeRow({
                         }}
                         className="rounded-lg border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                        {otDirect ? (nextDayOt ? 'Next day present' : 'Apply OT') : 'Req OT'}
+                        {otButtonLabel}
                     </button>
                 ) : (
                     <span className="text-gray-300">—</span>
@@ -684,6 +977,7 @@ function EmployeeRow({
 }
 
 export default function MarkAttendanceTable({ dateKey, staffType = 'office', otAttendanceId = '', hourAttendanceId = '' }) {
+    const { toast } = useToast();
     const [allEmployees, setAllEmployees] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -702,6 +996,8 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
     const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
     const [bulkAnchorRect, setBulkAnchorRect] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [sortKey, setSortKey] = useState('name');
+    const [sortDirection, setSortDirection] = useState('asc');
     const [otModal, setOtModal] = useState(null);
     const [hourModal, setHourModal] = useState(null);
     const [scheduleWeek, setScheduleWeek] = useState(null);
@@ -830,11 +1126,14 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                 });
                 if (cancelled) return;
                 const records = Array.isArray(res.data?.records) ? res.data.records : [];
+                const pendingChanges = Array.isArray(res.data?.pendingChanges)
+                    ? res.data.pendingChanges
+                    : [];
                 dayRecordsRef.current = records;
                 // Roster is already filtered by staffType from API
                 const { nextEmployees, nextMarks } = applyDayRecordsToState(allEmployees, records);
                 setEmployees(nextEmployees);
-                setMarks(nextMarks);
+                setMarks(mergePendingChanges(nextMarks, pendingChanges));
                 if (otAttendanceId) {
                     const match = nextEmployees.find(
                         (row) => nextMarks[row.id]?.attendanceId === String(otAttendanceId),
@@ -914,6 +1213,51 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
         () => employees.filter((employee) => employeeMatchesSearch(employee, searchQuery)),
         [employees, searchQuery],
     );
+    const rosterIndexById = useMemo(() => {
+        const map = new Map();
+        employees.forEach((employee, index) => map.set(employee.id, index));
+        return map;
+    }, [employees]);
+    const sortedEmployees = useMemo(() => {
+        const ctx = {
+            pastDay,
+            dayBaseline,
+            isFlowchartHr,
+            actionLocked: dayMode === 'locked',
+        };
+        return [...filteredEmployees].sort((a, b) => {
+            const cmp = compareAttendanceSortValues(
+                attendanceSortValue(sortKey, a, marks[a.id] || null, {
+                    ...ctx,
+                    rosterIndex: rosterIndexById.get(a.id) ?? 0,
+                }),
+                attendanceSortValue(sortKey, b, marks[b.id] || null, {
+                    ...ctx,
+                    rosterIndex: rosterIndexById.get(b.id) ?? 0,
+                }),
+                sortDirection,
+            );
+            if (cmp !== 0) return cmp;
+            const nameCmp = String(a.name || '').localeCompare(String(b.name || ''), undefined, {
+                sensitivity: 'base',
+            });
+            return sortDirection === 'desc' ? -nameCmp : nameCmp;
+        });
+    }, [
+        filteredEmployees,
+        marks,
+        sortKey,
+        sortDirection,
+        pastDay,
+        dayBaseline,
+        isFlowchartHr,
+        dayMode,
+        rosterIndexById,
+    ]);
+    const handleColumnSort = (key, direction) => {
+        setSortKey(key);
+        setSortDirection(direction);
+    };
     const filteredIdSet = useMemo(
         () => new Set(filteredEmployees.map((employee) => employee.id)),
         [filteredEmployees],
@@ -953,49 +1297,6 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
         const idSet = new Set(ids);
         if (idSet.size === 0) return;
         const { markKey, markLabel, timeIn, timeOut, reason, attachmentName, leavePayType } = payload;
-        const isClear = markKey === 'clear_attendance';
-
-        if (isClear) {
-            setMarks((prev) => {
-                const next = { ...prev };
-                idSet.forEach((id) => {
-                    delete next[id];
-                });
-                return next;
-            });
-            setEmployees((prev) =>
-                prev.map((e) => (idSet.has(e.id) ? { ...e, timeIn: '—', timeOut: '—' } : e)),
-            );
-        } else {
-            const optimisticMarks = {};
-            idSet.forEach((id) => {
-                optimisticMarks[id] = {
-                    key: markKey,
-                    label: markLabel,
-                    reason: reason || '',
-                    attachmentName: attachmentName || '',
-                    punchSource: 'manual',
-                    checkOutSource: timeOut ? 'manual' : '',
-                    checkInLocation: null,
-                    checkOutLocation: null,
-                };
-            });
-
-            setMarks((prev) => ({ ...prev, ...optimisticMarks }));
-            setEmployees((prev) =>
-                prev.map((e) => {
-                    if (!idSet.has(e.id)) return e;
-                    if (timeIn != null && timeOut != null) {
-                        return {
-                            ...e,
-                            timeIn: formatDisplayTime(timeIn),
-                            timeOut: formatDisplayTime(timeOut),
-                        };
-                    }
-                    return { ...e, timeIn: '—', timeOut: '—' };
-                }),
-            );
-        }
 
         const marksPayload = employeesRef.current
             .filter((e) => idSet.has(e.id))
@@ -1019,40 +1320,52 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                 marks: marksPayload,
             });
             const records = Array.isArray(res.data?.records) ? res.data.records : [];
-            if (records.length) {
-                const { nextEmployees, nextMarks } = applyDayRecordsToState(
-                    employeesRef.current,
-                    [
-                        ...dayRecordsRef.current.filter(
-                            (r) => !idSet.has(String(r.employeeMongoId)),
-                        ),
-                        ...records.filter((r) => !r.cleared),
-                    ],
-                );
-                dayRecordsRef.current = [
-                    ...dayRecordsRef.current.filter((r) => !idSet.has(String(r.employeeMongoId))),
-                    ...records.filter((r) => !r.cleared),
-                ];
-                setEmployees(nextEmployees);
-                setMarks(nextMarks);
+            const pending = Array.isArray(res.data?.pending) ? res.data.pending : [];
+            if (pending.length) {
+                toast({
+                    title: 'Sent for approval',
+                    description: res.data?.message || 'Attendance stays unchanged until HR approves.',
+                });
             }
+            const dayRes = await axiosInstance.get('/Attendance', {
+                params: { date: dateKey },
+                skipToast: true,
+            });
+            const dayRecords = Array.isArray(dayRes.data?.records) ? dayRes.data.records : records;
+            const pendingChanges = Array.isArray(dayRes.data?.pendingChanges)
+                ? dayRes.data.pendingChanges
+                : [];
+            dayRecordsRef.current = dayRecords;
+            const { nextEmployees, nextMarks } = applyDayRecordsToState(
+                employeesRef.current,
+                dayRecords,
+            );
+            setEmployees(nextEmployees);
+            setMarks(mergePendingChanges(nextMarks, pendingChanges));
             notifyAttendancePendingInboxChanged();
         } catch (err) {
             console.error('Failed to save attendance', err);
-            // Reload day from server to stay consistent
+            toast({
+                variant: 'destructive',
+                title: 'Could not save attendance',
+                description: err?.response?.data?.message || 'The attendance change was not saved.',
+            });
             try {
                 const res = await axiosInstance.get('/Attendance', {
                     params: { date: dateKey },
                     skipToast: true,
                 });
                 const records = Array.isArray(res.data?.records) ? res.data.records : [];
+                const pendingChanges = Array.isArray(res.data?.pendingChanges)
+                    ? res.data.pendingChanges
+                    : [];
                 dayRecordsRef.current = records;
                 const { nextEmployees, nextMarks } = applyDayRecordsToState(
                     employeesRef.current,
                     records,
                 );
                 setEmployees(nextEmployees);
-                setMarks(nextMarks);
+                setMarks(mergePendingChanges(nextMarks, pendingChanges));
             } catch {
                 /* ignore */
             }
@@ -1238,50 +1551,137 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                     title={allChecked ? 'Uncheck all' : 'Check all'}
                                 />
                             </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
-                                Sl No
-                            </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
-                                Emp Name
-                            </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
-                                Emp No
-                            </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
-                                Time In
-                            </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
-                                Time Out
-                            </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
-                                Duration
-                            </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
-                                Status
-                            </th>
-                            <th className="px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-gray-500 border-l border-gray-200" colSpan={2}>
-                                Location
-                            </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 border-l border-gray-200" rowSpan={2}>
-                                Type
-                            </th>
-                            <th className="px-3 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
-                                Shift
-                            </th>
-                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
-                                OT
-                            </th>
-                            <th className="px-3 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-gray-500" rowSpan={2}>
-                                Action
-                            </th>
+                            <SortableTh
+                                label="Sl No"
+                                columnKey="slNo"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                rowSpan={2}
+                                className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500"
+                            />
+                            <SortableTh
+                                label="Emp Name"
+                                columnKey="name"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                rowSpan={2}
+                                className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500"
+                            />
+                            <SortableTh
+                                label="Emp No"
+                                columnKey="empNo"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                rowSpan={2}
+                                className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500"
+                            />
+                            <SortableTh
+                                label="Time In"
+                                columnKey="timeIn"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                rowSpan={2}
+                                className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500"
+                            />
+                            <SortableTh
+                                label="Time Out"
+                                columnKey="timeOut"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                rowSpan={2}
+                                className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500"
+                            />
+                            <SortableTh
+                                label="Duration"
+                                columnKey="duration"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                rowSpan={2}
+                                className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500"
+                            />
+                            <SortableTh
+                                label="Status"
+                                columnKey="status"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                rowSpan={2}
+                                className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500"
+                            />
+                            <SortableTh
+                                label="Location"
+                                columnKey="location"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                align="center"
+                                colSpan={2}
+                                className="px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-gray-500 border-l border-gray-200"
+                            />
+                            <SortableTh
+                                label="Type"
+                                columnKey="type"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                rowSpan={2}
+                                className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 border-l border-gray-200"
+                            />
+                            <SortableTh
+                                label="Shift"
+                                columnKey="shift"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                align="center"
+                                rowSpan={2}
+                                className="px-3 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-gray-500"
+                            />
+                            <SortableTh
+                                label="OT"
+                                columnKey="ot"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                rowSpan={2}
+                                className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500"
+                            />
+                            <SortableTh
+                                label="Action"
+                                columnKey="action"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                align="right"
+                                rowSpan={2}
+                                className="px-3 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-gray-500"
+                            />
                         </tr>
                         <tr className="bg-gray-50 border-b border-gray-200">
-                            <th className="px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-gray-500 border-l border-t border-gray-200">
-                                Check-in
-                            </th>
-                            <th className="px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-gray-500 border-t border-gray-200">
-                                Check-out
-                            </th>
+                            <SortableTh
+                                label="Check-in"
+                                columnKey="checkIn"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                align="center"
+                                className="px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-gray-500 border-l border-t border-gray-200"
+                            />
+                            <SortableTh
+                                label="Check-out"
+                                columnKey="checkOut"
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleColumnSort}
+                                align="center"
+                                className="px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-gray-500 border-t border-gray-200"
+                            />
                         </tr>
                     </thead>
                     <tbody>
@@ -1292,7 +1692,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                 </td>
                             </tr>
                         ) : null}
-                        {filteredEmployees.map((employee, index) => (
+                        {sortedEmployees.map((employee, index) => (
                             <EmployeeRow
                                 key={employee.id}
                                 index={index + 1}
@@ -1304,6 +1704,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                 dayBaseline={dayBaseline}
                                 actionLocked={rowIsActionLocked(employee)}
                                 actionTitle={dayMode === 'locked' ? HR_ONLY_MARK_TITLE : ''}
+                                dayHoursFallback={scheduleDayHours(scheduleWeek, dateKey)}
                                 menuOptions={menuOptions}
                                 onRequestMark={handleRequestMark}
                                 canRequestOt={
@@ -1394,6 +1795,11 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                 mode={otModal?.mode || 'request'}
                 employee={otModal?.employee}
                 mark={otModal?.mark}
+                dayHours={
+                    Number(otModal?.mark?.flexibleRequiredHours) > 0
+                        ? Number(otModal.mark.flexibleRequiredHours)
+                        : scheduleDayHours(scheduleWeek, otModal?.mark?.date || dateKey)
+                }
                 onClose={() => setOtModal(null)}
                 onSaved={() => setDayReload((value) => value + 1)}
             />

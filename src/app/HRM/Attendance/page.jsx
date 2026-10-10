@@ -37,6 +37,12 @@ export default function AttendancePage() {
     }, []);
 
     useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('bell') === '1') setPendingInboxModalOpen(true);
+    }, []);
+
+    useEffect(() => {
         fetchPendingInboxCount();
         const refresh = () => fetchPendingInboxCount({ force: true });
         if (typeof window !== 'undefined') {

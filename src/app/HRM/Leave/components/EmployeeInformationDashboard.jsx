@@ -1,7 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
     addMonths,
     eachDayOfInterval,
@@ -31,6 +33,7 @@ import {
     MapPin,
     Plane,
     Plus,
+    Search,
     UserRound,
     Users,
     Wallet,
@@ -46,6 +49,12 @@ import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
     salaryLockFromAttendancePayload,
 } from '@/app/dashboard/components/DashboardSalaryEnrollLock';
+import {
+    buildMonthWorkWeeks,
+    buildWeeklySalaryAddition,
+    defaultWorkWeekIndex,
+    emptyWeeklySalaryAddition,
+} from '../utils/weeklySalaryAddition';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -231,6 +240,7 @@ function clockToMinutes(value) {
 }
 
 function formatClock12(value) {
+    if (String(value || '').trim() === 'OT') return 'OT';
     const minutes = clockToMinutes(value);
     if (minutes == null) return '—';
     const hour24 = Math.floor(minutes / 60) % 24;
@@ -295,6 +305,16 @@ function workedMinutes(timeIn, timeOut) {
     let diff = end - start;
     if (diff <= 0) diff += 24 * 60;
     return diff;
+}
+
+function recordWorkedMinutes(record) {
+    const inn = String(record?.timeIn || '').trim();
+    const out = String(record?.timeOut || '').trim();
+    if (inn === 'OT' || out === 'OT') {
+        const hours = Number(record?.flexibleWorkedHours) || 0;
+        return hours > 0 ? Math.round(hours * 60) : null;
+    }
+    return record?.timeIn ? workedMinutes(record.timeIn, record.timeOut) : null;
 }
 
 function dubaiNowMinutes() {
@@ -576,28 +596,53 @@ function monthKeysBetween(fromKey, toKey) {
     return months;
 }
 
-const WORKED_STATUS_KEYS = new Set(['on_office', 'work_from_home', 'late_arrived', 'early_go']);
-
-function isSyntheticOtDay(row) {
-    const inn = String(row?.timeIn || '').trim();
-    const out = String(row?.timeOut || '').trim();
-    return inn === 'OT' || out === 'OT' || Boolean(String(row?.flexibleFromOtDate || '').trim());
+function dayAdjustment(row) {
+    const nextDay = String(row?.flexibleOtNextDayDate || '').trim();
+    const fromDay = String(row?.flexibleFromOtDate || '').trim();
+    if (nextDay) return { withDate: nextDay, compOff: false };
+    if (fromDay) return { withDate: fromDay, compOff: false };
+    if (String(row?.statusKey || '') === 'compoff_leave' && String(row?.compOff?.state || '') === 'adjusted') {
+        return { withDate: '', compOff: true };
+    }
+    return null;
 }
 
-function rowWorkedMinutes(row) {
-    if (isSyntheticOtDay(row)) return 0;
-    const inn = String(row?.timeIn || '').trim();
-    const out = String(row?.timeOut || '').trim();
-    if (!inn) return 0;
-    const stored = Number(row?.flexibleWorkedHours) || 0;
-    if (stored > 0) return Math.round(stored * 60);
-    if (!out) return 0;
-    return workedMinutes(inn, out) || 0;
+function rememberAdjustment(map, date, withDate, compOff) {
+    const key = String(date || '').trim();
+    if (!key || map.has(key)) return;
+    map.set(key, { date: key, withDate: String(withDate || '').trim(), compOff: Boolean(compOff) });
 }
 
-function dayCountLabel(count) {
-    const total = Math.max(0, Math.round(Number(count) || 0));
-    return `${total} ${total === 1 ? 'Day' : 'Days'}`;
+function adjustmentNote(item, includeSelf = false) {
+    if (!item) return '';
+    if (item.compOff || !item.withDate) {
+        if (!includeSelf) return 'Adjusted from overtime';
+        const day = item.date ? formatDayLabel(item.date) : '';
+        return day ? `Adjusted from overtime · ${day}` : 'Adjusted from overtime';
+    }
+    const other = formatDayLabel(item.withDate);
+    if (includeSelf && item.date) return `${formatDayLabel(item.date)} adjusted with ${other}`;
+    return `Adjusted with ${other}`;
+}
+
+function buildAdjustmentIndex(records) {
+    const map = new Map();
+    (records || []).forEach((row) => {
+        const date = String(row?.date || '').trim();
+        if (!date) return;
+        const link = dayAdjustment(row);
+        if (!link) return;
+        rememberAdjustment(map, date, link.withDate, link.compOff);
+        if (link.withDate) rememberAdjustment(map, link.withDate, date, false);
+    });
+    return map;
+}
+
+function adjInk(kind) {
+    if (kind === 'attention' || kind === 'sick' || kind === 'holiday' || kind === 'weekend' || kind === 'empty' || kind === 'future') {
+        return 'text-[#5B21B6]';
+    }
+    return 'text-white';
 }
 
 function hourCountLabel(hours) {
@@ -605,49 +650,11 @@ function hourCountLabel(hours) {
     return `${total} ${total === 1 ? 'Hour' : 'Hours'}`;
 }
 
-function summarizeOvertimeDetails(records) {
-    const byDate = new Map();
-    (records || []).forEach((row) => {
-        const date = String(row?.date || '').trim();
-        if (!date) return;
-        const prev = byDate.get(date);
-        if (!prev) {
-            byDate.set(date, row);
-            return;
-        }
-        const prevPunch = String(prev?.timeIn || '').trim();
-        const nextPunch = String(row?.timeIn || '').trim();
-        if ((!prevPunch || prevPunch === 'OT') && nextPunch && nextPunch !== 'OT') byDate.set(date, row);
-    });
-    let overtimeMinutes = 0;
-    const convertedDays = new Set();
-    let workedMinutesTotal = 0;
-    const workedDates = new Set();
-    byDate.forEach((row, date) => {
-        const status = String(row?.flexibleOtStatus || '');
-        const approved = n(row?.flexibleOtApprovedHours);
-        const requested = n(row?.flexibleOtHours);
-        const nextDay = String(row?.flexibleOtNextDayDate || '').trim();
-        const converted = Boolean(nextDay) || (status === 'approved' && approved > 10);
-        if (nextDay) convertedDays.add(nextDay);
-        if (isSyntheticOtDay(row)) convertedDays.add(date);
-        if (!converted) {
-            const hours = status === 'approved' ? approved : requested;
-            if (hours > 0 && hours <= 10) overtimeMinutes += Math.round(hours * 60);
-        }
-        if (isSyntheticOtDay(row)) return;
-        const minutes = rowWorkedMinutes(row);
-        const workedStatus = WORKED_STATUS_KEYS.has(String(row?.statusKey || ''));
-        if (!workedStatus && minutes <= 0) return;
-        workedDates.add(date);
-        workedMinutesTotal += minutes;
-    });
-    return {
-        overtimeMinutes,
-        overDays: convertedDays.size,
-        workedMinutes: workedMinutesTotal,
-        workedDays: workedDates.size,
-    };
+function measureLabel(value, singular, plural) {
+    const total = Math.round((Number(value) || 0) * 100) / 100;
+    const amount = Object.is(total, -0) ? 0 : total;
+    const shown = Math.abs(amount);
+    return `${amount < 0 ? '-' : ''}${shown} ${shown === 1 ? singular : plural}`;
 }
 
 function countEndForMonth(monthKey, todayKey) {
@@ -751,6 +758,18 @@ function dayHoursOf(week, dateKey) {
     return 8;
 }
 
+function flexibleDayHours(week, dateKey) {
+    if (String(week?.timingMode || '').toLowerCase() !== 'flexible') return 0;
+    if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return 0;
+    const day = week[WEEKDAY_KEYS[new Date(`${dateKey}T12:00:00Z`).getUTCDay()]];
+    if (!day || day.isOffDay) return 0;
+    const hours = Number(day.workingHours);
+    if (Number.isFinite(hours) && hours > 0) return Math.min(24, hours);
+    const weekHours = Number(week.hoursPerDay);
+    if (Number.isFinite(weekHours) && weekHours > 0) return Math.min(24, weekHours);
+    return 9;
+}
+
 function takenHoursOf(row, week, kind) {
     const shift = shiftForDate(week, row?.date);
     if (kind === 'early_go' && shift) {
@@ -765,8 +784,8 @@ function takenHoursOf(row, week, kind) {
 }
 
 function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
-    const dayHours = dayHoursOf(week, row?.date) || 8;
     const approved = String(row?.hourAdjustStatus || '') === 'approved' && n(row?.hoursApproved) > 0;
+    const dayHours = (approved ? flexibleDayHours(week, row?.date) : 0) || dayHoursOf(week, row?.date) || 8;
     const hours = approved
         ? n(row.hoursApproved)
         : (n(row?.hoursTaken) || takenHoursOf(row, week, kind)) * unauthTimes;
@@ -843,6 +862,23 @@ function deductionEventDetail(record, week) {
     return reason ? `${dayText} · ${reason}` : dayText;
 }
 
+function deductionLossHours(record, week) {
+    const key = deductionKind(record);
+    const approved = String(record?.hourAdjustStatus || '') === 'approved' && n(record?.hoursApproved) > 0;
+    if (approved) return n(record.hoursApproved);
+    if (key === 'authorized_leave' || key === 'unauthorized_leave') {
+        const weight = leaveDayWeight(record, key === 'authorized_leave');
+        return weight * (dayHoursOf(week, record?.date) || 8);
+    }
+    if (n(record?.hoursTaken) > 0) return n(record.hoursTaken);
+    return takenHoursOf(record, week, key);
+}
+
+function formatLossHours(hours) {
+    if (hours == null || !Number.isFinite(Number(hours)) || Number(hours) < 0) return '—';
+    return formatDuration(Math.round(Number(hours) * 60));
+}
+
 function attendanceDeductionRows(records, policy, week, daily) {
     const labeled = (records || []).filter((row) => ATTENDANCE_DEDUCTION_LABEL[deductionKind(row)]);
     const byMonth = new Map();
@@ -864,6 +900,9 @@ function attendanceDeductionRows(records, policy, week, daily) {
                 date: formatDayLabel(record?.date),
                 type: ATTENDANCE_DEDUCTION_LABEL[key],
                 detail: deductionEventDetail(record, week),
+                in: formatClock12(record?.timeIn),
+                out: formatClock12(record?.timeOut),
+                lossHrs: formatLossHours(deductionLossHours(record, week)),
                 amount: pending ? '0.00 (Pending)' : formatAedNumber(amount),
             });
         });
@@ -995,18 +1034,55 @@ function attentionLabel(record) {
     return '';
 }
 
+function dayEarlyText(record, week) {
+    if (!record || String(record.statusKey || '') !== 'early_go') return '';
+    const fromReason = minutesInReason(record.reason, /(\d+)\s*minutes?\s+early/i);
+    if (fromReason != null) return `${fromReason} ${fromReason === 1 ? 'minute' : 'minutes'}`;
+    const shift = shiftForDate(week, record.date);
+    const actual = clockToMinutes(record.timeOut);
+    if (!shift || actual == null) return '—';
+    const gap = Math.max(0, shift.end - actual);
+    return `${gap} ${gap === 1 ? 'minute' : 'minutes'}`;
+}
+
+function dayDescription(record) {
+    if (!record) return '';
+    const parts = [
+        record.reason,
+        record.leaveRequestReason,
+        record.hourAdjustReason,
+        record.flexibleOtReason,
+    ].map((part) => String(part || '').trim()).filter(Boolean);
+    const unique = [];
+    const seen = new Set();
+    parts.forEach((part) => {
+        const key = part.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        unique.push(part);
+    });
+    const approved = String(record.hourAdjustStatus || '') === 'approved' && n(record.hoursApproved) > 0;
+    if (approved) unique.push(`${n(record.hoursApproved)} approved hr`);
+    return unique.join(' · ');
+}
+
 function eventRowsFromRecords(records, key) {
     return (records || [])
         .filter((row) => String(row?.statusKey || '') === key)
-        .map((row) => ({
+        .map((row) => {
+            const link = dayAdjustment(row);
+            return {
             id: String(row._id || `${row.date}-${key}`),
             date: row.date,
             statusKey: row.statusKey,
             statusLabel: row.statusLabel || kindLabel(dayKind(row, {})),
             reason: String(row.reason || row.leaveRequestReason || '').trim(),
+            adjusted: Boolean(link),
+            adjustWith: link?.withDate ? formatDayLabel(link.withDate) : '',
             attachmentName: String(row.attachmentName || '').trim(),
             leavePayType: String(row.leavePayType || '').trim(),
-        }));
+            };
+        });
 }
 
 function Panel({ title, aside, children }) {
@@ -1112,6 +1188,169 @@ function figureParts(value, singular, plural) {
     return { text: amount, word: amount === 1 ? singular : plural };
 }
 
+function AdjMark({ title }) {
+    const [open, setOpen] = useState(false);
+    const [box, setBox] = useState(null);
+    const buttonRef = useRef(null);
+    useEffect(() => {
+        if (!open) return undefined;
+        function onPointer(event) {
+            if (buttonRef.current?.contains(event.target)) return;
+            setOpen(false);
+        }
+        function onKey(event) {
+            if (event.key === 'Escape') setOpen(false);
+        }
+        document.addEventListener('mousedown', onPointer);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onPointer);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [open]);
+    if (!title) return null;
+    return (
+        <>
+            <button
+                ref={buttonRef}
+                type="button"
+                className="ml-1 inline-flex text-[11px] font-semibold text-[#DC2626]"
+                aria-label="Show which day this was adjusted with"
+                aria-expanded={open}
+                onClick={() => {
+                    const rect = buttonRef.current?.getBoundingClientRect();
+                    if (rect) {
+                        const left = Math.min(rect.left, window.innerWidth - 220);
+                        setBox({ top: rect.top, left: Math.max(8, left), above: rect.top > 96 });
+                    }
+                    setOpen((value) => !value);
+                }}
+            >
+                (adj)
+            </button>
+            {open && box && typeof document !== 'undefined'
+                ? createPortal(
+                    <span
+                        className="fixed z-[280] w-max max-w-[16rem] whitespace-pre-line rounded-lg border border-[#FECACA] bg-white px-2 py-1.5 text-left text-[11px] font-medium leading-snug text-[#1B2A4A] shadow-lg"
+                        style={box.above
+                            ? { left: box.left, top: box.top - 8, transform: 'translateY(-100%)' }
+                            : { left: box.left, top: box.top + 22 }}
+                    >
+                        {title}
+                    </span>,
+                    document.body,
+                )
+                : null}
+        </>
+    );
+}
+
+function AdditionFigure({ ready, text, title }) {
+    if (!ready) return '—';
+    return (
+        <>
+            <span className="tabular-nums">{text}</span>
+            <AdjMark title={title} />
+        </>
+    );
+}
+
+function AdditionWeekSelect({ weeks, value, onChange, id }) {
+    return (
+        <select
+            id={id}
+            aria-label="Salary addition week"
+            value={value || ''}
+            onChange={(event) => onChange(event.target.value)}
+            className="h-8 w-full rounded-lg border border-[#E6EDF5] bg-white px-2 text-[12px] font-semibold text-[#1B2A4A] outline-none"
+        >
+            {weeks.map((week) => (
+                <option key={week.id} value={week.id}>
+                    {`Week ${week.index} (${formatDayLabel(week.from)} to ${formatDayLabel(week.to)})`}
+                </option>
+            ))}
+        </select>
+    );
+}
+
+const ADD_TH = 'px-2 py-2 text-left text-[11px] font-semibold leading-tight text-[#94A3B8]';
+const ADD_TD = 'px-2 py-2 align-middle text-[12px] text-[#1B2A4A]';
+
+function SalaryAdditionDetails({ open, weeks, weekId, onWeekChange, ready, report, onClose }) {
+    useEffect(() => {
+        if (!open) return undefined;
+        function onKey(event) {
+            if (event.key === 'Escape') onClose();
+        }
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [open, onClose]);
+    if (!open || typeof document === 'undefined') return null;
+    const rows = report?.details || [];
+    return createPortal(
+        <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={onClose} role="presentation">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="salary-addition-details-title"
+                className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+            >
+                <div className="flex items-start justify-between gap-3 border-b border-[#EEF2F6] px-5 py-4">
+                    <div className="min-w-0 flex-1">
+                        <h3 id="salary-addition-details-title" className="text-[15px] font-bold text-[#1B2A4A]">Salary Addition Details</h3>
+                        <div className="mt-2 max-w-md">
+                            <AdditionWeekSelect id="salary-addition-week-modal" weeks={weeks} value={weekId} onChange={onWeekChange} />
+                        </div>
+                    </div>
+                    <button type="button" onClick={onClose} className="rounded-lg p-2 text-[#94A3B8] hover:bg-[#F8FAFC] hover:text-[#1B2A4A]" aria-label="Close">
+                        <X size={18} />
+                    </button>
+                </div>
+                <div className="overflow-auto px-5 py-3">
+                    <table className="w-full border-collapse text-left">
+                        <thead>
+                            <tr className="border-b border-[#EEF2F6]">
+                                <th className={TH}>Date</th>
+                                <th className={TH}>Hrs Worked</th>
+                                <th className={TH}>Adjusted</th>
+                                <th className="whitespace-nowrap px-3 py-2.5 text-right text-[12px] font-medium text-[#94A3B8]">Amount (AED)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows.length ? rows.map((row) => (
+                                <tr key={row.date} className="border-t border-[#F4F7FB]">
+                                    <td className={TD}>{row.label}</td>
+                                    <td className={`${TD} tabular-nums`}>{ready ? hourCountLabel(row.workedHours) : '—'}</td>
+                                    <td className={TD}>
+                                        <AdditionFigure
+                                            ready={ready}
+                                            text={hourCountLabel(row.adjustedHours)}
+                                            title={row.title || (row.adjustedHours > 0 ? 'Adjusted from overtime' : '')}
+                                        />
+                                    </td>
+                                    <td className={`${TD} text-right font-medium tabular-nums ${row.amount < 0 ? 'text-[#DC2626]' : ''}`}>
+                                        {ready ? formatAedNumber(row.amount) : '—'}
+                                    </td>
+                                </tr>
+                            )) : (
+                                <tr><td colSpan={4} className="px-3 py-6 text-center text-[13px] text-[#94A3B8]">No days in this week.</td></tr>
+                            )}
+                        </tbody>
+                        <tfoot>
+                            <tr className="border-t border-[#E2E8F0]">
+                                <td className={`${TD} font-bold`} colSpan={3}>Total Addition (AED)</td>
+                                <td className={`${TD} text-right font-bold tabular-nums text-[#16A34A]`}>{ready ? formatAedNumber(report?.total || 0) : '—'}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>,
+        document.body,
+    );
+}
+
 function FigureLine({ value, singular, plural, noteValue, noteSingular, notePlural }) {
     const main = figureParts(value, singular, plural);
     const note = noteValue == null ? null : figureParts(noteValue, noteSingular, notePlural);
@@ -1125,6 +1364,143 @@ function FigureLine({ value, singular, plural, noteValue, noteSingular, notePlur
                 <p className="mt-0.5 text-[11px] font-medium leading-none text-[#94A3B8]">
                     {note.text} {note.word}
                 </p>
+            ) : null}
+        </div>
+    );
+}
+
+function EmployeeProfileSwitcher({ employeeMongoId, name }) {
+    const router = useRouter();
+    const rootRef = useRef(null);
+    const searchRef = useRef(null);
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const [employees, setEmployees] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [failed, setFailed] = useState(false);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const close = (event) => {
+            if (rootRef.current && !rootRef.current.contains(event.target)) setOpen(false);
+        };
+        const onKey = (event) => {
+            if (event.key === 'Escape') setOpen(false);
+        };
+        document.addEventListener('mousedown', close);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', close);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [open]);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const frame = requestAnimationFrame(() => searchRef.current?.focus());
+        return () => cancelAnimationFrame(frame);
+    }, [open]);
+
+    useEffect(() => {
+        if (!open || employees.length || failed) return undefined;
+        let cancelled = false;
+        setLoading(true);
+        axiosInstance
+            .get('/Leave/employees', { params: { year: 'all' }, skipToast: true })
+            .then((response) => {
+                if (cancelled) return;
+                const list = Array.isArray(response.data?.employees) ? response.data.employees : [];
+                setEmployees(list);
+                setFailed(false);
+            })
+            .catch(() => {
+                if (!cancelled) setFailed(true);
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, employees.length, failed]);
+
+    const filtered = useMemo(() => {
+        const needle = query.trim().toLowerCase();
+        return employees
+            .map((row) => ({
+                id: String(row?._id || '').trim(),
+                name: String(row?.employeeName || '').trim(),
+                code: String(row?.employeeId || '').trim(),
+            }))
+            .filter((row) => row.id && row.name)
+            .filter((row) => !needle || `${row.name} ${row.code}`.toLowerCase().includes(needle))
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }, [employees, query]);
+
+    function choose(id) {
+        setOpen(false);
+        setQuery('');
+        if (!id || id === String(employeeMongoId || '')) return;
+        router.push(`/HRM/Leave/${id}`);
+    }
+
+    return (
+        <div ref={rootRef} className="relative min-w-0">
+            <button
+                type="button"
+                onClick={() => {
+                    setQuery('');
+                    setFailed(false);
+                    setOpen((value) => !value);
+                }}
+                className="flex min-w-0 items-center gap-1 text-left"
+                aria-expanded={open}
+                aria-haspopup="listbox"
+            >
+                <h1 className="truncate text-[16px] font-bold leading-tight text-[#1B2A4A]">{name || 'Employee'}</h1>
+                <ChevronDown size={16} className={`shrink-0 text-[#64748B] transition-transform ${open ? 'rotate-180' : ''}`} />
+            </button>
+            {open ? (
+                <div className="absolute left-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-xl border border-[#E6EDF5] bg-white shadow-xl">
+                    <div className="flex items-center gap-2 border-b border-[#E6EDF5] px-3 py-2">
+                        <Search size={14} className="shrink-0 text-[#94A3B8]" />
+                        <input
+                            ref={searchRef}
+                            value={query}
+                            onChange={(event) => setQuery(event.target.value)}
+                            placeholder="Search employee"
+                            className="w-full bg-transparent text-[13px] font-medium text-[#1B2A4A] outline-none placeholder:text-[#94A3B8]"
+                        />
+                    </div>
+                    <ul className="max-h-64 overflow-y-auto py-1" role="listbox">
+                        {loading ? (
+                            <li className="px-3 py-3 text-[13px] text-[#94A3B8]">Loading employees...</li>
+                        ) : failed ? (
+                            <li className="px-3 py-3 text-[13px] text-[#94A3B8]">Could not load employees.</li>
+                        ) : filtered.length === 0 ? (
+                            <li className="px-3 py-3 text-[13px] text-[#94A3B8]">No employees found.</li>
+                        ) : (
+                            filtered.map((row) => {
+                                const current = row.id === String(employeeMongoId || '');
+                                return (
+                                    <li key={row.id}>
+                                        <button
+                                            type="button"
+                                            onClick={() => choose(row.id)}
+                                            className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#F8FAFC] ${current ? 'bg-[#EFF6FF]' : ''}`}
+                                        >
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block truncate text-[13px] font-semibold text-[#1B2A4A]">{row.name}</span>
+                                                <span className="block truncate text-[11px] font-medium text-[#94A3B8]">{row.code || '—'}</span>
+                                            </span>
+                                            {current ? <Check size={14} className="shrink-0 text-[#2563EB]" /> : null}
+                                        </button>
+                                    </li>
+                                );
+                            })
+                        )}
+                    </ul>
+                </div>
             ) : null}
         </div>
     );
@@ -1167,6 +1543,8 @@ export default function EmployeeInformationDashboard({
     const [pinnedPlace, setPinnedPlace] = useState('');
     const [spanRecords, setSpanRecords] = useState([]);
     const [spanLoading, setSpanLoading] = useState(false);
+    const [additionWeekId, setAdditionWeekId] = useState('');
+    const [additionDetailsOpen, setAdditionDetailsOpen] = useState(false);
 
     const monthAnchor = useMemo(() => new Date(`${monthKey}-01T12:00:00`), [monthKey]);
     const choices = useMemo(() => monthChoices(joinKey, todayKey), [joinKey, todayKey]);
@@ -1511,11 +1889,9 @@ export default function EmployeeInformationDashboard({
         });
         return [...byDate.values()];
     }, [period, spanRecords, monthRecords, detailWindow.from, detailWindow.to]);
-    const overtime = useMemo(() => summarizeOvertimeDetails(detailRecords), [detailRecords]);
     const overtimeRange = detailWindow.from && detailWindow.to
         ? `${formatDayLabel(detailWindow.from)} to ${formatDayLabel(detailWindow.to)}`
         : '—';
-    const overtimeReady = !(period === 'month' && salaryLock.locked) && !(period !== 'month' && spanLoading);
 
     const salaryBasis = useMemo(() => {
         let weekOffs = 0;
@@ -1527,69 +1903,54 @@ export default function EmployeeInformationDashboard({
         const daily = monthlySalary > 0 && calendarDays > 0 ? money2(monthlySalary / workingDays) : 0;
         return { calendarDays, weekOffs, workingDays, daily };
     }, [days, offWeekdays, monthlySalary]);
+    const additionWeeks = useMemo(() => buildMonthWorkWeeks(monthKey), [monthKey]);
+    const additionWeek = useMemo(() => {
+        const picked = additionWeeks.find((week) => week.id === additionWeekId);
+        if (picked) return picked;
+        return additionWeeks[defaultWorkWeekIndex(additionWeeks, todayKey)] || null;
+    }, [additionWeeks, additionWeekId, todayKey]);
+    const additionReady = !monthLoading && !(period === 'month' && salaryLock.locked);
     const salaryAddition = useMemo(() => {
-        const daily = salaryBasis.daily;
-        const otHours = overtime.overtimeMinutes / 60;
-        const overDays = overtime.overDays;
-        const otAmount = money2((daily / 10) * otHours);
-        const overDayAmount = money2(daily * overDays);
-        let coverHours = 0;
-        detailRecords.forEach((row) => {
-            if (String(row?.statusKey || '') !== 'compoff_leave') return;
-            if (String(row?.compOff?.state || '') !== 'adjusted') return;
-            const charge = String(row?.compOff?.chargeMonth || '').trim() || String(row?.date || '').slice(0, 7);
-            if (charge !== monthKey) return;
-            coverHours += Number(row?.compOff?.otHoursDeducted) || 10;
-        });
-        const coverApplied = Math.min(coverHours, otHours);
-        const coverAmount = money2((daily / 10) * coverApplied);
-        let requiredDays = 0;
-        let requiredHours = 0;
-        if (detailWindow.from && detailWindow.to) {
-            days.forEach((day) => {
-                const dateKey = format(day, 'yyyy-MM-dd');
-                if (dateKey < detailWindow.from || dateKey > detailWindow.to) return;
-                if (joinKey && dateKey < joinKey) return;
+        if (!additionWeek) return emptyWeeklySalaryAddition();
+        return buildWeeklySalaryAddition({
+            monthKey,
+            countTo,
+            joinKey,
+            records: monthRecords,
+            daily: salaryBasis.daily,
+            flexible: String(scheduleWeek?.timingMode || '').toLowerCase() === 'flexible',
+            weekDates: additionWeek.dates,
+            extraDates: additionWeek.extraDates,
+            dayInfo: (dateKey) => {
                 const record = recordsByDate[dateKey];
-                const weekdayKey = WEEKDAY_KEYS[getDay(day)];
+                const weekdayKey = WEEKDAY_KEYS[new Date(`${dateKey}T00:00:00Z`).getUTCDay()];
                 const isHoliday = holidayDates.has(dateKey) || record?.statusKey === 'holiday';
                 const isWeeklyOff = !isHoliday && (record?.statusKey === 'weekly_off' || offWeekdays.has(weekdayKey));
-                if (isHoliday || isWeeklyOff) return;
-                requiredDays += 1;
-                requiredHours += dayHoursOf(scheduleWeek, dateKey);
-            });
-        }
-        const rows = [
-            { key: 'overtime', type: 'Over time', count: hourCountLabel(otHours), amount: otAmount },
-            { key: 'over_days', type: 'Over days', count: dayCountLabel(overDays), amount: overDayAmount },
-            {
-                key: 'compoff_cover',
-                type: 'Comp off cover',
-                count: hourCountLabel(coverApplied),
-                amount: coverAmount ? -coverAmount : 0,
-                underline: true,
+                const required = Boolean(countTo)
+                    && dateKey <= countTo
+                    && (!joinKey || dateKey >= joinKey)
+                    && dateKey.startsWith(monthKey)
+                    && !isHoliday
+                    && !isWeeklyOff;
+                return {
+                    required,
+                    scheduledHours: required ? dayHoursOf(scheduleWeek, dateKey) : 0,
+                    weeklyOff: isWeeklyOff,
+                    holiday: isHoliday,
+                };
             },
-            { key: 'required_days', type: 'Required working days', count: dayCountLabel(requiredDays), amount: null },
-            { key: 'required_hours', type: 'Required working hours', count: hourCountLabel(requiredHours), amount: null },
-            { key: 'worked_days', type: 'Actual worked days', count: dayCountLabel(overtime.workedDays), amount: null },
-        ];
-        return {
-            rows,
-            total: money2(otAmount + overDayAmount - coverAmount),
-        };
+        });
     }, [
-        overtime,
-        detailRecords,
-        salaryBasis.daily,
+        additionWeek,
         monthKey,
-        days,
-        detailWindow.from,
-        detailWindow.to,
+        countTo,
         joinKey,
+        monthRecords,
+        salaryBasis.daily,
+        scheduleWeek,
         recordsByDate,
         holidayDates,
         offWeekdays,
-        scheduleWeek,
     ]);
     const deductionRows = useMemo(() => {
         const policy = profile?.leavePolicy || {};
@@ -1597,7 +1958,8 @@ export default function EmployeeInformationDashboard({
         const authDays = money2(countedRecords.reduce((sum, row) => {
             if (deductionKind(row) !== 'authorized_leave') return sum;
             if (String(row?.hourAdjustStatus || '') === 'approved' && n(row?.hoursApproved) > 0) {
-                return sum + (n(row.hoursApproved) / (dayHoursOf(scheduleWeek, row.date) || 8));
+                const dayHours = flexibleDayHours(scheduleWeek, row.date) || dayHoursOf(scheduleWeek, row.date) || 8;
+                return sum + (n(row.hoursApproved) / dayHours);
             }
             return sum + leaveDayWeight(row, true);
         }, 0));
@@ -1747,6 +2109,7 @@ export default function EmployeeInformationDashboard({
     const nameParts = String(employee.name || '').trim().split(/\s+/);
     const initials = getEmployeeInitials(nameParts[0], nameParts.slice(1).join(' '));
     const isActive = employee.isActive !== false;
+    const adjustmentByDate = useMemo(() => buildAdjustmentIndex(monthRecords), [monthRecords]);
     const calendarDays = eachDayOfInterval({
         start: startOfWeek(startOfMonth(monthAnchor), { weekStartsOn: 1 }),
         end: endOfWeek(endOfMonth(monthAnchor), { weekStartsOn: 1 }),
@@ -1830,7 +2193,7 @@ export default function EmployeeInformationDashboard({
 
     return (
         <div className="space-y-3">
-            <section className="rounded-xl border border-[#E6EDF5] bg-white px-4 py-3">
+            <section className="relative z-20 rounded-xl border border-[#E6EDF5] bg-white px-4 py-3">
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
                     <div className="flex min-w-0 items-center gap-3">
                         {employee.profilePicture ? (
@@ -1842,7 +2205,7 @@ export default function EmployeeInformationDashboard({
                         )}
                         <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                                <h1 className="truncate text-[16px] font-bold leading-tight text-[#1B2A4A]">{employee.name || 'Employee'}</h1>
+                                <EmployeeProfileSwitcher employeeMongoId={employeeMongoId} name={employee.name} />
                                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold leading-none ${isActive ? 'bg-[#DCFCE7] text-[#16A34A]' : 'bg-slate-100 text-slate-500'}`}>
                                     {isActive ? 'Active' : 'Inactive'}
                                 </span>
@@ -2132,65 +2495,75 @@ export default function EmployeeInformationDashboard({
                         </div>
                         <div className="mt-2 grid grid-cols-2 gap-2">
                             <div className="flex flex-col rounded-xl border border-[#E7EEF6] bg-white px-2.5 py-2">
-                                <p className="flex items-center gap-1.5 text-[12px] font-semibold text-[#1B2A4A]">
-                                    <BarChart3 size={14} className="text-[#2563EB]" /> Last Increment
+                                <p className="flex items-center gap-1.5 text-[11px] font-semibold leading-tight text-[#1B2A4A]">
+                                    <BarChart3 size={12} className="text-[#2563EB]" /> Last Increment
                                 </p>
-                                <div className="mt-1.5 space-y-0.5 text-[11px]">
-                                    <p className="flex justify-between gap-2"><span className="text-[#64748B]">Previous Salary</span><span className="font-semibold tabular-nums text-[#1B2A4A]">{increment?.fromTotal ? formatAed(increment.fromTotal) : '—'}</span></p>
-                                    <p className="flex justify-between gap-2"><span className="text-[#64748B]">Increment</span><span className="font-semibold tabular-nums text-[#16A34A]">{increment?.amount ? formatAed(increment.amount) : formatAed(0)}</span></p>
-                                    <p className="flex justify-between gap-2"><span className="text-[#64748B]">New Salary</span><span className="font-semibold tabular-nums text-[#1B2A4A]">{increment?.toTotal ? formatAed(increment.toTotal) : formatAed(n(salary.monthlySalary) || n(salary.totalSalary))}</span></p>
-                                    <p className="flex justify-between gap-2"><span className="text-[#64748B]">Effective Date</span><span className="font-semibold text-[#1B2A4A]">{increment?.dateLabel || '—'}</span></p>
+                                <div className="mt-1.5 space-y-1 text-[10px] leading-snug">
+                                    <p className="flex items-baseline justify-between gap-2"><span className="text-[#64748B]">Previous Salary</span><span className="shrink-0 font-semibold tabular-nums text-[#1B2A4A]">{increment?.fromTotal ? formatAed(increment.fromTotal) : '—'}</span></p>
+                                    <p className="flex items-baseline justify-between gap-2"><span className="text-[#64748B]">Increment</span><span className="shrink-0 font-semibold tabular-nums text-[#16A34A]">{increment?.amount ? formatAed(increment.amount) : formatAed(0)}</span></p>
+                                    <p className="flex items-baseline justify-between gap-2"><span className="text-[#64748B]">New Salary</span><span className="shrink-0 font-semibold tabular-nums text-[#1B2A4A]">{increment?.toTotal ? formatAed(increment.toTotal) : formatAed(n(salary.monthlySalary) || n(salary.totalSalary))}</span></p>
+                                    <p className="flex items-baseline justify-between gap-2"><span className="text-[#64748B]">Effective Date</span><span className="shrink-0 font-semibold text-[#1B2A4A]">{increment?.dateLabel || '—'}</span></p>
                                 </div>
-                                <button type="button" onClick={() => onOpenFinancial?.('increment')} className="mt-auto inline-flex items-center self-end pt-1 text-[11px] font-semibold text-[#2563EB]">
-                                    View History <ChevronRight size={14} />
+                                <button type="button" onClick={() => onOpenFinancial?.('increment')} className="mt-auto inline-flex items-center self-end pt-1 text-[10px] font-semibold text-[#2563EB]">
+                                    View History <ChevronRight size={12} />
                                 </button>
                             </div>
                             <div className="rounded-xl border border-[#E7EEF6] bg-white px-2.5 py-2">
                                 <div className="flex items-center justify-between gap-2">
-                                    <p className="text-[12px] font-semibold text-[#1B2A4A]">Financial Obligations</p>
-                                    <button type="button" onClick={onOpenPayroll} className="inline-flex items-center text-[11px] font-semibold text-[#2563EB]">
-                                        View Details <ChevronRight size={14} />
+                                    <p className="text-[11px] font-semibold leading-tight text-[#1B2A4A]">Financial Obligations</p>
+                                    <button type="button" onClick={onOpenPayroll} className="inline-flex items-center text-[10px] font-semibold text-[#2563EB]">
+                                        View Details <ChevronRight size={12} />
                                     </button>
                                 </div>
-                                <div className="mt-1.5 grid grid-cols-2 gap-1">
-                                    <button type="button" onClick={() => onOpenFinancial?.('advance')} className="flex items-start gap-1.5 rounded-lg bg-[#F5F3FF] px-1.5 py-1.5 text-left">
-                                        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#8B5CF6] text-white">
-                                            <Wallet size={13} strokeWidth={2.3} />
+                                <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                                    <button type="button" onClick={() => onOpenFinancial?.('advance')} className="flex flex-col rounded-lg bg-[#F5F3FF] px-2 py-1.5 text-left">
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-[#8B5CF6] text-white">
+                                                <Wallet size={10} strokeWidth={2.3} />
+                                            </span>
+                                            <span className="text-[10px] font-semibold leading-tight text-[#1B2A4A]">Salary Advance</span>
                                         </span>
-                                        <span className="min-w-0">
-                                            <span className="block text-[12px] font-semibold leading-tight text-[#1B2A4A]">Salary Advance</span>
-                                            <span className="mt-1 block text-[11px] leading-tight text-[#64748B]">Total: <span className="font-semibold text-[#1B2A4A]">{formatAedNumber(advanceTotal)}</span></span>
-                                            <span className="block text-[11px] leading-tight text-[#64748B]">Paid: <span className="font-semibold text-[#1B2A4A]">{formatAedNumber(advancePaid)}</span></span>
-                                            <span className="block text-[11px] leading-tight text-[#64748B]">Pending: <span className="font-semibold text-[#1B2A4A]">{formatAedNumber(advanceOutstanding)}</span></span>
-                                        </span>
-                                    </button>
-                                    <button type="button" onClick={() => onOpenFinancial?.('loan')} className="flex items-start gap-1.5 rounded-lg bg-[#FEF2F2] px-1.5 py-1.5 text-left">
-                                        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#EF4444] text-white">
-                                            <UserRound size={13} strokeWidth={2.3} />
-                                        </span>
-                                        <span className="min-w-0">
-                                            <span className="block text-[12px] font-semibold leading-tight text-[#1B2A4A]">Loan</span>
-                                            <span className="mt-1 block text-[11px] leading-tight text-[#64748B]">Total: <span className="font-semibold text-[#1B2A4A]">{formatAedNumber(loanTotal)}</span></span>
-                                            <span className="block text-[11px] leading-tight text-[#64748B]">Recovered: <span className="font-semibold text-[#1B2A4A]">{formatAedNumber(loanPaid)}</span></span>
-                                            <span className="block text-[11px] leading-tight text-[#64748B]">Pending: <span className="font-semibold text-[#1B2A4A]">{formatAedNumber(loanOutstanding)}</span></span>
+                                        <span className="mt-1 space-y-0.5 text-[10px] leading-snug">
+                                            <span className="flex items-baseline justify-between gap-2"><span className="text-[#64748B]">Total:</span><span className="shrink-0 font-semibold tabular-nums text-[#1B2A4A]">{formatAedNumber(advanceTotal)}</span></span>
+                                            <span className="flex items-baseline justify-between gap-2"><span className="text-[#64748B]">Paid:</span><span className="shrink-0 font-semibold tabular-nums text-[#1B2A4A]">{formatAedNumber(advancePaid)}</span></span>
+                                            <span className="flex items-baseline justify-between gap-2"><span className="text-[#64748B]">Pending:</span><span className="shrink-0 font-semibold tabular-nums text-[#1B2A4A]">{formatAedNumber(advanceOutstanding)}</span></span>
                                         </span>
                                     </button>
-                                    <button type="button" onClick={() => onOpenFinancial?.('fines')} className="flex items-start gap-1.5 rounded-lg bg-[#FFF7ED] px-1.5 py-1.5 text-left">
-                                        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#F59E0B] text-white">
-                                            <AlertTriangle size={13} strokeWidth={2.3} />
+                                    <button type="button" onClick={() => onOpenFinancial?.('loan')} className="flex flex-col rounded-lg bg-[#FEF2F2] px-2 py-1.5 text-left">
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-[#EF4444] text-white">
+                                                <UserRound size={10} strokeWidth={2.3} />
+                                            </span>
+                                            <span className="text-[10px] font-semibold leading-tight text-[#1B2A4A]">Loan</span>
                                         </span>
-                                        <span className="min-w-0">
-                                            <span className="block text-[12px] font-semibold leading-tight text-[#1B2A4A]">Outstanding Fines</span>
-                                            <span className="mt-1 block text-[14px] font-bold leading-tight text-[#1B2A4A]">{formatAed(fineOutstanding)}</span>
+                                        <span className="mt-1 space-y-0.5 text-[10px] leading-snug">
+                                            <span className="flex items-baseline justify-between gap-2"><span className="text-[#64748B]">Total:</span><span className="shrink-0 font-semibold tabular-nums text-[#1B2A4A]">{formatAedNumber(loanTotal)}</span></span>
+                                            <span className="flex items-baseline justify-between gap-2"><span className="text-[#64748B]">Recovered:</span><span className="shrink-0 font-semibold tabular-nums text-[#1B2A4A]">{formatAedNumber(loanPaid)}</span></span>
+                                            <span className="flex items-baseline justify-between gap-2"><span className="text-[#64748B]">Pending:</span><span className="shrink-0 font-semibold tabular-nums text-[#1B2A4A]">{formatAedNumber(loanOutstanding)}</span></span>
                                         </span>
                                     </button>
-                                    <button type="button" onClick={() => onOpenFinancial?.('utility')} className="flex items-start gap-1.5 rounded-lg bg-[#EFF6FF] px-1.5 py-1.5 text-left">
-                                        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#3B82F6] text-white">
-                                            <Zap size={13} strokeWidth={2.3} />
+                                    <button type="button" onClick={() => onOpenFinancial?.('fines')} className="flex flex-col rounded-lg bg-[#FFF7ED] px-2 py-1.5 text-left">
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-[#F59E0B] text-white">
+                                                <AlertTriangle size={10} strokeWidth={2.3} />
+                                            </span>
+                                            <span className="text-[10px] font-semibold leading-tight text-[#1B2A4A]">Outstanding Fines</span>
                                         </span>
-                                        <span className="min-w-0">
-                                            <span className="block text-[12px] font-semibold leading-tight text-[#1B2A4A]">Utility Excess</span>
-                                            <span className="mt-1 block text-[14px] font-bold leading-tight text-[#1B2A4A]">{formatAed(utilityOutstanding)}</span>
+                                        <span className="mt-1 flex items-baseline justify-between gap-2 text-[10px] leading-snug">
+                                            <span className="text-[#64748B]">Amount:</span>
+                                            <span className="shrink-0 font-semibold tabular-nums text-[#1B2A4A]">{formatAed(fineOutstanding)}</span>
+                                        </span>
+                                    </button>
+                                    <button type="button" onClick={() => onOpenFinancial?.('utility')} className="flex flex-col rounded-lg bg-[#EFF6FF] px-2 py-1.5 text-left">
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-[#3B82F6] text-white">
+                                                <Zap size={10} strokeWidth={2.3} />
+                                            </span>
+                                            <span className="text-[10px] font-semibold leading-tight text-[#1B2A4A]">Utility Excess</span>
+                                        </span>
+                                        <span className="mt-1 flex items-baseline justify-between gap-2 text-[10px] leading-snug">
+                                            <span className="text-[#64748B]">Amount:</span>
+                                            <span className="shrink-0 font-semibold tabular-nums text-[#1B2A4A]">{formatAed(utilityOutstanding)}</span>
                                         </span>
                                     </button>
                                 </div>
@@ -2216,37 +2589,127 @@ export default function EmployeeInformationDashboard({
                             </button>
                         </div>
                         <div className="mt-2 overflow-hidden rounded-xl border border-[#E7EEF6]">
-                            <div className="px-3 py-2.5">
-                                <p className="text-[13px] font-bold text-[#1B2A4A]">
-                                    Salary Addition ({overtimeRange})
-                                </p>
+                            <div className="flex items-center justify-between gap-2 px-3 pt-2.5">
+                                <p className="text-[13px] font-bold text-[#1B2A4A]">Salary Addition</p>
+                                <button
+                                    type="button"
+                                    onClick={() => setAdditionDetailsOpen(true)}
+                                    className="inline-flex shrink-0 items-center text-[12px] font-semibold text-[#2563EB]"
+                                >
+                                    See Details <ChevronRight size={14} />
+                                </button>
                             </div>
-                            <table className="w-full border-collapse text-left">
-                                <thead>
-                                    <tr className="border-t border-[#EEF2F6]">
-                                        <th className={`${TH} w-8`}>#</th>
-                                        <th className={TH}>Description Type</th>
-                                        <th className={TH}>Count / Days</th>
-                                        <th className="whitespace-nowrap px-2.5 py-2 text-right text-[11px] font-medium text-[#94A3B8]">Amount (AED)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {salaryAddition.rows.map((row, index) => (
-                                        <tr key={row.key} className={`border-t border-[#F4F7FB] ${row.underline ? 'border-b-2 border-b-[#CBD5E1]' : ''}`}>
-                                            <td className={`${TD} text-[#94A3B8]`}>{index + 1}</td>
-                                            <td className={`${TD} ${row.underline ? 'underline' : ''}`}>{row.type}</td>
-                                            <td className={`${TD} tabular-nums`}>{overtimeReady ? row.count : '—'}</td>
-                                            <td className={`${TD} text-right font-medium tabular-nums ${row.amount < 0 ? 'text-[#DC2626]' : ''}`}>
-                                                {overtimeReady ? (row.amount == null ? '—' : formatAedNumber(row.amount)) : '—'}
-                                            </td>
+                            <div className="px-3 pb-2 pt-1.5">
+                                <AdditionWeekSelect
+                                    id="salary-addition-week"
+                                    weeks={additionWeeks}
+                                    value={additionWeek?.id}
+                                    onChange={setAdditionWeekId}
+                                />
+                                {additionWeek && countTo && additionWeek.to > countTo ? (
+                                    <p className="mt-1 text-[11px] font-medium text-[#64748B]">
+                                        {additionWeek.from > countTo ? 'Not counted yet' : `Counts through ${formatDayLabel(countTo)}`}
+                                    </p>
+                                ) : null}
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full min-w-[34rem] table-fixed border-collapse text-left">
+                                    <colgroup>
+                                        <col className="w-[8%]" />
+                                        <col className="w-[20%]" />
+                                        <col className="w-[24%]" />
+                                        <col className="w-[24%]" />
+                                        <col className="w-[24%]" />
+                                    </colgroup>
+                                    <thead>
+                                        <tr className="border-t border-[#EEF2F6]">
+                                            <th className={`${ADD_TH} w-8`}>#</th>
+                                            <th className={ADD_TH}>Description Type</th>
+                                            <th className={ADD_TH}>Approved Hrs</th>
+                                            <th className={ADD_TH}>Adjusted Hrs</th>
+                                            <th className={ADD_TH}>Balance Hrs</th>
                                         </tr>
-                                    ))}
-                                    <tr className="border-t border-[#E2E8F0]">
-                                        <td className={`${TD} font-bold`} colSpan={3}>Total Addition</td>
-                                        <td className={`${TD} text-right font-bold tabular-nums text-[#16A34A]`}>{overtimeReady ? formatAedNumber(salaryAddition.total) : '—'}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        <tr className="border-t border-[#F4F7FB]">
+                                            <td className={`${ADD_TD} text-[#94A3B8]`}>1</td>
+                                            <td className={ADD_TD}>Overtime</td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.overtime.approved, 'Hour', 'Hours')} /></td>
+                                            <td className={ADD_TD}>
+                                                <AdditionFigure
+                                                    ready={additionReady}
+                                                    text={measureLabel(salaryAddition.overtime.adjusted, 'Hour', 'Hours')}
+                                                    title={salaryAddition.overtime.adjusted > 0 ? (salaryAddition.overtime.title || 'Adjusted from overtime') : ''}
+                                                />
+                                            </td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.overtime.balance, 'Hour', 'Hours')} /></td>
+                                        </tr>
+                                        <tr className="border-t border-[#F4F7FB]">
+                                            <td className={`${ADD_TD} text-[#94A3B8]`}>2</td>
+                                            <td className={ADD_TD}>Comp off</td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.compOff.approved, 'Hour', 'Hours')} /></td>
+                                            <td className={ADD_TD}>
+                                                <AdditionFigure
+                                                    ready={additionReady}
+                                                    text={measureLabel(salaryAddition.compOff.adjusted, 'Hour', 'Hours')}
+                                                    title={salaryAddition.compOff.adjusted > 0 ? (salaryAddition.compOff.title || 'Adjusted from overtime') : ''}
+                                                />
+                                            </td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.compOff.balance, 'Hour', 'Hours')} /></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <table className="w-full min-w-[34rem] table-fixed border-collapse border-t-2 border-[#CBD5E1] text-left">
+                                    <colgroup>
+                                        <col className="w-[8%]" />
+                                        <col className="w-[20%]" />
+                                        <col className="w-[24%]" />
+                                        <col className="w-[24%]" />
+                                        <col className="w-[24%]" />
+                                    </colgroup>
+                                    <thead>
+                                        <tr>
+                                            <th className={`${ADD_TH} w-8`}>#</th>
+                                            <th className={ADD_TH}>Description Type</th>
+                                            <th className={ADD_TH}>Required Work</th>
+                                            <th className={ADD_TH}>Actually Worked</th>
+                                            <th className={ADD_TH}>Balance</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr className="border-t border-[#F4F7FB]">
+                                            <td className={`${ADD_TD} text-[#94A3B8]`}>3</td>
+                                            <td className={ADD_TD}>Working Day</td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.workingDay.required, 'Day', 'Days')} /></td>
+                                            <td className={ADD_TD}>
+                                                <AdditionFigure
+                                                    ready={additionReady}
+                                                    text={measureLabel(salaryAddition.workingDay.worked, 'Day', 'Days')}
+                                                    title={salaryAddition.workingDay.title}
+                                                />
+                                            </td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.workingDay.balance, 'Day', 'Days')} /></td>
+                                        </tr>
+                                        <tr className="border-t border-[#F4F7FB]">
+                                            <td className={`${ADD_TD} text-[#94A3B8]`}>4</td>
+                                            <td className={ADD_TD}>Working Hours</td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.workingHours.required, 'Hour', 'Hours')} /></td>
+                                            <td className={ADD_TD}>
+                                                <AdditionFigure
+                                                    ready={additionReady}
+                                                    text={measureLabel(salaryAddition.workingHours.worked, 'Hour', 'Hours')}
+                                                    title={salaryAddition.workingHours.title}
+                                                />
+                                            </td>
+                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.workingHours.balance, 'Hour', 'Hours')} /></td>
+                                        </tr>
+                                        <tr className="border-t border-[#E2E8F0]">
+                                            <td className={`${ADD_TD} font-bold`} colSpan={4}>Total Addition (AED)</td>
+                                            <td className={`${ADD_TD} text-right font-bold tabular-nums text-[#16A34A]`}>{additionReady ? formatAedNumber(salaryAddition.total) : '—'}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                         <div className="mt-2 overflow-hidden rounded-xl border border-[#E7EEF6]">
                             <div className="flex items-center justify-between gap-2 px-3 py-2.5">
@@ -2304,8 +2767,8 @@ export default function EmployeeInformationDashboard({
                 </div>
 
                 <div className="flex min-w-0 flex-col gap-3">
-                    <section className="relative rounded-2xl border border-[#E6EDF5] bg-white p-4">
-                        <div className="mb-3 flex items-center gap-2">
+                    <section className="relative rounded-2xl border border-[#E6EDF5] bg-white px-4 py-[14px]">
+                        <div className="mb-2.5 flex items-center gap-2">
                             <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#EEF2FF] text-[#2563EB]">
                                 <CalendarDays size={16} strokeWidth={2.25} />
                             </span>
@@ -2317,7 +2780,7 @@ export default function EmployeeInformationDashboard({
                             <p className="py-6 text-center text-[12px] text-[#94A3B8]">Loading calendar…</p>
                         ) : (
                             <>
-                                <div className="relative mb-3 flex h-9 items-center justify-center">
+                                <div className="relative mb-2.5 flex h-9 items-center justify-center">
                                     <div className="inline-flex h-9 items-center rounded-lg border border-[#E6EDF5] bg-white">
                                         <button type="button" onClick={() => shiftMonth(-1)} className="inline-flex h-9 w-9 items-center justify-center text-[#64748B]" aria-label="Previous month"><ChevronLeft size={16} /></button>
                                         <span className="min-w-[8rem] text-center text-[14px] font-semibold text-[#1B2A4A]">{formatMonthLabel(monthKey)}</span>
@@ -2327,12 +2790,12 @@ export default function EmployeeInformationDashboard({
                                 </div>
                                 <div className="flex items-start gap-4">
                                 <div className="min-w-0 flex-1">
-                                    <div className="mb-1.5 grid grid-cols-7 gap-2">
+                                    <div className="mb-1.5 grid grid-cols-7 gap-x-[7px]">
                                         {WEEKDAYS.map((day) => (
                                             <div key={day} className="text-center text-[11px] font-medium text-[#94A3B8]">{day}</div>
                                         ))}
                                     </div>
-                                    <div className="grid grid-cols-7 gap-2">
+                                    <div className="grid grid-cols-7 gap-x-[7px] gap-y-[7px]">
                                         {calendarDays.map((day) => {
                                             const dateKey = format(day, 'yyyy-MM-dd');
                                             const inMonth = dateKey.slice(0, 7) === monthKey;
@@ -2347,11 +2810,15 @@ export default function EmployeeInformationDashboard({
                                                   ? 'future'
                                                   : dayKind(record, { isFuture, isToday: dateKey === todayKey, isHoliday, isWeeklyOff });
                                             const place = locationOf(record);
-                                            const worked = record?.timeIn ? workedMinutes(record.timeIn, record.timeOut) : null;
+                                            const worked = recordWorkedMinutes(record);
                                             const tone = TIP_TONE[kind] || TIP_TONE.empty;
                                             const column = (getDay(day) + 6) % 7;
                                             const placeText = place.label || (place.hasMap ? `${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}` : '—');
                                             const yellowLabel = kind === 'attention' ? attentionLabel(record) : '';
+                                            const earlyText = dayEarlyText(record, scheduleWeek);
+                                            const description = dayDescription(record);
+                                            const adjustment = inMonth && !salaryLock.locked ? adjustmentByDate.get(dateKey) : null;
+                                            const adjustmentText = adjustmentNote(adjustment ? { date: dateKey, ...adjustment } : null);
                                             return (
                                                 <div
                                                     key={dateKey}
@@ -2359,31 +2826,39 @@ export default function EmployeeInformationDashboard({
                                                     onMouseEnter={() => inMonth && setHoveredDate(dateKey)}
                                                     onMouseLeave={() => setHoveredDate('')}
                                                 >
-                                                    <div className={`flex aspect-square w-full items-center justify-center rounded-lg text-[13px] font-semibold tabular-nums ${DAY_STYLE[kind] || DAY_STYLE.empty}`}>{format(day, 'd')}</div>
+                                                    <div className={`flex h-12 min-h-12 w-full flex-col items-center justify-center rounded-[9px] text-[13px] font-semibold tabular-nums leading-none ${DAY_STYLE[kind] || DAY_STYLE.empty}`}>
+                                                        <span>{format(day, 'd')}</span>
+                                                        {adjustment ? <span className={`mt-0.5 text-[9px] font-bold leading-none ${adjInk(kind)}`}>(Adj)</span> : null}
+                                                    </div>
                                                     {hoveredDate === dateKey && inMonth && !salaryLock.locked ? (
-                                                        <div className={`absolute z-30 w-56 rounded-xl border border-[#E6EDF5] bg-white p-3 text-left shadow-xl ${column >= 4 ? 'right-0' : 'left-1/2'} top-full mt-1`}>
+                                                        <div className={`absolute z-30 w-64 rounded-xl border border-[#E6EDF5] bg-white p-3 text-left shadow-xl ${column >= 4 ? 'right-0' : 'left-1/2'} top-full mt-1`}>
                                                             <p className="text-[13px] font-bold text-[#1B2A4A]">{format(day, 'd MMMM yyyy')}</p>
                                                             <p className={`mt-1 flex items-center gap-1.5 text-[12px] font-semibold ${tone.text}`}>
                                                                 <span className={`h-2 w-2 rounded-full ${tone.dot}`} />
                                                                 {yellowLabel || kindLabel(kind)}
-                                                                {!yellowLabel && holidayNamesByDate[dateKey] ? ` · ${holidayNamesByDate[dateKey]}` : ''}
+                                                                {holidayNamesByDate[dateKey] ? ` · ${holidayNamesByDate[dateKey]}` : ''}
                                                             </p>
-                                                            {yellowLabel ? null : (
-                                                                <>
-                                                                    <div className="mt-2 space-y-1.5 text-[12px] text-[#1B2A4A]">
-                                                                        <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Time In</span><span className="font-medium">{formatClock12(record?.timeIn)}</span></p>
-                                                                        <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Time Out</span><span className="font-medium">{formatClock12(record?.timeOut)}</span></p>
-                                                                        <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Worked</span><span className="font-medium">{worked == null ? '—' : formatDuration(worked)}</span></p>
-                                                                        <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Late</span><span className="font-medium">{dayLateText(record, scheduleWeek)}</span></p>
-                                                                        <p className="flex items-start justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><MapPin size={12} /> Location</span><span className="text-right font-medium">{placeText}</span></p>
-                                                                    </div>
-                                                                    {place.mapHref ? (
-                                                                        <a href={place.mapHref} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold text-[#2563EB]">
-                                                                            View on Map <ExternalLink size={12} />
-                                                                        </a>
-                                                                    ) : null}
-                                                                </>
-                                                            )}
+                                                            {adjustmentText ? (
+                                                                <p className="mt-1 text-[12px] font-semibold text-[#7C3AED]">{adjustmentText}</p>
+                                                            ) : null}
+                                                            <div className="mt-2 space-y-1.5 text-[12px] text-[#1B2A4A]">
+                                                                <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Time In</span><span className="font-medium">{formatClock12(record?.timeIn)}</span></p>
+                                                                <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Time Out</span><span className="font-medium">{formatClock12(record?.timeOut)}</span></p>
+                                                                <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Worked</span><span className="font-medium">{worked == null ? '—' : formatDuration(worked)}</span></p>
+                                                                <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Late</span><span className="font-medium">{dayLateText(record, scheduleWeek)}</span></p>
+                                                                {earlyText ? (
+                                                                    <p className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><Clock size={12} /> Early</span><span className="font-medium">{earlyText}</span></p>
+                                                                ) : null}
+                                                                <p className="flex items-start justify-between gap-3"><span className="inline-flex items-center gap-1.5 text-[#94A3B8]"><MapPin size={12} /> Location</span><span className="text-right font-medium">{placeText}</span></p>
+                                                                {description ? (
+                                                                    <p className="flex items-start justify-between gap-3"><span className="inline-flex shrink-0 items-center gap-1.5 text-[#94A3B8]">Description</span><span className="text-right font-medium">{description}</span></p>
+                                                                ) : null}
+                                                            </div>
+                                                            {place.mapHref ? (
+                                                                <a href={place.mapHref} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold text-[#2563EB]">
+                                                                    View on Map <ExternalLink size={12} />
+                                                                </a>
+                                                            ) : null}
                                                         </div>
                                                     ) : null}
                                                 </div>
@@ -2556,6 +3031,15 @@ export default function EmployeeInformationDashboard({
                     </div>
                 </div>
             </div>
+            <SalaryAdditionDetails
+                open={additionDetailsOpen}
+                weeks={additionWeeks}
+                weekId={additionWeek?.id}
+                onWeekChange={setAdditionWeekId}
+                ready={additionReady}
+                report={salaryAddition}
+                onClose={() => setAdditionDetailsOpen(false)}
+            />
         </div>
     );
 }

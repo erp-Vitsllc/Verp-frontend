@@ -418,6 +418,7 @@ export default function Sidebar() {
             axiosInstance
                 .get('/Employee/task-manager/assignee-count', { skipToast: true })
                 .then((res) => {
+                    if (window.location.pathname.startsWith('/task-manager')) return;
                     const count = Number(res.data?.count) || 0;
                     setTaskManagerCount((prev) => (prev === count ? prev : count));
                 })

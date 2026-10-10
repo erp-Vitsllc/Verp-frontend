@@ -662,9 +662,21 @@ function EventsDetailPanel({ title, events, onClose, onOpenCompOff }) {
                                             className="text-sm font-semibold text-violet-700 hover:underline"
                                         >
                                             {event.date}
+                                            {event.adjusted ? (
+                                                <span className="ml-1.5 text-[11px] font-semibold" title={event.adjustWith ? `Adjusted with ${event.adjustWith}` : 'Adjusted from overtime'}>
+                                                    (Adj)
+                                                </span>
+                                            ) : null}
                                         </button>
                                     ) : (
-                                        <p className="text-sm font-semibold text-gray-900">{event.date}</p>
+                                        <p className="text-sm font-semibold text-gray-900">
+                                            {event.date}
+                                            {event.adjusted ? (
+                                                <span className="ml-1.5 text-[11px] font-semibold text-violet-700" title={event.adjustWith ? `Adjusted with ${event.adjustWith}` : 'Adjusted from overtime'}>
+                                                    (Adj)
+                                                </span>
+                                            ) : null}
+                                        </p>
                                     )}
                                     <p className="text-xs text-gray-500 mt-0.5">{event.statusLabel}</p>
                                     {event.reason ? (
@@ -773,6 +785,7 @@ function AnnualLeavePeriodsModal({ open, periods, loading, onClose, onSelect }) 
 function TakenItemsModal({ open, title, hint, rows, columns, onClose, onSelect }) {
     if (!open) return null;
     const cols = columns?.length ? columns : DEFAULT_TAKEN_COLUMNS;
+    const useCells = cols.some((col) => col.cell);
     return (
         <div
             className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
@@ -780,7 +793,7 @@ function TakenItemsModal({ open, title, hint, rows, columns, onClose, onSelect }
             role="presentation"
         >
             <div
-                className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden border border-gray-200"
+                className={`bg-white rounded-2xl shadow-2xl w-full max-h-[80vh] overflow-hidden border border-gray-200 ${useCells ? 'max-w-3xl' : 'max-w-2xl'}`}
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
@@ -809,7 +822,7 @@ function TakenItemsModal({ open, title, hint, rows, columns, onClose, onSelect }
                                     {cols.map((col) => (
                                         <th
                                             key={col.key}
-                                            className={`px-3 py-2.5 font-semibold first:pl-5 ${
+                                            className={`${useCells ? 'whitespace-nowrap ' : ''}px-3 py-2.5 font-semibold first:pl-5 ${
                                                 col.align === 'right' ? 'text-right' : ''
                                             }`}
                                         >
@@ -822,6 +835,39 @@ function TakenItemsModal({ open, title, hint, rows, columns, onClose, onSelect }
                             <tbody className="divide-y divide-gray-100">
                                 {rows.map((row) => {
                                     const linked = Boolean(String(row?.href || '').trim());
+                                    if (useCells) {
+                                        return (
+                                            <tr
+                                                key={row.id}
+                                                onClick={() => linked && onSelect(row)}
+                                                onKeyDown={(event) => {
+                                                    if (!linked) return;
+                                                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                                                    event.preventDefault();
+                                                    onSelect(row);
+                                                }}
+                                                tabIndex={linked ? 0 : undefined}
+                                                role={linked ? 'button' : undefined}
+                                                className={linked ? 'cursor-pointer hover:bg-slate-50/90' : undefined}
+                                            >
+                                                {cols.map((col) => (
+                                                    <td
+                                                        key={col.key}
+                                                        className={`px-3 py-3 text-sm whitespace-nowrap text-[#1B2A4A] first:pl-5 ${
+                                                            col.align === 'right'
+                                                                ? 'text-right font-bold tabular-nums'
+                                                                : 'font-semibold tabular-nums'
+                                                        }`}
+                                                    >
+                                                        {row[col.key] || '—'}
+                                                    </td>
+                                                ))}
+                                                <td className="w-8 pr-5 text-right">
+                                                    {linked ? <ChevronRight size={16} className="ml-auto text-slate-300" /> : null}
+                                                </td>
+                                            </tr>
+                                        );
+                                    }
                                     return (
                                     <tr key={row.id}>
                                         <td colSpan={cols.length + 1} className="p-0">
@@ -1091,10 +1137,11 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     const financialModalMeta = FINANCIAL_MODAL_META[financialModalKey] || null;
     const usingDeductionList = financialModalKey === 'deductions' && deductionList;
     const deductionColumns = [
-        { key: 'date', label: 'Date' },
-        { key: 'type', label: 'Type' },
-        { key: 'detail', label: 'Detail' },
-        { key: 'amount', label: 'Amount', align: 'right', wide: true },
+        { key: 'date', label: 'Date', cell: true },
+        { key: 'in', label: 'In', cell: true },
+        { key: 'out', label: 'Out', cell: true },
+        { key: 'lossHrs', label: 'Loss of hrs', cell: true },
+        { key: 'amount', label: 'Loss of pay', align: 'right', cell: true },
     ];
     const financialModalRows = usingDeductionList
         ? deductionList.rows || []
