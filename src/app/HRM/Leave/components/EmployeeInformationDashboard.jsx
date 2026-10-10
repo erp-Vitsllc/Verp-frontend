@@ -3056,12 +3056,15 @@ export default function EmployeeInformationDashboard({
                                             const flexibleShort = flexibleDay ? flexibleShortMinutes(record, scheduleWeek) : null;
                                             const counted = Boolean(countTo) && dateKey >= countFrom && dateKey <= countTo;
                                             const extraPay = additionPayByDate.get(dateKey) || 0;
+                                            const syntheticOt = String(record?.timeIn || '').trim() === 'OT'
+                                                || String(record?.timeOut || '').trim() === 'OT'
+                                                || Boolean(String(record?.flexibleFromOtDate || '').trim());
                                             const deductedLeave = kind === 'authorized' || kind === 'absent';
-                                            const payment = deductedLeave
-                                                ? (extraPay > 0 ? extraPay : (counted ? 0 : null))
-                                                : counted
-                                                  ? money2(dailySalary + extraPay)
-                                                  : (extraPay > 0 ? extraPay : null);
+                                            const earnsDayRate = counted && !deductedLeave && !syntheticOt && !isHoliday && !isWeeklyOff && kind !== 'future';
+                                            const dayRate = Number(salaryBasis.daily) || 0;
+                                            const payment = !counted && !(extraPay > 0)
+                                                ? null
+                                                : money2((earnsDayRate ? dayRate : 0) + extraPay);
                                             const deduct = counted
                                                 ? money2(attendanceDeductionAmount(record, scheduleWeek, salaryBasis.daily, profile?.leavePolicy || {}))
                                                 : null;
