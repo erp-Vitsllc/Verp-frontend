@@ -60,6 +60,21 @@ function hourPhrase(hours) {
     return `${total} ${total === 1 ? 'Hour' : 'Hours'}`;
 }
 
+/** Same split as overtime approval: one working day becomes the next day, leftover hours stay as overtime. */
+function splitNextDayHours(approvedHours, dayHours) {
+    const approved = roundHours(approvedHours);
+    let day = roundHours(dayHours);
+    if (!(day > 0)) {
+        if (!(approved > 10)) return { dayHours: 0, remainderHours: approved };
+        day = 10;
+    }
+    if (approved + 1e-9 < day) return { dayHours: 0, remainderHours: approved };
+    return {
+        dayHours: day,
+        remainderHours: Math.max(0, Math.floor(approved - day + 1e-9)),
+    };
+}
+
 export function buildMonthWorkWeeks(monthKey) {
     const end = monthEndKey(monthKey);
     if (!end) return [];
@@ -123,6 +138,9 @@ function blankDay(date) {
         consumed: 0,
         incoming: 0,
         covered: false,
+        coverSource: '',
+        nextDayHours: 0,
+        pendingFromSource: 0,
         compOffApproved: 0,
         compOffAdjusted: 0,
         otLinks: [],
@@ -246,6 +264,7 @@ export function buildWeeklySalaryAddition({
         const covered = ensure(target);
         if (!covered) return;
         covered.covered = true;
+        covered.coverSource = source;
         covered.incoming = roundHours(covered.incoming + hours);
         addLink(covered.coverLinks, `${formatAdditionDay(target)} adjusted with ${formatAdditionDay(source)}`);
     };
@@ -281,18 +300,34 @@ export function buildWeeklySalaryAddition({
 
         if (flexible) {
             if (nextDay && approved > 0) {
-                day.moved = roundHours(day.moved + approved);
-                addLink(day.otLinks, `${formatAdditionDay(date)} adjusted with ${formatAdditionDay(nextDay)}`);
-                markOverDay(nextDay, date, approved);
+                const required = Number(row?.flexibleRequiredHours) || infoOf(date).scheduledHours || 0;
+                const split = splitNextDayHours(approved, required);
+                const coveredHours = split.dayHours > 0 ? split.dayHours : approved;
+                const remain = split.dayHours > 0 ? split.remainderHours : 0;
+                const line = remain > 0
+                    ? `${formatAdditionDay(date)} adjusted with ${formatAdditionDay(nextDay)} (${hourPhrase(coveredHours)}). ${hourPhrase(remain)} remain as overtime`
+                    : `${formatAdditionDay(date)} adjusted with ${formatAdditionDay(nextDay)}`;
+                day.moved = roundHours(day.moved + coveredHours);
+                day.nextDayHours = roundHours(day.nextDayHours + coveredHours);
+                day.payable = roundHours(day.payable + remain);
+                addLink(day.otLinks, line);
+                addLink(day.compOffLinks, line);
+                markOverDay(nextDay, date, coveredHours);
+            } else if (fromDay && approved > 0) {
+                day.pendingFromSource = roundHours(day.pendingFromSource + approved);
             } else if (legacyDay) {
+                const line = `${formatAdditionDay(date)} approved overtime is converted to a day`;
                 day.moved = roundHours(day.moved + approved);
-                addLink(day.otLinks, `${formatAdditionDay(date)} approved overtime is converted to a day`);
+                day.nextDayHours = roundHours(day.nextDayHours + approved);
+                addLink(day.otLinks, line);
+                addLink(day.compOffLinks, line);
                 if (synthetic) markOverDay(date, date, approved);
             } else if (approved > 0) {
                 day.payable = roundHours(day.payable + approved);
             }
             if (fromDay) {
                 day.covered = true;
+                day.coverSource = fromDay;
                 addLink(day.coverLinks, `${formatAdditionDay(date)} adjusted with ${formatAdditionDay(fromDay)}`);
                 if (date.startsWith(month)) overDayPay.add(date);
             }
@@ -310,6 +345,13 @@ export function buildWeeklySalaryAddition({
         if (info.required && day.workedHours > info.scheduledHours) {
             day.payable = roundHours(day.payable + Math.max(0, day.workedHours - info.scheduledHours));
         }
+    });
+
+    ledger.forEach((day) => {
+        if (!(day.pendingFromSource > 0)) return;
+        const source = day.coverSource ? ledger.get(day.coverSource) : null;
+        if (source && source.nextDayHours > 0) return;
+        day.payable = roundHours(day.payable + day.pendingFromSource);
     });
 
     const pool = [...ledger.values()]
@@ -369,8 +411,15 @@ export function buildWeeklySalaryAddition({
         otApproved = roundHours(otApproved + day.payable + day.moved);
         otAdjusted = roundHours(otAdjusted + day.moved + day.consumed);
         otBalance = roundHours(otBalance + Math.max(0, day.payable - day.consumed));
-        compApproved = roundHours(compApproved + day.compOffApproved);
-        compAdjusted = roundHours(compAdjusted + day.compOffAdjusted);
+        let nextDayCompOff = day.nextDayHours;
+        const source = day.coverSource ? ledger.get(day.coverSource) : null;
+        const sourceOwnsCompOff = Boolean(source && source.nextDayHours > 0);
+        if (!sourceOwnsCompOff && day.covered && day.incoming > 0 && !(day.nextDayHours > 0)) {
+            nextDayCompOff = roundHours(nextDayCompOff + day.incoming);
+            day.coverLinks.forEach((line) => addLink(day.compOffLinks, line));
+        }
+        compApproved = roundHours(compApproved + day.compOffApproved + nextDayCompOff);
+        compAdjusted = roundHours(compAdjusted + day.compOffAdjusted + nextDayCompOff);
     });
 
     const coverTitles = [];
