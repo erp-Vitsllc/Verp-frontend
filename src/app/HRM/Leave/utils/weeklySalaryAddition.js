@@ -6,13 +6,18 @@
  * label and is kept with the week it opens, so hours on that Sunday are still counted.
  *
  * Approved hours that stay as overtime stay on the overtime row.
- * Approved hours used as the next day's attendance count as one comp-off day.
+ * Approved hours used as another day's attendance count as one comp-off day.
+ * Hours left after that day are not overtime until HR approves a request for that day.
  * A comp-off settlement still takes its hours from the earliest overtime.
  */
+
+import { punchAttendanceKind } from './punchAttendanceKind.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WORKED_STATUS_KEYS = new Set(['on_office', 'work_from_home', 'late_arrived', 'early_go']);
 const COMP_OFF_DAY_HOURS = 10;
+/** A working day never counts as more than 10 hours, even when the group day is longer. */
+const DAY_HOUR_CAP = 10;
 
 function roundHours(value) {
     return Math.round((Number(value) || 0) * 100) / 100;
@@ -66,6 +71,15 @@ export function formatHourMeasure(hours) {
     if (mins === 0) return `${sign}${whole} ${whole === 1 ? 'Hour' : 'Hours'}`;
     if (whole === 0) return `${sign}${mins} ${mins === 1 ? 'Minute' : 'Minutes'}`;
     return `${sign}${whole} ${whole === 1 ? 'Hour' : 'Hours'} ${mins} ${mins === 1 ? 'Minute' : 'Minutes'}`;
+}
+
+/** The hours that count for one required day. Short days keep the hours worked. Longer days stop at the group day, and that day stops at 10 hours. */
+export function creditedDayHours(workedHours, scheduledHours) {
+    const scheduled = roundHours(scheduledHours);
+    const cap = scheduled > DAY_HOUR_CAP ? DAY_HOUR_CAP : scheduled;
+    if (!(cap > 0)) return 0;
+    const worked = Math.max(0, roundHours(workedHours));
+    return roundHours(Math.min(worked, cap));
 }
 
 function hourPhrase(hours) {
@@ -187,9 +201,10 @@ function blankDay(date) {
         incoming: 0,
         covered: false,
         coverSource: '',
+        attendanceId: '',
+        nextDayDate: '',
         nextDayHours: 0,
         nextDayCount: 0,
-        pendingFromSource: 0,
         compOffDays: 0,
         compOffDaysAdjusted: 0,
         compOffAdjusted: 0,
@@ -209,6 +224,18 @@ function clockToMinutes(value) {
     const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})/);
     if (!match) return null;
     return Number(match[1]) * 60 + Number(match[2]);
+}
+
+/** Paid overtime hours. HR approval is required. Hours already used as another day's present are not paid again. */
+function hrApprovedOtHours(row, usedOnAnotherDay) {
+    if (String(row?.flexibleOtStatus || '') !== 'approved') return 0;
+    if (String(row?.flexibleOtNextDayDate || '').trim() || usedOnAnotherDay) return 0;
+    return roundHours(row?.flexibleOtApprovedHours);
+}
+
+function grantedOtHours(row) {
+    if (String(row?.flexibleOtStatus || '') !== 'approved') return 0;
+    return roundHours(row?.flexibleOtApprovedHours);
 }
 
 function isSyntheticOtDay(row) {
@@ -251,10 +278,12 @@ function emptyInfo() {
     return { required: false, scheduledHours: 0, weeklyOff: false, holiday: false };
 }
 
-/** Present, late arrival, early go, and work from home. OT and comp off stay out. */
+/** Present, late arrival, early go, and work from home. Leave, OT, and comp off stay out. */
 function countsAsWorked(day) {
-    if (!day || day.synthetic) return false;
-    return WORKED_STATUS_KEYS.has(day.statusKey);
+    if (!day || isCompOffRemainder(day)) return false;
+    const key = String(day.statusKey || '');
+    if (key === 'authorized_leave' || key === 'unauthorized_leave' || key === 'on_leave' || key === 'sick_leave') return false;
+    return WORKED_STATUS_KEYS.has(key);
 }
 
 function isCompOffRemainder(day) {
@@ -264,10 +293,10 @@ function isCompOffRemainder(day) {
 
 export function emptyWeeklySalaryAddition() {
     return {
-        overtime: { approved: 0, adjusted: 0, balance: 0, title: '' },
-        compOff: { approved: 0, adjusted: 0, balance: 0, title: '' },
-        workingDay: { required: 0, worked: 0, balance: 0, title: '', compOffDays: 0, compOffTitle: '' },
-        workingHours: { required: 0, worked: 0, balance: 0, title: '' },
+        overtime: { approved: 0, adjusted: 0, balance: 0, title: '', views: [] },
+        compOff: { approved: 0, adjusted: 0, balance: 0, title: '', views: [] },
+        workingDay: { required: 0, worked: 0, adjusted: 0, balance: 0, title: '', compOffDays: 0, compOffTitle: '' },
+        workingHours: { required: 0, worked: 0, adjusted: 0, balance: 0, title: '' },
         total: 0,
         details: [],
     };
@@ -310,6 +339,11 @@ export function buildWeeklySalaryAddition({
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !inCount(date)) return;
         byDate.set(date, preferRow(byDate.get(date), row));
     });
+    const coveredSourceDates = new Set();
+    byDate.forEach((row) => {
+        const source = String(row?.flexibleFromOtDate || '').trim();
+        if (source) coveredSourceDates.add(source);
+    });
 
     const ledger = new Map();
     const ensure = (date) => {
@@ -321,8 +355,7 @@ export function buildWeeklySalaryAddition({
     const compOffs = [];
 
     const markOverDay = (target, source, hours) => {
-        const payOn = target && String(target).startsWith(month) ? target : source;
-        if (payOn) overDayPay.add(payOn);
+        // Covering an authorized leave is an adjustment. It is not extra pay.
         if (!target || !String(target).startsWith(month)) return;
         const covered = ensure(target);
         if (!covered) return;
@@ -335,15 +368,18 @@ export function buildWeeklySalaryAddition({
     byDate.forEach((row, date) => {
         const day = ensure(date);
         const status = String(row?.statusKey || '');
-        const approved = String(row?.flexibleOtStatus || '') === 'approved' ? roundHours(row?.flexibleOtApprovedHours) : 0;
+        const granted = grantedOtHours(row);
+        const approved = hrApprovedOtHours(row, coveredSourceDates.has(date));
         const requiredField = Number(row?.flexibleRequiredHours) || 0;
         const nextDay = String(row?.flexibleOtNextDayDate || '').trim();
         const fromDay = String(row?.flexibleFromOtDate || '').trim();
         const synthetic = isSyntheticOtDay(row);
-        const legacyDay = approved > 10 && !requiredField;
-        day.statusKey = status;
+        const legacyDay = granted > 10 && !requiredField;
+        const punchKind = punchAttendanceKind(row);
+        day.statusKey = punchKind || status;
         day.synthetic = synthetic;
         day.fromDay = fromDay;
+        day.attendanceId = String(row?._id || row?.id || row?.attendanceId || '');
         day.workedHours = measuredHours(row);
 
         if (status === 'compoff_leave') {
@@ -361,25 +397,22 @@ export function buildWeeklySalaryAddition({
         }
 
         if (flexible) {
-            if (nextDay && approved > 0) {
+            if (nextDay && granted > 0) {
                 const required = Number(row?.flexibleRequiredHours) || infoOf(date).scheduledHours || 0;
-                const split = splitNextDayHours(approved, required);
-                const coveredHours = split.dayHours > 0 ? split.dayHours : approved;
-                const remain = split.dayHours > 0 ? split.remainderHours : 0;
+                const split = splitNextDayHours(granted, required);
+                const coveredHours = split.dayHours > 0 ? split.dayHours : granted;
+                day.nextDayDate = nextDay;
                 day.nextDayHours = roundHours(day.nextDayHours + coveredHours);
                 day.nextDayCount += 1;
-                day.payable = roundHours(day.payable + remain);
                 addLink(day.compOffLinks, `${formatAdditionDay(nextDay)} adjusted with ${formatAdditionDay(date)}`);
                 markOverDay(nextDay, date, coveredHours);
             } else if (fromDay && approved > 0) {
-                day.pendingFromSource = roundHours(day.pendingFromSource + approved);
+                day.payable = roundHours(day.payable + approved);
             } else if (legacyDay) {
-                const split = splitNextDayHours(approved, requiredField || 0);
-                const coveredHours = split.dayHours > 0 ? split.dayHours : approved;
-                const remain = split.dayHours > 0 ? split.remainderHours : 0;
+                const split = splitNextDayHours(granted, requiredField || 0);
+                const coveredHours = split.dayHours > 0 ? split.dayHours : granted;
                 day.nextDayHours = roundHours(day.nextDayHours + coveredHours);
                 day.nextDayCount += 1;
-                day.payable = roundHours(day.payable + remain);
                 addLink(day.compOffLinks, `${formatAdditionDay(date)} adjusted as comp off`);
                 if (synthetic) markOverDay(date, date, coveredHours);
             } else if (approved > 0) {
@@ -389,29 +422,29 @@ export function buildWeeklySalaryAddition({
                 day.covered = true;
                 day.coverSource = fromDay;
                 addLink(day.coverLinks, `${formatAdditionDay(date)} adjusted with ${formatAdditionDay(fromDay)}`);
-                if (date.startsWith(month)) overDayPay.add(date);
             }
             return;
         }
 
         const info = infoOf(date);
-        if (day.workedHours > 0 && (info.holiday || info.weeklyOff)) {
-            day.moved = roundHours(day.moved + day.workedHours);
+        if (nextDay && granted > 0) {
+            const required = Number(row?.flexibleRequiredHours) || info.scheduledHours || 0;
+            const split = splitNextDayHours(granted, required);
+            const coveredHours = split.dayHours > 0 ? split.dayHours : granted;
+            day.nextDayDate = nextDay;
+            day.nextDayHours = roundHours(day.nextDayHours + coveredHours);
+            day.nextDayCount += 1;
+            addLink(day.compOffLinks, `${formatAdditionDay(nextDay)} adjusted with ${formatAdditionDay(date)}`);
+            markOverDay(nextDay, date, coveredHours);
+            return;
+        }
+        if (day.workedHours > 0 && (info.holiday || info.weeklyOff) && !(approved > 0)) {
             const where = info.holiday ? 'a holiday' : 'a weekly off';
             addLink(day.otLinks, `${formatAdditionDay(date)} worked on ${where} and counts as one day`);
             overDayPay.add(date);
             return;
         }
-        if (info.required && day.workedHours > info.scheduledHours) {
-            day.payable = roundHours(day.payable + Math.max(0, day.workedHours - info.scheduledHours));
-        }
-    });
-
-    ledger.forEach((day) => {
-        if (!(day.pendingFromSource > 0)) return;
-        const source = day.coverSource ? ledger.get(day.coverSource) : null;
-        if (source && source.nextDayHours > 0) return;
-        day.payable = roundHours(day.payable + day.pendingFromSource);
+        if (approved > 0) day.payable = roundHours(day.payable + approved);
     });
 
     const pool = [...ledger.values()]
@@ -468,6 +501,7 @@ export function buildWeeklySalaryAddition({
     const compOffLines = [];
     let requiredHours = 0;
     let workedHours = 0;
+    let adjustedHours = 0;
     const weekDays = [...ledger.values()].filter(inWeek);
     weekDays.forEach((day) => {
         otApproved = roundHours(otApproved + day.payable + day.moved);
@@ -491,16 +525,20 @@ export function buildWeeklySalaryAddition({
         const info = infoOf(date);
         if (!info.required) return;
         requiredDays += 1;
-        requiredHours = roundHours(requiredHours + info.scheduledHours);
+        const dayCap = info.scheduledHours > DAY_HOUR_CAP ? DAY_HOUR_CAP : roundHours(info.scheduledHours);
+        requiredHours = roundHours(requiredHours + dayCap);
         const day = ledger.get(date);
         if (countsAsWorked(day)) workedDays += 1;
         else if (isCompOffRemainder(day)) {
             compOffRemaining += 1;
+            adjustedHours = roundHours(adjustedHours + dayCap);
             const lines = [...(day.compOffLinks || []), ...(day.coverLinks || [])];
             if (lines.length) lines.forEach((line) => addLink(compOffLines, line));
             else addLink(compOffLines, `${formatAdditionDay(date)} is comp off`);
         }
-        workedHours = roundHours(workedHours + (day?.workedHours || 0));
+        if (!isCompOffRemainder(day)) {
+            workedHours = roundHours(workedHours + creditedDayHours(day?.workedHours, info.scheduledHours));
+        }
     });
 
     const dayRate = Number(daily) || 0;
@@ -541,6 +579,31 @@ export function buildWeeklySalaryAddition({
     const overDays = details.filter((row) => overDayPay.has(row.date)).length;
     const total = money2(details.reduce((sum, row) => sum + row.amount, 0));
     const balanceHours = roundHours(Math.max(0, otBalance));
+    const pushView = (list, day) => {
+        const date = String(day?.date || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || list.some((item) => item.date === date)) return;
+        list.push({
+            date,
+            attendanceId: String(day?.attendanceId || ''),
+        });
+    };
+    const otViews = [];
+    const compViews = [];
+    weekDays.forEach((day) => {
+        if (day.payable > 0) pushView(otViews, day);
+        if (day.compOffDays > 0) pushView(compViews, day);
+        const source = day.coverSource ? ledger.get(day.coverSource) : null;
+        const sourceOwnsCompOff = Boolean(source && source.nextDayCount > 0);
+        if (day.covered && !sourceOwnsCompOff && !(day.nextDayCount > 0)) pushView(compViews, day);
+        if (!(day.nextDayCount > 0)) return;
+        if (!day.nextDayDate) {
+            pushView(compViews, day);
+            return;
+        }
+        pushView(compViews, ledger.get(day.nextDayDate) || { date: day.nextDayDate });
+    });
+    otViews.sort((a, b) => a.date.localeCompare(b.date));
+    compViews.sort((a, b) => a.date.localeCompare(b.date));
 
     return {
         overtime: {
@@ -548,17 +611,20 @@ export function buildWeeklySalaryAddition({
             adjusted: otAdjusted,
             balance: balanceHours,
             title: titles(weekDays, 'otLinks'),
+            views: otViews,
         },
         compOff: {
             approved: compApproved,
             adjusted: compAdjusted,
             balance: roundHours(Math.max(0, compApproved - compAdjusted)),
             title: titles(weekDays, 'compOffLinks'),
+            views: compViews,
         },
         workingDay: {
             required: requiredDays,
             worked: workedDays,
-            balance: requiredDays - workedDays,
+            adjusted: compOffRemaining,
+            balance: requiredDays - workedDays - compOffRemaining,
             title: '',
             compOffDays: compOffRemaining,
             compOffTitle: compOffLines.join('\n'),
@@ -566,8 +632,9 @@ export function buildWeeklySalaryAddition({
         workingHours: {
             required: requiredHours,
             worked: workedHours,
-            balance: roundHours(requiredHours - workedHours),
-            title: otAdjusted > 0 ? (titles(weekDays, 'otLinks') || 'Adjusted from overtime') : '',
+            adjusted: adjustedHours,
+            balance: roundHours(requiredHours - workedHours - adjustedHours),
+            title: compOffLines.join('\n') || titles(weekDays, 'otLinks'),
         },
         overDays,
         total,

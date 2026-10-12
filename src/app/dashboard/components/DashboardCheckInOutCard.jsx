@@ -91,6 +91,18 @@ function formatElapsed(totalSeconds) {
 }
 
 /** Hours and minutes already worked, for the checkout confirmation. */
+function priorSessionSeconds(record) {
+    const date = record?.date || '';
+    return (Array.isArray(record?.punchSessions) ? record.punchSessions : []).reduce((sum, session) => {
+        const start = clockToSeconds(session?.timeIn);
+        const end = clockToSeconds(session?.timeOut);
+        if (start == null || end == null) return sum;
+        let span = end - start;
+        if (span < 0 || (session?.timeOutDate && date && session.timeOutDate > date)) span += 24 * 3600;
+        return sum + Math.max(0, span);
+    }, 0);
+}
+
 function formatWorkedHoursMinutes(totalSeconds) {
     const sec = Math.max(0, Math.floor(totalSeconds));
     const h = String(Math.floor(sec / 3600)).padStart(2, '0');
@@ -164,6 +176,7 @@ export default function DashboardCheckInOutCard() {
     const [timeOut, setTimeOut] = useState('');
     const [timeOutDate, setTimeOutDate] = useState('');
     const [elapsed, setElapsed] = useState(0);
+    const [priorSeconds, setPriorSeconds] = useState(0);
     const [staffType, setStaffType] = useState('office');
     const [openFlexiblePunch, setOpenFlexiblePunch] = useState(false);
     const [punchDate, setPunchDate] = useState('');
@@ -198,6 +211,7 @@ export default function DashboardCheckInOutCard() {
                 setTimeIn('');
                 setTimeOut('');
                 setTimeOutDate('');
+                setPriorSeconds(0);
                 setContactLock(contactLockFromPayload(res.data));
                 setError('');
                 return;
@@ -208,6 +222,7 @@ export default function DashboardCheckInOutCard() {
             setTimeIn(record?.timeIn || '');
             setTimeOut(record?.timeOut || '');
             setTimeOutDate(record?.timeOutDate || '');
+            setPriorSeconds(priorSessionSeconds(record));
             setPunchDate(record?.date || today);
             setOpenFlexiblePunch(Boolean(res.data?.openFlexiblePunch));
             setStaffType(nextStaff);
@@ -221,6 +236,7 @@ export default function DashboardCheckInOutCard() {
                 setTimeIn('');
                 setTimeOut('');
                 setTimeOutDate('');
+                setPriorSeconds(0);
                 setError('');
                 return;
             }
@@ -292,7 +308,7 @@ export default function DashboardCheckInOutCard() {
         if (outSec != null) {
             let span = outSec - inSec;
             if (span < 0 || (timeOutDate && punchDate && timeOutDate > punchDate)) span += 24 * 3600;
-            setElapsed(Math.max(0, span));
+            setElapsed(Math.max(0, span) + priorSeconds);
             return undefined;
         }
 
@@ -305,17 +321,17 @@ export default function DashboardCheckInOutCard() {
                 }
                 const [year, month, day] = punchDate.split('-').map(Number);
                 const startMs = Date.UTC(year, month - 1, day, 0, 0, 0) + start * 1000 - 4 * 60 * 60 * 1000;
-                setElapsed(Math.max(0, Math.floor((Date.now() - startMs) / 1000)));
+                setElapsed(Math.max(0, Math.floor((Date.now() - startMs) / 1000)) + priorSeconds);
                 return;
             }
-            setElapsed(Math.max(0, getDubaiNowSeconds() - inSec));
+            setElapsed(Math.max(0, getDubaiNowSeconds() - inSec) + priorSeconds);
         };
         tick();
         tickRef.current = setInterval(tick, 1000);
         return () => {
             if (tickRef.current) clearInterval(tickRef.current);
         };
-    }, [timeIn, timeOut, timeOutDate, openFlexiblePunch, punchDate]);
+    }, [timeIn, timeOut, timeOutDate, openFlexiblePunch, punchDate, priorSeconds]);
 
     const handlePunchError = (err, fallbackMessage) => {
         if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
@@ -339,7 +355,7 @@ export default function DashboardCheckInOutCard() {
     };
 
     const handleCheckIn = async (coords = null) => {
-        if (salaryLock.locked || contactLock || checkedIn || saving || loading) return;
+        if (salaryLock.locked || contactLock || running || saving || loading) return;
         pendingPunchRef.current = 'in';
         setSaving(true);
         setError('');
@@ -356,6 +372,7 @@ export default function DashboardCheckInOutCard() {
             setTimeIn(nextIn);
             setTimeOut('');
             setTimeOutDate('');
+            setPriorSeconds(priorSessionSeconds(res.data?.record));
             notifyAttendanceChanged();
             setLocationModalOpen(false);
         } catch (err) {
@@ -421,10 +438,10 @@ export default function DashboardCheckInOutCard() {
     }, [loading, checkedIn, checkedOut]);
 
     const checkInButtonLabel = useMemo(() => {
-        if (saving && !checkedIn) return 'Saving…';
-        if (checkedIn) return `In ${formatClock(timeIn) || '—'}`;
+        if (saving && !running) return 'Saving…';
+        if (running) return `In ${formatClock(timeIn) || '—'}`;
         return 'Check In';
-    }, [saving, checkedIn, timeIn]);
+    }, [saving, running, timeIn]);
 
     const checkoutNextDay = isNextDayCheckout({
         date: punchDate || dateKey,
@@ -526,12 +543,12 @@ export default function DashboardCheckInOutCard() {
             <div className="flex items-center gap-3 shrink-0">
                 <button
                     type="button"
-                    disabled={salaryLock.locked || Boolean(contactLock) || saving || loading || checkedIn}
+                    disabled={salaryLock.locked || Boolean(contactLock) || saving || loading || running}
                     onClick={() => setConfirmAction('in')}
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0B7A3E] hover:bg-[#086433] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#0B7A3E] disabled:hover:translate-y-0 disabled:!text-white"
-                    title={checkedIn ? `Checked in at ${formatClock(timeIn)}` : 'Check in'}
+                    title={running ? `Checked in at ${formatClock(timeIn)}` : 'Check in'}
                 >
-                    {checkedIn ? (
+                    {running ? (
                         <Check className="w-4 h-4 shrink-0 !text-white" strokeWidth={2.5} />
                     ) : (
                         <LogIn className="w-4 h-4 shrink-0 !text-white" />

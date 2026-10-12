@@ -219,6 +219,7 @@ function MarkAttendanceContent() {
                     staffType={staffTab}
                     otAttendanceId={searchParams.get('otAttendanceId') || ''}
                     hourAttendanceId={searchParams.get('hourAttendanceId') || ''}
+                    blinkEmployeeId={searchParams.get('blinkEmployee') || ''}
                 />
             </div>
         </div>

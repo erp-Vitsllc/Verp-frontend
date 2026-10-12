@@ -782,10 +782,104 @@ function AnnualLeavePeriodsModal({ open, periods, loading, onClose, onSelect }) 
     );
 }
 
-function TakenItemsModal({ open, title, hint, rows, columns, onClose, onSelect }) {
-    if (!open) return null;
+function TakenRowsTable({ rows, columns, onSelect }) {
     const cols = columns?.length ? columns : DEFAULT_TAKEN_COLUMNS;
     const useCells = cols.some((col) => col.cell);
+    if (!rows.length) {
+        return <p className="px-5 py-6 text-sm text-gray-500">No records.</p>;
+    }
+    return (
+        <table className="w-full text-left">
+            <thead className="bg-slate-50 border-b border-gray-100">
+                <tr className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    {cols.map((col) => (
+                        <th
+                            key={col.key}
+                            className={`${useCells ? 'whitespace-nowrap ' : ''}px-3 py-2.5 font-semibold first:pl-5 ${
+                                col.align === 'right' ? 'text-right' : ''
+                            }`}
+                        >
+                            {col.label}
+                        </th>
+                    ))}
+                    <th className="px-5 py-2.5 w-8" />
+                </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+                {rows.map((row) => {
+                    const linked = Boolean(String(row?.href || '').trim());
+                    if (useCells) {
+                        return (
+                            <tr
+                                key={row.id}
+                                onClick={() => linked && onSelect(row)}
+                                onKeyDown={(event) => {
+                                    if (!linked) return;
+                                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                                    event.preventDefault();
+                                    onSelect(row);
+                                }}
+                                tabIndex={linked ? 0 : undefined}
+                                role={linked ? 'button' : undefined}
+                                className={linked ? 'cursor-pointer hover:bg-slate-50/90' : undefined}
+                            >
+                                {cols.map((col) => (
+                                    <td
+                                        key={col.key}
+                                        className={`px-3 py-3 text-sm whitespace-nowrap text-[#1B2A4A] first:pl-5 ${
+                                            col.align === 'right'
+                                                ? 'text-right font-bold tabular-nums'
+                                                : 'font-semibold tabular-nums'
+                                        }`}
+                                    >
+                                        {row[col.key] || '—'}
+                                    </td>
+                                ))}
+                                <td className="w-8 pr-5 text-right">
+                                    {linked ? <ChevronRight size={16} className="ml-auto text-slate-300" /> : null}
+                                </td>
+                            </tr>
+                        );
+                    }
+                    return (
+                        <tr key={row.id}>
+                            <td colSpan={cols.length + 1} className="p-0">
+                                <button
+                                    type="button"
+                                    onClick={() => linked && onSelect(row)}
+                                    className={`w-full flex items-center px-5 py-3 text-left gap-3 ${linked ? 'hover:bg-slate-50/90' : 'cursor-default'}`}
+                                >
+                                    {cols.map((col) => (
+                                        <span
+                                            key={col.key}
+                                            className={`text-sm min-w-0 ${
+                                                col.key === 'type' || col.key === 'detail'
+                                                    ? 'flex-1 font-semibold text-[#1B2A4A] truncate'
+                                                    : col.align === 'right'
+                                                      ? `${col.wide ? 'w-56' : 'w-40'} shrink-0 font-bold tabular-nums text-[#1B2A4A] text-right whitespace-normal leading-snug`
+                                                      : 'w-28 shrink-0 font-semibold text-[#1B2A4A]'
+                                            }`}
+                                        >
+                                            {row[col.key] || '—'}
+                                        </span>
+                                    ))}
+                                    {linked ? <ChevronRight size={16} className="text-slate-300 shrink-0" /> : <span className="w-4 shrink-0" />}
+                                </button>
+                            </td>
+                        </tr>
+                    );
+                })}
+            </tbody>
+        </table>
+    );
+}
+
+function TakenItemsModal({ open, title, hint, rows, columns, sections, onClose, onSelect }) {
+    if (!open) return null;
+    const groups = sections?.length
+        ? sections
+        : [{ key: 'all', title: '', rows: rows || [], columns }];
+    const wide = groups.some((group) => (group.columns || columns || []).some((col) => col.cell));
     return (
         <div
             className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
@@ -793,14 +887,14 @@ function TakenItemsModal({ open, title, hint, rows, columns, onClose, onSelect }
             role="presentation"
         >
             <div
-                className={`bg-white rounded-2xl shadow-2xl w-full max-h-[80vh] overflow-hidden border border-gray-200 ${useCells ? 'max-w-3xl' : 'max-w-2xl'}`}
+                className={`bg-white rounded-2xl shadow-2xl w-full max-h-[80vh] overflow-hidden border border-gray-200 ${wide ? 'max-w-3xl' : 'max-w-2xl'}`}
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
                     <div>
                         <h3 className="text-base font-bold text-gray-900">{title}</h3>
                         <p className="text-xs text-gray-500 mt-0.5">
-                            {hint || `${rows.length} record(s)`}
+                            {hint || `${(rows || []).length} record(s)`}
                         </p>
                     </div>
                     <button
@@ -813,92 +907,14 @@ function TakenItemsModal({ open, title, hint, rows, columns, onClose, onSelect }
                     </button>
                 </div>
                 <div className="overflow-y-auto max-h-[calc(80vh-4.5rem)]">
-                    {rows.length === 0 ? (
-                        <p className="text-sm text-gray-500 py-10 text-center">No records.</p>
-                    ) : (
-                        <table className="w-full text-left">
-                            <thead className="sticky top-0 bg-slate-50 border-b border-gray-100">
-                                <tr className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                                    {cols.map((col) => (
-                                        <th
-                                            key={col.key}
-                                            className={`${useCells ? 'whitespace-nowrap ' : ''}px-3 py-2.5 font-semibold first:pl-5 ${
-                                                col.align === 'right' ? 'text-right' : ''
-                                            }`}
-                                        >
-                                            {col.label}
-                                        </th>
-                                    ))}
-                                    <th className="px-5 py-2.5 w-8" />
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {rows.map((row) => {
-                                    const linked = Boolean(String(row?.href || '').trim());
-                                    if (useCells) {
-                                        return (
-                                            <tr
-                                                key={row.id}
-                                                onClick={() => linked && onSelect(row)}
-                                                onKeyDown={(event) => {
-                                                    if (!linked) return;
-                                                    if (event.key !== 'Enter' && event.key !== ' ') return;
-                                                    event.preventDefault();
-                                                    onSelect(row);
-                                                }}
-                                                tabIndex={linked ? 0 : undefined}
-                                                role={linked ? 'button' : undefined}
-                                                className={linked ? 'cursor-pointer hover:bg-slate-50/90' : undefined}
-                                            >
-                                                {cols.map((col) => (
-                                                    <td
-                                                        key={col.key}
-                                                        className={`px-3 py-3 text-sm whitespace-nowrap text-[#1B2A4A] first:pl-5 ${
-                                                            col.align === 'right'
-                                                                ? 'text-right font-bold tabular-nums'
-                                                                : 'font-semibold tabular-nums'
-                                                        }`}
-                                                    >
-                                                        {row[col.key] || '—'}
-                                                    </td>
-                                                ))}
-                                                <td className="w-8 pr-5 text-right">
-                                                    {linked ? <ChevronRight size={16} className="ml-auto text-slate-300" /> : null}
-                                                </td>
-                                            </tr>
-                                        );
-                                    }
-                                    return (
-                                    <tr key={row.id}>
-                                        <td colSpan={cols.length + 1} className="p-0">
-                                            <button
-                                                type="button"
-                                                onClick={() => linked && onSelect(row)}
-                                                className={`w-full flex items-center px-5 py-3 text-left gap-3 ${linked ? 'hover:bg-slate-50/90' : 'cursor-default'}`}
-                                            >
-                                                {cols.map((col) => (
-                                                    <span
-                                                        key={col.key}
-                                                        className={`text-sm min-w-0 ${
-                                                            col.key === 'type' || col.key === 'detail'
-                                                                ? 'flex-1 font-semibold text-[#1B2A4A] truncate'
-                                                                : col.align === 'right'
-                                                                  ? `${col.wide ? 'w-56' : 'w-40'} shrink-0 font-bold tabular-nums text-[#1B2A4A] text-right whitespace-normal leading-snug`
-                                                                  : 'w-28 shrink-0 font-semibold text-[#1B2A4A]'
-                                                        }`}
-                                                    >
-                                                        {row[col.key] || '—'}
-                                                    </span>
-                                                ))}
-                                                {linked ? <ChevronRight size={16} className="text-slate-300 shrink-0" /> : <span className="w-4 shrink-0" />}
-                                            </button>
-                                        </td>
-                                    </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    )}
+                    {groups.map((group) => (
+                        <section key={group.key || group.title || 'all'} className="border-b border-gray-100 last:border-b-0">
+                            {group.title ? (
+                                <h4 className="px-5 pt-4 pb-2 text-[13px] font-bold text-[#1B2A4A]">{group.title}</h4>
+                            ) : null}
+                            <TakenRowsTable rows={group.rows || []} columns={group.columns || columns} onSelect={onSelect} />
+                        </section>
+                    ))}
                 </div>
             </div>
         </div>
@@ -1144,6 +1160,28 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         { key: 'lossHrs', label: 'Loss of hrs', cell: true },
         { key: 'amount', label: 'Loss of pay', align: 'right', cell: true },
     ];
+    const loanColumns = [
+        { key: 'date', label: 'Date', cell: true },
+        { key: 'type', label: 'Type', cell: true },
+        { key: 'detail', label: 'Detail', cell: true },
+        { key: 'amount', label: 'Amount', align: 'right', cell: true },
+    ];
+    const deductionSections = usingDeductionList
+        ? [
+            {
+                key: 'attendance',
+                title: 'Attendance',
+                rows: (deductionList.rows || []).filter((row) => row.section !== 'loan'),
+                columns: deductionColumns,
+            },
+            {
+                key: 'loan',
+                title: 'Loan & Advance',
+                rows: (deductionList.rows || []).filter((row) => row.section === 'loan'),
+                columns: loanColumns,
+            },
+        ]
+        : null;
     const financialModalRows = usingDeductionList
         ? deductionList.rows || []
         : financialTakenRows(financialModalKey, {
@@ -1272,6 +1310,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                 }
                 rows={financialModalRows}
                 columns={usingDeductionList ? deductionColumns : financialModalMeta?.columns}
+                sections={deductionSections}
                 onClose={() => {
                     setFinancialModalKey('');
                     setDeductionList(null);

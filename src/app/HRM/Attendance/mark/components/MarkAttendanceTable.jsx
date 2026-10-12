@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, ChevronUp, Search, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
@@ -9,6 +11,7 @@ import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/
 import { isNextDayCheckout, NextDayCheckoutTime } from '@/app/HRM/Attendance/utils/nextDayCheckout';
 import { nonHrMarkableDateKeys } from '@/app/HRM/Attendance/utils/nonHrMarkWindow';
 import { weekForStaffType } from '@/utils/workLocations';
+import { handleNavigateFromListClick } from '@/utils/listReturnNavigation';
 import MarkAttendanceDetailsModal, {
     getMarkFormConfig,
 } from './MarkAttendanceDetailsModal';
@@ -133,6 +136,12 @@ function formatDisplayTime(value) {
     return value;
 }
 
+function attendanceProfileHref(employeeId) {
+    const id = String(employeeId || '').trim();
+    if (!/^[a-f\d]{24}$/i.test(id)) return '';
+    return `/HRM/Leave/${encodeURIComponent(id)}`;
+}
+
 function shortEmployeeName(name) {
     const parts = String(name || '')
         .trim()
@@ -226,6 +235,37 @@ function weekdayKeyFromDate(dateKey) {
     return WEEKDAY_KEYS[dayIndex] || '';
 }
 
+function clockToMinutes(value) {
+    const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return null;
+    return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function scheduledStartMinutes(week, dateKey) {
+    if (!week || String(week.timingMode || '').toLowerCase() === 'flexible') return null;
+    const day = week[weekdayKeyFromDate(dateKey)];
+    if (!day || day.isOffDay) return null;
+    let hour = Number(day.startHour);
+    const minute = Number(day.startMinute);
+    const meridiem = String(day.startMeridiem || 'AM').toUpperCase();
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+    if (meridiem === 'AM' && hour === 12) hour = 0;
+    if (meridiem === 'PM' && hour !== 12) hour += 12;
+    return hour * 60 + minute;
+}
+
+/** Stored reasons counted past the 15-minute grace. Show minutes from the scheduled start. */
+function lateReasonFromSchedule(reason, timeIn, week, dateKey) {
+    const raw = String(reason || '');
+    if (!/^(\d+)\s+minutes?\s+late\b/i.test(raw)) return raw;
+    const start = scheduledStartMinutes(week, dateKey);
+    const actual = clockToMinutes(timeIn);
+    if (start == null || actual == null || actual <= start) return raw;
+    const late = actual - start;
+    const label = `${late} minute${late === 1 ? '' : 's'} late`;
+    return raw.replace(/^(\d+)\s+minutes?\s+late/i, label);
+}
+
 function markForNonWorkingDay(mark, timeIn, timeOut, dayBaseline) {
     const punched =
         (timeIn && timeIn !== '—') || (timeOut && timeOut !== '—');
@@ -241,6 +281,18 @@ function markForNonWorkingDay(mark, timeIn, timeOut, dayBaseline) {
 function formatStatusLabel(mark, timeIn, pastDay = false) {
     const key = String(mark?.key || '').trim();
     const raw = String(mark?.label || '').trim();
+    const kind = String(mark?.leaveRequestKind || '').trim();
+    const punchedIn = Boolean(timeIn && timeIn !== '—');
+    const missedDay = pastDay ? 'Unauth' : 'Absent';
+
+    // "Unauthorized Leave" contains "authorized leave", so this must run first.
+    if (key === 'unauthorized_leave' || /^unauth/i.test(raw)) {
+        const session = String(mark?.leaveRequestSession || '');
+        const text = `${raw} ${mark?.reason || ''}`;
+        if (session === 'pm' || /early/i.test(text) || /\(PM\)/i.test(text)) return 'Present (Early Go)';
+        if (session === 'am' || /late arrival/i.test(text) || /\(AM\)/i.test(text)) return 'Present (Late Arrival)';
+        return 'Unauth';
+    }
     if (key === 'authorized_leave' || /auth(?:orized)? leave/i.test(raw)) {
         const halfAt = raw.indexOf('·');
         if (halfAt >= 0) {
@@ -250,20 +302,10 @@ function formatStatusLabel(mark, timeIn, pastDay = false) {
         return 'Auth';
     }
     if (/\(Approved\)/i.test(raw)) return raw;
-    const kind = String(mark?.leaveRequestKind || '').trim();
-    const punchedIn = Boolean(timeIn && timeIn !== '—');
-    const missedDay = pastDay ? 'Unauth' : 'Absent';
 
     if (key === 'late_arrived' || /late arrival/i.test(raw)) return 'Present (Late Arrival)';
     if (key === 'early_go' || /early go/i.test(raw)) return 'Present (Early Go)';
     if (key === 'mispunch') return raw || 'Mispunched';
-    if (key === 'unauthorized_leave') {
-        const session = String(mark?.leaveRequestSession || '');
-        const text = `${raw} ${mark?.reason || ''}`;
-        if (session === 'pm' || /early/i.test(text) || /\(PM\)/i.test(text)) return 'Present (Early Go)';
-        if (session === 'am' || /late arrival/i.test(text) || /\(AM\)/i.test(text)) return 'Present (Late Arrival)';
-        return 'Unauth';
-    }
     if (key === 'sick_leave') return raw || 'Sick Leave';
     if (key === 'compoff_leave') return raw || 'Comp Off Leave';
     if (key === 'on_leave' || kind === 'future_annual') {
@@ -758,14 +800,19 @@ function EmployeeRow({
     otDirect = false,
     canReviewOt = false,
     pastDay = false,
+    dateKey = '',
+    scheduleWeek = null,
     dayBaseline = '',
     actionLocked = false,
     actionTitle = '',
     menuOptions = MARK_OPTIONS,
+    blink = false,
 }) {
+    const router = useRouter();
     const [menuOpen, setMenuOpen] = useState(false);
     const [anchorRect, setAnchorRect] = useState(null);
     const buttonRef = useRef(null);
+    const profileHref = attendanceProfileHref(employee.id);
 
     const openMenu = () => {
         const rect = buttonRef.current?.getBoundingClientRect();
@@ -786,7 +833,13 @@ function EmployeeRow({
         timeOut: mark?.rawTimeOut || timeOut,
         timeOutDate: mark?.timeOutDate,
     });
-    const shownMark = markForNonWorkingDay(mark, timeIn, timeOut, dayBaseline);
+    const baseMark = markForNonWorkingDay(mark, timeIn, timeOut, dayBaseline);
+    const shownMark = baseMark
+        ? {
+            ...baseMark,
+            reason: lateReasonFromSchedule(baseMark.reason, mark?.rawTimeIn || timeIn, scheduleWeek, dateKey),
+        }
+        : baseMark;
     const statusText = formatStatusLabel(shownMark, timeIn, pastDay);
     const statusFull = statusHoverTitle(statusText);
     const rawIn = mark?.rawTimeIn || timeIn;
@@ -815,7 +868,10 @@ function EmployeeRow({
     const otButtonLabel = otDirect ? 'Apply OT' : 'Req OT';
 
     return (
-        <tr className="border-b border-gray-100 hover:bg-slate-50/80 transition-colors">
+        <tr
+            data-attendance-employee={employee.id}
+            className={`border-b border-gray-100 hover:bg-slate-50/80 ${blink ? 'attendance-employee-blink' : ''}`}
+        >
             <td className="px-3 py-3 align-middle">
                 <input
                     type="checkbox"
@@ -830,7 +886,17 @@ function EmployeeRow({
             </td>
             <td className="px-3 py-3 text-sm text-gray-600 tabular-nums align-middle">{index}</td>
             <td className="px-3 py-3 text-sm font-medium text-gray-900 align-middle whitespace-nowrap" title={employee.name}>
-                {shortEmployeeName(employee.name)}
+                {profileHref ? (
+                    <Link
+                        href={profileHref}
+                        className="hover:text-[#2563EB] hover:underline"
+                        onClick={(event) => handleNavigateFromListClick(event, router, profileHref)}
+                    >
+                        {shortEmployeeName(employee.name)}
+                    </Link>
+                ) : (
+                    shortEmployeeName(employee.name)
+                )}
             </td>
             <td className="px-3 py-3 text-sm text-gray-600 tabular-nums align-middle">{employee.empNo}</td>
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{isOtPunch(timeIn) ? '—' : timeIn}</td>
@@ -993,7 +1059,13 @@ function EmployeeRow({
     );
 }
 
-export default function MarkAttendanceTable({ dateKey, staffType = 'office', otAttendanceId = '', hourAttendanceId = '' }) {
+export default function MarkAttendanceTable({
+    dateKey,
+    staffType = 'office',
+    otAttendanceId = '',
+    hourAttendanceId = '',
+    blinkEmployeeId = '',
+}) {
     const { toast } = useToast();
     const [allEmployees, setAllEmployees] = useState([]);
     const [employees, setEmployees] = useState([]);
@@ -1452,6 +1524,14 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
         setBulkAnchorRect(null);
     };
 
+    useEffect(() => {
+        const id = String(blinkEmployeeId || '').trim();
+        if (!id || loading || dayLoading) return undefined;
+        const node = document.querySelector(`[data-attendance-employee="${CSS.escape(id)}"]`);
+        node?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return undefined;
+    }, [blinkEmployeeId, loading, dayLoading, employees]);
+
     if (loading) {
         return <div className="py-12 text-center text-sm text-gray-400">Loading active employees…</div>;
     }
@@ -1470,6 +1550,15 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
 
     return (
         <>
+            <style>{`
+                @keyframes attendance-employee-blink {
+                    0%, 100% { background-color: transparent; }
+                    35%, 65% { background-color: #FDE68A; }
+                }
+                .attendance-employee-blink {
+                    animation: attendance-employee-blink 0.9s ease-in-out 1;
+                }
+            `}</style>
             {dayLoading ? (
                 <div className="px-1 pb-2 text-xs text-gray-400">Loading day attendance…</div>
             ) : null}
@@ -1714,10 +1803,13 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office', otA
                                 key={employee.id}
                                 index={index + 1}
                                 employee={employee}
+                                blink={String(blinkEmployeeId || '') === String(employee.id || '')}
                                 checked={selectedIds.has(employee.id)}
                                 onToggle={toggleOne}
                                 mark={marks[employee.id] || null}
                                 pastDay={pastDay}
+                                dateKey={dateKey}
+                                scheduleWeek={scheduleWeek}
                                 dayBaseline={dayBaseline}
                                 actionLocked={rowIsActionLocked(employee)}
                                 actionTitle={dayMode === 'locked' ? HR_ONLY_MARK_TITLE : ''}

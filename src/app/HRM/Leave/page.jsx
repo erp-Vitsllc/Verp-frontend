@@ -13,6 +13,8 @@ import SortableTh, { compareSortValues, toggleSortState } from '@/components/Sor
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { MonthYearPicker } from '@/components/ui/month-year-picker';
 import axiosInstance from '@/utils/axios';
+import { navigateFromList, syncBrowserUrl } from '@/utils/listReturnNavigation';
+import LeaveGroupCalendarGrid, { LeaveGroupPicker } from './components/LeaveGroupCalendars';
 import { leaveMetaForStatus } from './utils/leaveCalendarUtils';
 import {
     filterLeaveEntriesBySalary,
@@ -282,6 +284,7 @@ export default function LeavePage() {
     const [sortKey, setSortKey] = useState('slNo');
     const [sortDirection, setSortDirection] = useState('asc');
     const [staffTab, setStaffTab] = useState('all');
+    const [calendarMonth, setCalendarMonth] = useState(() => currentMonthKey());
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [periodKey, setPeriodKey] = useState('current_month');
     const [customFromMonth, setCustomFromMonth] = useState(() => `${new Date().getFullYear()}-01`);
@@ -303,10 +306,47 @@ export default function LeavePage() {
     const openProfilePage = useCallback(
         (mongoId) => {
             if (!mongoId) return;
-            router.push(`/HRM/Leave/${mongoId}`);
+            navigateFromList(router, `/HRM/Leave/${mongoId}`);
         },
         [router],
     );
+
+    const writeLeaveListUrl = useCallback((group, month) => {
+        const params = new URLSearchParams();
+        if (group && group !== 'all') params.set('group', group);
+        if (/^\d{4}-\d{2}$/.test(String(month || '')) && month !== currentMonthKey()) {
+            params.set('month', month);
+        }
+        const query = params.toString();
+        syncBrowserUrl(query ? `/HRM/Leave?${query}` : '/HRM/Leave');
+    }, []);
+
+    const selectGroup = useCallback(
+        (key) => {
+            const next = key || 'all';
+            setStaffTab(next);
+            setSelectedEmployeeId('');
+            writeLeaveListUrl(next, calendarMonth);
+        },
+        [calendarMonth, writeLeaveListUrl],
+    );
+
+    const selectCalendarMonth = useCallback(
+        (month) => {
+            if (!/^\d{4}-\d{2}$/.test(String(month || '')) || month > currentMonthKey()) return;
+            setCalendarMonth(month);
+            writeLeaveListUrl(staffTab, month);
+        },
+        [staffTab, writeLeaveListUrl],
+    );
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const group = String(params.get('group') || '').trim();
+        const month = String(params.get('month') || '').trim();
+        if (group) setStaffTab(group);
+        if (/^\d{4}-\d{2}$/.test(month) && month <= currentMonthKey()) setCalendarMonth(month);
+    }, []);
 
     const fetchDirectory = useCallback(async () => {
         setLoading(true);
@@ -480,6 +520,27 @@ export default function LeavePage() {
         return enrolledRows.filter((row) => normalizeStaffType(row.staffType) === staffTab);
     }, [enrolledRows, staffTab]);
 
+    const groupCards = useMemo(() => {
+        const namesByGroup = new Map();
+        for (const row of enrolledRows) {
+            const key = normalizeStaffType(row.staffType);
+            if (!namesByGroup.has(key)) namesByGroup.set(key, []);
+            namesByGroup.get(key).push(row.employeeName || 'Employee');
+        }
+        for (const names of namesByGroup.values()) {
+            names.sort((a, b) => a.localeCompare(b));
+        }
+        return [
+            { key: 'all', label: 'All', count: enrolledRows.length, names: [] },
+            ...staffTabs.map((tab) => {
+                const names = namesByGroup.get(tab.key) || [];
+                return { key: tab.key, label: tab.label, count: names.length, names };
+            }),
+        ];
+    }, [enrolledRows, staffTabs]);
+
+    const activeGroupLabel = staffTabs.find((tab) => tab.key === staffTab)?.label || 'Group';
+
     const sortedRows = useMemo(() => {
         const list = [...filteredRows];
         const getVal = (row, index) => {
@@ -616,40 +677,13 @@ export default function LeavePage() {
                             </button>
                         </ErpPageHeader>
 
-                        <div className="mt-3 mb-3 space-y-2">
-                            {!isEmployeeFiltered ? (
-                                <div className="flex items-center gap-2 overflow-x-auto rounded-xl border border-gray-100 bg-white p-1 w-full sm:w-fit">
-                                    <button
-                                        type="button"
-                                        onClick={() => setStaffTab('all')}
-                                        className={`whitespace-nowrap rounded-lg px-4 py-2 text-xs font-bold transition-all sm:text-sm ${
-                                            staffTab === 'all'
-                                                ? 'bg-blue-600 text-white shadow-sm'
-                                                : 'text-slate-500 hover:bg-slate-50 hover:text-blue-600'
-                                        }`}
-                                    >
-                                        All
-                                    </button>
-                                    {staffTabs.map((tab) => (
-                                        <button
-                                            key={tab.key}
-                                            type="button"
-                                            onClick={() => setStaffTab(tab.key)}
-                                            className={`whitespace-nowrap rounded-lg px-4 py-2 text-xs font-bold transition-all sm:text-sm ${
-                                                staffTab === tab.key
-                                                    ? 'bg-blue-600 text-white shadow-sm'
-                                                    : 'text-slate-500 hover:bg-slate-50 hover:text-blue-600'
-                                            }`}
-                                        >
-                                            {tab.label}
-                                        </button>
-                                    ))}
-                                </div>
-                            ) : (
+                        <div className="mt-3 mb-3 space-y-3">
+                            <LeaveGroupPicker groups={groupCards} activeKey={staffTab} onSelect={selectGroup} />
+                            {isEmployeeFiltered ? (
                                 <h2 className="text-sm font-semibold text-slate-800 sm:text-base">
                                     {detailTitle}
                                 </h2>
-                            )}
+                            ) : null}
 
                             <div className="flex flex-wrap items-center gap-2">
                                 <div className="relative z-20 w-[240px] min-w-[200px] shrink-0">
@@ -768,6 +802,21 @@ export default function LeavePage() {
                                 message={error}
                                 onRetry={fetchDirectory}
                             />
+                        ) : null}
+
+                        {!isEmployeeFiltered && staffTab !== 'all' ? (
+                            <div className="mb-3">
+                                <LeaveGroupCalendarGrid
+                                    staffType={staffTab}
+                                    staffLabel={activeGroupLabel}
+                                    monthKey={calendarMonth}
+                                    onMonthChange={selectCalendarMonth}
+                                />
+                            </div>
+                        ) : null}
+
+                        {!isEmployeeFiltered && staffTab !== 'all' ? (
+                            <h2 className="mb-2 text-sm font-bold text-[#1B2A4A]">Employee list</h2>
                         ) : null}
 
                         <div className="w-full max-w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">

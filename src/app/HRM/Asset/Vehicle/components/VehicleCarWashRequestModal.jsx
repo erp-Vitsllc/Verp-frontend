@@ -23,6 +23,7 @@ import {
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 import ZohoExpenseSupportSelects from './ZohoExpenseSupportSelects';
+import { resolveCarWashTableStatusLabel } from '../utils/vehicleCarWashAccess';
 
 const ASSET_CONTROLLER_VALUE = '__asset_controller__';
 /** Fixed wash-type choices on the car wash request form. */
@@ -347,15 +348,24 @@ export default function VehicleCarWashRequestModal({
     }, [previousCarWash]);
 
     const previousWashMonth = useMemo(() => {
-        const occupied = [...listOccupiedCarWashMonths(asset)].sort();
+        const occupied = [
+            ...listOccupiedCarWashMonths(asset, {
+                excludeServiceId: existingService?._id || null,
+            }),
+        ].sort();
         return occupied[occupied.length - 1] || '';
-    }, [asset]);
+    }, [asset, existingService]);
 
     /** Earliest allowed month = previous wash month + 1 (previous and earlier are disabled). */
     const minSelectableCarWashMonth = useMemo(() => {
-        if (!previousWashMonth) return '';
-        return addMonthsToCarWashMonth(previousWashMonth, 1);
-    }, [previousWashMonth]);
+        const fromPrevious = previousWashMonth ? addMonthsToCarWashMonth(previousWashMonth, 1) : '';
+        if (!existingService) return fromPrevious;
+        const saved = normalizeCarWashMonthKey(
+            parseVehicleServiceRemark(existingService)?.carWashMonth,
+        );
+        if (!fromPrevious || !saved || saved >= fromPrevious) return fromPrevious;
+        return saved;
+    }, [previousWashMonth, existingService]);
 
     const suggestedCarWashMonth = useMemo(
         () => resolveNextCarWashMonth(asset),
@@ -440,7 +450,21 @@ export default function VehicleCarWashRequestModal({
         resetForm();
     }, [isOpen, existingService, resetForm, assignedEmployee, todayIso]);
 
-    const formReadOnly = Boolean(existingService && !accountsReviewMode);
+    const existingRemark = useMemo(
+        () => parseVehicleServiceRemark(existingService) || {},
+        [existingService],
+    );
+    const existingStatusTone = useMemo(() => {
+        if (!existingService) return '';
+        return resolveCarWashTableStatusLabel(existingService, asset).tone;
+    }, [existingService, asset]);
+    // Draft and pending requests stay editable. Completed, billed, and rejected stay locked.
+    const canEditExistingRequest =
+        Boolean(existingService) &&
+        !accountsReviewMode &&
+        (existingStatusTone === 'draft' || existingStatusTone === 'pending');
+    const formReadOnly = Boolean(existingService && !accountsReviewMode && !canEditExistingRequest);
+    const alreadySubmitted = String(existingRemark.requestStatus || '').toLowerCase() === 'submitted';
     // Accounts review: initiate fields + Zoho Chart of Accounts stay editable.
     const accountsFieldLocked = false;
     const showExpenseCategory = Boolean(accountsReviewMode);
@@ -692,7 +716,7 @@ export default function VehicleCarWashRequestModal({
             if (vehicleCurrentKm === '') e.currentKm = 'Vehicle KM is not available';
             const amount = Number(formData.value);
             if (!Number.isFinite(amount) || amount <= 0) e.value = 'Amount is required';
-            if (!formData.invoiceBase64 || !formData.invoiceName) {
+            if (!((formData.invoiceBase64 && formData.invoiceName) || existingInvoiceUrl)) {
                 e.invoice = 'Invoice is required';
             }
         }
@@ -812,12 +836,26 @@ export default function VehicleCarWashRequestModal({
         if (!validate(forDraft)) return;
         setLoading(true);
         try {
-            await axiosInstance.post(`/AssetItem/${assetId}/service`, buildPayload(forDraft));
+            const serviceId = existingService?._id;
+            const payload = buildPayload(forDraft);
+            if (serviceId) {
+                await axiosInstance.put(`/AssetItem/${assetId}/service/${serviceId}`, payload);
+                if (!forDraft && !alreadySubmitted) {
+                    await axiosInstance.post(
+                        `/AssetItem/${assetId}/service/${serviceId}/submit-request`,
+                    );
+                }
+            } else {
+                await axiosInstance.post(`/AssetItem/${assetId}/service`, payload);
+            }
+            const updatedOpenRequest = Boolean(serviceId) && alreadySubmitted && !forDraft;
             toast({
-                title: forDraft ? 'Draft saved' : 'Request submitted',
+                title: forDraft ? 'Draft saved' : updatedOpenRequest ? 'Request updated' : 'Request submitted',
                 description: forDraft
                     ? 'Car wash request saved as draft.'
-                    : 'Car wash request submitted for approval.',
+                    : updatedOpenRequest
+                      ? 'Car wash request updated.'
+                      : 'Car wash request submitted for approval.',
             });
             if (onSuccess) onSuccess();
             onClose();
@@ -1194,7 +1232,20 @@ export default function VehicleCarWashRequestModal({
                                     </>
                                 )}
                             </button>
-                        ) : formReadOnly ? null : (
+                        ) : formReadOnly ? null : alreadySubmitted ? (
+                            <button
+                                type="button"
+                                disabled={loading}
+                                onClick={() => postRequest(false)}
+                                className="h-11 px-6 rounded-xl bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800 shadow-sm transition-colors disabled:opacity-50"
+                            >
+                                {loading ? (
+                                    <Loader2 size={16} className="animate-spin mx-auto" />
+                                ) : (
+                                    'Save'
+                                )}
+                            </button>
+                        ) : (
                             <>
                                 <button
                                     type="button"

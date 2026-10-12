@@ -184,6 +184,14 @@ function formatListDate(key) {
     return `${day} ${months[month - 1]} ${year}`;
 }
 
+function formatRangeLabel(from, to) {
+    const start = formatListDate(from);
+    const end = formatListDate(to);
+    if (!start) return '';
+    if (!end || from === to) return start;
+    return `${start} to ${end}`;
+}
+
 function HeaderPeopleModal({ open, title, hint, rows, onClose }) {
     useEffect(() => {
         if (!open) return undefined;
@@ -284,7 +292,7 @@ function SummaryRow({ icon: Icon, iconClass, rowClass, label, hint, value, value
     );
 }
 
-function PeopleCard({ title, hint, icon: Icon, totals, phrase, onOpen }) {
+function PeopleCard({ title, hint, icon: Icon, totals, phrase, rangeLabel, onOpen }) {
     const rows = [
         {
             key: 'present',
@@ -336,10 +344,15 @@ function PeopleCard({ title, hint, icon: Icon, totals, phrase, onOpen }) {
     return (
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm px-3 py-2.5 min-w-0">
             <div className="flex items-center gap-2 mb-2">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
                     <Icon size={15} />
                 </span>
                 <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+                {rangeLabel ? (
+                    <span className="ml-auto pl-2 text-right text-[11px] font-semibold leading-tight text-slate-500 tabular-nums">
+                        {rangeLabel}
+                    </span>
+                ) : null}
             </div>
             <div className="flex flex-col gap-1.5">
                 {rows.map((row) => (
@@ -526,6 +539,7 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
                     icon={Building2}
                     totals={office}
                     phrase={phrase}
+                    rangeLabel={formatRangeLabel(range.from, range.to)}
                     onOpen={(key) => openPeopleList('office', key)}
                 />
                 <PeopleCard
@@ -534,6 +548,7 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
                     icon={HardHat}
                     totals={site}
                     phrase={phrase}
+                    rangeLabel={formatRangeLabel(range.from, range.to)}
                     onOpen={(key) => openPeopleList('site', key)}
                 />
             </div>

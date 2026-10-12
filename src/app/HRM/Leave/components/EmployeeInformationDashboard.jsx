@@ -45,6 +45,7 @@ import { MonthPicker } from '@/components/ui/date-picker';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { getEmployeeInitials } from '@/utils/employeeProfileImage';
 import { normalizeWorkLocationKey, weekForStaffType } from '@/utils/workLocations';
+import { markAttendanceHref } from '@/app/HRM/Attendance/utils/markAttendanceHref';
 import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
     salaryLockFromAttendancePayload,
@@ -56,6 +57,7 @@ import {
     emptyWeeklySalaryAddition,
     formatHourMeasure,
 } from '../utils/weeklySalaryAddition';
+import { punchAttendanceKind } from '../utils/punchAttendanceKind';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -402,15 +404,13 @@ function locationOf(record) {
 
 function dayLateText(record, week) {
     if (!record) return '—';
-    const fromReason = minutesInReason(record.reason, /(\d+)\s*minutes?\s+late/i);
-    if (fromReason != null) return formatHourlyGap(fromReason);
-    const key = String(record.statusKey || '');
-    if (key === 'late_arrived') {
+    if (shownEventKind(record) === 'late_arrived' || /(\d+)\s*minutes?\s+late/i.test(String(record.reason || ''))) {
         const shift = shiftForDate(week, record.date);
         const actual = clockToMinutes(record.timeIn);
-        if (!shift || actual == null) return '—';
-        return formatHourlyGap(Math.max(0, actual - shift.start));
+        if (shift && actual != null) return formatHourlyGap(Math.max(0, actual - shift.start));
     }
+    const fromReason = minutesInReason(record.reason, /(\d+)\s*minutes?\s+late/i);
+    if (fromReason != null) return formatHourlyGap(fromReason);
     if (record.timeIn) return formatHourlyGap(0);
     return '—';
 }
@@ -780,17 +780,13 @@ function deductionKind(row) {
     if (String(row?.hourAdjustStatus || '') === 'approved' && row?.hourAdjustKind) {
         return String(row.hourAdjustKind);
     }
-    const key = String(row?.statusKey || '');
-    const text = `${row?.statusLabel || ''} ${row?.reason || ''}`;
-    const session = String(row?.leaveRequestSession || '');
-    if (key === 'mispunch' || /mispunch/i.test(text)) return 'mispunch';
-    if (key === 'early_go') return 'early_go';
-    if (key === 'late_arrived') return 'late_arrived';
-    if (key === 'unauthorized_leave' && (session === 'pm' || /early/i.test(text) || /\(PM\)/i.test(text))) return 'early_go';
-    if (key === 'unauthorized_leave' && (session === 'am' || /\(AM\)/i.test(text) || /late arrival/i.test(text))) {
-        return 'late_arrived';
-    }
-    return key;
+    return punchAttendanceKind(row) || String(row?.statusKey || '');
+}
+
+function shownEventKind(record) {
+    const kind = deductionKind(record);
+    if (kind === 'late_arrived' || kind === 'early_go' || kind === 'mispunch') return kind;
+    return '';
 }
 
 function dayHoursOf(week, dateKey) {
@@ -836,6 +832,23 @@ function flexibleDayHours(week, dateKey) {
     return 9;
 }
 
+function wholeHourCount(value) {
+    const hours = Number(value);
+    if (!Number.isFinite(hours) || hours <= 0) return 0;
+    return Math.floor(hours + 1e-9);
+}
+
+/** Finished hours short of the flexible day. 7 hours 45 minutes on a 10-hour day is 3. */
+function flexibleLossHoursOf(record, week) {
+    const required = wholeHourCount(flexibleDayHours(week, record?.date));
+    let worked = Number(record?.flexibleWorkedHours) || 0;
+    if (!(worked > 0)) {
+        const minutes = recordWorkedMinutes(record);
+        worked = minutes == null ? 0 : Math.max(0, minutes) / 60;
+    }
+    return Math.max(0, required - wholeHourCount(worked));
+}
+
 function takenHoursOf(row, week, kind) {
     const shift = shiftForDate(week, row?.date);
     if (kind === 'early_go' && shift) {
@@ -851,10 +864,12 @@ function takenHoursOf(row, week, kind) {
 
 function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
     const approved = String(row?.hourAdjustStatus || '') === 'approved';
-    const dayHours = (approved ? flexibleDayHours(week, row?.date) : 0) || dayHoursOf(week, row?.date) || 8;
-    const hours = approved
-        ? n(row.hoursApproved)
-        : (n(row?.hoursTaken) || takenHoursOf(row, week, kind)) * unauthTimes;
+    const flexibleEarly = isFlexibleWeek(week) && kind === 'early_go';
+    const dayHours = (flexibleEarly || approved ? flexibleDayHours(week, row?.date) : 0) || dayHoursOf(week, row?.date) || 8;
+    const shortHours = flexibleEarly
+        ? (n(row?.hoursTaken) > 0 ? n(row.hoursTaken) : flexibleLossHoursOf(row, week))
+        : (n(row?.hoursTaken) || takenHoursOf(row, week, kind));
+    const hours = approved ? n(row.hoursApproved) : shortHours * unauthTimes;
     if (!(hours > 0) || !(daily > 0) || !(dayHours > 0)) return 0;
     return money2((hours / dayHours) * daily);
 }
@@ -877,11 +892,19 @@ function attendanceDeductionAmount(record, week, daily, policy) {
 }
 
 const ATTENDANCE_DEDUCTION_LABEL = {
-    late_arrived: 'Late Arrival',
-    early_go: 'Early Go',
-    mispunch: 'Missed Punch',
     authorized_leave: 'Authorized Leave',
     unauthorized_leave: 'Unauthorized Leave',
+    late_arrived: 'Late In',
+    early_go: 'Late Out',
+    mispunch: 'Missed Punch',
+};
+
+const ATTENDANCE_TYPE_RANK = {
+    authorized_leave: 0,
+    unauthorized_leave: 1,
+    late_arrived: 2,
+    early_go: 3,
+    mispunch: 4,
 };
 
 function incrementalPolicyAmount(count, rule, daily) {
@@ -907,6 +930,11 @@ function deductionEventDetail(record, week) {
     if (key === 'early_go') {
         const approved = String(record?.hourAdjustStatus || '') === 'approved';
         if (approved) return `${n(record.hoursApproved)} approved hr`;
+        if (isFlexibleWeek(week)) {
+            const loss = n(record?.hoursTaken) > 0 ? n(record.hoursTaken) : flexibleLossHoursOf(record, week);
+            const required = wholeHourCount(flexibleDayHours(week, record?.date));
+            return `${loss} hr short of ${required} hr`;
+        }
         const shift = shiftForDate(week, record?.date);
         const actual = clockToMinutes(record?.timeOut);
         const gap = shift && actual != null ? Math.max(0, shift.end - actual) : null;
@@ -938,6 +966,9 @@ function deductionLossHours(record, week) {
     const key = deductionKind(record);
     const approved = String(record?.hourAdjustStatus || '') === 'approved';
     if (approved) return n(record.hoursApproved);
+    if (isFlexibleWeek(week) && key === 'early_go') {
+        return n(record?.hoursTaken) > 0 ? n(record.hoursTaken) : flexibleLossHoursOf(record, week);
+    }
     if (key === 'authorized_leave' || key === 'unauthorized_leave') {
         const weight = leaveDayWeight(record, key === 'authorized_leave');
         return weight * (dayHoursOf(week, record?.date) || 8);
@@ -968,6 +999,8 @@ function attendanceDeductionRows(records, policy, week, daily) {
             const pending = key === 'mispunch' && !amount;
             rows.push({
                 id: String(record?._id || `${record?.date}-${key}`),
+                section: 'attendance',
+                rank: ATTENDANCE_TYPE_RANK[key] ?? 9,
                 sort: String(record?.date || ''),
                 date: formatDayLabel(record?.date),
                 type: ATTENDANCE_DEDUCTION_LABEL[key],
@@ -1005,6 +1038,8 @@ function financialDeductionRows({ fines, loans, advances, utilityItems, from, to
         const sort = parseLabelDate(row.dateLabel);
         pushMoney({
             id: `fine-${row.id}`,
+            section: 'loan',
+            rank: 2,
             sort,
             date: row.dateLabel || '—',
             type: 'Fine',
@@ -1019,6 +1054,8 @@ function financialDeductionRows({ fines, loans, advances, utilityItems, from, to
         if (period !== 'month' && !month) return;
         rows.push({
             id: `utility-${row.id}`,
+            section: 'loan',
+            rank: 3,
             sort: month ? `${month}-01` : '',
             date: row.billMonthLabel || row.billMonth || '—',
             type: 'Utility Excess',
@@ -1031,9 +1068,11 @@ function financialDeductionRows({ fines, loans, advances, utilityItems, from, to
         const sort = parseLabelDate(row.dateLabel);
         pushMoney({
             id: `loan-${row.id}`,
+            section: 'loan',
+            rank: 0,
             sort,
             date: row.dateLabel || '—',
-            type: 'Loan Recovery',
+            type: 'Loan',
             detail: [row.code, row.reason, row.status].map((part) => String(part || '').trim()).filter(Boolean).join(' · ') || 'Loan',
             amount: formatAedNumber(row.outstanding),
         });
@@ -1043,9 +1082,11 @@ function financialDeductionRows({ fines, loans, advances, utilityItems, from, to
         const sort = parseLabelDate(row.dateLabel);
         pushMoney({
             id: `advance-${row.id}`,
+            section: 'loan',
+            rank: 1,
             sort,
             date: row.dateLabel || '—',
-            type: 'Advance Recovery',
+            type: 'Advance',
             detail: [row.code, row.reason, row.status].map((part) => String(part || '').trim()).filter(Boolean).join(' · ') || 'Advance',
             amount: formatAedNumber(row.outstanding),
         });
@@ -1090,8 +1131,8 @@ function recordsInWindow(records, from, to) {
 
 function dayKind(record, { isFuture, isToday, isHoliday, isWeeklyOff }) {
     const key = String(record?.statusKey || '');
+    if (shownEventKind(record)) return 'attention';
     if (key === 'on_office' || key === 'work_from_home') return 'present';
-    if (key === 'late_arrived' || key === 'early_go' || key === 'mispunch') return 'attention';
     if (key === 'unauthorized_leave' || key === 'not_marked') return 'absent';
     if (key === 'sick_leave') return 'sick';
     if (key === 'authorized_leave') return 'authorized';
@@ -1109,15 +1150,15 @@ function kindLabel(kind) {
 }
 
 function attentionLabel(record) {
-    const key = String(record?.statusKey || '');
-    if (key === 'mispunch') return 'Missed Punch';
-    if (key === 'early_go') return 'Early Out';
-    if (key === 'late_arrived') return 'Late Arrival';
+    const kind = shownEventKind(record);
+    if (kind === 'mispunch') return 'Missed Punch';
+    if (kind === 'early_go') return 'Early Go';
+    if (kind === 'late_arrived') return 'Late Arrival';
     return '';
 }
 
 function dayEarlyText(record, week) {
-    if (!record || String(record.statusKey || '') !== 'early_go') return '';
+    if (!record || shownEventKind(record) !== 'early_go') return '';
     if (isFlexibleWeek(week)) return '';
     const fromReason = minutesInReason(record.reason, /(\d+)\s*minutes?\s+early/i);
     if (fromReason != null) return formatHourlyGap(fromReason);
@@ -1423,6 +1464,48 @@ function AdjMark({ title, label = '(adj)' }) {
     );
 }
 
+function AdditionView({ ready, views, staffType, employeeId }) {
+    const router = useRouter();
+    const rows = (Array.isArray(views) ? views : []).filter((row) => row?.date);
+    if (!ready || !rows.length) return <span className="text-[#94A3B8]">—</span>;
+    const open = (date) => {
+        if (!date) return;
+        router.push(markAttendanceHref({
+            date,
+            staffType,
+            blinkEmployee: employeeId,
+        }));
+    };
+    if (rows.length === 1) {
+        return (
+            <button
+                type="button"
+                onClick={() => open(rows[0].date)}
+                className="text-[12px] font-semibold text-[#2563EB]"
+            >
+                View
+            </button>
+        );
+    }
+    return (
+        <select
+            aria-label="Open the attendance day"
+            defaultValue=""
+            onChange={(event) => {
+                const date = event.target.value;
+                event.target.value = '';
+                open(date);
+            }}
+            className="h-7 max-w-full rounded-md border border-[#E6EDF5] bg-white px-1 text-[11px] font-semibold text-[#2563EB]"
+        >
+            <option value="">View</option>
+            {rows.map((row) => (
+                <option key={row.date} value={row.date}>{formatDayLabel(row.date)}</option>
+            ))}
+        </select>
+    );
+}
+
 function AdditionFigure({ ready, text, title }) {
     if (!ready) return '—';
     return (
@@ -1504,14 +1587,12 @@ function SalaryAdditionDetails({ open, weeks, weekId, onWeekChange, ready, repor
                                 <tr key={row.date} className="border-t border-[#F4F7FB]">
                                     <td className={TD}>{row.label}</td>
                                     <td className={`${TD} tabular-nums`}>{ready ? hourCountLabel(row.workedHours) : '—'}</td>
-                                    <td className={TD}>
-                                        <AdditionFigure
-                                            ready={ready}
-                                            text={row.adjustedDays > 0
+                                    <td className={`${TD} tabular-nums`}>
+                                        {ready
+                                            ? (row.adjustedDays > 0
                                                 ? measureLabel(row.adjustedDays, 'Day', 'Days')
-                                                : hourCountLabel(row.adjustedHours)}
-                                            title={row.adjustedDays > 0 || row.adjustedHours > 0 ? (row.title || 'Adjusted from overtime') : ''}
-                                        />
+                                                : hourCountLabel(row.adjustedHours))
+                                            : '—'}
                                     </td>
                                     <td className={`${TD} text-right font-medium tabular-nums ${row.amount < 0 ? 'text-[#DC2626]' : ''}`}>
                                         {ready ? (
@@ -2258,7 +2339,12 @@ export default function EmployeeInformationDashboard({
             to: detailWindow.to,
             period,
         });
-        return [...attendance, ...moneyRows].sort((a, b) => String(b.sort || '').localeCompare(String(a.sort || '')));
+        const byCategory = (a, b) => {
+            const rank = (Number(a.rank) || 0) - (Number(b.rank) || 0);
+            if (rank) return rank;
+            return String(b.sort || '').localeCompare(String(a.sort || ''));
+        };
+        return [...attendance.sort(byCategory), ...moneyRows.sort(byCategory)];
     }, [
         detailRecords,
         profile?.leavePolicy,
@@ -2366,7 +2452,12 @@ export default function EmployeeInformationDashboard({
         }
         const keys = key === 'on_office' ? ['on_office', 'work_from_home'] : [key];
         const source = period === 'month' ? countedRecords : profile?.events || [];
-        const rows = (source || []).filter((row) => keys.includes(String(row?.statusKey || '')));
+        const rows = (source || []).filter((row) => {
+            if (key === 'late_arrived' || key === 'early_go' || key === 'mispunch' || key === 'unauthorized_leave') {
+                return deductionKind(row) === key;
+            }
+            return keys.includes(String(row?.statusKey || ''));
+        });
         onOpenCategory?.(
             key,
             period === 'month' ? rows.flatMap((row) => eventRowsFromRecords([row], row.statusKey)) : rows,
@@ -2838,21 +2929,23 @@ export default function EmployeeInformationDashboard({
                                 ) : null}
                             </div>
                             <div className="overflow-x-auto">
-                                <table className="w-full min-w-[34rem] table-fixed border-collapse text-left">
+                                <table className="w-full min-w-[40rem] table-fixed border-collapse text-left">
                                     <colgroup>
-                                        <col className="w-[8%]" />
+                                        <col className="w-[6%]" />
+                                        <col className="w-[16%]" />
+                                        <col className="w-[22%]" />
                                         <col className="w-[20%]" />
-                                        <col className="w-[24%]" />
-                                        <col className="w-[24%]" />
-                                        <col className="w-[24%]" />
+                                        <col className="w-[22%]" />
+                                        <col className="w-[14%]" />
                                     </colgroup>
                                     <thead>
                                         <tr className="border-t border-[#EEF2F6]">
                                             <th className={`${ADD_TH} w-8`}>#</th>
-                                            <th className={ADD_TH}>Description Type</th>
-                                            <th className={ADD_TH}>Approved</th>
-                                            <th className={ADD_TH}>Adjusted</th>
-                                            <th className={ADD_TH}>Balance</th>
+                                            <th className={ADD_TH}>Description</th>
+                                            <th className={ADD_TH}>Approved OT</th>
+                                            <th className={ADD_TH}>Adj OT</th>
+                                            <th className={ADD_TH}>Balance OT</th>
+                                            <th className={ADD_TH}>View</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -2864,10 +2957,17 @@ export default function EmployeeInformationDashboard({
                                                 <AdditionFigure
                                                     ready={additionReady}
                                                     text={formatHourMeasure(salaryAddition.overtime.adjusted)}
-                                                    title={salaryAddition.overtime.adjusted > 0 ? (salaryAddition.overtime.title || 'Adjusted from overtime') : ''}
                                                 />
                                             </td>
                                             <td className={ADD_TD}><AdditionFigure ready={additionReady} text={formatHourMeasure(salaryAddition.overtime.balance)} /></td>
+                                            <td className={ADD_TD}>
+                                                <AdditionView
+                                                    ready={additionReady}
+                                                    views={salaryAddition.overtime.views}
+                                                    staffType={staffType}
+                                                    employeeId={employeeMongoId}
+                                                />
+                                            </td>
                                         </tr>
                                         <tr className="border-t border-[#F4F7FB]">
                                             <td className={`${ADD_TD} text-[#94A3B8]`}>2</td>
@@ -2877,28 +2977,37 @@ export default function EmployeeInformationDashboard({
                                                 <AdditionFigure
                                                     ready={additionReady}
                                                     text={measureLabel(salaryAddition.compOff.adjusted, 'Day', 'Days')}
-                                                    title={salaryAddition.compOff.adjusted > 0 ? (salaryAddition.compOff.title || 'Adjusted with the next day') : ''}
                                                 />
                                             </td>
                                             <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.compOff.balance, 'Day', 'Days')} /></td>
+                                            <td className={ADD_TD}>
+                                                <AdditionView
+                                                    ready={additionReady}
+                                                    views={salaryAddition.compOff.views}
+                                                    staffType={staffType}
+                                                    employeeId={employeeMongoId}
+                                                />
+                                            </td>
                                         </tr>
                                     </tbody>
                                 </table>
-                                <table className="w-full min-w-[34rem] table-fixed border-collapse border-t-2 border-[#CBD5E1] text-left">
+                                <table className="w-full min-w-[40rem] table-fixed border-collapse border-t-2 border-[#CBD5E1] text-left">
                                     <colgroup>
-                                        <col className="w-[8%]" />
+                                        <col className="w-[6%]" />
+                                        <col className="w-[16%]" />
                                         <col className="w-[20%]" />
-                                        <col className="w-[24%]" />
-                                        <col className="w-[24%]" />
-                                        <col className="w-[24%]" />
+                                        <col className="w-[20%]" />
+                                        <col className="w-[20%]" />
+                                        <col className="w-[18%]" />
                                     </colgroup>
                                     <thead>
                                         <tr>
                                             <th className={`${ADD_TH} w-8`}>#</th>
                                             <th className={ADD_TH}>Description Type</th>
-                                            <th className={ADD_TH}>Required Work</th>
+                                            <th className={ADD_TH}>Required Working Day</th>
                                             <th className={ADD_TH}>Actually Worked</th>
-                                            <th className={ADD_TH}>Balance</th>
+                                            <th className={ADD_TH}>Adjusted Work</th>
+                                            <th className={ADD_TH}>Balance Work</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -2913,13 +3022,14 @@ export default function EmployeeInformationDashboard({
                                                 />
                                             </td>
                                             <td className={ADD_TD}>
+                                                <AdditionFigure
+                                                    ready={additionReady}
+                                                    text={measureLabel(salaryAddition.workingDay.adjusted, 'Day', 'Days')}
+                                                    title={salaryAddition.workingDay.adjusted > 0 ? (salaryAddition.workingDay.compOffTitle || 'Comp off') : ''}
+                                                />
+                                            </td>
+                                            <td className={ADD_TD}>
                                                 <AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.workingDay.balance, 'Day', 'Days')} />
-                                                {additionReady && salaryAddition.workingDay.compOffDays > 0 ? (
-                                                    <AdjMark
-                                                        title={salaryAddition.workingDay.compOffTitle || 'Comp off'}
-                                                        label="C/DAY (comp off)"
-                                                    />
-                                                ) : null}
                                             </td>
                                         </tr>
                                         <tr className="border-t border-[#F4F7FB]">
@@ -2930,13 +3040,19 @@ export default function EmployeeInformationDashboard({
                                                 <AdditionFigure
                                                     ready={additionReady}
                                                     text={formatHourMeasure(salaryAddition.workingHours.worked)}
-                                                    title={salaryAddition.workingHours.title}
+                                                />
+                                            </td>
+                                            <td className={ADD_TD}>
+                                                <AdditionFigure
+                                                    ready={additionReady}
+                                                    text={formatHourMeasure(salaryAddition.workingHours.adjusted)}
+                                                    title={salaryAddition.workingHours.adjusted > 0 ? (salaryAddition.workingHours.title || 'Adjusted work') : ''}
                                                 />
                                             </td>
                                             <td className={ADD_TD}><AdditionFigure ready={additionReady} text={formatHourMeasure(salaryAddition.workingHours.balance)} /></td>
                                         </tr>
                                         <tr className="border-t border-[#E2E8F0]">
-                                            <td className={`${ADD_TD} font-bold`} colSpan={4}>Total Addition (AED)</td>
+                                            <td className={`${ADD_TD} font-bold`} colSpan={5}>Total Addition (AED)</td>
                                             <td className={`${ADD_TD} text-right font-bold tabular-nums text-[#16A34A]`}>{additionReady ? formatAedNumber(salaryAddition.total) : '—'}</td>
                                         </tr>
                                     </tbody>
@@ -3235,7 +3351,7 @@ export default function EmployeeInformationDashboard({
                                 <thead>
                                     <tr className="border-b border-[#EEF2F6]">
                                         <th className={`${TH} w-10`}>#</th>
-                                        <th className={TH}>Task Number</th>
+                                        <th className={`${TH} w-[8.5rem]`}>Task Number</th>
                                         <th className={TH}>Task Name</th>
                                         <th className={TH}>Task Type</th>
                                         <th className={TH}>Assigned To</th>
@@ -3249,7 +3365,7 @@ export default function EmployeeInformationDashboard({
                                     {workTasks.length ? workTasks.map((task, index) => (
                                         <tr key={task.id} className="border-b border-[#F4F7FB] last:border-0">
                                             <td className={`${TD} text-[#94A3B8]`}>{index + 1}</td>
-                                            <td className={`${TD} truncate font-medium`}>{task.taskNumber || String(task.id || '').slice(-8) || '—'}</td>
+                                            <td className={`${TD} whitespace-nowrap font-medium`}>{task.taskNumber || '—'}</td>
                                             <td className={`${TD} truncate font-medium`}>{task.title || 'Task'}</td>
                                             <td className={`${TD} truncate`}>{task.taskType || task.kind || '—'}</td>
                                             <td className={`${TD} truncate`}>{employee.name || task.requesterName || '—'}</td>

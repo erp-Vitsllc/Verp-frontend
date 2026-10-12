@@ -39,12 +39,6 @@ function coversWorkingDay(hours, dayHours) {
     return hours > 10;
 }
 
-function addDaysKey(dateKey, days) {
-    const date = new Date(`${dateKey}T12:00:00.000Z`);
-    date.setUTCDate(date.getUTCDate() + days);
-    return date.toISOString().slice(0, 10);
-}
-
 function isAuthLeaveRow(row) {
     const key = String(row?.statusKey || '').trim();
     const label = String(row?.statusLabel || '').trim();
@@ -53,11 +47,10 @@ function isAuthLeaveRow(row) {
     return /auth(?:orized)? leave/i.test(label);
 }
 
-function choiceLabel(dateKey, offset) {
+function choiceLabel(dateKey) {
     const [year, month, day] = String(dateKey || '').split('-').map(Number);
     const monthName = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1] || '';
-    const when = offset === 1 ? 'Next day' : offset === -1 ? 'Yesterday' : 'This day';
-    return `${when} · ${String(day).padStart(2, '0')} ${monthName} ${year} · Auth`;
+    return `${String(day).padStart(2, '0')} ${monthName} ${year} · Auth leave`;
 }
 
 export default function FlexibleOtModal({
@@ -95,29 +88,30 @@ export default function FlexibleOtModal({
         if (!open || !nextDayIntent || !mark?.date || !employee?.id) return undefined;
         let cancelled = false;
         setDaysLoading(true);
-        const dates = [1, 0, -1].map((offset) => ({ offset, date: addDaysKey(mark.date, offset) }));
-        const months = [...new Set(dates.map((row) => row.date.slice(0, 7)))];
-        Promise.all(
-            months.map((month) =>
-                axiosInstance
-                    .get('/Attendance/me', {
-                        params: { month, forEmployeeId: employee.id },
-                        skipToast: true,
-                    })
-                    .then((response) => (Array.isArray(response.data?.records) ? response.data.records : []))
-                    .catch(() => []),
-            ),
-        )
-            .then((groups) => {
+        const month = String(mark.date).slice(0, 7);
+        axiosInstance
+            .get('/Attendance/me', {
+                params: { month, forEmployeeId: employee.id },
+                skipToast: true,
+            })
+            .then((response) => {
                 if (cancelled) return;
-                const byDate = new Map();
-                groups.flat().forEach((row) => {
-                    const date = String(row?.date || '').trim();
-                    if (date) byDate.set(date, row);
-                });
-                const choices = dates.filter((row) => isAuthLeaveRow(byDate.get(row.date)));
+                const records = Array.isArray(response.data?.records) ? response.data.records : [];
+                const seen = new Set();
+                const choices = records
+                    .filter((row) => {
+                        const date = String(row?.date || '').trim();
+                        if (!date.startsWith(month) || seen.has(date) || !isAuthLeaveRow(row)) return false;
+                        seen.add(date);
+                        return true;
+                    })
+                    .map((row) => ({ date: String(row.date).trim() }))
+                    .sort((a, b) => a.date.localeCompare(b.date));
                 setDayChoices(choices);
                 setTargetDate('');
+            })
+            .catch(() => {
+                if (!cancelled) setDayChoices([]);
             })
             .finally(() => {
                 if (!cancelled) setDaysLoading(false);
@@ -134,7 +128,6 @@ export default function FlexibleOtModal({
     const creditedDay = requiredDay > 0 ? requiredDay : 10;
     const nextDayApply = nextDayIntent && coversWorkingDay(hoursNow, requiredDay);
     const remainderHours = nextDayApply ? Math.max(0, wholeOtHours(hoursNow - creditedDay)) : 0;
-    const selectedChoice = dayChoices.find((row) => row.date === targetDate);
 
     const submitRequest = async () => {
         const hours = hoursNow;
@@ -163,8 +156,8 @@ export default function FlexibleOtModal({
                 title: nextDayIntent ? 'Present set on the selected day' : direct ? 'Overtime applied' : 'Overtime request sent',
                 description: nextDayIntent
                     ? remainderHours > 0
-                        ? `${choiceLabel(targetDate, selectedChoice?.offset)} is Present for ${dayHourLabel(creditedDay)} hr. Apply OT stays on that day for the remaining ${remainderHours} hr.`
-                        : `${choiceLabel(targetDate, selectedChoice?.offset)} is Present for ${dayHourLabel(creditedDay)} hr.`
+                        ? `${choiceLabel(targetDate)} is Present for ${dayHourLabel(creditedDay)} hr. Apply OT stays on that day for the remaining ${remainderHours} hr.`
+                        : `${choiceLabel(targetDate)} is Present for ${dayHourLabel(creditedDay)} hr.`
                     : direct
                       ? 'These hours are taken now.'
                       : 'HR has been notified.',
@@ -267,7 +260,7 @@ export default function FlexibleOtModal({
                                     disabled={daysLoading || dayChoices.length === 0}
                                     className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800"
                                 >
-                                    <option value="">{daysLoading ? 'Loading days...' : 'Select a day'}</option>
+                                    <option value="">{daysLoading ? 'Loading days...' : dayChoices.length ? 'Select an authorized leave day' : 'No authorized leave this month'}</option>
                                     {dayChoices.map((choice) => (
                                         <option key={choice.date} value={choice.date}>
                                             {choiceLabel(choice.date, choice.offset)}

@@ -1,7 +1,7 @@
 import { format, isValid, startOfDay } from 'date-fns';
 import { normalizeWorkLocationKey } from '@/utils/workLocations';
 
-export function markAttendanceHref({ date, staffType } = {}) {
+export function markAttendanceHref({ date, staffType, blinkEmployee } = {}) {
     const params = new URLSearchParams();
     if (date instanceof Date && isValid(date)) {
         params.set('date', format(startOfDay(date), 'yyyy-MM-dd'));
@@ -11,6 +11,8 @@ export function markAttendanceHref({ date, staffType } = {}) {
     }
     const group = normalizeWorkLocationKey(staffType);
     if (group) params.set('staffType', group);
+    const employee = String(blinkEmployee || '').trim();
+    if (employee) params.set('blinkEmployee', employee);
     const query = params.toString();
     return query ? `/HRM/Attendance/mark?${query}` : '/HRM/Attendance/mark';
 }
