@@ -195,7 +195,13 @@ export async function fetchSignedAssessmentMediaUrl(photo, { skipCache = false }
             const objectUrl = URL.createObjectURL(blob);
             assessmentMediaUrlCache.set(key, objectUrl);
             return objectUrl;
-        } catch {
+        } catch (error) {
+            const message = String(error?.message || '');
+            if (/not found in storage|specified key does not exist/i.test(message)) {
+                const missing = new Error('File not found in storage.');
+                missing.code = 'STORAGE_MISS';
+                throw missing;
+            }
             return assessmentMediaUrlCache.get(key) || null;
         } finally {
             releaseAssessmentMediaSlot();

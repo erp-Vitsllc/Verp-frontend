@@ -663,8 +663,8 @@ function EventsDetailPanel({ title, events, onClose, onOpenCompOff }) {
                                         >
                                             {event.date}
                                             {event.adjusted ? (
-                                                <span className="ml-1.5 text-[11px] font-semibold" title={event.adjustWith ? `Adjusted with ${event.adjustWith}` : 'Adjusted from overtime'}>
-                                                    (Adj)
+                                                <span className="ml-1.5 text-[11px] font-semibold">
+                                                    {event.adjustLabel || (event.adjustWith ? `(adjusted from ${event.adjustWith})` : '(adjusted from overtime)')}
                                                 </span>
                                             ) : null}
                                         </button>
@@ -672,8 +672,8 @@ function EventsDetailPanel({ title, events, onClose, onOpenCompOff }) {
                                         <p className="text-sm font-semibold text-gray-900">
                                             {event.date}
                                             {event.adjusted ? (
-                                                <span className="ml-1.5 text-[11px] font-semibold text-violet-700" title={event.adjustWith ? `Adjusted with ${event.adjustWith}` : 'Adjusted from overtime'}>
-                                                    (Adj)
+                                                <span className="ml-1.5 text-[11px] font-semibold text-violet-700">
+                                                    {event.adjustLabel || (event.adjustWith ? `(adjusted from ${event.adjustWith})` : '(adjusted from overtime)')}
                                                 </span>
                                             ) : null}
                                         </p>

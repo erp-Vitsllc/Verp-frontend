@@ -289,6 +289,12 @@ export default function PendingAttendanceRequestsModal({
                                     {review.timeIn || '—'} – {review.timeOut || '—'}
                                 </p>
                             ) : null}
+                            {review.confirmNextDay && review.targetDate ? (
+                                <p>
+                                    <span className="text-slate-500">Day to mark present: </span>
+                                    {review.targetDate}
+                                </p>
+                            ) : null}
                             {review.reason ? (
                                 <p>
                                     <span className="text-slate-500">Reason: </span>

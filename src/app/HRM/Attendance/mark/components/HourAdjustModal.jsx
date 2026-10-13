@@ -183,14 +183,17 @@ export default function HourAdjustModal({ open, mode = 'request', employee, mark
         }
         setSaving(true);
         try {
-            await axiosInstance.post('/Attendance/hour-adjust/request', {
+            const response = await axiosInstance.post('/Attendance/hour-adjust/request', {
                 attendanceId: mark.attendanceId,
                 approvedHours: hours,
                 reason: flexible ? '' : reason,
             });
             toast({
-                title: mode === 'direct' ? 'Hours approved' : 'Request sent to HR',
-                description: mode === 'direct' ? 'Deduction uses the approved hours.' : 'HR can approve or reject it.',
+                title: mode === 'direct' ? 'Hours approved' : 'Request sent',
+                description:
+                    mode === 'direct'
+                        ? 'Deduction uses the approved hours.'
+                        : response.data?.message || 'Attendance stays unchanged until HR approves.',
             });
             notifyAttendancePendingInboxChanged();
             onSaved?.();

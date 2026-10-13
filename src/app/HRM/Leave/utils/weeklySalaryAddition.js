@@ -291,6 +291,30 @@ function isCompOffRemainder(day) {
     return day.statusKey === 'compoff_leave' || day.synthetic || day.covered;
 }
 
+function emptyBalancePay() {
+    return {
+        requiredDays: 0,
+        requiredHours: 0,
+        workedDays: 0,
+        workedHours: 0,
+        compOffDays: 0,
+        compOffHours: 0,
+        otHours: 0,
+        creditedHours: 0,
+        gapHours: 0,
+        hourly: 0,
+        unitHours: 0,
+        monthWorkingDays: 0,
+        monthlySalary: 0,
+        amount: 0,
+        requiredRows: [],
+        workedRows: [],
+        compOffRows: [],
+        otRows: [],
+        calculation: [],
+    };
+}
+
 export function emptyWeeklySalaryAddition() {
     return {
         overtime: { approved: 0, adjusted: 0, balance: 0, title: '', views: [] },
@@ -299,6 +323,8 @@ export function emptyWeeklySalaryAddition() {
         workingHours: { required: 0, worked: 0, adjusted: 0, balance: 0, title: '' },
         total: 0,
         details: [],
+        balancePay: emptyBalancePay(),
+        calendar: {},
     };
 }
 
@@ -312,6 +338,8 @@ export function buildWeeklySalaryAddition({
     weekDates = [],
     extraDates = [],
     dayInfo = () => emptyInfo(),
+    monthlySalary = 0,
+    monthWorkingDays = 0,
 } = {}) {
     const month = String(monthKey || '');
     const weekSet = new Set([...(weekDates || []), ...(extraDates || [])]);
@@ -551,14 +579,14 @@ export function buildWeeklySalaryAddition({
     const details = [];
     detailDates.forEach((date) => {
         const day = ledger.get(date) || blankDay(date);
-        const inListedWeek = (weekDates || []).includes(date);
         const netHours = Math.max(0, roundHours(day.payable - day.consumed));
         const paysDay = overDayPay.has(date) && dayRate > 0;
         const amount = money2((hourRate * netHours) + (paysDay ? dayRate : 0));
         const adjustedDays = day.covered || paysDay ? (day.nextDayCount > 0 ? day.nextDayCount : 1) : 0;
         const adjustedHours = roundHours(day.moved + day.consumed + day.compOffAdjusted);
-        const active = amount !== 0 || adjustedHours > 0 || adjustedDays > 0 || day.workedHours > 0 || day.compOffDays > 0 || day.nextDayCount > 0 || infoOf(date).required;
-        if (!inListedWeek && !active) return;
+        const approvedOt = day.payable > 0 || day.nextDayCount > 0 || netHours > 0;
+        const approvedCompOff = day.compOffDays > 0 || day.covered || day.compOffAdjusted > 0 || adjustedDays > 0;
+        if (!approvedOt && !approvedCompOff && amount === 0) return;
         const linkLines = [];
         [...day.otLinks, ...day.coverLinks, ...day.compOffLinks].forEach((line) => addLink(linkLines, line));
         const calculation = [];
@@ -639,5 +667,196 @@ export function buildWeeklySalaryAddition({
         overDays,
         total,
         details,
+        balancePay: buildBalancePay({
+            weekSet,
+            ledger,
+            weekDays,
+            infoOf,
+            requiredDays,
+            requiredHours,
+            workedDays,
+            workedHours,
+            otHours: balanceHours,
+            monthlySalary,
+            monthWorkingDays,
+        }),
+        calendar: buildCalendarNotes(weekDays, ledger),
+    };
+}
+
+function dayCapHours(info) {
+    const scheduled = roundHours(info?.scheduledHours);
+    if (!(scheduled > 0)) return DAY_HOUR_CAP;
+    return scheduled > DAY_HOUR_CAP ? DAY_HOUR_CAP : scheduled;
+}
+
+function buildCalendarNotes(weekDays, ledger) {
+    const calendar = {};
+    const write = (date, patch) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return;
+        const current = calendar[date] || { otHours: 0, givenTo: '', takenFrom: '' };
+        calendar[date] = {
+            otHours: patch.otHours > 0 ? roundHours(patch.otHours) : current.otHours,
+            givenTo: patch.givenTo || current.givenTo,
+            takenFrom: patch.takenFrom || current.takenFrom,
+        };
+    };
+    approvedPlacements(weekDays).forEach((row) => {
+        write(row.source, { givenTo: row.target });
+        write(row.target, { takenFrom: row.source });
+    });
+    weekDays.forEach((day) => {
+        const hours = roundHours(Math.max(0, day.payable - day.consumed));
+        if (hours > 0 && !(day.nextDayCount > 0)) write(day.date, { otHours: hours });
+    });
+    ledger.forEach((day) => {
+        if (!calendar[day.date]) return;
+        if (!calendar[day.date].takenFrom && day.fromDay) {
+            calendar[day.date].takenFrom = day.fromDay;
+        }
+    });
+    return calendar;
+}
+
+/** Approved next-day present days. Each placement is counted once. */
+function approvedPlacements(weekDays) {
+    const seen = new Set();
+    const rows = [];
+    const add = (source, target, hours) => {
+        const key = `${source}|${target}`;
+        if (!target || seen.has(key)) return;
+        seen.add(key);
+        rows.push({
+            source: String(source || ''),
+            target,
+            hours: roundHours(hours),
+        });
+    };
+    weekDays.forEach((day) => {
+        if (day.nextDayCount > 0 && day.nextDayDate) add(day.date, day.nextDayDate, day.nextDayHours);
+    });
+    weekDays.forEach((day) => {
+        if (day.statusKey === 'compoff_leave') return;
+        if (!day.covered || !day.coverSource || day.coverSource === day.date) return;
+        add(day.coverSource, day.date, day.incoming || day.nextDayHours);
+    });
+    return rows;
+}
+
+function buildBalancePay({
+    weekSet,
+    ledger,
+    weekDays,
+    infoOf,
+    requiredDays,
+    requiredHours,
+    workedDays,
+    workedHours,
+    otHours,
+    monthlySalary,
+    monthWorkingDays,
+}) {
+    const capOf = (date) => dayCapHours(infoOf(date));
+    const placements = approvedPlacements(weekDays).map((row) => ({
+        ...row,
+        hours: row.hours > 0 ? row.hours : capOf(row.target),
+    }));
+    const compOffHours = roundHours(placements.reduce((sum, row) => sum + row.hours, 0));
+    const creditedHours = roundHours(workedHours + otHours + compOffHours);
+    const gapHours = roundHours(requiredHours - creditedHours);
+    const salary = Math.max(0, Number(monthlySalary) || 0);
+    const monthDays = Math.max(0, Number(monthWorkingDays) || 0);
+    const unit = requiredDays > 0 && requiredHours > 0
+        ? roundHours(requiredHours / requiredDays)
+        : DAY_HOUR_CAP;
+    const hourly = monthDays > 0 && salary > 0 && unit > 0 ? salary / monthDays / unit : 0;
+    const amount = money2(-gapHours * hourly);
+    const requiredRows = [];
+    const workedRows = [];
+    [...weekSet].sort().forEach((date) => {
+        const info = infoOf(date);
+        if (!info.required) return;
+        const day = ledger.get(date);
+        requiredRows.push({
+            date,
+            label: formatAdditionDay(date),
+            hours: capOf(date),
+            attendanceId: day?.attendanceId || '',
+        });
+        if (!countsAsWorked(day)) return;
+        workedRows.push({
+            date,
+            label: formatAdditionDay(date),
+            hours: creditedDayHours(day?.workedHours, info.scheduledHours),
+            attendanceId: day?.attendanceId || '',
+        });
+    });
+    const otRows = [];
+    weekDays.forEach((day) => {
+        const hours = roundHours(Math.max(0, day.payable - day.consumed));
+        if (!(hours > 0) || day.nextDayCount > 0) return;
+        otRows.push({
+            date: day.date,
+            label: formatAdditionDay(day.date),
+            hours,
+            attendanceId: day.attendanceId || '',
+        });
+    });
+    otRows.sort((a, b) => a.date.localeCompare(b.date));
+    const compOffRows = [];
+    placements.forEach((row) => {
+        compOffRows.push({
+            date: row.target,
+            label: formatAdditionDay(row.target),
+            hours: row.hours,
+            text: row.source ? `Comp off taken from ${formatAdditionDay(row.source)}` : 'Comp off taken',
+            attendanceId: ledger.get(row.target)?.attendanceId || '',
+        });
+        if (!row.source) return;
+        compOffRows.push({
+            date: row.source,
+            label: formatAdditionDay(row.source),
+            hours: row.hours,
+            text: `Comp off given to ${formatAdditionDay(row.target)}`,
+            attendanceId: ledger.get(row.source)?.attendanceId || '',
+        });
+    });
+    const gapText = gapHours > 1e-9
+        ? `Short ${formatHourMeasure(gapHours)}`
+        : gapHours < -1e-9
+            ? `Extra ${formatHourMeasure(Math.abs(gapHours))}`
+            : 'No hour difference';
+    return {
+        requiredDays,
+        requiredHours,
+        workedDays,
+        workedHours,
+        compOffDays: placements.length,
+        compOffHours,
+        otHours,
+        creditedHours,
+        gapHours,
+        hourly,
+        unitHours: unit,
+        monthWorkingDays: monthDays,
+        monthlySalary: salary,
+        amount,
+        requiredRows,
+        workedRows,
+        compOffRows,
+        otRows,
+        calculation: [
+            `Monthly salary ${aedText(salary)}`,
+            `Working days, holidays removed ${monthDays}`,
+            `One day ${formatHourMeasure(unit)}`,
+            `Hourly rate ${aedText(hourly)}`,
+            `Required ${formatHourMeasure(requiredHours)}`,
+            `Actual worked ${formatHourMeasure(workedHours)}`,
+            `Approved overtime ${formatHourMeasure(otHours)}`,
+            `Approved comp off ${placements.length} days, ${formatHourMeasure(compOffHours)}`,
+            `Credited ${formatHourMeasure(workedHours)} + ${formatHourMeasure(otHours)} + ${formatHourMeasure(compOffHours)} = ${formatHourMeasure(creditedHours)}`,
+            `${gapText}. Required ${formatHourMeasure(requiredHours)} − credited ${formatHourMeasure(creditedHours)}`,
+            `Amount ${gapHours > 1e-9 ? '−' : gapHours < -1e-9 ? '+' : ''}${aedText(Math.abs(amount))}`,
+        ],
     };
 }

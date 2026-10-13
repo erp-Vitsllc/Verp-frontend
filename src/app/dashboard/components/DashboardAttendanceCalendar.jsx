@@ -115,6 +115,49 @@ function formatClock(value) {
     return s;
 }
 
+function formatAdjustDay(dateKey) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return '';
+    const [year, month, day] = dateKey.split('-').map(Number);
+    const monthName = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1];
+    return `${String(day).padStart(2, '0')}-${monthName}-${year}`;
+}
+
+function adjustmentLinesForDate(records, dateKey) {
+    const lines = [];
+    const add = (line) => {
+        if (line && !lines.includes(line)) lines.push(line);
+    };
+    (records || []).forEach((row) => {
+        const date = String(row?.date || '').trim();
+        const fromDate = String(row?.flexibleFromOtDate || '').trim();
+        const toDate = String(row?.flexibleOtNextDayDate || '').trim();
+        if (date === dateKey) {
+            if (fromDate) {
+                const day = formatAdjustDay(fromDate);
+                add(day ? `(adjusted from ${day})` : '(adjusted from overtime)');
+            }
+            if (toDate) {
+                const day = formatAdjustDay(toDate);
+                if (day) add(`(adjusted to ${day})`);
+            }
+            const compOff =
+                String(row?.statusKey || '') === 'compoff_leave' &&
+                String(row?.compOff?.state || '') === 'adjusted';
+            if (compOff && !fromDate && !toDate) add('(adjusted from overtime)');
+            return;
+        }
+        if (fromDate === dateKey) {
+            const day = formatAdjustDay(date);
+            if (day) add(`(adjusted to ${day})`);
+        }
+        if (toDate === dateKey) {
+            const day = formatAdjustDay(date);
+            if (day) add(`(adjusted from ${day})`);
+        }
+    });
+    return lines;
+}
+
 function toTitleName(name) {
     if (!name) return '';
     return name
@@ -170,7 +213,7 @@ function CalendarDayTooltip({ hovered, reduceMotion }) {
 
     const pad = 18;
     const estimatedWidth = 280;
-    const estimatedHeight = hovered.showTimes ? 200 : hovered.payLabel ? 170 : 140;
+    const estimatedHeight = hovered.showTimes ? 230 : hovered.adjustLines?.length ? 180 : hovered.payLabel ? 170 : 140;
     const left = Math.min(
         Math.max(12, hovered.x + pad),
         Math.max(12, window.innerWidth - estimatedWidth - 12),
@@ -227,6 +270,15 @@ function CalendarDayTooltip({ hovered, reduceMotion }) {
                         >
                             {hovered.payLabel}
                         </span>
+                    ) : null}
+                    {hovered.adjustLines?.length ? (
+                        <div className="mt-2 space-y-0.5">
+                            {hovered.adjustLines.map((line) => (
+                                <p key={line} className="text-[11px] font-bold leading-snug text-violet-200">
+                                    {line}
+                                </p>
+                            ))}
+                        </div>
                     ) : null}
                     {hovered.showTimes ? (
                         <div className="mt-2 grid grid-cols-2 gap-2">
@@ -501,6 +553,8 @@ export default function DashboardAttendanceCalendar({
         });
         return { holidayDates: dates, holidayNamesByDate: names };
     }, [holidayRows, staffType]);
+
+    const monthAttendanceRecords = useMemo(() => Object.values(recordsByDate), [recordsByDate]);
 
     const loadHolidays = useCallback(async () => {
         try {
@@ -948,7 +1002,7 @@ export default function DashboardAttendanceCalendar({
                             ))}
                         </div>
 
-                        <div className="mt-1 grid grid-cols-7 gap-y-1 gap-x-0.5 flex-1 content-start">
+                        <div className="mt-1 grid min-h-0 flex-1 grid-cols-7 content-start gap-x-0.5 gap-y-1 overflow-y-auto">
                             {Array.from({ length: leadingBlanks }).map((_, i) => (
                                 <div key={`blank-${i}`} className="min-h-0" />
                             ))}
@@ -1014,6 +1068,7 @@ export default function DashboardAttendanceCalendar({
                                     !alreadyApprovedFuture;
                                 const canDecide = viewingOther && pendingLeave && attendanceOpen;
 
+                                const adjustLines = adjustmentLinesForDate(monthAttendanceRecords, dateKey);
                                 const hoverHint = pendingLeave
                                     ? 'Request pending'
                                     : canFutureRequest
@@ -1047,6 +1102,7 @@ export default function DashboardAttendanceCalendar({
                                         dateKey,
                                         dateLabel: format(day, 'd MMM yyyy'),
                                         status: statusLabel,
+                                        adjustLines,
                                         detail: hoverHint || (tone.label !== baseLabel ? tone.label : ''),
                                         payLabel:
                                             payWord ||
@@ -1076,10 +1132,12 @@ export default function DashboardAttendanceCalendar({
                                         onMouseEnter={showDayHover}
                                         onMouseMove={showDayHover}
                                         onMouseLeave={() => setHoveredDay(null)}
-                                        className="min-h-0 flex items-center justify-center py-0.5 relative"
+                                        className="min-h-0 flex flex-col items-center justify-start py-0.5 relative"
+                                        title={adjustLines.join(' ')}
                                     >
                                         <button
                                             type="button"
+                                            title={adjustLines.join(' ')}
                                             disabled={
                                                 !canRequest &&
                                                 !canYellowRequest &&
@@ -1114,6 +1172,14 @@ export default function DashboardAttendanceCalendar({
                                                 </span>
                                             ) : null}
                                         </button>
+                                        {adjustLines.map((line) => (
+                                            <span
+                                                key={line}
+                                                className="mt-0.5 max-w-[4.8rem] text-center text-[7px] font-bold leading-tight text-violet-700"
+                                            >
+                                                {line}
+                                            </span>
+                                        ))}
                                     </div>
                                 );
                             })}

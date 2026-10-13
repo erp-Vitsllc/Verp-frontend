@@ -8,6 +8,7 @@ import { ChevronDown, ChevronRight, ChevronUp, Search, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import { hasPermission } from '@/utils/permissions';
 import { isNextDayCheckout, NextDayCheckoutTime } from '@/app/HRM/Attendance/utils/nextDayCheckout';
 import { nonHrMarkableDateKeys } from '@/app/HRM/Attendance/utils/nonHrMarkWindow';
 import { weekForStaffType } from '@/utils/workLocations';
@@ -115,6 +116,23 @@ function formatAdjDay(dateKey) {
     const [year, month, day] = dateKey.split('-').map(Number);
     const monthName = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1];
     return `${String(day).padStart(2, '0')}-${monthName}-${year}`;
+}
+
+function adjustmentLines(mark) {
+    const lines = [];
+    const fromDate = String(mark?.flexibleFromOtDate || '').trim();
+    const toDate = String(mark?.flexibleOtNextDayDate || '').trim();
+    if (fromDate) {
+        const day = formatAdjDay(fromDate);
+        lines.push(day ? `(adjusted from ${day})` : '(adjusted from overtime)');
+    }
+    if (toDate) {
+        const day = formatAdjDay(toDate);
+        if (day) lines.push(`(adjusted to ${day})`);
+    }
+    const compOffAdjusted = String(mark?.key || '') === 'compoff_leave' && String(mark?.compOffState || '') === 'adjusted';
+    if (!lines.length && compOffAdjusted) lines.push('(adjusted from overtime)');
+    return lines;
 }
 
 function otCellLabel(mark) {
@@ -447,8 +465,13 @@ function mergePendingChanges(nextMarks, pendingChanges) {
             pendingChange: {
                 id: String(change.id || ''),
                 stage: change.stage || '',
+                action: change.action || 'mark',
                 statusLabel: change.statusLabel || '',
                 requestedByName: change.requestedByName || '',
+                reason: change.reason || '',
+                date: change.date || '',
+                targetDate: change.targetDate || '',
+                confirmNextDay: change.confirmNextDay === true,
             },
         };
     }
@@ -799,6 +822,8 @@ function EmployeeRow({
     canRequestOt = false,
     otDirect = false,
     canReviewOt = false,
+    canDecidePending = false,
+    onOpenPending,
     pastDay = false,
     dateKey = '',
     scheduleWeek = null,
@@ -853,13 +878,9 @@ function EmployeeRow({
 
     const shift = shiftMarks(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
     const otText = otCellLabel(mark);
-    const adjustDate = String(mark?.flexibleOtNextDayDate || mark?.flexibleFromOtDate || '').trim();
-    const compOffAdjusted = String(mark?.key || '') === 'compoff_leave' && String(mark?.compOffState || '') === 'adjusted';
-    const adjustTitle = adjustDate
-        ? `Adjusted with ${formatAdjDay(adjustDate)}`
-        : compOffAdjusted
-            ? 'Adjusted from overtime'
-            : '';
+    const adjustLines = adjustmentLines(mark);
+    const adjustTitle = adjustLines.join(' ');
+    const syntheticOtReason = /^Present \(On time\) from overtime$/i.test(String(shownMark?.reason || '').trim());
     const actionMenuOptions = rowMenuOptions(menuOptions, shownMark, { canReviewHour });
     const showOtRequest = Number(mark?.flexibleOtHours) > 0 && !otText;
     const spanSeconds = syntheticOt ? null : punchSpanSeconds(rawIn, rawOut, mark?.timeOutDate, mark?.date);
@@ -904,7 +925,7 @@ function EmployeeRow({
                 {isOtPunch(timeOut) ? '—' : <NextDayCheckoutTime time={timeOut} nextDay={checkoutNextDay} />}
             </td>
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle whitespace-nowrap">{duration}</td>
-            <td className="px-3 py-3 align-middle min-w-[140px]">
+            <td className="px-3 py-3 align-middle min-w-[220px]">
                 <div className="flex flex-col gap-0.5 min-w-0">
                     <span
                         className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${statusChipClass(shownMark, statusText)}`}
@@ -913,28 +934,44 @@ function EmployeeRow({
                         {statusText}
                     </span>
                     {mark?.pendingChange ? (
-                        <span
-                            className="text-[10px] font-semibold text-amber-700"
-                            title={
-                                mark.pendingChange.stage === 'pending_hr'
-                                    ? 'Waiting for HR approval'
-                                    : 'Waiting for primary reportee approval'
-                            }
-                        >
-                            {mark.pendingChange.stage === 'pending_hr'
-                                ? 'Waiting for HR'
-                                : 'Waiting for primary reportee'}
-                            {mark.pendingChange.statusLabel
-                                ? ` · ${mark.pendingChange.statusLabel}`
-                                : ''}
-                        </span>
+                        canDecidePending ? (
+                            <button
+                                type="button"
+                                onClick={() => onOpenPending?.(employee, mark)}
+                                className="w-fit text-left text-[10px] font-semibold text-amber-700 hover:underline"
+                                title="Open this request"
+                            >
+                                {mark.pendingChange.stage === 'pending_hr'
+                                    ? 'Waiting for HR'
+                                    : 'Waiting for primary reportee'}
+                                {mark.pendingChange.statusLabel
+                                    ? ` · ${mark.pendingChange.statusLabel}`
+                                    : ''}
+                            </button>
+                        ) : (
+                            <span
+                                className="text-[10px] font-semibold text-amber-700"
+                                title={
+                                    mark.pendingChange.stage === 'pending_hr'
+                                        ? 'Waiting for HR approval'
+                                        : 'Waiting for primary reportee approval'
+                                }
+                            >
+                                {mark.pendingChange.stage === 'pending_hr'
+                                    ? 'Waiting for HR'
+                                    : 'Waiting for primary reportee'}
+                                {mark.pendingChange.statusLabel
+                                    ? ` · ${mark.pendingChange.statusLabel}`
+                                    : ''}
+                            </span>
+                        )
                     ) : null}
-                    {adjustTitle ? (
-                        <span className="text-[10px] font-semibold text-violet-700" title={adjustTitle}>
-                            (Adj)
+                    {adjustLines.map((line) => (
+                        <span key={line} className="text-[10px] font-semibold text-violet-700 whitespace-nowrap" title={line}>
+                            {line}
                         </span>
-                    ) : null}
-                    {shownMark?.reason ? (
+                    ))}
+                    {shownMark?.reason && !(syntheticOtReason && adjustLines.length) ? (
                         <span className="text-[10px] text-gray-500 max-w-[180px] truncate" title={shownMark.reason}>
                             {shownMark.reason}
                         </span>
@@ -990,7 +1027,11 @@ function EmployeeRow({
                             <button
                                 type="button"
                                 disabled={!canRequestOt}
-                                title="Choose an authorized leave day. That day becomes Present. It is not set on the next calendar day unless you select it."
+                                title={
+                                    canRequestOt
+                                        ? 'Choose an authorized leave day. That day becomes Present after HR approves. It is not set on the next calendar day unless you select it.'
+                                        : 'Enable Apply OT and next day present on your permission group'
+                                }
                                 onClick={() => {
                                     if (canRequestOt) onRequestOt?.(employee, mark, 'next-day');
                                 }}
@@ -1006,8 +1047,8 @@ function EmployeeRow({
                                 canRequestOt
                                     ? otDirect
                                         ? 'Apply overtime now'
-                                        : 'Request overtime for HR approval'
-                                    : 'Only the primary reportee or flowchart HR can use overtime'
+                                        : 'Send this for approval. The day stays unchanged until HR approves.'
+                                    : 'Enable Apply OT and next day present on your permission group'
                             }
                             onClick={() => {
                                 if (canRequestOt) onRequestOt?.(employee, mark, 'apply');
@@ -1059,6 +1100,105 @@ function EmployeeRow({
     );
 }
 
+function PendingChangeDecideModal({ change, employee, dateKey, onClose, onDecided }) {
+    const { toast } = useToast();
+    const [saving, setSaving] = useState(false);
+    if (!change) return null;
+    const waitingOnHr = change.stage === 'pending_hr';
+    const selectedDay = change.confirmNextDay && change.targetDate ? change.targetDate : '';
+
+    const decide = async (decision) => {
+        if (!change.id || saving) return;
+        setSaving(true);
+        try {
+            const res = await axiosInstance.post('/Attendance/change-request/decide', {
+                id: change.id,
+                decision,
+            });
+            toast({
+                title: decision === 'approved' ? 'Approved' : 'Rejected',
+                description: res.data?.message || 'Attendance change updated.',
+            });
+            notifyAttendancePendingInboxChanged();
+            onDecided?.();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not update',
+                description: error?.response?.data?.message || 'The attendance change was not updated.',
+            });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+                <h3 className="text-lg font-black text-slate-900">
+                    {waitingOnHr ? 'HR approval' : 'Primary reportee approval'}
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                    {waitingOnHr
+                        ? 'Approving this updates the attendance day.'
+                        : 'Approving this sends the change to HR. The day stays as it is until HR approves.'}
+                </p>
+                <div className="mt-4 space-y-2 text-sm text-slate-700">
+                    <p>
+                        <span className="text-slate-500">Employee: </span>
+                        <strong>{employee?.name || 'Employee'}</strong>
+                    </p>
+                    <p>
+                        <span className="text-slate-500">Date: </span>
+                        {dateKey || change.date || '—'}
+                    </p>
+                    {selectedDay ? (
+                        <p>
+                            <span className="text-slate-500">Day to mark present: </span>
+                            {selectedDay}
+                        </p>
+                    ) : null}
+                    <p>
+                        <span className="text-slate-500">Changed by: </span>
+                        {change.requestedByName || '—'}
+                    </p>
+                    <p>
+                        <span className="text-slate-500">Requested: </span>
+                        {change.statusLabel || 'Updated'}
+                    </p>
+                    {change.reason ? (
+                        <p>
+                            <span className="text-slate-500">Reason: </span>
+                            {change.reason}
+                        </p>
+                    ) : null}
+                </div>
+                <div className="mt-4 flex justify-end gap-2">
+                    <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">
+                        Close
+                    </button>
+                    <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => decide('rejected')}
+                        className="rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600"
+                    >
+                        Reject
+                    </button>
+                    <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => decide('approved')}
+                        className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
+                    >
+                        Approve
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function MarkAttendanceTable({
     dateKey,
     staffType = 'office',
@@ -1091,7 +1231,13 @@ export default function MarkAttendanceTable({
     const [hourModal, setHourModal] = useState(null);
     const [scheduleWeek, setScheduleWeek] = useState(null);
     const [compOffEmployee, setCompOffEmployee] = useState(null);
+    const [pendingReview, setPendingReview] = useState(null);
+    const [canUseOtActions, setCanUseOtActions] = useState(false);
     const viewerId = useMemo(() => currentEmployeeMongoId(), []);
+
+    useEffect(() => {
+        setCanUseOtActions(hasPermission('hrm_attendance_ot', 'isView'));
+    }, []);
     const bulkButtonRef = useRef(null);
     const employeesRef = useRef([]);
     const dayRecordsRef = useRef([]);
@@ -1817,8 +1963,20 @@ export default function MarkAttendanceTable({
                                 onRequestMark={handleRequestMark}
                                 canRequestOt={
                                     isFlowchartHr ||
+                                    canUseOtActions ||
                                     (Boolean(viewerId) &&
                                         viewerId === String(employee.primaryReportee || ''))
+                                }
+                                canDecidePending={
+                                    marks[employee.id]?.pendingChange?.stage === 'pending_hr'
+                                        ? isFlowchartHr
+                                        : marks[employee.id]?.pendingChange?.stage === 'pending_reportee'
+                                            ? Boolean(viewerId) &&
+                                              viewerId === String(employee.primaryReportee || '')
+                                            : false
+                                }
+                                onOpenPending={(row, mark) =>
+                                    setPendingReview({ employee: row, change: mark?.pendingChange || null })
                                 }
                                 otDirect={isFlowchartHr}
                                 canReviewOt={
@@ -1912,6 +2070,16 @@ export default function MarkAttendanceTable({
                 }
                 onClose={() => setOtModal(null)}
                 onSaved={() => setDayReload((value) => value + 1)}
+            />
+            <PendingChangeDecideModal
+                change={pendingReview?.change}
+                employee={pendingReview?.employee}
+                dateKey={dateKey}
+                onClose={() => setPendingReview(null)}
+                onDecided={() => {
+                    setPendingReview(null);
+                    setDayReload((value) => value + 1);
+                }}
             />
         </>
     );

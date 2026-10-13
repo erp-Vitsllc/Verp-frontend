@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 
 /** Drop the fraction. 60 minutes is the next hour, so 11.75 (45 minutes) stays 11. */
 function wholeOtHours(value) {
@@ -145,23 +146,30 @@ export default function FlexibleOtModal({
         }
         setSaving(true);
         try {
-            await axiosInstance.post('/Attendance/flexible-ot/request', {
+            const response = await axiosInstance.post('/Attendance/flexible-ot/request', {
                 attendanceId: mark.attendanceId,
                 approvedHours: hours,
                 reason,
                 confirmNextDay: nextDayIntent,
                 targetDate: nextDayIntent ? targetDate : '',
             });
+            const appliedNow = direct;
+            const presentCopy = remainderHours > 0
+                ? `${choiceLabel(targetDate)} is Present for ${dayHourLabel(creditedDay)} hr. Apply OT stays on that day for the remaining ${remainderHours} hr.`
+                : `${choiceLabel(targetDate)} is Present for ${dayHourLabel(creditedDay)} hr.`;
             toast({
-                title: nextDayIntent ? 'Present set on the selected day' : direct ? 'Overtime applied' : 'Overtime request sent',
-                description: nextDayIntent
-                    ? remainderHours > 0
-                        ? `${choiceLabel(targetDate)} is Present for ${dayHourLabel(creditedDay)} hr. Apply OT stays on that day for the remaining ${remainderHours} hr.`
-                        : `${choiceLabel(targetDate)} is Present for ${dayHourLabel(creditedDay)} hr.`
-                    : direct
-                      ? 'These hours are taken now.'
-                      : 'HR has been notified.',
+                title: appliedNow
+                    ? nextDayIntent
+                        ? 'Present set on the selected day'
+                        : 'Overtime applied'
+                    : 'Request sent',
+                description: appliedNow
+                    ? nextDayIntent
+                        ? presentCopy
+                        : 'These hours are taken now.'
+                    : response.data?.message || 'Attendance stays unchanged until HR approves.',
             });
+            if (!appliedNow) notifyAttendancePendingInboxChanged();
             onSaved?.();
             onClose?.();
         } catch (error) {

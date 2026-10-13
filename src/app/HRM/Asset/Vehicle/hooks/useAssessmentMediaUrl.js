@@ -22,6 +22,11 @@ function mediaDependencyKey(value) {
     return normalizeHandoverPhotoIdentity(value) || JSON.stringify(value);
 }
 
+function isStorageMiss(error) {
+    return error?.code === 'STORAGE_MISS'
+        || /not found in storage|specified key does not exist/i.test(String(error?.message || ''));
+}
+
 function immediateDisplayUrl(photo) {
     const direct = resolveAssessmentMediaUrl(photo);
     if (direct?.startsWith('data:') || direct?.startsWith('blob:')) return direct;
@@ -88,9 +93,9 @@ export default function useAssessmentMediaUrl(photo) {
                     setFailed(!signed);
                     setLoading(false);
                 })
-                .catch(() => {
+                .catch((error) => {
                     if (cancelled || requestKeyRef.current !== startedKey) return;
-                    if (attempt < 2) {
+                    if (!isStorageMiss(error) && attempt < 2) {
                         load(attempt + 1);
                         return;
                     }
@@ -120,6 +125,11 @@ export default function useAssessmentMediaUrl(photo) {
             if (requestKeyRef.current !== startedKey) return;
             setUrl(signed);
             setFailed(!signed);
+            setLoading(false);
+        }).catch(() => {
+            if (requestKeyRef.current !== startedKey) return;
+            setUrl(null);
+            setFailed(true);
             setLoading(false);
         });
     }, []);

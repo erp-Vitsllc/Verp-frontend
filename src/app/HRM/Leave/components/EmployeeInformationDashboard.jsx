@@ -58,6 +58,7 @@ import {
     formatHourMeasure,
 } from '../utils/weeklySalaryAddition';
 import { punchAttendanceKind } from '../utils/punchAttendanceKind';
+import { mispunchDayAmounts, mispunchPolicyRule } from '../utils/mispunchDeduction';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -641,30 +642,31 @@ function monthKeysBetween(fromKey, toKey) {
 function dayAdjustment(row) {
     const nextDay = String(row?.flexibleOtNextDayDate || '').trim();
     const fromDay = String(row?.flexibleFromOtDate || '').trim();
-    if (nextDay) return { withDate: nextDay, compOff: false };
-    if (fromDay) return { withDate: fromDay, compOff: false };
+    if (fromDay) return { withDate: fromDay, direction: 'from', compOff: false };
+    if (nextDay) return { withDate: nextDay, direction: 'to', compOff: false };
     if (String(row?.statusKey || '') === 'compoff_leave' && String(row?.compOff?.state || '') === 'adjusted') {
-        return { withDate: '', compOff: true };
+        return { withDate: '', direction: 'from', compOff: true };
     }
     return null;
 }
 
-function rememberAdjustment(map, date, withDate, compOff) {
+function rememberAdjustment(map, date, withDate, compOff, direction) {
     const key = String(date || '').trim();
     if (!key || map.has(key)) return;
-    map.set(key, { date: key, withDate: String(withDate || '').trim(), compOff: Boolean(compOff) });
+    map.set(key, {
+        date: key,
+        withDate: String(withDate || '').trim(),
+        compOff: Boolean(compOff),
+        direction: direction === 'to' ? 'to' : 'from',
+    });
 }
 
-function adjustmentNote(item, includeSelf = false) {
+function adjustmentNote(item) {
     if (!item) return '';
-    if (item.compOff || !item.withDate) {
-        if (!includeSelf) return 'Adjusted from overtime';
-        const day = item.date ? formatDayLabel(item.date) : '';
-        return day ? `Adjusted from overtime · ${day}` : 'Adjusted from overtime';
-    }
+    if (item.compOff || !item.withDate) return '(adjusted from overtime)';
     const other = formatDayLabel(item.withDate);
-    if (includeSelf && item.date) return `${formatDayLabel(item.date)} adjusted with ${other}`;
-    return `Adjusted with ${other}`;
+    if (!other || other === '—') return '(adjusted from overtime)';
+    return item.direction === 'to' ? `(adjusted to ${other})` : `(adjusted from ${other})`;
 }
 
 function buildAdjustmentIndex(records) {
@@ -674,8 +676,11 @@ function buildAdjustmentIndex(records) {
         if (!date) return;
         const link = dayAdjustment(row);
         if (!link) return;
-        rememberAdjustment(map, date, link.withDate, link.compOff);
-        if (link.withDate) rememberAdjustment(map, link.withDate, date, false);
+        rememberAdjustment(map, date, link.withDate, link.compOff, link.direction);
+        if (link.withDate) {
+            const opposite = link.direction === 'to' ? 'from' : 'to';
+            rememberAdjustment(map, link.withDate, date, false, opposite);
+        }
     });
     return map;
 }
@@ -874,11 +879,14 @@ function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
     return money2((hours / dayHours) * daily);
 }
 
-function attendanceDeductionAmount(record, week, daily, policy) {
+function attendanceDeductionAmount(record, week, daily, policy, mispunchAmounts) {
     const key = deductionKind(record);
     const authTimes = policy?.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
     const unauthTimes = policy?.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
-    if (key === 'early_go' || key === 'late_arrived' || key === 'mispunch') {
+    if (key === 'mispunch') {
+        return money2(mispunchAmounts?.get(String(record?.date || '')) || 0);
+    }
+    if (key === 'early_go' || key === 'late_arrived') {
         return hourDeductionAmount(record, week, daily, key, unauthTimes);
     }
     if (key === 'authorized_leave' || key === 'unauthorized_leave') {
@@ -984,6 +992,11 @@ function formatLossHours(hours) {
 
 function attendanceDeductionRows(records, policy, week, daily) {
     const labeled = (records || []).filter((row) => ATTENDANCE_DEDUCTION_LABEL[deductionKind(row)]);
+    const mispunchAmounts = mispunchDayAmounts(
+        labeled.filter((row) => deductionKind(row) === 'mispunch'),
+        policy,
+        daily,
+    );
     const byMonth = new Map();
     labeled.forEach((row) => {
         const month = String(row?.date || '').slice(0, 7) || 'unknown';
@@ -995,8 +1008,7 @@ function attendanceDeductionRows(records, policy, week, daily) {
         const ordered = [...monthRows].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
         ordered.forEach((record) => {
             const key = deductionKind(record);
-            const amount = attendanceDeductionAmount(record, week, daily, policy);
-            const pending = key === 'mispunch' && !amount;
+            const amount = attendanceDeductionAmount(record, week, daily, policy, mispunchAmounts);
             rows.push({
                 id: String(record?._id || `${record?.date}-${key}`),
                 section: 'attendance',
@@ -1018,7 +1030,7 @@ function attendanceDeductionRows(records, policy, week, daily) {
                     />
                 ),
                 lossHrs: formatLossHours(deductionLossHours(record, week)),
-                amount: pending ? '0.00 (Pending)' : formatAedNumber(amount),
+                amount: formatAedNumber(amount),
             });
         });
     }
@@ -1222,6 +1234,7 @@ function eventRowsFromRecords(records, key) {
             reason: String(row.reason || row.leaveRequestReason || '').trim(),
             adjusted: Boolean(link),
             adjustWith: link?.withDate ? formatDayLabel(link.withDate) : '',
+            adjustLabel: adjustmentNote(link ? { date: row.date, ...link } : null),
             attachmentName: String(row.attachmentName || '').trim(),
             leavePayType: String(row.leavePayType || '').trim(),
             };
@@ -1264,6 +1277,8 @@ function DayTip({
     balanceText,
     deductText,
     moreLines,
+    otText = '',
+    compOffLines = [],
     alignRight,
 }) {
     const [more, setMore] = useState(false);
@@ -1305,6 +1320,19 @@ function DayTip({
                 >
                     {more ? 'Show less' : 'Show more'}
                 </button>
+            ) : null}
+            {otText || compOffLines.length ? (
+                <div className="mt-2 space-y-1 border-t border-[#EEF2F6] pt-2">
+                    {otText ? (
+                        <p className="flex items-start justify-between gap-3 text-[12px]">
+                            <span className="shrink-0 font-medium text-[#94A3B8]">Overtime</span>
+                            <span className="text-right font-semibold text-[#1B2A4A]">{otText}</span>
+                        </p>
+                    ) : null}
+                    {compOffLines.map((line) => (
+                        <p key={line} className="text-[12px] font-semibold leading-snug text-[#0F766E]">{line}</p>
+                    ))}
+                </div>
             ) : null}
             {more ? (
                 <div className="mt-2 space-y-1.5 border-t border-[#EEF2F6] pt-2">
@@ -1423,99 +1451,6 @@ function figureParts(value, singular, plural) {
     return { text: amount, word: amount === 1 ? singular : plural };
 }
 
-function AdjMark({ title, label = '(adj)' }) {
-    const [box, setBox] = useState(null);
-    const markRef = useRef(null);
-    if (!title) return null;
-    const show = () => {
-        const rect = markRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        const left = Math.max(8, Math.min(rect.left, window.innerWidth - 240));
-        setBox({ top: rect.top, left, above: rect.top > 88 });
-    };
-    return (
-        <>
-            <span
-                ref={markRef}
-                className="ml-1 inline-flex cursor-default text-[11px] font-semibold text-[#DC2626]"
-                tabIndex={0}
-                onMouseEnter={show}
-                onMouseLeave={() => setBox(null)}
-                onFocus={show}
-                onBlur={() => setBox(null)}
-            >
-                {label}
-            </span>
-            {box && typeof document !== 'undefined'
-                ? createPortal(
-                    <span
-                        role="tooltip"
-                        className="pointer-events-none fixed z-[280] w-max max-w-[16rem] whitespace-pre-line rounded-lg border border-[#FECACA] bg-white px-2 py-1.5 text-left text-[11px] font-medium leading-snug text-[#1B2A4A] shadow-lg"
-                        style={box.above
-                            ? { left: box.left, top: box.top - 8, transform: 'translateY(-100%)' }
-                            : { left: box.left, top: box.top + 18 }}
-                    >
-                        {title}
-                    </span>,
-                    document.body,
-                )
-                : null}
-        </>
-    );
-}
-
-function AdditionView({ ready, views, staffType, employeeId }) {
-    const router = useRouter();
-    const rows = (Array.isArray(views) ? views : []).filter((row) => row?.date);
-    if (!ready || !rows.length) return <span className="text-[#94A3B8]">—</span>;
-    const open = (date) => {
-        if (!date) return;
-        router.push(markAttendanceHref({
-            date,
-            staffType,
-            blinkEmployee: employeeId,
-        }));
-    };
-    if (rows.length === 1) {
-        return (
-            <button
-                type="button"
-                onClick={() => open(rows[0].date)}
-                className="text-[12px] font-semibold text-[#2563EB]"
-            >
-                View
-            </button>
-        );
-    }
-    return (
-        <select
-            aria-label="Open the attendance day"
-            defaultValue=""
-            onChange={(event) => {
-                const date = event.target.value;
-                event.target.value = '';
-                open(date);
-            }}
-            className="h-7 max-w-full rounded-md border border-[#E6EDF5] bg-white px-1 text-[11px] font-semibold text-[#2563EB]"
-        >
-            <option value="">View</option>
-            {rows.map((row) => (
-                <option key={row.date} value={row.date}>{formatDayLabel(row.date)}</option>
-            ))}
-        </select>
-    );
-}
-
-function AdditionFigure({ ready, text, title }) {
-    if (!ready) return '—';
-    return (
-        <>
-            <span className="tabular-nums">{text}</span>
-            <AdjMark title={title} />
-        </>
-    );
-}
-
 function AdditionWeekSelect({ weeks, value, onChange, id }) {
     return (
         <select
@@ -1538,84 +1473,154 @@ function AdditionWeekSelect({ weeks, value, onChange, id }) {
     );
 }
 
-const ADD_TH = 'px-2 py-2 text-left text-[11px] font-semibold leading-tight text-[#94A3B8]';
-const ADD_TD = 'px-2 py-2 align-middle text-[12px] text-[#1B2A4A]';
+const ADDITION_LISTS = {
+    requiredDays: { title: 'Required working days', rows: 'requiredRows', empty: 'No required working days in this range.' },
+    requiredHours: { title: 'Required working hours', rows: 'requiredRows', empty: 'No required working hours in this range.' },
+    workedDays: { title: 'Actual worked days', rows: 'workedRows', empty: 'No days worked in this range.' },
+    workedHours: { title: 'Actual worked hours', rows: 'workedRows', empty: 'No hours worked in this range.' },
+    compOff: { title: 'Comp off', rows: 'compOffRows', empty: 'No approved comp off in this range.' },
+    overtime: { title: 'Overtime', rows: 'otRows', empty: 'No approved overtime in this range.' },
+    amount: { title: 'Amount to pay', rows: '', empty: '' },
+};
 
-function SalaryAdditionDetails({ open, weeks, weekId, onWeekChange, ready, report, onClose }) {
+function AdditionPayCount({ label, value, valueClass = 'text-[#1B2A4A]', onClick }) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className="min-w-0 rounded-lg border border-[#E6EDF5] bg-white px-2 py-1.5 text-left hover:border-[#93C5FD] hover:bg-[#F8FAFC]"
+        >
+            <span className="block text-[10px] font-medium leading-none text-[#94A3B8]">{label}</span>
+            <span className={`mt-1 block truncate text-[14px] font-bold leading-none tabular-nums ${valueClass}`}>{value}</span>
+        </button>
+    );
+}
+
+function AdditionPayCard({ title, children, columns }) {
+    return (
+        <div className="min-w-0 rounded-xl border border-[#E6EDF5] bg-[#F8FAFC] px-2 py-2">
+            <p className="mb-1.5 text-[12px] font-bold leading-tight text-[#1B2A4A]">{title}</p>
+            <div className={`grid gap-1.5 ${columns}`}>{children}</div>
+        </div>
+    );
+}
+
+function AdditionPayBoxes({ ready, pay, onOpen }) {
+    const row = pay || {};
+    const daysText = (value) => (ready ? measureLabel(value, 'Day', 'Days') : '—');
+    const hoursText = (value) => (ready ? formatHourMeasure(value) : '—');
+    const amount = Number(row.amount) || 0;
+    const short = ready && amount < -0.004;
+    const extra = ready && amount > 0.004;
+    const amountClass = short ? 'text-[#DC2626]' : extra ? 'text-[#16A34A]' : 'text-[#1B2A4A]';
+    const amountText = ready ? `${extra ? '+' : ''}${formatAedNumber(amount)}` : '—';
+    return (
+        <div className="space-y-2 px-3 pb-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <AdditionPayCard title="Required working" columns="grid-cols-2">
+                    <AdditionPayCount label="Days" value={daysText(row.requiredDays)} onClick={() => onOpen('requiredDays')} />
+                    <AdditionPayCount label="Hours" value={hoursText(row.requiredHours)} onClick={() => onOpen('requiredHours')} />
+                </AdditionPayCard>
+                <AdditionPayCard title="Actual worked" columns="grid-cols-2">
+                    <AdditionPayCount label="Days" value={daysText(row.workedDays)} onClick={() => onOpen('workedDays')} />
+                    <AdditionPayCount label="Hours" value={hoursText(row.workedHours)} onClick={() => onOpen('workedHours')} />
+                </AdditionPayCard>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <AdditionPayCard title="Comp off" columns="grid-cols-1">
+                    <AdditionPayCount label="Days" value={daysText(row.compOffDays)} onClick={() => onOpen('compOff')} />
+                </AdditionPayCard>
+                <AdditionPayCard title="Overtime" columns="grid-cols-1">
+                    <AdditionPayCount label="Hours" value={hoursText(row.otHours)} onClick={() => onOpen('overtime')} />
+                </AdditionPayCard>
+                <AdditionPayCard title="Amount to pay" columns="grid-cols-1">
+                    <AdditionPayCount label="AED" value={amountText} valueClass={amountClass} onClick={() => onOpen('amount')} />
+                </AdditionPayCard>
+            </div>
+        </div>
+    );
+}
+
+function SalaryAdditionListModal({ mode, ready, pay, staffType, employeeId, onClose }) {
+    const router = useRouter();
     useEffect(() => {
-        if (!open) return undefined;
+        if (!mode) return undefined;
         function onKey(event) {
             if (event.key === 'Escape') onClose();
         }
         document.addEventListener('keydown', onKey);
         return () => document.removeEventListener('keydown', onKey);
-    }, [open, onClose]);
-    if (!open || typeof document === 'undefined') return null;
-    const rows = report?.details || [];
+    }, [mode, onClose]);
+    if (!mode || typeof document === 'undefined') return null;
+    const spec = ADDITION_LISTS[mode];
+    if (!spec) return null;
+    const rows = spec.rows ? (pay?.[spec.rows] || []) : [];
+    const lines = Array.isArray(pay?.calculation) ? pay.calculation : [];
+    const openDay = (date) => {
+        if (!date) return;
+        router.push(markAttendanceHref({
+            date,
+            staffType,
+            blinkEmployee: employeeId,
+        }));
+    };
     return createPortal(
         <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={onClose} role="presentation">
             <div
                 role="dialog"
                 aria-modal="true"
-                aria-labelledby="salary-addition-details-title"
-                className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white shadow-2xl"
+                aria-labelledby="salary-addition-list-title"
+                className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white shadow-2xl"
                 onClick={(event) => event.stopPropagation()}
             >
                 <div className="flex items-start justify-between gap-3 border-b border-[#EEF2F6] px-5 py-4">
-                    <div className="min-w-0 flex-1">
-                        <h3 id="salary-addition-details-title" className="text-[15px] font-bold text-[#1B2A4A]">Salary Addition Details</h3>
-                        <div className="mt-2 max-w-md">
-                            <AdditionWeekSelect id="salary-addition-week-modal" weeks={weeks} value={weekId} onChange={onWeekChange} />
-                        </div>
-                    </div>
+                    <h3 id="salary-addition-list-title" className="text-[15px] font-bold text-[#1B2A4A]">{spec.title}</h3>
                     <button type="button" onClick={onClose} className="rounded-lg p-2 text-[#94A3B8] hover:bg-[#F8FAFC] hover:text-[#1B2A4A]" aria-label="Close">
                         <X size={18} />
                     </button>
                 </div>
                 <div className="overflow-auto px-5 py-3">
-                    <table className="w-full border-collapse text-left">
-                        <thead>
-                            <tr className="border-b border-[#EEF2F6]">
-                                <th className={TH}>Date</th>
-                                <th className={TH}>Hrs Worked</th>
-                                <th className={TH}>Adjusted</th>
-                                <th className="whitespace-nowrap px-3 py-2.5 text-right text-[12px] font-medium text-[#94A3B8]">Amount (AED)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {rows.length ? rows.map((row) => (
-                                <tr key={row.date} className="border-t border-[#F4F7FB]">
-                                    <td className={TD}>{row.label}</td>
-                                    <td className={`${TD} tabular-nums`}>{ready ? hourCountLabel(row.workedHours) : '—'}</td>
-                                    <td className={`${TD} tabular-nums`}>
-                                        {ready
-                                            ? (row.adjustedDays > 0
-                                                ? measureLabel(row.adjustedDays, 'Day', 'Days')
-                                                : hourCountLabel(row.adjustedHours))
-                                            : '—'}
-                                    </td>
-                                    <td className={`${TD} text-right font-medium tabular-nums ${row.amount < 0 ? 'text-[#DC2626]' : ''}`}>
-                                        {ready ? (
-                                            <>
-                                                <span className="block">{formatAedNumber(row.amount)}</span>
-                                                {row.calculation ? (
-                                                    <span className="mt-0.5 block text-[10px] font-medium leading-snug text-[#64748B]">{row.calculation}</span>
-                                                ) : null}
-                                            </>
-                                        ) : '—'}
-                                    </td>
-                                </tr>
-                            )) : (
-                                <tr><td colSpan={4} className="px-3 py-6 text-center text-[13px] text-[#94A3B8]">{weekId === 'all' ? 'No days from the 1st through yesterday.' : 'No days in this week.'}</td></tr>
+                    {mode === 'amount' ? (
+                        <div className="space-y-2">
+                            {ready && lines.length ? lines.map((line, index) => {
+                                const last = index === lines.length - 1;
+                                const amount = Number(pay?.amount) || 0;
+                                const tone = !last
+                                    ? 'text-[#1B2A4A]'
+                                    : amount < -0.004
+                                        ? 'text-[#DC2626]'
+                                        : amount > 0.004
+                                            ? 'text-[#16A34A]'
+                                            : 'text-[#1B2A4A]';
+                                return (
+                                    <p key={`${index}-${line}`} className={`text-[13px] font-medium leading-snug ${tone}`}>{line}</p>
+                                );
+                            }) : (
+                                <p className="py-6 text-center text-[13px] text-[#94A3B8]">No amount to show for this range.</p>
                             )}
-                        </tbody>
-                        <tfoot>
-                            <tr className="border-t border-[#E2E8F0]">
-                                <td className={`${TD} font-bold`} colSpan={3}>Total Addition (AED)</td>
-                                <td className={`${TD} text-right font-bold tabular-nums text-[#16A34A]`}>{ready ? formatAedNumber(report?.total || 0) : '—'}</td>
-                            </tr>
-                        </tfoot>
-                    </table>
+                        </div>
+                    ) : rows.length && ready ? (
+                        <div className="divide-y divide-[#F4F7FB]">
+                            {rows.map((row, index) => (
+                                <button
+                                    key={`${row.date}-${row.text || index}`}
+                                    type="button"
+                                    onClick={() => openDay(row.date)}
+                                    className="flex w-full items-start justify-between gap-3 py-2.5 text-left hover:bg-[#F8FAFC]"
+                                >
+                                    <span className="min-w-0">
+                                        <span className="block text-[13px] font-semibold text-[#1B2A4A]">{row.text || row.label}</span>
+                                        {row.text ? <span className="mt-0.5 block text-[11px] text-[#64748B]">{row.label}</span> : null}
+                                    </span>
+                                    <span className="shrink-0 text-right text-[12px] font-semibold tabular-nums text-[#2563EB]">
+                                        {formatHourMeasure(row.hours)}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="py-6 text-center text-[13px] text-[#94A3B8]">{spec.empty}</p>
+                    )}
                 </div>
             </div>
         </div>,
@@ -1816,7 +1821,7 @@ export default function EmployeeInformationDashboard({
     const [spanRecords, setSpanRecords] = useState([]);
     const [spanLoading, setSpanLoading] = useState(false);
     const [additionWeekId, setAdditionWeekId] = useState('all');
-    const [additionDetailsOpen, setAdditionDetailsOpen] = useState(false);
+    const [additionModal, setAdditionModal] = useState('');
 
     const monthAnchor = useMemo(() => new Date(`${monthKey}-01T12:00:00`), [monthKey]);
     const choices = useMemo(() => monthChoices(joinKey, todayKey), [joinKey, todayKey]);
@@ -2208,40 +2213,59 @@ export default function EmployeeInformationDashboard({
                 holiday: isHoliday,
             };
         };
-        const payByDate = new Map();
-        const reports = additionWeeks.map((week) => buildWeeklySalaryAddition({
+        const monthWorkingDays = days.filter((day) => {
+            const dateKey = format(day, 'yyyy-MM-dd');
+            const isHoliday = holidayDates.has(dateKey);
+            const isWeeklyOff = !isHoliday && offWeekdays.has(WEEKDAY_KEYS[getDay(day)]);
+            return !isHoliday && !isWeeklyOff;
+        }).length;
+        const additionInput = {
             monthKey,
             countTo,
             joinKey,
             records: monthRecords,
             daily: salaryBasis.daily,
             flexible: String(scheduleWeek?.timingMode || '').toLowerCase() === 'flexible',
+            dayInfo,
+            monthlySalary,
+            monthWorkingDays,
+        };
+        const payByDate = new Map();
+        const calendarNotes = {};
+        const mergeCalendar = (calendar) => {
+            Object.entries(calendar || {}).forEach(([date, note]) => {
+                const current = calendarNotes[date] || { otHours: 0, givenTo: '', takenFrom: '' };
+                calendarNotes[date] = {
+                    otHours: note?.otHours > 0 ? note.otHours : current.otHours,
+                    givenTo: note?.givenTo || current.givenTo,
+                    takenFrom: note?.takenFrom || current.takenFrom,
+                };
+            });
+        };
+        const reports = additionWeeks.map((week) => buildWeeklySalaryAddition({
+            ...additionInput,
             weekDates: week.dates,
             extraDates: week.extraDates,
-            dayInfo,
         }));
         reports.forEach((report) => {
             report.details.forEach((row) => {
                 payByDate.set(row.date, money2((payByDate.get(row.date) || 0) + (Number(row.amount) || 0)));
             });
+            mergeCalendar(report.calendar);
         });
         const picked = additionWeeks.findIndex((week) => week.id === additionWeek?.id);
         const selected = additionWeek?.id === 'all'
             ? buildWeeklySalaryAddition({
-                monthKey,
-                countTo,
-                joinKey,
-                records: monthRecords,
-                daily: salaryBasis.daily,
-                flexible: String(scheduleWeek?.timingMode || '').toLowerCase() === 'flexible',
+                ...additionInput,
                 weekDates: additionWeek.dates,
                 extraDates: additionWeek.extraDates,
-                dayInfo,
             })
             : reports[picked];
+        mergeCalendar(selected?.calendar);
         return {
             report: selected || emptyWeeklySalaryAddition(),
             payByDate,
+            calendarNotes,
         };
     }, [
         additionWeeks,
@@ -2251,6 +2275,8 @@ export default function EmployeeInformationDashboard({
         joinKey,
         monthRecords,
         salaryBasis.daily,
+        monthlySalary,
+        days,
         scheduleWeek,
         recordsByDate,
         holidayDates,
@@ -2258,6 +2284,15 @@ export default function EmployeeInformationDashboard({
     ]);
     const salaryAddition = additionBundle.report;
     const additionPayByDate = additionBundle.payByDate;
+    const calendarNotes = additionBundle.calendarNotes || {};
+    const mispunchAmounts = useMemo(
+        () => mispunchDayAmounts(
+            countedRecords.filter((row) => deductionKind(row) === 'mispunch'),
+            profile?.leavePolicy || {},
+            salaryBasis.daily,
+        ),
+        [countedRecords, profile?.leavePolicy, salaryBasis.daily],
+    );
     const deductionRows = useMemo(() => {
         const policy = profile?.leavePolicy || {};
         const daily = salaryBasis.daily;
@@ -2280,9 +2315,10 @@ export default function EmployeeInformationDashboard({
             return sum + attendanceDeductionAmount(row, scheduleWeek, daily, policy);
         }, 0);
         const punchCountOf = (kind) => countedRecords.filter((row) => deductionKind(row) === kind).length;
-        const punchAmount = punchAmountOf('mispunch');
+        const punchAmount = money2([...mispunchAmounts.values()].reduce((sum, amount) => sum + amount, 0));
         const dayRate = formatAed(daily, 2);
         const hourNote = 'Until approval this uses the unauthorized leave rate. After approval, only the approved hours are deducted.';
+        const missedRule = mispunchPolicyRule(policy);
         return [
             {
                 key: 'late_arrived',
@@ -2303,7 +2339,7 @@ export default function EmployeeInformationDashboard({
                 type: 'Missed punch',
                 count: punchCountOf('mispunch'),
                 amount: punchAmount,
-                note: hourNote,
+                note: eventPolicyNote(punchCountOf('mispunch'), missedRule, daily),
             },
             {
                 key: 'authorized_leave',
@@ -2327,7 +2363,7 @@ export default function EmployeeInformationDashboard({
                     : `1 unauthorized day deducts ${unauthTimes} × ${dayRate}`,
             },
         ];
-    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek]);
+    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts]);
     const deductionDetailRows = useMemo(() => {
         const attendance = attendanceDeductionRows(detailRecords, profile?.leavePolicy || {}, scheduleWeek, salaryBasis.daily);
         const moneyRows = financialDeductionRows({
@@ -2905,15 +2941,8 @@ export default function EmployeeInformationDashboard({
                             </button>
                         </div>
                         <div className="mt-2 overflow-hidden rounded-xl border border-[#E7EEF6]">
-                            <div className="flex items-center justify-between gap-2 px-3 pt-2.5">
+                            <div className="px-3 pt-2.5">
                                 <p className="text-[13px] font-bold text-[#1B2A4A]">Salary Addition</p>
-                                <button
-                                    type="button"
-                                    onClick={() => setAdditionDetailsOpen(true)}
-                                    className="inline-flex shrink-0 items-center text-[12px] font-semibold text-[#2563EB]"
-                                >
-                                    See Details <ChevronRight size={14} />
-                                </button>
                             </div>
                             <div className="px-3 pb-2 pt-1.5">
                                 <AdditionWeekSelect
@@ -2928,136 +2957,11 @@ export default function EmployeeInformationDashboard({
                                     </p>
                                 ) : null}
                             </div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full min-w-[40rem] table-fixed border-collapse text-left">
-                                    <colgroup>
-                                        <col className="w-[6%]" />
-                                        <col className="w-[16%]" />
-                                        <col className="w-[22%]" />
-                                        <col className="w-[20%]" />
-                                        <col className="w-[22%]" />
-                                        <col className="w-[14%]" />
-                                    </colgroup>
-                                    <thead>
-                                        <tr className="border-t border-[#EEF2F6]">
-                                            <th className={`${ADD_TH} w-8`}>#</th>
-                                            <th className={ADD_TH}>Description</th>
-                                            <th className={ADD_TH}>Approved OT</th>
-                                            <th className={ADD_TH}>Adj OT</th>
-                                            <th className={ADD_TH}>Balance OT</th>
-                                            <th className={ADD_TH}>View</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr className="border-t border-[#F4F7FB]">
-                                            <td className={`${ADD_TD} text-[#94A3B8]`}>1</td>
-                                            <td className={ADD_TD}>Overtime</td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={formatHourMeasure(salaryAddition.overtime.approved)} /></td>
-                                            <td className={ADD_TD}>
-                                                <AdditionFigure
-                                                    ready={additionReady}
-                                                    text={formatHourMeasure(salaryAddition.overtime.adjusted)}
-                                                />
-                                            </td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={formatHourMeasure(salaryAddition.overtime.balance)} /></td>
-                                            <td className={ADD_TD}>
-                                                <AdditionView
-                                                    ready={additionReady}
-                                                    views={salaryAddition.overtime.views}
-                                                    staffType={staffType}
-                                                    employeeId={employeeMongoId}
-                                                />
-                                            </td>
-                                        </tr>
-                                        <tr className="border-t border-[#F4F7FB]">
-                                            <td className={`${ADD_TD} text-[#94A3B8]`}>2</td>
-                                            <td className={ADD_TD}>Comp off</td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.compOff.approved, 'Day', 'Days')} /></td>
-                                            <td className={ADD_TD}>
-                                                <AdditionFigure
-                                                    ready={additionReady}
-                                                    text={measureLabel(salaryAddition.compOff.adjusted, 'Day', 'Days')}
-                                                />
-                                            </td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.compOff.balance, 'Day', 'Days')} /></td>
-                                            <td className={ADD_TD}>
-                                                <AdditionView
-                                                    ready={additionReady}
-                                                    views={salaryAddition.compOff.views}
-                                                    staffType={staffType}
-                                                    employeeId={employeeMongoId}
-                                                />
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <table className="w-full min-w-[40rem] table-fixed border-collapse border-t-2 border-[#CBD5E1] text-left">
-                                    <colgroup>
-                                        <col className="w-[6%]" />
-                                        <col className="w-[16%]" />
-                                        <col className="w-[20%]" />
-                                        <col className="w-[20%]" />
-                                        <col className="w-[20%]" />
-                                        <col className="w-[18%]" />
-                                    </colgroup>
-                                    <thead>
-                                        <tr>
-                                            <th className={`${ADD_TH} w-8`}>#</th>
-                                            <th className={ADD_TH}>Description Type</th>
-                                            <th className={ADD_TH}>Required Working Day</th>
-                                            <th className={ADD_TH}>Actually Worked</th>
-                                            <th className={ADD_TH}>Adjusted Work</th>
-                                            <th className={ADD_TH}>Balance Work</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr className="border-t border-[#F4F7FB]">
-                                            <td className={`${ADD_TD} text-[#94A3B8]`}>3</td>
-                                            <td className={ADD_TD}>Working Day</td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.workingDay.required, 'Day', 'Days')} /></td>
-                                            <td className={ADD_TD}>
-                                                <AdditionFigure
-                                                    ready={additionReady}
-                                                    text={measureLabel(salaryAddition.workingDay.worked, 'Day', 'Days')}
-                                                />
-                                            </td>
-                                            <td className={ADD_TD}>
-                                                <AdditionFigure
-                                                    ready={additionReady}
-                                                    text={measureLabel(salaryAddition.workingDay.adjusted, 'Day', 'Days')}
-                                                    title={salaryAddition.workingDay.adjusted > 0 ? (salaryAddition.workingDay.compOffTitle || 'Comp off') : ''}
-                                                />
-                                            </td>
-                                            <td className={ADD_TD}>
-                                                <AdditionFigure ready={additionReady} text={measureLabel(salaryAddition.workingDay.balance, 'Day', 'Days')} />
-                                            </td>
-                                        </tr>
-                                        <tr className="border-t border-[#F4F7FB]">
-                                            <td className={`${ADD_TD} text-[#94A3B8]`}>4</td>
-                                            <td className={ADD_TD}>Working Hours</td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={formatHourMeasure(salaryAddition.workingHours.required)} /></td>
-                                            <td className={ADD_TD}>
-                                                <AdditionFigure
-                                                    ready={additionReady}
-                                                    text={formatHourMeasure(salaryAddition.workingHours.worked)}
-                                                />
-                                            </td>
-                                            <td className={ADD_TD}>
-                                                <AdditionFigure
-                                                    ready={additionReady}
-                                                    text={formatHourMeasure(salaryAddition.workingHours.adjusted)}
-                                                    title={salaryAddition.workingHours.adjusted > 0 ? (salaryAddition.workingHours.title || 'Adjusted work') : ''}
-                                                />
-                                            </td>
-                                            <td className={ADD_TD}><AdditionFigure ready={additionReady} text={formatHourMeasure(salaryAddition.workingHours.balance)} /></td>
-                                        </tr>
-                                        <tr className="border-t border-[#E2E8F0]">
-                                            <td className={`${ADD_TD} font-bold`} colSpan={5}>Total Addition (AED)</td>
-                                            <td className={`${ADD_TD} text-right font-bold tabular-nums text-[#16A34A]`}>{additionReady ? formatAedNumber(salaryAddition.total) : '—'}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
+                            <AdditionPayBoxes
+                                ready={additionReady}
+                                pay={salaryAddition.balancePay}
+                                onOpen={setAdditionModal}
+                            />
                         </div>
                         <div className="mt-2 overflow-hidden rounded-xl border border-[#E7EEF6]">
                             <div className="flex items-center justify-between gap-2 px-3 py-2.5">
@@ -3092,14 +2996,13 @@ export default function EmployeeInformationDashboard({
                                               : leaveRow
                                                 ? (Number(row.count) ? `${Number(row.count).toFixed(1)} ${Number(row.count) === 1 ? 'Day' : 'Days'}` : '—')
                                                 : row.count;
-                                        const pendingPunch = !salaryLock.locked && row.key === 'mispunch' && n(row.count) > 0 && !n(row.amount);
                                         return (
                                             <tr key={row.key} className="border-t border-[#F4F7FB]">
                                                 <td className={`${TD} text-[#94A3B8]`}>{index + 1}</td>
                                                 <td className={TD}>{row.type}</td>
                                                 <td className={`${TD} tabular-nums`}>{countText}</td>
-                                                <td className={`${TD} text-right font-medium tabular-nums ${pendingPunch ? 'text-[#D97706]' : ''}`}>
-                                                    {salaryLock.locked ? '—' : pendingPunch ? '0.00 (Pending)' : formatAedNumber(row.amount)}
+                                                <td className={`${TD} text-right font-medium tabular-nums`}>
+                                                    {salaryLock.locked ? '—' : formatAedNumber(row.amount)}
                                                 </td>
                                             </tr>
                                         );
@@ -3182,7 +3085,7 @@ export default function EmployeeInformationDashboard({
                                                 ? null
                                                 : money2((earnsDayRate ? dayRate : 0) + extraPay);
                                             const deduct = counted
-                                                ? money2(attendanceDeductionAmount(record, scheduleWeek, salaryBasis.daily, profile?.leavePolicy || {}))
+                                                ? money2(attendanceDeductionAmount(record, scheduleWeek, salaryBasis.daily, profile?.leavePolicy || {}, mispunchAmounts))
                                                 : null;
                                             const lateText = flexibleDay ? '' : dayLateText(record, scheduleWeek);
                                             const typeLabel = yellowLabel || kindLabel(kind);
@@ -3192,6 +3095,11 @@ export default function EmployeeInformationDashboard({
                                             if (lateText && lateText !== '—' && lateText !== '0 Hours') moreLines.push({ label: 'Late', value: lateText });
                                             if (earlyText && earlyText !== '—' && earlyText !== '0 Hours') moreLines.push({ label: 'Early', value: earlyText });
                                             if (description) moreLines.push({ label: 'Description', value: description });
+                                            const dayNote = calendarNotes[dateKey] || null;
+                                            const otText = dayNote?.otHours > 0 ? formatHourMeasure(dayNote.otHours) : '';
+                                            const compOffLines = [];
+                                            if (dayNote?.givenTo) compOffLines.push(`Comp off given to ${formatDayLabel(dayNote.givenTo)}`);
+                                            if (dayNote?.takenFrom) compOffLines.push(`Comp off taken from ${formatDayLabel(dayNote.takenFrom)}`);
                                             return (
                                                 <div
                                                     key={dateKey}
@@ -3199,9 +3107,13 @@ export default function EmployeeInformationDashboard({
                                                     onMouseEnter={() => inMonth && setHoveredDate(dateKey)}
                                                     onMouseLeave={() => setHoveredDate('')}
                                                 >
-                                                    <div className={`flex h-12 min-h-12 w-full flex-col items-center justify-center rounded-[9px] text-[13px] font-semibold tabular-nums leading-none ${DAY_STYLE[kind] || DAY_STYLE.empty}`}>
+                                                    <div className={`flex min-h-12 w-full flex-col items-center justify-center rounded-[9px] px-0.5 py-1 text-[13px] font-semibold tabular-nums leading-none ${DAY_STYLE[kind] || DAY_STYLE.empty}`}>
                                                         <span>{format(day, 'd')}</span>
-                                                        {adjustment ? <span className={`mt-0.5 text-[9px] font-bold leading-none ${adjInk(kind)}`}>(Adj)</span> : null}
+                                                        {adjustmentText ? (
+                                                            <span className={`mt-0.5 text-center text-[8px] font-bold leading-tight ${adjInk(kind)}`}>
+                                                                {adjustmentText}
+                                                            </span>
+                                                        ) : null}
                                                     </div>
                                                     {hoveredDate === dateKey && inMonth && !salaryLock.locked ? (
                                                         <DayTip
@@ -3221,6 +3133,8 @@ export default function EmployeeInformationDashboard({
                                                             inSpot={punchSpot(record?.checkInLocation)}
                                                             outSpot={punchSpot(record?.checkOutLocation)}
                                                             workedText={worked == null ? '—' : formatHourlyGap(worked)}
+                                                            otText={otText}
+                                                            compOffLines={compOffLines}
                                                             paymentText={payment == null ? '—' : formatAed(payment, 2)}
                                                             balanceText={flexibleShort != null ? formatHourlyGap(Math.max(0, flexibleShort)) : formatHourlyGap(balance)}
                                                             deductText={deduct == null ? '—' : formatAed(deduct, 2)}
@@ -3398,14 +3312,13 @@ export default function EmployeeInformationDashboard({
                     </div>
                 </div>
             </div>
-            <SalaryAdditionDetails
-                open={additionDetailsOpen}
-                weeks={additionChoices}
-                weekId={additionWeek?.id}
-                onWeekChange={setAdditionWeekId}
+            <SalaryAdditionListModal
+                mode={additionModal}
                 ready={additionReady}
-                report={salaryAddition}
-                onClose={() => setAdditionDetailsOpen(false)}
+                pay={salaryAddition.balancePay}
+                staffType={staffType}
+                employeeId={employeeMongoId}
+                onClose={() => setAdditionModal('')}
             />
         </div>
     );

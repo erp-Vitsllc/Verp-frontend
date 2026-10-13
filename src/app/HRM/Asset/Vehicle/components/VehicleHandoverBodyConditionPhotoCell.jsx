@@ -53,6 +53,10 @@ export default function VehicleHandoverBodyConditionPhotoCell({
                             decoding="async"
                             onError={resolved.retry}
                         />
+                    ) : resolved.failed ? (
+                        <span className="px-2 text-center text-[10px] font-semibold leading-snug text-amber-700">
+                            Photo file is missing from storage.
+                        </span>
                     ) : (
                         <ImageIcon size={20} className="text-gray-300" strokeWidth={1.5} />
                     )}
@@ -81,6 +85,10 @@ export default function VehicleHandoverBodyConditionPhotoCell({
                             decoding="async"
                             onError={resolved.retry}
                         />
+                    ) : resolved.failed ? (
+                        <span className="px-2 text-center text-[10px] font-semibold leading-snug text-amber-700">
+                            Photo file is missing from storage. Use Change to upload it again.
+                        </span>
                     ) : uploading ? (
                         <Loader2 size={20} className="animate-spin text-slate-400" />
                     ) : (

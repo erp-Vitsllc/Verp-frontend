@@ -600,6 +600,38 @@ describe('weekly salary addition counts', () => {
         assert.equal(result.workingDay.worked, 1);
     });
 
+    it('lists only approved overtime and approved comp off', () => {
+        const records = [
+            { date: '2026-10-05', statusKey: 'on_office', timeIn: '08:00', timeOut: '16:00', flexibleWorkedHours: 8 },
+            {
+                date: '2026-10-06',
+                statusKey: 'on_office',
+                timeIn: '08:00',
+                timeOut: '18:00',
+                flexibleWorkedHours: 10,
+                flexibleRequiredHours: 8,
+                flexibleOtStatus: 'approved',
+                flexibleOtApprovedHours: 2,
+            },
+            {
+                date: '2026-10-07',
+                statusKey: 'on_office',
+                timeIn: '08:00',
+                timeOut: '19:00',
+                flexibleOtStatus: 'pending',
+                flexibleOtApprovedHours: 1,
+            },
+            {
+                date: '2026-10-08',
+                statusKey: 'compoff_leave',
+                compOff: { state: 'open', chargeMonth: '2026-10' },
+            },
+        ];
+        const result = report(weeks[1], records, { countTo: '2026-10-10' });
+        assert.deepEqual(result.details.map((row) => row.date), ['2026-10-06', '2026-10-08']);
+        assert.equal(result.details.reduce((sum, row) => sum + row.amount, 0), result.total);
+    });
+
     it('keeps Sunday overtime with the Monday week that Sunday opens', () => {
         const records = [{
             date: '2026-10-04',
@@ -616,5 +648,62 @@ describe('weekly salary addition counts', () => {
         assert.equal(result.total, 300);
         assert.equal(result.details.some((row) => row.date === '2026-10-04'), true);
         assert.equal(result.workingDay.required, 6);
+    });
+
+    it('pays the hour gap after approved overtime and next-day comp off', () => {
+        const dates = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-12', '2026-10-13'];
+        const present = (date, extra = {}) => ({
+            date,
+            statusKey: 'on_office',
+            timeIn: '08:00',
+            timeOut: '18:00',
+            ...extra,
+        });
+        const result = buildWeeklySalaryAddition({
+            monthKey: '2026-10',
+            countTo: '2026-10-13',
+            joinKey: '2026-10-01',
+            records: [
+                present('2026-10-05', { flexibleOtStatus: 'approved', flexibleOtApprovedHours: 4 }),
+                present('2026-10-06'),
+                present('2026-10-07'),
+                {
+                    date: '2026-10-08',
+                    statusKey: 'on_office',
+                    timeIn: 'OT',
+                    timeOut: 'OT',
+                    flexibleFromOtDate: '2026-09-28',
+                },
+                {
+                    date: '2026-10-09',
+                    statusKey: 'on_office',
+                    timeIn: 'OT',
+                    timeOut: 'OT',
+                    flexibleFromOtDate: '2026-09-29',
+                },
+            ],
+            daily: 200,
+            flexible: true,
+            weekDates: dates,
+            extraDates: [],
+            dayInfo: dayInfoFor('2026-10-13', { scheduledHours: 10 }),
+            monthlySalary: 4000,
+            monthWorkingDays: 20,
+        });
+        const pay = result.balancePay;
+        assert.equal(pay.requiredDays, 7);
+        assert.equal(pay.requiredHours, 70);
+        assert.equal(pay.workedDays, 3);
+        assert.equal(pay.workedHours, 30);
+        assert.equal(pay.otHours, 4);
+        assert.equal(pay.compOffDays, 2);
+        assert.equal(pay.compOffHours, 20);
+        assert.equal(pay.creditedHours, 54);
+        assert.equal(pay.gapHours, 16);
+        assert.equal(pay.amount, -320);
+        assert.equal(result.calendar['2026-10-05'].otHours, 4);
+        assert.equal(result.calendar['2026-10-08'].takenFrom, '2026-09-28');
+        assert.match(pay.compOffRows.find((row) => row.date === '2026-10-08').text, /taken from 28-Sep-2026/);
+        assert.match(pay.compOffRows.find((row) => row.date === '2026-09-28').text, /given to 08-Oct-2026/);
     });
 });
