@@ -6,11 +6,11 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
-const TASK_TYPES = ['System Task', 'Workflow Task', 'General Task'];
+const TASK_TYPE = 'General Task';
 const PRIORITIES = ['High', 'Medium', 'Low'];
 
 const EMPTY_FORM = {
-    taskType: 'System Task',
+    taskType: TASK_TYPE,
     priority: 'Medium',
     taskName: '',
     description: '',
@@ -34,11 +34,6 @@ function FieldLabel({ children, required }) {
             {required ? <span className="text-rose-500"> *</span> : null}
         </span>
     );
-}
-
-function normalizeTaskType(value) {
-    if (value === 'Work Flow Task') return 'Workflow Task';
-    return TASK_TYPES.includes(value) ? value : 'Workflow Task';
 }
 
 function toDateInput(value) {
@@ -71,7 +66,7 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
         setForm(
             initialTask
                 ? {
-                      taskType: normalizeTaskType(initialTask.taskCategory || initialTask.taskType),
+                      taskType: TASK_TYPE,
                       priority: initialTask.priority || 'Medium',
                       taskName: initialTask.taskName || '',
                       description: initialTask.description || '',
@@ -172,9 +167,9 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                     data: await fileToDataUrl(file),
                 })),
             );
-            const priority = form.taskType === 'System Task' ? 'High' : form.priority;
+            const priority = form.priority;
             const payload = {
-                taskType: form.taskType,
+                taskType: TASK_TYPE,
                 priority,
                 taskName: form.taskName.trim(),
                 description: form.description.trim(),
@@ -192,7 +187,7 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
             });
             onCreated?.(res.data?.task || {
                 actionId: initialTask?.actionId,
-                taskType: form.taskType,
+                taskType: TASK_TYPE,
                 priority,
                 taskName: form.taskName,
             });
@@ -232,27 +227,17 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                         <label>
                             <FieldLabel required>Task Type</FieldLabel>
                             <select
-                                value={form.taskType}
-                                onChange={(event) => {
-                                    const next = event.target.value;
-                                    setForm((current) => ({
-                                        ...current,
-                                        taskType: next,
-                                        priority: next === 'System Task' ? 'High' : current.priority,
-                                    }));
-                                }}
-                                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500"
+                                value={TASK_TYPE}
+                                disabled
+                                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none"
                             >
-                                {TASK_TYPES.map((item) => (
-                                    <option key={item}>{item}</option>
-                                ))}
+                                <option>{TASK_TYPE}</option>
                             </select>
                         </label>
                         <label>
                             <FieldLabel required>Task Priority</FieldLabel>
                             <select
-                                value={form.taskType === 'System Task' ? 'High' : form.priority}
-                                disabled={form.taskType === 'System Task'}
+                                value={form.priority}
                                 onChange={(event) => setField('priority', event.target.value)}
                                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500"
                             >

@@ -17,6 +17,7 @@ import {
     fetchEmployeeDashboardStats,
     getCachedEmployeeDashboardStats,
 } from '@/utils/employeeDashboardStatsFetch';
+import { isReassignedTaskNotice, reassignedNoticeModule } from '@/utils/notificationInboxPresentation';
 import { sortNotificationsStackOrder } from '@/utils/notificationSortOrder';
 
 const COMPANY_NOTIFICATION_TYPES = new Set([
@@ -181,6 +182,7 @@ export function buildCompanyPageNotifications(
         const type = String(item?.type || '').trim();
         if (isCardDeletedNotificationHiddenType(type)) return false;
         if (hidden.has(type)) return false;
+        if (isReassignedTaskNotice(item) && reassignedNoticeModule(item) === 'company') return true;
         return COMPANY_NOTIFICATION_TYPES.has(type);
     });
 

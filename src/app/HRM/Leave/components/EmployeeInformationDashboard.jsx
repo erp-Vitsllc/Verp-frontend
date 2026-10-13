@@ -5,6 +5,7 @@ import { isNextDayCheckout, NextDayCheckoutTime } from '@/app/HRM/Attendance/uti
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { handleNavigateFromListClick } from '@/utils/listReturnNavigation';
 import {
     addMonths,
     eachDayOfInterval,
@@ -45,6 +46,7 @@ import { MonthPicker } from '@/components/ui/date-picker';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { getEmployeeInitials } from '@/utils/employeeProfileImage';
 import { normalizeWorkLocationKey, weekForStaffType } from '@/utils/workLocations';
+import useWorkLocations from '@/hooks/useWorkLocations';
 import { markAttendanceHref } from '@/app/HRM/Attendance/utils/markAttendanceHref';
 import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
@@ -160,13 +162,37 @@ function salaryForMonth(salary, history, monthKey) {
     };
 }
 
-function taskHref(task, employeeMongoId) {
-    const id = String(task?.id || '').trim();
-    if (task?.kind === 'leave') return '/HRM/Leave/annual-leave';
-    if (!id) return '/dashboard';
-    const params = new URLSearchParams({ hubRequestId: id });
-    if (employeeMongoId) params.set('viewEmployee', String(employeeMongoId));
-    return `/dashboard?${params.toString()}`;
+function employeeTaskListHref(name) {
+    const key = String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const params = new URLSearchParams({
+        scope: 'All Task',
+        status: 'All Status',
+    });
+    if (key) params.set('employee', key);
+    return `/task-manager?${params.toString()}`;
+}
+
+function employeeTaskDetailsHref(task) {
+    const id = String(task?.actionId || '').trim();
+    if (!id) return '';
+    const params = new URLSearchParams();
+    if (task.taskNumber) params.set('no', task.taskNumber);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return `/task-manager/${encodeURIComponent(id)}${suffix}`;
+}
+
+function employeeTaskTypeClass(type) {
+    if (type === 'System Task') return 'bg-[#EFF6FF] text-[#2563EB]';
+    if (type === 'Workflow Task') return 'bg-[#F5F3FF] text-[#7C3AED]';
+    if (type === 'General Task') return 'bg-[#FFF7ED] text-[#C2410C]';
+    return 'bg-[#F8FAFC] text-[#64748B]';
+}
+
+function employeeTaskStatusClass(status) {
+    if (status === 'Completed') return 'bg-[#ECFDF3] text-[#16A34A]';
+    if (status === 'Overdue') return 'bg-[#FEF2F2] text-[#DC2626]';
+    if (status === 'Closed') return 'bg-[#F1F5F9] text-[#64748B]';
+    return 'bg-[#FFF7ED] text-[#EA580C]';
 }
 
 function dubaiTodayKey() {
@@ -869,12 +895,15 @@ function takenHoursOf(row, week, kind) {
 
 function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
     const approved = String(row?.hourAdjustStatus || '') === 'approved';
-    const flexibleEarly = isFlexibleWeek(week) && kind === 'early_go';
-    const dayHours = (flexibleEarly || approved ? flexibleDayHours(week, row?.date) : 0) || dayHoursOf(week, row?.date) || 8;
-    const shortHours = flexibleEarly
-        ? (n(row?.hoursTaken) > 0 ? n(row.hoursTaken) : flexibleLossHoursOf(row, week))
-        : (n(row?.hoursTaken) || takenHoursOf(row, week, kind));
-    const hours = approved ? n(row.hoursApproved) : shortHours * unauthTimes;
+    const flexiblePunch = isFlexibleWeek(week) && (kind === 'early_go' || kind === 'late_arrived');
+    const flexibleRequired = wholeHourCount(flexibleDayHours(week, row?.date));
+    const dayHours = flexiblePunch
+        ? (flexibleRequired || flexibleDayHours(week, row?.date) || 8)
+        : ((approved ? flexibleDayHours(week, row?.date) : 0) || dayHoursOf(week, row?.date) || 8);
+    const missedHours = flexiblePunch
+        ? (approved ? n(row.hoursApproved) : flexibleLossHoursOf(row, week))
+        : (approved ? n(row.hoursApproved) : (n(row?.hoursTaken) || takenHoursOf(row, week, kind)));
+    const hours = flexiblePunch || approved ? missedHours : missedHours * unauthTimes;
     if (!(hours > 0) || !(daily > 0) || !(dayHours > 0)) return 0;
     return money2((hours / dayHours) * daily);
 }
@@ -930,6 +959,15 @@ function parseLabelDate(label) {
 
 function deductionEventDetail(record, week) {
     const key = deductionKind(record);
+    if (key === 'late_arrived' || key === 'early_go') {
+        const approved = String(record?.hourAdjustStatus || '') === 'approved';
+        if (isFlexibleWeek(week)) {
+            if (approved) return `${n(record.hoursApproved)} approved hr`;
+            const loss = flexibleLossHoursOf(record, week);
+            const required = wholeHourCount(flexibleDayHours(week, record?.date));
+            return `${loss} hr short of ${required} hr`;
+        }
+    }
     if (key === 'late_arrived') {
         const minutes = dayLateText(record, week);
         const time = formatClock12(record?.timeIn);
@@ -938,11 +976,6 @@ function deductionEventDetail(record, week) {
     if (key === 'early_go') {
         const approved = String(record?.hourAdjustStatus || '') === 'approved';
         if (approved) return `${n(record.hoursApproved)} approved hr`;
-        if (isFlexibleWeek(week)) {
-            const loss = n(record?.hoursTaken) > 0 ? n(record.hoursTaken) : flexibleLossHoursOf(record, week);
-            const required = wholeHourCount(flexibleDayHours(week, record?.date));
-            return `${loss} hr short of ${required} hr`;
-        }
         const shift = shiftForDate(week, record?.date);
         const actual = clockToMinutes(record?.timeOut);
         const gap = shift && actual != null ? Math.max(0, shift.end - actual) : null;
@@ -974,8 +1007,8 @@ function deductionLossHours(record, week) {
     const key = deductionKind(record);
     const approved = String(record?.hourAdjustStatus || '') === 'approved';
     if (approved) return n(record.hoursApproved);
-    if (isFlexibleWeek(week) && key === 'early_go') {
-        return n(record?.hoursTaken) > 0 ? n(record.hoursTaken) : flexibleLossHoursOf(record, week);
+    if (isFlexibleWeek(week) && (key === 'early_go' || key === 'late_arrived')) {
+        return flexibleLossHoursOf(record, week);
     }
     if (key === 'authorized_leave' || key === 'unauthorized_leave') {
         const weight = leaveDayWeight(record, key === 'authorized_leave');
@@ -1345,6 +1378,382 @@ function DayTip({
                 </div>
             ) : null}
         </div>
+    );
+}
+
+function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = false }) {
+    const dateKey = format(day, 'yyyy-MM-dd');
+    const inMonth = dateKey.slice(0, 7) === ctx.monthKey;
+    const record = inMonth ? ctx.recordsByDate[dateKey] : null;
+    const weekdayKey = WEEKDAY_KEYS[getDay(day)];
+    const beforeStart = Boolean(ctx.visibleFrom) && dateKey < ctx.visibleFrom;
+    const isHoliday = inMonth && !beforeStart && (ctx.holidayDates.has(dateKey) || record?.statusKey === 'holiday');
+    const isWeeklyOff = inMonth && !beforeStart && !isHoliday && (record?.statusKey === 'weekly_off' || ctx.offWeekdays.has(weekdayKey));
+    const isFuture = dateKey > ctx.todayKey;
+    const kind = !inMonth
+        ? 'outside'
+        : beforeStart
+          ? 'empty'
+          : ctx.salaryLock?.locked
+            ? 'future'
+            : dayKind(record, { isFuture, isToday: dateKey === ctx.todayKey, isHoliday, isWeeklyOff });
+    const worked = recordWorkedMinutes(record);
+    const tone = TIP_TONE[kind] || TIP_TONE.empty;
+    const column = (getDay(day) + 6) % 7;
+    const yellowLabel = kind === 'attention' ? attentionLabel(record) : '';
+    const flexibleDay = isFlexibleWeek(ctx.scheduleWeek);
+    const earlyText = flexibleDay ? '' : dayEarlyText(record, ctx.scheduleWeek);
+    const description = dayDescription(record);
+    const adjustment = inMonth && !beforeStart && !ctx.salaryLock?.locked ? ctx.adjustmentByDate.get(dateKey) : null;
+    const adjustmentText = adjustmentNote(adjustment ? { date: dateKey, ...adjustment } : null);
+    const approval = dayApprovalLabel(record);
+    const scheduled = flowchartMinutes(ctx.scheduleWeek, dateKey, record);
+    const balance = worked == null || !(scheduled > 0) ? null : scheduled - worked;
+    const flexibleShort = flexibleDay ? flexibleShortMinutes(record, ctx.scheduleWeek) : null;
+    const counted = Boolean(ctx.countTo) && dateKey >= ctx.countFrom && dateKey <= ctx.countTo;
+    const extraPay = ctx.additionPayByDate.get(dateKey) || 0;
+    const syntheticOt = String(record?.timeIn || '').trim() === 'OT'
+        || String(record?.timeOut || '').trim() === 'OT'
+        || Boolean(String(record?.flexibleFromOtDate || '').trim());
+    const deductedLeave = kind === 'authorized' || kind === 'absent';
+    const earnsDayRate = counted && !deductedLeave && !syntheticOt && !isHoliday && !isWeeklyOff && kind !== 'future';
+    const dayRate = Number(ctx.salaryDaily) || 0;
+    const payment = !counted && !(extraPay > 0)
+        ? null
+        : money2((earnsDayRate ? dayRate : 0) + extraPay);
+    const deduct = counted
+        ? money2(attendanceDeductionAmount(record, ctx.scheduleWeek, ctx.salaryDaily, ctx.leavePolicy || {}, ctx.mispunchAmounts))
+        : null;
+    const lateText = flexibleDay ? '' : dayLateText(record, ctx.scheduleWeek);
+    const typeLabel = yellowLabel || kindLabel(kind);
+    const moreLines = [];
+    if (ctx.holidayNamesByDate[dateKey]) moreLines.push({ label: 'Holiday', value: ctx.holidayNamesByDate[dateKey] });
+    if (adjustmentText) moreLines.push({ label: 'Adjusted', value: adjustmentText });
+    if (lateText && lateText !== '—' && lateText !== '0 Hours') moreLines.push({ label: 'Late', value: lateText });
+    if (earlyText && earlyText !== '—' && earlyText !== '0 Hours') moreLines.push({ label: 'Early', value: earlyText });
+    if (description) moreLines.push({ label: 'Description', value: description });
+    const dayNote = ctx.calendarNotes[dateKey] || null;
+    const otText = dayNote?.otHours > 0 ? formatHourMeasure(dayNote.otHours) : '';
+    const compOffLines = [];
+    if (dayNote?.givenTo) compOffLines.push(`Comp off given to ${formatDayLabel(dayNote.givenTo)}`);
+    if (dayNote?.takenFrom) compOffLines.push(`Comp off taken from ${formatDayLabel(dayNote.takenFrom)}`);
+    const showTip = hoveredDate === dateKey && inMonth && !beforeStart && !ctx.salaryLock?.locked;
+    return (
+        <div
+            className="relative"
+            onMouseEnter={() => inMonth && !beforeStart && setHoveredDate(dateKey)}
+            onMouseLeave={() => setHoveredDate('')}
+        >
+            <div className={`${compact
+                ? 'flex h-8 w-full items-center justify-center rounded-[7px] text-[11px] font-semibold tabular-nums leading-none'
+                : 'flex min-h-12 w-full flex-col items-center justify-center rounded-[9px] px-0.5 py-1 text-[13px] font-semibold tabular-nums leading-none'
+            } ${DAY_STYLE[kind] || DAY_STYLE.empty}`}>
+                <span>{format(day, 'd')}</span>
+                {!compact && adjustmentText ? (
+                    <span className={`mt-0.5 text-center text-[8px] font-bold leading-tight ${adjInk(kind)}`}>
+                        {adjustmentText}
+                    </span>
+                ) : null}
+            </div>
+            {showTip ? (
+                <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                    <DayTip
+                        dateLabel={format(day, 'd MMMM yyyy')}
+                        statusText={typeLabel}
+                        statusClass={tone.text}
+                        approvalText={approval}
+                        dotClass={tone.dot}
+                        timeIn={formatClock12(record?.timeIn)}
+                        timeOut={formatClock12(record?.timeOut)}
+                        timeOutNextDay={isNextDayCheckout({
+                            date: dateKey,
+                            timeIn: record?.timeIn,
+                            timeOut: record?.timeOut,
+                            timeOutDate: record?.timeOutDate,
+                        })}
+                        inSpot={punchSpot(record?.checkInLocation)}
+                        outSpot={punchSpot(record?.checkOutLocation)}
+                        workedText={worked == null ? '—' : formatHourlyGap(worked)}
+                        otText={otText}
+                        compOffLines={compOffLines}
+                        paymentText={payment == null ? '—' : formatAed(payment, 2)}
+                        balanceText={flexibleShort != null ? formatHourlyGap(Math.max(0, flexibleShort)) : formatHourlyGap(balance)}
+                        deductText={deduct == null ? '—' : formatAed(deduct, 2)}
+                        moreLines={moreLines}
+                        alignRight={column >= 4}
+                    />
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+function buildMonthCalendarContext({
+    monthKey,
+    todayKey,
+    records,
+    scheduleWeek,
+    offWeekdays,
+    staffType,
+    holidayRows,
+    leavePolicy,
+    monthlySalary,
+    joinKey,
+    visibleFrom,
+}) {
+    const recordsByDate = {};
+    (records || []).forEach((row) => {
+        if (row?.date) recordsByDate[row.date] = row;
+    });
+    const holidayDates = new Set();
+    const holidayNamesByDate = {};
+    (holidayRows || []).forEach((row) => {
+        if (!row?.date || !holidayAppliesToStaff(row, staffType)) return;
+        holidayDates.add(row.date);
+        holidayNamesByDate[row.date] = row.name || row.note || 'Holiday';
+    });
+    const anchor = new Date(`${monthKey}-01T12:00:00`);
+    const monthDays = eachDayOfInterval({ start: startOfMonth(anchor), end: endOfMonth(anchor) });
+    let weekOffs = 0;
+    monthDays.forEach((day) => {
+        if (offWeekdays.has(WEEKDAY_KEYS[getDay(day)])) weekOffs += 1;
+    });
+    const salaryDaily = monthlySalary > 0 && monthDays.length
+        ? money2(monthlySalary / Math.max(monthDays.length - weekOffs, 1))
+        : 0;
+    const countFrom = joinKey && joinKey.startsWith(monthKey) && joinKey > `${monthKey}-01` ? joinKey : `${monthKey}-01`;
+    const countTo = countEndForMonth(monthKey, todayKey);
+    const monthRecords = records || [];
+    const counted = recordsInWindow(monthRecords, countFrom, countTo);
+    const policy = leavePolicy || {};
+    const mispunchAmounts = mispunchDayAmounts(
+        counted.filter((row) => deductionKind(row) === 'mispunch'),
+        policy,
+        salaryDaily,
+    );
+    const additionWeeks = buildMonthWorkWeeks(monthKey);
+    const dayInfo = (dateKey) => {
+        const record = recordsByDate[dateKey];
+        const weekdayKey = WEEKDAY_KEYS[new Date(`${dateKey}T00:00:00Z`).getUTCDay()];
+        const isHoliday = holidayDates.has(dateKey) || record?.statusKey === 'holiday';
+        const isWeeklyOff = !isHoliday && (record?.statusKey === 'weekly_off' || offWeekdays.has(weekdayKey));
+        const required = Boolean(countTo)
+            && dateKey <= countTo
+            && (!joinKey || dateKey >= joinKey)
+            && dateKey.startsWith(monthKey)
+            && !isHoliday
+            && !isWeeklyOff;
+        const flexibleWeek = isFlexibleWeek(scheduleWeek);
+        return {
+            required,
+            scheduledHours: required
+                ? (flexibleWeek ? flexibleDayHours(scheduleWeek, dateKey) : dayHoursOf(scheduleWeek, dateKey))
+                : 0,
+            weeklyOff: isWeeklyOff,
+            holiday: isHoliday,
+        };
+    };
+    const monthWorkingDays = monthDays.filter((day) => {
+        const dateKey = format(day, 'yyyy-MM-dd');
+        const isHoliday = holidayDates.has(dateKey);
+        const isWeeklyOff = !isHoliday && offWeekdays.has(WEEKDAY_KEYS[getDay(day)]);
+        return !isHoliday && !isWeeklyOff;
+    }).length;
+    const additionInput = {
+        monthKey,
+        countTo,
+        joinKey,
+        records: monthRecords,
+        daily: salaryDaily,
+        flexible: isFlexibleWeek(scheduleWeek),
+        dayInfo,
+        monthlySalary,
+        monthWorkingDays,
+    };
+    const payByDate = new Map();
+    const calendarNotes = {};
+    const mergeCalendar = (calendar) => {
+        Object.entries(calendar || {}).forEach(([date, note]) => {
+            const current = calendarNotes[date] || { otHours: 0, givenTo: '', takenFrom: '' };
+            calendarNotes[date] = {
+                otHours: note?.otHours > 0 ? note.otHours : current.otHours,
+                givenTo: note?.givenTo || current.givenTo,
+                takenFrom: note?.takenFrom || current.takenFrom,
+            };
+        });
+    };
+    additionWeeks.forEach((week) => {
+        const report = buildWeeklySalaryAddition({
+            ...additionInput,
+            weekDates: week.dates,
+            extraDates: week.extraDates,
+        });
+        report.details.forEach((row) => {
+            payByDate.set(row.date, money2((payByDate.get(row.date) || 0) + (Number(row.amount) || 0)));
+        });
+        mergeCalendar(report.calendar);
+    });
+    return {
+        monthKey,
+        todayKey,
+        recordsByDate,
+        salaryLock: { locked: false },
+        holidayDates,
+        holidayNamesByDate,
+        offWeekdays,
+        scheduleWeek,
+        countFrom,
+        countTo,
+        salaryDaily,
+        leavePolicy: policy,
+        mispunchAmounts,
+        additionPayByDate: payByDate,
+        calendarNotes,
+        adjustmentByDate: buildAdjustmentIndex(monthRecords),
+        visibleFrom: visibleFrom || '',
+    };
+}
+
+function GroupEmployeeCalendar({ employee, payload, holidayRows, leavePolicy, onOpen }) {
+    const [hoveredDate, setHoveredDate] = useState('');
+    const monthKey = payload?.month || '';
+    const ctx = useMemo(() => {
+        if (!payload || !monthKey) return null;
+        const offWeekdays = new Set(Array.isArray(payload.offWeekdays) && payload.offWeekdays.length
+            ? payload.offWeekdays
+            : ['saturday', 'sunday']);
+        return buildMonthCalendarContext({
+            monthKey,
+            todayKey: payload.today || format(new Date(), 'yyyy-MM-dd'),
+            records: employee.records || [],
+            scheduleWeek: weekForStaffType(payload.workingTime, payload.staffType || employee.staffType) || payload.scheduleWeek || null,
+            offWeekdays,
+            staffType: payload.staffType || employee.staffType,
+            holidayRows,
+            leavePolicy,
+            monthlySalary: Number(employee.monthlySalary) || 0,
+            joinKey: employee.visibleFrom || '',
+            visibleFrom: employee.visibleFrom || '',
+        });
+    }, [employee, holidayRows, leavePolicy, monthKey, payload]);
+    const anchor = useMemo(() => new Date(`${monthKey}-01T12:00:00`), [monthKey]);
+    const days = useMemo(() => eachDayOfInterval({
+        start: startOfWeek(startOfMonth(anchor), { weekStartsOn: 1 }),
+        end: endOfWeek(endOfMonth(anchor), { weekStartsOn: 1 }),
+    }), [anchor]);
+    if (!ctx) return null;
+    return (
+        <article
+            className={`cursor-pointer rounded-2xl border border-[#E6EDF5] bg-white px-3 py-3 shadow-sm transition hover:border-[#93C5FD] ${hoveredDate ? 'relative z-30' : 'relative z-0'}`}
+            onClick={() => onOpen(employee.id)}
+        >
+            <div className="mb-2 min-w-0">
+                <p className="truncate text-[14px] font-bold text-[#1B2A4A]">{employee.employeeName || 'Employee'}</p>
+                <p className="truncate text-[11px] font-medium text-[#64748B]">{employee.employeeId || 'Attendance'}</p>
+            </div>
+            <div className="mb-1 grid grid-cols-7 gap-1">
+                {WEEKDAYS.map((day) => (
+                    <div key={day} className="text-center text-[10px] font-medium text-[#94A3B8]">{day}</div>
+                ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+                {days.map((day) => (
+                    <AttendanceDayCell
+                        key={format(day, 'yyyy-MM-dd')}
+                        day={day}
+                        ctx={ctx}
+                        hoveredDate={hoveredDate}
+                        setHoveredDate={setHoveredDate}
+                        compact
+                    />
+                ))}
+            </div>
+        </article>
+    );
+}
+
+function GroupAttendanceBoard({ groupKey, groupLabel, monthKey, holidayRows, leavePolicy, onOpenEmployee }) {
+    const [payload, setPayload] = useState(null);
+    const [error, setError] = useState('');
+    const [reloadKey, setReloadKey] = useState(0);
+    const [loadedFor, setLoadedFor] = useState('');
+    const requestKey = `${groupKey}|${monthKey}|${reloadKey}`;
+    const loading = Boolean(groupKey) && loadedFor !== requestKey;
+
+    useEffect(() => {
+        if (!groupKey || !/^\d{4}-\d{2}$/.test(monthKey)) return undefined;
+        let cancelled = false;
+        axiosInstance
+            .get('/Leave/group-calendars', {
+                params: { month: monthKey, staffType: groupKey, detail: '1' },
+                skipToast: true,
+            })
+            .then((response) => {
+                if (cancelled) return;
+                setPayload(response.data || null);
+                setError('');
+                setLoadedFor(requestKey);
+            })
+            .catch((err) => {
+                if (cancelled) return;
+                setPayload(null);
+                setError(err?.response?.data?.message || 'Could not load this group.');
+                setLoadedFor(requestKey);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [groupKey, monthKey, reloadKey, requestKey]);
+
+    const employees = Array.isArray(payload?.employees) ? payload.employees : [];
+    return (
+        <section className="rounded-2xl border border-[#E6EDF5] bg-[#F8FAFC] p-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <h2 className="text-[15px] font-bold text-[#1B2A4A]">{groupLabel} attendance</h2>
+                    <p className="text-[12px] font-medium text-[#64748B]">Three calendars per row. Click a calendar to open that employee.</p>
+                </div>
+            </div>
+            <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1.5">
+                {LEGEND.map((item) => (
+                    <span key={item.key} className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[#64748B]">
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${item.swatch}`} />
+                        {item.label}
+                    </span>
+                ))}
+            </div>
+            {loading ? (
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                    {[0, 1, 2].map((key) => (
+                        <div key={key} className="h-64 animate-pulse rounded-2xl border border-[#E6EDF5] bg-white" />
+                    ))}
+                </div>
+            ) : null}
+            {!loading && error ? (
+                <button type="button" onClick={() => setReloadKey((value) => value + 1)} className="text-[13px] font-semibold text-red-500">
+                    {error} · Retry
+                </button>
+            ) : null}
+            {!loading && !error && employees.length ? (
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                    {employees.map((employee) => (
+                        <GroupEmployeeCalendar
+                            key={employee.id}
+                            employee={employee}
+                            payload={payload}
+                            holidayRows={holidayRows}
+                            leavePolicy={leavePolicy}
+                            onOpen={onOpenEmployee}
+                        />
+                    ))}
+                </div>
+            ) : null}
+            {!loading && !error && !employees.length ? (
+                <p className="rounded-xl border border-dashed border-[#E6EDF5] bg-white px-4 py-8 text-center text-sm text-[#64748B]">
+                    No employees in this group.
+                </p>
+            ) : null}
+        </section>
     );
 }
 
@@ -1797,6 +2206,8 @@ export default function EmployeeInformationDashboard({
     onOpenSalary,
     onOpenLeaveList,
 }) {
+    const router = useRouter();
+    const { tabs: staffGroups } = useWorkLocations();
     const todayKey = dubaiTodayKey();
     const currentMonth = todayKey.slice(0, 7);
     const employee = profile?.employee || {};
@@ -1822,6 +2233,25 @@ export default function EmployeeInformationDashboard({
     const [spanLoading, setSpanLoading] = useState(false);
     const [additionWeekId, setAdditionWeekId] = useState('all');
     const [additionModal, setAdditionModal] = useState('');
+    const [groupKey, setGroupKey] = useState('');
+    const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+    const groupMenuRef = useRef(null);
+
+    useEffect(() => {
+        if (!groupMenuOpen) return undefined;
+        const close = (event) => {
+            if (groupMenuRef.current && !groupMenuRef.current.contains(event.target)) setGroupMenuOpen(false);
+        };
+        const onKey = (event) => {
+            if (event.key === 'Escape') setGroupMenuOpen(false);
+        };
+        document.addEventListener('mousedown', close);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', close);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [groupMenuOpen]);
 
     const monthAnchor = useMemo(() => new Date(`${monthKey}-01T12:00:00`), [monthKey]);
     const choices = useMemo(() => monthChoices(joinKey, todayKey), [joinKey, todayKey]);
@@ -2317,7 +2747,9 @@ export default function EmployeeInformationDashboard({
         const punchCountOf = (kind) => countedRecords.filter((row) => deductionKind(row) === kind).length;
         const punchAmount = money2([...mispunchAmounts.values()].reduce((sum, amount) => sum + amount, 0));
         const dayRate = formatAed(daily, 2);
-        const hourNote = 'Until approval this uses the unauthorized leave rate. After approval, only the approved hours are deducted.';
+        const hourNote = isFlexibleWeek(scheduleWeek)
+            ? 'Flexible time deducts only the missed hours. Late arrival and early go do not use the salary policy.'
+            : 'Until approval this uses the unauthorized leave rate. After approval, only the approved hours are deducted.';
         const missedRule = mispunchPolicyRule(policy);
         return [
             {
@@ -2461,6 +2893,35 @@ export default function EmployeeInformationDashboard({
         start: startOfWeek(startOfMonth(monthAnchor), { weekStartsOn: 1 }),
         end: endOfWeek(endOfMonth(monthAnchor), { weekStartsOn: 1 }),
     });
+    const calendarCtx = {
+        monthKey,
+        todayKey,
+        recordsByDate,
+        salaryLock,
+        holidayDates,
+        holidayNamesByDate,
+        offWeekdays,
+        scheduleWeek,
+        countFrom,
+        countTo,
+        salaryDaily: salaryBasis.daily,
+        leavePolicy: profile?.leavePolicy || {},
+        mispunchAmounts,
+        additionPayByDate,
+        calendarNotes,
+        adjustmentByDate,
+        visibleFrom: '',
+    };
+    const selectedGroupLabel = staffGroups.find((group) => group.key === groupKey)?.label || '';
+
+    function openGroupEmployee(id) {
+        setGroupMenuOpen(false);
+        if (!id || String(id) === String(employeeMongoId || '')) {
+            setGroupKey('');
+            return;
+        }
+        router.push(`/HRM/Leave/${id}`);
+    }
 
     function selectMonth(nextKey) {
         if (!choices.includes(nextKey)) return;
@@ -2585,6 +3046,48 @@ export default function EmployeeInformationDashboard({
                     </div>
 
                     <div className="ml-auto flex items-start gap-4">
+                        <div ref={groupMenuRef} className="relative">
+                            <p className="mb-1 text-[12px] font-medium leading-none text-[#64748B]">Group</p>
+                            <button
+                                type="button"
+                                onClick={() => setGroupMenuOpen((open) => !open)}
+                                aria-expanded={groupMenuOpen}
+                                aria-haspopup="listbox"
+                                className="flex h-8 min-w-[10.5rem] items-center justify-between gap-2 rounded-lg border border-[#E2E8F0] bg-white px-2.5 text-[13px] font-semibold text-[#1B2A4A]"
+                            >
+                                <span className="truncate">{staffGroups.find((group) => group.key === groupKey)?.label || 'Select group'}</span>
+                                <ChevronDown size={14} className={`shrink-0 text-[#64748B] transition-transform ${groupMenuOpen ? 'rotate-180' : ''}`} />
+                            </button>
+                            {groupMenuOpen ? (
+                                <div className="absolute left-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-xl border border-[#E6EDF5] bg-white py-1 shadow-xl">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setGroupKey('');
+                                            setGroupMenuOpen(false);
+                                        }}
+                                        className={`flex w-full px-3 py-2 text-left text-[13px] font-semibold hover:bg-[#F8FAFC] ${groupKey ? 'text-[#64748B]' : 'bg-[#EFF6FF] text-[#2563EB]'}`}
+                                    >
+                                        Current profile
+                                    </button>
+                                    {staffGroups.length ? staffGroups.map((group) => (
+                                        <button
+                                            key={group.key}
+                                            type="button"
+                                            onClick={() => {
+                                                setGroupKey(group.key);
+                                                setGroupMenuOpen(false);
+                                            }}
+                                            className={`flex w-full px-3 py-2 text-left text-[13px] font-semibold hover:bg-[#F8FAFC] ${groupKey === group.key ? 'bg-[#EFF6FF] text-[#2563EB]' : 'text-[#1B2A4A]'}`}
+                                        >
+                                            {group.label}
+                                        </button>
+                                    )) : (
+                                        <p className="px-3 py-2 text-[13px] text-[#94A3B8]">No groups</p>
+                                    )}
+                                </div>
+                            ) : null}
+                        </div>
                         <div>
                             <p className="mb-1 text-[12px] font-medium leading-none text-[#64748B]">Period</p>
                             <div className="inline-flex rounded-lg bg-[#F1F5F9] p-0.5">
@@ -2662,6 +3165,16 @@ export default function EmployeeInformationDashboard({
                 </div>
             </section>
 
+            {groupKey ? (
+                <GroupAttendanceBoard
+                    groupKey={groupKey}
+                    groupLabel={selectedGroupLabel || 'Group'}
+                    monthKey={monthKey}
+                    holidayRows={holidayRows}
+                    leavePolicy={profile?.leavePolicy || {}}
+                    onOpenEmployee={openGroupEmployee}
+                />
+            ) : (
             <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-2">
                 <div className="flex min-w-0 flex-col gap-3">
                     <section className="relative rounded-2xl border border-[#E6EDF5] bg-white p-2.5">
@@ -3047,104 +3560,15 @@ export default function EmployeeInformationDashboard({
                                         ))}
                                     </div>
                                     <div className="grid grid-cols-7 gap-x-[7px] gap-y-[7px]">
-                                        {calendarDays.map((day) => {
-                                            const dateKey = format(day, 'yyyy-MM-dd');
-                                            const inMonth = dateKey.slice(0, 7) === monthKey;
-                                            const record = inMonth ? recordsByDate[dateKey] : null;
-                                            const weekdayKey = WEEKDAY_KEYS[getDay(day)];
-                                            const isHoliday = inMonth && (holidayDates.has(dateKey) || record?.statusKey === 'holiday');
-                                            const isWeeklyOff = inMonth && !isHoliday && (record?.statusKey === 'weekly_off' || offWeekdays.has(weekdayKey));
-                                            const isFuture = dateKey > todayKey;
-                                            const kind = !inMonth
-                                                ? 'outside'
-                                                : salaryLock.locked
-                                                  ? 'future'
-                                                  : dayKind(record, { isFuture, isToday: dateKey === todayKey, isHoliday, isWeeklyOff });
-                                            const worked = recordWorkedMinutes(record);
-                                            const tone = TIP_TONE[kind] || TIP_TONE.empty;
-                                            const column = (getDay(day) + 6) % 7;
-                                            const yellowLabel = kind === 'attention' ? attentionLabel(record) : '';
-                                            const flexibleDay = isFlexibleWeek(scheduleWeek);
-                                            const earlyText = flexibleDay ? '' : dayEarlyText(record, scheduleWeek);
-                                            const description = dayDescription(record);
-                                            const adjustment = inMonth && !salaryLock.locked ? adjustmentByDate.get(dateKey) : null;
-                                            const adjustmentText = adjustmentNote(adjustment ? { date: dateKey, ...adjustment } : null);
-                                            const approval = dayApprovalLabel(record);
-                                            const scheduled = flowchartMinutes(scheduleWeek, dateKey, record);
-                                            const balance = worked == null || !(scheduled > 0) ? null : scheduled - worked;
-                                            const flexibleShort = flexibleDay ? flexibleShortMinutes(record, scheduleWeek) : null;
-                                            const counted = Boolean(countTo) && dateKey >= countFrom && dateKey <= countTo;
-                                            const extraPay = additionPayByDate.get(dateKey) || 0;
-                                            const syntheticOt = String(record?.timeIn || '').trim() === 'OT'
-                                                || String(record?.timeOut || '').trim() === 'OT'
-                                                || Boolean(String(record?.flexibleFromOtDate || '').trim());
-                                            const deductedLeave = kind === 'authorized' || kind === 'absent';
-                                            const earnsDayRate = counted && !deductedLeave && !syntheticOt && !isHoliday && !isWeeklyOff && kind !== 'future';
-                                            const dayRate = Number(salaryBasis.daily) || 0;
-                                            const payment = !counted && !(extraPay > 0)
-                                                ? null
-                                                : money2((earnsDayRate ? dayRate : 0) + extraPay);
-                                            const deduct = counted
-                                                ? money2(attendanceDeductionAmount(record, scheduleWeek, salaryBasis.daily, profile?.leavePolicy || {}, mispunchAmounts))
-                                                : null;
-                                            const lateText = flexibleDay ? '' : dayLateText(record, scheduleWeek);
-                                            const typeLabel = yellowLabel || kindLabel(kind);
-                                            const moreLines = [];
-                                            if (holidayNamesByDate[dateKey]) moreLines.push({ label: 'Holiday', value: holidayNamesByDate[dateKey] });
-                                            if (adjustmentText) moreLines.push({ label: 'Adjusted', value: adjustmentText });
-                                            if (lateText && lateText !== '—' && lateText !== '0 Hours') moreLines.push({ label: 'Late', value: lateText });
-                                            if (earlyText && earlyText !== '—' && earlyText !== '0 Hours') moreLines.push({ label: 'Early', value: earlyText });
-                                            if (description) moreLines.push({ label: 'Description', value: description });
-                                            const dayNote = calendarNotes[dateKey] || null;
-                                            const otText = dayNote?.otHours > 0 ? formatHourMeasure(dayNote.otHours) : '';
-                                            const compOffLines = [];
-                                            if (dayNote?.givenTo) compOffLines.push(`Comp off given to ${formatDayLabel(dayNote.givenTo)}`);
-                                            if (dayNote?.takenFrom) compOffLines.push(`Comp off taken from ${formatDayLabel(dayNote.takenFrom)}`);
-                                            return (
-                                                <div
-                                                    key={dateKey}
-                                                    className="relative"
-                                                    onMouseEnter={() => inMonth && setHoveredDate(dateKey)}
-                                                    onMouseLeave={() => setHoveredDate('')}
-                                                >
-                                                    <div className={`flex min-h-12 w-full flex-col items-center justify-center rounded-[9px] px-0.5 py-1 text-[13px] font-semibold tabular-nums leading-none ${DAY_STYLE[kind] || DAY_STYLE.empty}`}>
-                                                        <span>{format(day, 'd')}</span>
-                                                        {adjustmentText ? (
-                                                            <span className={`mt-0.5 text-center text-[8px] font-bold leading-tight ${adjInk(kind)}`}>
-                                                                {adjustmentText}
-                                                            </span>
-                                                        ) : null}
-                                                    </div>
-                                                    {hoveredDate === dateKey && inMonth && !salaryLock.locked ? (
-                                                        <DayTip
-                                                            dateLabel={format(day, 'd MMMM yyyy')}
-                                                            statusText={typeLabel}
-                                                            statusClass={tone.text}
-                                                            approvalText={approval}
-                                                            dotClass={tone.dot}
-                                                            timeIn={formatClock12(record?.timeIn)}
-                                                            timeOut={formatClock12(record?.timeOut)}
-                                                            timeOutNextDay={isNextDayCheckout({
-                                                                date: dateKey,
-                                                                timeIn: record?.timeIn,
-                                                                timeOut: record?.timeOut,
-                                                                timeOutDate: record?.timeOutDate,
-                                                            })}
-                                                            inSpot={punchSpot(record?.checkInLocation)}
-                                                            outSpot={punchSpot(record?.checkOutLocation)}
-                                                            workedText={worked == null ? '—' : formatHourlyGap(worked)}
-                                                            otText={otText}
-                                                            compOffLines={compOffLines}
-                                                            paymentText={payment == null ? '—' : formatAed(payment, 2)}
-                                                            balanceText={flexibleShort != null ? formatHourlyGap(Math.max(0, flexibleShort)) : formatHourlyGap(balance)}
-                                                            deductText={deduct == null ? '—' : formatAed(deduct, 2)}
-                                                            moreLines={moreLines}
-                                                            alignRight={column >= 4}
-                                                        />
-                                                    ) : null}
-                                                </div>
-                                            );
-                                        })}
+                                        {calendarDays.map((day) => (
+                                            <AttendanceDayCell
+                                                key={format(day, 'yyyy-MM-dd')}
+                                                day={day}
+                                                ctx={calendarCtx}
+                                                hoveredDate={hoveredDate}
+                                                setHoveredDate={setHoveredDate}
+                                            />
+                                        ))}
                                     </div>
                                 </div>
                                 <div className="w-[9.5rem] shrink-0 space-y-1.5 pt-1">
@@ -3255,43 +3679,65 @@ export default function EmployeeInformationDashboard({
 
                     <section className="overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white">
                         <div className="flex items-center justify-between gap-3 border-b border-[#EEF2F6] px-4 py-3">
-                            <p className="text-[14px] font-bold text-[#1B2A4A]">Pending Employee Tasks</p>
-                            <Link href="/dashboard" className="inline-flex shrink-0 items-center text-[13px] font-semibold text-[#2563EB]">
+                            <p className="text-[14px] font-bold text-[#1B2A4A]">Employee Tasks</p>
+                            <Link href={employeeTaskListHref(employee.name)} className="inline-flex shrink-0 items-center text-[13px] font-semibold text-[#2563EB]">
                                 View All Tasks <ChevronRight size={16} />
                             </Link>
                         </div>
                         <div className="overflow-x-auto">
-                            <table className="w-full table-fixed border-collapse text-left">
+                            <table className="w-full min-w-[820px] border-collapse text-left">
                                 <thead>
                                     <tr className="border-b border-[#EEF2F6]">
-                                        <th className={`${TH} w-10`}>#</th>
-                                        <th className={`${TH} w-[8.5rem]`}>Task Number</th>
-                                        <th className={TH}>Task Name</th>
+                                        <th className={`${TH} w-[7.5rem]`}>Task No</th>
                                         <th className={TH}>Task Type</th>
-                                        <th className={TH}>Assigned To</th>
+                                        <th className={TH}>Requester</th>
+                                        <th className={TH}>Requested Date</th>
                                         <th className={TH}>Due Date</th>
-                                        <th className={`${TH} w-[4.5rem]`}>Priority</th>
-                                        <th className={`${TH} w-[5.5rem]`}>Status</th>
-                                        <th className={`${TH} w-[4.5rem]`}>Action</th>
+                                        <th className={`${TH} w-[6.5rem]`}>Status</th>
+                                        <th className={`${TH} w-[4.5rem]`}>Open</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {workTasks.length ? workTasks.map((task, index) => (
-                                        <tr key={task.id} className="border-b border-[#F4F7FB] last:border-0">
-                                            <td className={`${TD} text-[#94A3B8]`}>{index + 1}</td>
-                                            <td className={`${TD} whitespace-nowrap font-medium`}>{task.taskNumber || '—'}</td>
-                                            <td className={`${TD} truncate font-medium`}>{task.title || 'Task'}</td>
-                                            <td className={`${TD} truncate`}>{task.taskType || task.kind || '—'}</td>
-                                            <td className={`${TD} truncate`}>{employee.name || task.requesterName || '—'}</td>
-                                            <td className={`${TD} whitespace-nowrap`}>{task.dueDate || '—'}</td>
-                                            <td className={TD}>{task.priority ? <TableTone label={task.priority} /> : <span className="text-[13px] text-[#94A3B8]">—</span>}</td>
-                                            <td className={TD}><TableTone label={task.status || 'Pending'} /></td>
-                                            <td className={TD}>
-                                                <Link href={taskHref(task, employeeMongoId)} className={OUTLINE_BTN}>Open</Link>
-                                            </td>
-                                        </tr>
-                                    )) : (
-                                        <tr><td colSpan={9} className="px-3 py-3 text-[13px] text-[#94A3B8]">No pending tasks.</td></tr>
+                                    {workTasks.length ? workTasks.map((task) => {
+                                        const href = employeeTaskDetailsHref(task);
+                                        return (
+                                            <tr key={task.actionId || task.taskNumber} className="border-b border-[#F4F7FB] last:border-0">
+                                                <td className={`${TD} whitespace-nowrap font-medium`}>{task.taskNumber || '—'}</td>
+                                                <td className={TD}>
+                                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[12px] font-semibold ${employeeTaskTypeClass(task.taskType)}`}>
+                                                        {task.taskType || '—'}
+                                                    </span>
+                                                </td>
+                                                <td className={`${TD} max-w-[10rem] truncate`}>{task.requesterName || '—'}</td>
+                                                <td className={`${TD} whitespace-nowrap`}>{task.requestedDate || '—'}</td>
+                                                <td className={`${TD} whitespace-nowrap`}>{task.dueDate || '—'}</td>
+                                                <td className={TD}>
+                                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[12px] font-semibold ${employeeTaskStatusClass(task.status)}`}>
+                                                        {task.status || 'Pending'}
+                                                    </span>
+                                                </td>
+                                                <td className={TD}>
+                                                    {href ? (
+                                                        <Link
+                                                            href={href}
+                                                            onClick={(event) => handleNavigateFromListClick(
+                                                                event,
+                                                                router,
+                                                                href,
+                                                                `${window.location.pathname}${window.location.search}`,
+                                                            )}
+                                                            className={OUTLINE_BTN}
+                                                        >
+                                                            Open
+                                                        </Link>
+                                                    ) : (
+                                                        <span className="text-[13px] text-[#94A3B8]">—</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    }) : (
+                                        <tr><td colSpan={7} className="px-3 py-3 text-[13px] text-[#94A3B8]">No tasks for this employee.</td></tr>
                                     )}
                                 </tbody>
                             </table>
@@ -3312,6 +3758,7 @@ export default function EmployeeInformationDashboard({
                     </div>
                 </div>
             </div>
+            )}
             <SalaryAdditionListModal
                 mode={additionModal}
                 ready={additionReady}

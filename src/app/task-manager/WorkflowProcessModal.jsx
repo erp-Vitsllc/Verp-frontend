@@ -100,7 +100,7 @@ export function WorkflowBoard({ actionId, onChanged }) {
     return (
         <div>
             {data.accessPath ? (
-                <a href={data.accessPath} className="mb-4 inline-flex text-sm font-semibold text-[#2563EB]">
+                <a href={data.accessPath} target="_blank" rel="noopener noreferrer" className="mb-4 inline-flex text-sm font-semibold text-[#2563EB]">
                     Open this section
                 </a>
             ) : null}
@@ -132,7 +132,7 @@ export function WorkflowBoard({ actionId, onChanged }) {
                                 <PersonMark step={step} />
                                 <div className="min-w-0">
                                     {data.accessPath ? (
-                                        <a href={data.accessPath} className="text-sm font-semibold text-[#2563EB] hover:underline">{step.title}</a>
+                                        <a href={data.accessPath} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-[#2563EB] hover:underline">{step.title}</a>
                                     ) : (
                                         <p className="text-sm font-semibold text-slate-800">{step.title}</p>
                                     )}

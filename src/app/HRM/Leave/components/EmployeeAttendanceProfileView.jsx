@@ -402,6 +402,43 @@ function leaveCutDays(event, policy) {
     return null;
 }
 
+function flexibleRequiredHours(week, dateKey) {
+    if (String(week?.timingMode || '').toLowerCase() !== 'flexible') return 0;
+    if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return 0;
+    const day = week[WEEKDAY_KEYS[new Date(`${dateKey}T12:00:00Z`).getUTCDay()]];
+    if (!day || day.isOffDay) return 0;
+    const hours = Number(day.workingHours);
+    if (Number.isFinite(hours) && hours > 0) return Math.min(24, hours);
+    const weekHours = Number(week.hoursPerDay);
+    if (Number.isFinite(weekHours) && weekHours > 0) return Math.min(24, weekHours);
+    return 9;
+}
+
+function wholeHours(value) {
+    const hours = Number(value);
+    if (!Number.isFinite(hours) || hours <= 0) return 0;
+    return Math.floor(hours + 1e-9);
+}
+
+/** Flexible late arrival and early go deduct the missed hours only. */
+function flexibleMissedDayFraction(event, week) {
+    const key = String(event?.statusKey || '');
+    if (String(week?.timingMode || '').toLowerCase() !== 'flexible') return null;
+    if (key !== 'late_arrived' && key !== 'early_go') return null;
+    const required = wholeHours(flexibleRequiredHours(week, event?.date));
+    if (!(required > 0)) return 0;
+    if (String(event?.hourAdjustStatus || '') === 'approved') {
+        return Math.max(0, n(event?.hoursApproved)) / required;
+    }
+    let worked = Number(event?.flexibleWorkedHours) || 0;
+    if (!(worked > 0)) {
+        const inn = clockToMinutes(event?.timeIn);
+        const out = clockToMinutes(event?.timeOut);
+        worked = inn != null && out != null ? Math.max(0, out - inn) / 60 : 0;
+    }
+    return Math.max(0, required - wholeHours(worked)) / required;
+}
+
 function deductionCutTexts(events, policy, week) {
     const texts = new Map();
     const byMonth = new Map();
@@ -418,6 +455,11 @@ function deductionCutTexts(events, policy, week) {
             const leaveDays = leaveCutDays(event, policy);
             if (leaveDays != null) {
                 texts.set(event.id, leaveDays);
+                continue;
+            }
+            const flexibleDays = flexibleMissedDayFraction(event, week);
+            if (flexibleDays != null) {
+                texts.set(event.id, flexibleDays);
                 continue;
             }
             const key = String(event?.statusKey || '');

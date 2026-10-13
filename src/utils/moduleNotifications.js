@@ -38,6 +38,7 @@ import {
     loadNotificationChannelMap,
 } from '@/utils/notificationChannelPermissionUi';
 import { isTaskManagerHubRequest } from '@/utils/employeeHubRequest';
+import { isReassignedTaskNotice } from '@/utils/notificationInboxPresentation';
 import {
     fetchAssetPendingInbox,
     fetchFinePendingInbox,
@@ -915,6 +916,15 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
             if (item?.scope === 'outgoing') return false;
         }
         const type = String(item?.type || '').trim();
+        if (type === 'Task Manager') {
+            const id = String(item?.actionId || item?.dashboardActionId || '');
+            const alreadyListed = moduleAll.some((row) => {
+                const rowId = String(row?.actionId || row?.dashboardActionId || '');
+                return Boolean(id && rowId && rowId === id);
+            });
+            if (alreadyListed) return true;
+            if (isReassignedTaskNotice(item)) return false;
+        }
         if (moduleTypes.has(type)) return true;
         if (ownedPrefixes.some((p) => type === p || type.startsWith('Asset'))) return true;
         if (isLoanNotification({ type })) return true;

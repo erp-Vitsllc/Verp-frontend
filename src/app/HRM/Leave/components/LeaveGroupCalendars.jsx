@@ -261,14 +261,14 @@ export default function LeaveGroupCalendarGrid({
                 </div>
             ) : null}
             {loading ? (
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    {[0, 1].map((key) => (
+                <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
+                    {[0, 1, 2].map((key) => (
                         <div key={key} className="h-64 animate-pulse rounded-2xl border border-[#E6EDF5] bg-white" />
                     ))}
                 </div>
             ) : null}
             {!loading && !error && employees.length ? (
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
                     {employees.map((employee) => (
                         <EmployeeMonthCalendar
                             key={employee.id}

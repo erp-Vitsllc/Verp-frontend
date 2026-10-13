@@ -54,6 +54,33 @@ function parseExtra3(extra3) {
     }
 }
 
+export function readNotificationMeta(extra3) {
+    return parseExtra3(extra3) || {};
+}
+
+export function isReassignedTaskNotice(item = {}) {
+    const type = String(item?.type || item?.requestType || '').trim();
+    if (type !== 'Task Manager') return false;
+    return Boolean(readNotificationMeta(item.extra3)?.reassignedNotice);
+}
+
+export function reassignedNoticeModule(item = {}) {
+    return String(readNotificationMeta(item.extra3)?.module || '').trim();
+}
+
+function applyReassignedTaskNotice(row, item = {}) {
+    if (!isReassignedTaskNotice(item)) return row;
+    const meta = readNotificationMeta(item.extra3);
+    const taskName = sanitizeNotificationText(item.extra1 || '');
+    const who = sanitizeNotificationText(meta.reassignedToName || '');
+    if (taskName) row.title = taskName;
+    row.category = who ? `Reassigned to: ${who}` : sanitizeNotificationText(item.extra2 || 'Reassigned');
+    row.href = String(meta.taskPath || meta.path || '').trim();
+    row.openTaskLabel = 'Open Task';
+    row.highlight = '';
+    return row;
+}
+
 export function formatNotificationTime(requestedDate, raw) {
     const d =
         asDate(requestedDate) ||
@@ -535,7 +562,7 @@ export function mapDashboardNotificationToRow(item = {}, index = 0) {
         const e2 = sanitizeNotificationText(item.extra2);
         if (/exp|expiry|due/i.test(e2)) row.highlight = e2;
     }
-    return row;
+    return applyReassignedTaskNotice(row, item);
 }
 
 /** Generic pending-inbox API row (Fine / Reward / Payment). */
@@ -546,7 +573,7 @@ export function mapPendingInboxToRow(item = {}, index = 0) {
         buildUnderstandableNotificationTitle(item) || type || row.title,
     );
     row.category = buildUtilityCategoryLine(item) || row.category;
-    return row;
+    return applyReassignedTaskNotice(row, item);
 }
 
 /** Asset pending-inbox API row. */
@@ -565,5 +592,5 @@ export function mapAssetPendingInboxToRow(item = {}, index = 0) {
         row.entityName = '';
         row.entityId = '';
     }
-    return row;
+    return applyReassignedTaskNotice(row, item);
 }

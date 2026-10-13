@@ -1,17 +1,38 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { User, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Search, User, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 
 export default function ReassignTaskModal({ task, onClose, onDone }) {
     const [employees, setEmployees] = useState([]);
     const [assigneeId, setAssigneeId] = useState('');
     const [reason, setReason] = useState('');
-    const [notifyAssignee, setNotifyAssignee] = useState(true);
     const [notifyRequester, setNotifyRequester] = useState(true);
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [pickerOpen, setPickerOpen] = useState(false);
+    const [employeeQuery, setEmployeeQuery] = useState('');
+    const pickerRef = useRef(null);
+
+    const selectedEmployee = employees.find((employee) => employee.id === assigneeId) || null;
+    const visibleEmployees = useMemo(() => {
+        const needle = employeeQuery.trim().toLowerCase();
+        if (!needle) return employees;
+        return employees.filter((employee) => {
+            const label = `${employee.name || ''} ${employee.employeeId || ''}`.toLowerCase();
+            return label.includes(needle);
+        });
+    }, [employees, employeeQuery]);
+
+    useEffect(() => {
+        if (!pickerOpen) return undefined;
+        const close = (event) => {
+            if (pickerRef.current && !pickerRef.current.contains(event.target)) setPickerOpen(false);
+        };
+        window.addEventListener('mousedown', close);
+        return () => window.removeEventListener('mousedown', close);
+    }, [pickerOpen]);
 
     useEffect(() => {
         let cancelled = false;
@@ -35,7 +56,7 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
             return;
         }
         if (!reason.trim()) {
-            setError('Reason for reassignment is required.');
+            setError('Description is required.');
             return;
         }
         setSubmitting(true);
@@ -46,7 +67,7 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
                 {
                     assigneeId,
                     reason: reason.trim(),
-                    notifyAssignee,
+                    notifyAssignee: true,
                     notifyRequester,
                 },
                 { skipToast: true },
@@ -63,8 +84,8 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={(event) => {
             if (event.target === event.currentTarget && !submitting) onClose();
         }}>
-            <form onSubmit={submit} className="w-full max-w-[560px] overflow-hidden rounded-xl bg-white shadow-2xl">
-                <div className="flex items-center justify-between bg-[#2563EB] px-5 py-3.5 text-white">
+            <form onSubmit={submit} className="w-full max-w-[560px] rounded-xl bg-white shadow-2xl">
+                <div className="flex items-center justify-between rounded-t-xl bg-[#2563EB] px-5 py-3.5 text-white">
                     <h2 className="text-[16px] font-semibold">Reassign Task</h2>
                     <button type="button" aria-label="Close" onClick={onClose} className="rounded-md p-1 hover:bg-white/15">
                         <X size={18} />
@@ -85,25 +106,61 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
                     </div>
                     <label className="block">
                         <span className="mb-1.5 block text-[13px] font-semibold text-slate-800">New Assignee <span className="text-rose-500">*</span></span>
-                        <div className="relative">
+                        <div className="relative" ref={pickerRef}>
                             <User size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <select
-                                value={assigneeId}
-                                onChange={(event) => setAssigneeId(event.target.value)}
-                                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 outline-none focus:border-blue-500"
+                            <button
+                                type="button"
+                                onClick={() => setPickerOpen((open) => !open)}
+                                className="flex h-10 w-full items-center rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-left text-sm text-slate-700 outline-none focus:border-blue-500"
                             >
-                                <option value="">Select User</option>
-                                {employees.map((employee) => (
-                                    <option key={employee.id} value={employee.id}>
-                                        {employee.name}{employee.employeeId ? ` (${employee.employeeId})` : ''}
-                                    </option>
-                                ))}
-                            </select>
+                                <span className={selectedEmployee ? 'truncate text-slate-800' : 'truncate text-slate-400'}>
+                                    {selectedEmployee
+                                        ? `${selectedEmployee.name}${selectedEmployee.employeeId ? ` (${selectedEmployee.employeeId})` : ''}`
+                                        : 'Select User'}
+                                </span>
+                            </button>
+                            {pickerOpen && (
+                                <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                                    <div className="relative border-b border-slate-100 p-2">
+                                        <Search size={14} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                                        <input
+                                            autoFocus
+                                            value={employeeQuery}
+                                            onChange={(event) => setEmployeeQuery(event.target.value)}
+                                            placeholder="Search employee"
+                                            aria-label="Search employee"
+                                            className="h-9 w-full rounded-md border border-slate-200 pl-8 pr-2 text-sm text-slate-800 outline-none focus:border-blue-500"
+                                        />
+                                    </div>
+                                    <ul className="max-h-52 overflow-y-auto py-1">
+                                        {visibleEmployees.length === 0 ? (
+                                            <li className="px-3 py-2 text-sm text-slate-500">No employees found</li>
+                                        ) : visibleEmployees.map((employee) => (
+                                            <li key={employee.id}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setAssigneeId(employee.id);
+                                                        setEmployeeQuery('');
+                                                        setPickerOpen(false);
+                                                        setError('');
+                                                    }}
+                                                    className={`block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
+                                                        employee.id === assigneeId ? 'bg-blue-50 font-semibold text-[#2563EB]' : 'text-slate-700'
+                                                    }`}
+                                                >
+                                                    {employee.name}{employee.employeeId ? ` (${employee.employeeId})` : ''}
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
                         </div>
                     </label>
                     <label className="block">
                         <span className="mb-1.5 flex items-center justify-between text-[13px] font-semibold text-slate-800">
-                            <span>Reason for Reassignment <span className="text-rose-500">*</span></span>
+                            <span>Description <span className="text-rose-500">*</span></span>
                             <span className="font-normal text-slate-400">{reason.length}/500</span>
                         </span>
                         <textarea
@@ -111,14 +168,11 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
                             maxLength={500}
                             onChange={(event) => setReason(event.target.value)}
                             rows={3}
-                            placeholder="Enter reason for reassignment"
+                            placeholder="Description is required"
                             className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
                         />
                     </label>
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
-                        <input type="checkbox" checked={notifyAssignee} onChange={(event) => setNotifyAssignee(event.target.checked)} />
-                        Send email notification to new assignee
-                    </label>
+                    <p className="text-xs text-slate-500">The previous assignee and the new assignee both receive this description by email.</p>
                     <label className="flex items-center gap-2 text-sm text-slate-700">
                         <input type="checkbox" checked={notifyRequester} onChange={(event) => setNotifyRequester(event.target.checked)} />
                         Notify requester{task.requesterName ? ` (${task.requesterName})` : ''}

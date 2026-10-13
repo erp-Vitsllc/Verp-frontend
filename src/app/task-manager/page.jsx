@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
     AlertTriangle,
     ArrowDown,
@@ -16,12 +16,15 @@ import {
 } from 'lucide-react';
 import CreateTaskModal from '@/app/task-manager/CreateTaskModal';
 import ReassignTaskModal from '@/app/task-manager/ReassignTaskModal';
+import ListTableRowLink from '@/components/ListTableRowLink';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { formatCommandCenterNotificationMessage } from '@/utils/dashboardCommandCenterInbox';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
+import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
 
 const PAGE_SIZE_OPTIONS = [
     { id: '10', label: '10' },
@@ -95,6 +98,66 @@ function listStatus(task) {
 
 function isOpenPending(shown) {
     return shown === 'Pending' || shown === 'Overdue';
+}
+
+function personKey(value) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function paramValue(params, key, fallback = '') {
+    const value = params.get(key);
+    if (value == null || value === 'null' || value === 'undefined') return fallback;
+    return value;
+}
+
+function oneOf(value, allowed, fallback) {
+    return allowed.includes(value) ? value : fallback;
+}
+
+function readTaskListFilters(params) {
+    const page = parseInt(paramValue(params, 'page', '1'), 10);
+    const size = paramValue(params, 'size', '10');
+    return {
+        scope: oneOf(paramValue(params, 'scope', 'My Task'), SCOPES, 'My Task'),
+        typeFilter: oneOf(paramValue(params, 'type', 'All Types'), TYPE_FILTERS, 'All Types'),
+        query: paramValue(params, 'q'),
+        employeeFilter: paramValue(params, 'employee'),
+        requesterQuery: paramValue(params, 'requester'),
+        assigneeQuery: paramValue(params, 'assignee'),
+        datePreset: oneOf(paramValue(params, 'date', 'all'), DATE_RANGES.map((item) => item.id), 'all'),
+        fromDate: paramValue(params, 'from'),
+        toDate: paramValue(params, 'to'),
+        status: oneOf(paramValue(params, 'status', 'Pending'), STATUSES, 'Pending'),
+        priority: oneOf(paramValue(params, 'priority', 'All Priority'), PRIORITIES, 'All Priority'),
+        page: Number.isFinite(page) && page > 0 ? page : 1,
+        pageSizeChoice: oneOf(size, PAGE_SIZE_OPTIONS.map((item) => item.id), '10'),
+    };
+}
+
+function taskDetailsHref(task, tab) {
+    const query = new URLSearchParams();
+    if (task?.taskNumber) query.set('no', task.taskNumber);
+    if (tab) query.set('tab', tab);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return `/task-manager/${encodeURIComponent(task.actionId)}${suffix}`;
+}
+
+function taskEmployees(tasks) {
+    const skip = new Set(['', 'system', 'unassigned']);
+    const people = new Map();
+    const add = (name) => {
+        const label = String(name || '').trim().replace(/\s+/g, ' ');
+        const key = personKey(label);
+        if (skip.has(key) || people.has(key)) return;
+        people.set(key, label);
+    };
+    tasks.forEach((task) => {
+        add(task.requesterName);
+        add(task.assigneeName);
+    });
+    return [...people.entries()]
+        .map(([key, name]) => ({ key, name }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 }
 
 function taskIsMine(task, viewer) {
@@ -260,6 +323,109 @@ function shiftMonthKey(monthKey, delta) {
     return `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+function taskMatchesListFilters(task, options) {
+    const {
+        titles,
+        viewer,
+        scope,
+        typeFilter,
+        query,
+        employeeFilter,
+        requesterQuery,
+        assigneeQuery,
+        activeRange,
+        status,
+        priority,
+        includeStatus,
+    } = options;
+    const shown = listStatus(task);
+    if (!employeeFilter && scope === 'My Task' && !taskIsMine(task, viewer)) return false;
+    if (typeFilter !== 'All Types' && displayTaskType(task.taskCategory) !== typeFilter) return false;
+    if (includeStatus) {
+        if (status === 'Pending' && !isOpenPending(shown)) return false;
+        if (status !== 'All Status' && status !== 'Pending' && shown !== status) return false;
+    }
+    if (priority !== 'All Priority' && task.priority !== priority) return false;
+    const key = dateKey(task.requestDate);
+    if ((activeRange.from || activeRange.to) && !key) return false;
+    if (activeRange.from && key < activeRange.from) return false;
+    if (activeRange.to && key > activeRange.to) return false;
+    if (employeeFilter) {
+        const requester = personKey(task.requesterName);
+        const assignee = personKey(task.assigneeName);
+        if (requester !== employeeFilter && assignee !== employeeFilter) return false;
+    }
+    const requesterNeedle = String(requesterQuery || '').trim().toLowerCase();
+    if (requesterNeedle && !String(task.requesterName || '').toLowerCase().includes(requesterNeedle)) return false;
+    const assigneeNeedle = String(assigneeQuery || '').trim().toLowerCase();
+    if (assigneeNeedle) {
+        const assigneeText = [task.assigneeName, task.assigneeEmpId].filter(Boolean).join(' ').toLowerCase();
+        if (!assigneeText.includes(assigneeNeedle)) return false;
+    }
+    const needle = String(query || '').trim().toLowerCase();
+    if (!needle) return true;
+    const title = (titles.get(task.actionId) || task.taskName || '').toLowerCase();
+    return [
+        task.taskNumber,
+        title,
+        task.taskName,
+        task.requestType,
+        displayTaskType(task.taskCategory),
+        shown,
+        task.priority,
+        task.description,
+    ]
+        .join(' ')
+        .toLowerCase()
+        .includes(needle);
+}
+
+function summarizeTasks(list) {
+    const thisMonth = dateKey(new Date()).slice(0, 7);
+    const lastMonth = shiftMonthKey(thisMonth, -1);
+    const next = {
+        total: list.length,
+        pending: 0,
+        pendingDue: 0,
+        completed: 0,
+        totalChange: 0,
+        pendingChange: 0,
+        pendingDueChange: 0,
+        completedChange: 0,
+    };
+    const months = {
+        total: { current: 0, previous: 0 },
+        pending: { current: 0, previous: 0 },
+        pendingDue: { current: 0, previous: 0 },
+        completed: { current: 0, previous: 0 },
+    };
+    const bump = (bucket, month) => {
+        if (month === thisMonth) months[bucket].current += 1;
+        else if (month === lastMonth) months[bucket].previous += 1;
+    };
+    list.forEach((task) => {
+        const shown = listStatus(task);
+        const requestedMonth = dateKey(task.requestDate).slice(0, 7);
+        bump('total', requestedMonth);
+        if (isOpenPending(shown)) {
+            next.pending += 1;
+            bump('pending', requestedMonth);
+            if (shown === 'Overdue') {
+                next.pendingDue += 1;
+                bump('pendingDue', requestedMonth);
+            }
+        } else if (shown === 'Completed') {
+            next.completed += 1;
+            bump('completed', dateKey(task.completionDate || task.requestDate).slice(0, 7));
+        }
+    });
+    next.totalChange = percentChange(months.total.current, months.total.previous);
+    next.pendingChange = percentChange(months.pending.current, months.pending.previous);
+    next.pendingDueChange = percentChange(months.pendingDue.current, months.pendingDue.previous);
+    next.completedChange = percentChange(months.completed.current, months.completed.previous);
+    return next;
+}
+
 function ChangePill({ value, goodWhenUp }) {
     const up = value > 0;
     const down = value < 0;
@@ -293,24 +459,29 @@ function StatCard({ label, value, change, goodWhenUp, icon: Icon, wrap, bubble, 
 
 function TaskManagerContent() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const urlKey = searchParams.toString();
+    const filtersFromUrl = useMemo(() => readTaskListFilters(searchParams), [searchParams]);
+    const urlKeyRef = useRef(urlKey);
     const { toast } = useToast();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [tasks, setTasks] = useState([]);
     const [viewer, setViewer] = useState(null);
-    const [scope, setScope] = useState('My Task');
-    const [typeFilter, setTypeFilter] = useState('All Types');
-    const [query, setQuery] = useState('');
-    const [requesterQuery, setRequesterQuery] = useState('');
-    const [assigneeQuery, setAssigneeQuery] = useState('');
-    const [datePreset, setDatePreset] = useState('all');
-    const [fromDate, setFromDate] = useState('');
-    const [toDate, setToDate] = useState('');
+    const [scope, setScope] = useState(filtersFromUrl.scope);
+    const [typeFilter, setTypeFilter] = useState(filtersFromUrl.typeFilter);
+    const [query, setQuery] = useState(filtersFromUrl.query);
+    const [employeeFilter, setEmployeeFilter] = useState(filtersFromUrl.employeeFilter);
+    const [requesterQuery, setRequesterQuery] = useState(filtersFromUrl.requesterQuery);
+    const [assigneeQuery, setAssigneeQuery] = useState(filtersFromUrl.assigneeQuery);
+    const [datePreset, setDatePreset] = useState(filtersFromUrl.datePreset);
+    const [fromDate, setFromDate] = useState(filtersFromUrl.fromDate);
+    const [toDate, setToDate] = useState(filtersFromUrl.toDate);
     const [customOpen, setCustomOpen] = useState(false);
-    const [status, setStatus] = useState('Pending');
-    const [priority, setPriority] = useState('All Priority');
-    const [pageSizeChoice, setPageSizeChoice] = useState('10');
-    const [page, setPage] = useState(1);
+    const [status, setStatus] = useState(filtersFromUrl.status);
+    const [priority, setPriority] = useState(filtersFromUrl.priority);
+    const [pageSizeChoice, setPageSizeChoice] = useState(filtersFromUrl.pageSizeChoice);
+    const [page, setPage] = useState(filtersFromUrl.page);
     const [selected, setSelected] = useState(() => new Set());
     const [openMenu, setOpenMenu] = useState(null);
     const [createOpen, setCreateOpen] = useState(false);
@@ -319,6 +490,80 @@ function TaskManagerContent() {
     const [deleteTask, setDeleteTask] = useState(null);
     const [deleting, setDeleting] = useState(false);
     const customRef = useRef(null);
+
+    if (urlKeyRef.current !== urlKey) {
+        urlKeyRef.current = urlKey;
+        setScope(filtersFromUrl.scope);
+        setTypeFilter(filtersFromUrl.typeFilter);
+        setQuery(filtersFromUrl.query);
+        setEmployeeFilter(filtersFromUrl.employeeFilter);
+        setRequesterQuery(filtersFromUrl.requesterQuery);
+        setAssigneeQuery(filtersFromUrl.assigneeQuery);
+        setDatePreset(filtersFromUrl.datePreset);
+        setFromDate(filtersFromUrl.fromDate);
+        setToDate(filtersFromUrl.toDate);
+        setStatus(filtersFromUrl.status);
+        setPriority(filtersFromUrl.priority);
+        setPageSizeChoice(filtersFromUrl.pageSizeChoice);
+        setPage(filtersFromUrl.page);
+    }
+
+    const listReturnParams = useMemo(() => ({
+        ...(scope !== 'My Task' ? { scope } : {}),
+        ...(typeFilter !== 'All Types' ? { type: typeFilter } : {}),
+        ...(query ? { q: query } : {}),
+        ...(employeeFilter ? { employee: employeeFilter } : {}),
+        ...(requesterQuery ? { requester: requesterQuery } : {}),
+        ...(assigneeQuery ? { assignee: assigneeQuery } : {}),
+        ...(datePreset !== 'all' ? { date: datePreset } : {}),
+        ...(fromDate ? { from: fromDate } : {}),
+        ...(toDate ? { to: toDate } : {}),
+        ...(status !== 'Pending' ? { status } : {}),
+        ...(priority !== 'All Priority' ? { priority } : {}),
+        ...(page > 1 ? { page } : {}),
+        ...(pageSizeChoice !== '10' ? { size: pageSizeChoice } : {}),
+    }), [
+        scope,
+        typeFilter,
+        query,
+        employeeFilter,
+        requesterQuery,
+        assigneeQuery,
+        datePreset,
+        fromDate,
+        toDate,
+        status,
+        priority,
+        page,
+        pageSizeChoice,
+    ]);
+
+    usePersistListReturnState(listReturnParams);
+
+    useEffect(() => {
+        const apply = (params) => {
+            const next = readTaskListFilters(params);
+            setScope(next.scope);
+            setTypeFilter(next.typeFilter);
+            setQuery(next.query);
+            setEmployeeFilter(next.employeeFilter);
+            setRequesterQuery(next.requesterQuery);
+            setAssigneeQuery(next.assigneeQuery);
+            setDatePreset(next.datePreset);
+            setFromDate(next.fromDate);
+            setToDate(next.toDate);
+            setStatus(next.status);
+            setPriority(next.priority);
+            setPageSizeChoice(next.pageSizeChoice);
+            setPage(next.page);
+        };
+        const syncFromAddressBar = () => {
+            if (window.location.pathname !== '/task-manager') return;
+            apply(new URLSearchParams(window.location.search));
+        };
+        window.addEventListener('popstate', syncFromAddressBar);
+        return () => window.removeEventListener('popstate', syncFromAddressBar);
+    }, []);
 
     const load = useCallback(async () => {
         setError('');
@@ -364,56 +609,15 @@ function TaskManagerContent() {
         return map;
     }, [tasks]);
 
-    const scopedTasks = useMemo(
-        () => (scope === 'My Task' ? tasks.filter((task) => taskIsMine(task, viewer)) : tasks),
-        [tasks, scope, viewer],
-    );
-
-    const cardSummary = useMemo(() => {
-        const thisMonth = dateKey(new Date()).slice(0, 7);
-        const lastMonth = shiftMonthKey(thisMonth, -1);
-        const next = {
-            total: scopedTasks.length,
-            pending: 0,
-            pendingDue: 0,
-            completed: 0,
-            totalChange: 0,
-            pendingChange: 0,
-            pendingDueChange: 0,
-            completedChange: 0,
-        };
-        const months = {
-            total: { current: 0, previous: 0 },
-            pending: { current: 0, previous: 0 },
-            pendingDue: { current: 0, previous: 0 },
-            completed: { current: 0, previous: 0 },
-        };
-        const bump = (bucket, month) => {
-            if (month === thisMonth) months[bucket].current += 1;
-            else if (month === lastMonth) months[bucket].previous += 1;
-        };
-        scopedTasks.forEach((task) => {
-            const shown = listStatus(task);
-            const requestedMonth = dateKey(task.requestDate).slice(0, 7);
-            bump('total', requestedMonth);
-            if (isOpenPending(shown)) {
-                next.pending += 1;
-                bump('pending', requestedMonth);
-                if (shown === 'Overdue') {
-                    next.pendingDue += 1;
-                    bump('pendingDue', requestedMonth);
-                }
-            } else if (shown === 'Completed') {
-                next.completed += 1;
-                bump('completed', dateKey(task.completionDate || task.requestDate).slice(0, 7));
-            }
-        });
-        next.totalChange = percentChange(months.total.current, months.total.previous);
-        next.pendingChange = percentChange(months.pending.current, months.pending.previous);
-        next.pendingDueChange = percentChange(months.pendingDue.current, months.pendingDue.previous);
-        next.completedChange = percentChange(months.completed.current, months.completed.previous);
-        return next;
-    }, [scopedTasks]);
+    const employeesWithTasks = useMemo(() => {
+        const rows = taskEmployees(tasks);
+        if (employeeFilter && !rows.some((row) => row.key === employeeFilter)) {
+            const name = employeeFilter.replace(/\b[a-z]/g, (char) => char.toUpperCase());
+            rows.push({ key: employeeFilter, name });
+            rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+        }
+        return rows;
+    }, [tasks, employeeFilter]);
 
     useEffect(() => {
         if (loading) return;
@@ -426,43 +630,43 @@ function TaskManagerContent() {
         [datePreset, fromDate, toDate],
     );
 
-    const filtered = useMemo(() => {
-        const needle = query.trim().toLowerCase();
-        const requesterNeedle = requesterQuery.trim().toLowerCase();
-        const assigneeNeedle = assigneeQuery.trim().toLowerCase();
-        return tasks.filter((task) => {
-            const shown = listStatus(task);
-            if (scope === 'My Task' && !taskIsMine(task, viewer)) return false;
-            if (typeFilter !== 'All Types' && displayTaskType(task.taskCategory) !== typeFilter) return false;
-            if (status === 'Pending' && !isOpenPending(shown)) return false;
-            if (status !== 'All Status' && status !== 'Pending' && shown !== status) return false;
-            if (priority !== 'All Priority' && task.priority !== priority) return false;
-            const key = dateKey(task.requestDate);
-            if ((activeRange.from || activeRange.to) && !key) return false;
-            if (activeRange.from && key < activeRange.from) return false;
-            if (activeRange.to && key > activeRange.to) return false;
-            if (requesterNeedle && !String(task.requesterName || '').toLowerCase().includes(requesterNeedle)) return false;
-            if (assigneeNeedle) {
-                const assigneeText = [task.assigneeName, task.assigneeEmpId].filter(Boolean).join(' ').toLowerCase();
-                if (!assigneeText.includes(assigneeNeedle)) return false;
-            }
-            if (!needle) return true;
-            const title = (titles.get(task.actionId) || task.taskName || '').toLowerCase();
-            return [
-                task.taskNumber,
-                title,
-                task.taskName,
-                task.requestType,
-                displayTaskType(task.taskCategory),
-                shown,
-                task.priority,
-                task.description,
-            ]
-                .join(' ')
-                .toLowerCase()
-                .includes(needle);
-        });
-    }, [tasks, titles, viewer, scope, typeFilter, query, requesterQuery, assigneeQuery, activeRange, status, priority]);
+    const listFilter = useMemo(() => ({
+        titles,
+        viewer,
+        scope,
+        typeFilter,
+        query,
+        employeeFilter,
+        requesterQuery,
+        assigneeQuery,
+        activeRange,
+        status,
+        priority,
+    }), [
+        titles,
+        viewer,
+        scope,
+        typeFilter,
+        query,
+        employeeFilter,
+        requesterQuery,
+        assigneeQuery,
+        activeRange,
+        status,
+        priority,
+    ]);
+
+    const cardTasks = useMemo(
+        () => tasks.filter((task) => taskMatchesListFilters(task, { ...listFilter, includeStatus: false })),
+        [tasks, listFilter],
+    );
+
+    const cardSummary = useMemo(() => summarizeTasks(cardTasks), [cardTasks]);
+
+    const filtered = useMemo(
+        () => tasks.filter((task) => taskMatchesListFilters(task, { ...listFilter, includeStatus: true })),
+        [tasks, listFilter],
+    );
 
     const pageSize = pageSizeChoice === 'all' ? Math.max(filtered.length, 1) : Number(pageSizeChoice);
     const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -470,24 +674,24 @@ function TaskManagerContent() {
     const start = filtered.length === 0 ? 0 : (safePage - 1) * pageSize;
     const pageRows = filtered.slice(start, start + pageSize);
 
+    const listReturnHref = buildListReturnHref('/task-manager', listReturnParams);
+
     const openDetails = (task, tab) => {
-        const query = new URLSearchParams();
-        if (task.taskNumber) query.set('no', task.taskNumber);
-        if (tab) query.set('tab', tab);
-        const suffix = query.toString() ? `?${query.toString()}` : '';
-        router.push(`/task-manager/${encodeURIComponent(task.actionId)}${suffix}`);
+        navigateFromList(router, taskDetailsHref(task, tab), listReturnHref);
     };
     const allPageSelected = pageRows.length > 0 && pageRows.every((row) => selected.has(row.actionId));
 
     useEffect(() => {
+        if (loading) return;
         if (page > pageCount) setPage(pageCount);
-    }, [page, pageCount]);
+    }, [loading, page, pageCount]);
 
     const resetFilters = () => {
         setScope('My Task');
         setTypeFilter('All Types');
         setPageSizeChoice('10');
         setQuery('');
+        setEmployeeFilter('');
         setRequesterQuery('');
         setAssigneeQuery('');
         setDatePreset('all');
@@ -601,7 +805,7 @@ function TaskManagerContent() {
 
                     <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
                         <div className="flex flex-nowrap items-center gap-2 overflow-x-auto border-b border-slate-100 px-4 py-3">
-                            <div className="relative min-w-[220px] flex-1">
+                            <div className="relative w-[220px] shrink-0">
                                 <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                 <input
                                     value={query}
@@ -614,6 +818,20 @@ function TaskManagerContent() {
                                     className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
                                 />
                             </div>
+                            <select
+                                value={employeeFilter}
+                                onChange={(event) => {
+                                    setEmployeeFilter(event.target.value);
+                                    setPage(1);
+                                }}
+                                aria-label="Employee"
+                                className="h-9 w-[200px] shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
+                            >
+                                <option value="">All Employees</option>
+                                {employeesWithTasks.map((employee) => (
+                                    <option key={employee.key} value={employee.key}>{employee.name}</option>
+                                ))}
+                            </select>
                             <div className="relative w-[180px] shrink-0">
                                 <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                 <input
@@ -811,14 +1029,13 @@ function TaskManagerContent() {
                                         pageRows.map((task) => {
                                             const title = titles.get(task.actionId) || task.taskName || 'Notification';
                                             return (
-                                                <tr
+                                                <ListTableRowLink
                                                     key={task.actionId}
-                                                    onClick={(event) => {
-                                                        if (event.target.closest('button, input, a, label')) return;
-                                                        openDetails(task);
-                                                    }}
-                                                    className="cursor-pointer border-b border-slate-50 hover:bg-slate-50/70"
+                                                    href={taskDetailsHref(task)}
+                                                    router={router}
+                                                    listReturnHref={listReturnHref}
                                                 >
+                                                <tr className="cursor-pointer border-b border-slate-50 hover:bg-slate-50/70">
                                                     <td className="px-4 py-3.5">
                                                         <input
                                                             type="checkbox"
@@ -885,6 +1102,7 @@ function TaskManagerContent() {
                                                         </button>
                                                     </td>
                                                 </tr>
+                                                </ListTableRowLink>
                                             );
                                         })}
                                 </tbody>
@@ -948,6 +1166,7 @@ function TaskManagerContent() {
                         setScope('My Task');
                         setTypeFilter(displayTaskType(created?.taskType || created?.taskCategory) || 'All Types');
                         setQuery('');
+                        setEmployeeFilter('');
                         setRequesterQuery('');
                         setAssigneeQuery('');
                         setDatePreset('all');
@@ -981,7 +1200,7 @@ function TaskManagerContent() {
                                 key={item.id}
                                 type="button"
                                 disabled={disabled}
-                                title={disabled ? (item.id === 'delete' ? 'Only the task creator or an admin super user can delete' : 'Only the current assignee or admin super user can reassign') : undefined}
+                                title={disabled ? (item.id === 'delete' ? 'Only the task creator or an admin super user can delete' : 'Only the current assignee, the original assignee, or an admin super user can reassign') : undefined}
                                 onClick={() => {
                                     setOpenMenu(null);
                                     if (!task) return;
@@ -1070,7 +1289,9 @@ function TaskManagerContent() {
 export default function TaskManagerPage() {
     return (
         <PermissionGuard moduleId="hrm" permissionType="view">
-            <TaskManagerContent />
+            <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-sm text-slate-500">Loading...</div>}>
+                <TaskManagerContent />
+            </Suspense>
         </PermissionGuard>
     );
 }

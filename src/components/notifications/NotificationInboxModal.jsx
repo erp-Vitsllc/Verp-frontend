@@ -507,6 +507,11 @@ export default function NotificationInboxModal({
                                                         onPointerDown={() => prefetchItem(itemHref)}
                                                         onClick={() => {
                                                             markRead(row.key);
+                                                            if (row.openTaskLabel && itemHref) {
+                                                                onClose?.();
+                                                                router.push(itemHref);
+                                                                return;
+                                                            }
                                                             onItemClick?.(row.raw ?? row);
                                                         }}
                                                         className="flex-1 flex items-center gap-1 px-5 py-3 text-left hover:bg-gradient-to-r hover:from-sky-50/70 hover:to-transparent transition-all min-w-0"
@@ -557,6 +562,12 @@ export default function NotificationInboxModal({
                                                                         </>
                                                                     ) : null}
                                                                 </p>
+                                                                ) : null}
+                                                                {row.openTaskLabel ? (
+                                                                    <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-sky-700">
+                                                                        {row.openTaskLabel}
+                                                                        <ChevronRight size={12} />
+                                                                    </span>
                                                                 ) : null}
                                                                 {(row.entityName || row.entityId) && (
                                                                     <div className="mt-2 inline-flex items-center gap-1.5 max-w-full">

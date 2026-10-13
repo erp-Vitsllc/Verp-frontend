@@ -13,6 +13,7 @@ import {
     Pencil,
     RefreshCw,
     UserRound,
+    X,
 } from 'lucide-react';
 import CreateTaskModal from '@/app/task-manager/CreateTaskModal';
 import ReassignTaskModal from '@/app/task-manager/ReassignTaskModal';
@@ -22,6 +23,7 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { useListReturnBack } from '@/hooks/useListReturnBack';
 
 const TABS = [
     { id: 'overview', label: 'Overview' },
@@ -130,10 +132,77 @@ function EmailChips({ item }) {
     );
 }
 
+function openSectionPage(event, path) {
+    event.preventDefault();
+    const href = String(path || '').trim();
+    if (!href) return;
+    const url = href.startsWith('http')
+        ? href
+        : `${window.location.origin}${href.startsWith('/') ? href : `/${href}`}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+function NoteModal({ title, hint, submitLabel, busy, onClose, onSubmit }) {
+    const [text, setText] = useState('');
+    const [error, setError] = useState('');
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={(event) => {
+            if (event.target === event.currentTarget && !busy) onClose();
+        }}>
+            <form
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!text.trim()) {
+                        setError('Description is required.');
+                        return;
+                    }
+                    onSubmit(text.trim());
+                }}
+                className="w-full max-w-[520px] rounded-xl bg-white shadow-2xl"
+            >
+                <div className="flex items-center justify-between rounded-t-xl bg-[#2563EB] px-5 py-3.5 text-white">
+                    <h2 className="text-[16px] font-semibold">{title}</h2>
+                    <button type="button" aria-label="Close" onClick={onClose} className="rounded-md p-1 hover:bg-white/15">
+                        <X size={18} />
+                    </button>
+                </div>
+                <div className="space-y-3 px-5 py-4">
+                    <p className="text-sm text-slate-500">{hint}</p>
+                    <label className="block">
+                        <span className="mb-1.5 flex items-center justify-between text-[13px] font-semibold text-slate-800">
+                            <span>Description <span className="text-rose-500">*</span></span>
+                            <span className="font-normal text-slate-400">{text.length}/500</span>
+                        </span>
+                        <textarea
+                            value={text}
+                            maxLength={500}
+                            onChange={(event) => {
+                                setText(event.target.value);
+                                setError('');
+                            }}
+                            rows={4}
+                            placeholder="Description is required"
+                            className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        />
+                    </label>
+                    {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+                </div>
+                <div className="flex justify-end gap-3 border-t border-slate-100 px-5 py-4">
+                    <button type="button" onClick={onClose} disabled={busy} className="h-10 rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-700">Cancel</button>
+                    <button type="submit" disabled={busy} className="h-10 rounded-lg bg-[#2563EB] px-4 text-sm font-semibold text-white disabled:opacity-60">
+                        {busy ? 'Saving...' : submitLabel}
+                    </button>
+                </div>
+            </form>
+        </div>
+    );
+}
+
 function TaskDetailsPage() {
     const params = useParams();
     const router = useRouter();
     const { toast } = useToast();
+    const handleBackToList = useListReturnBack(() => router.push('/task-manager'));
     const taskKey = decodeURIComponent(String(params?.taskKey || ''));
     const [taskNumber, setTaskNumber] = useState('');
     const [tab, setTab] = useState('overview');
@@ -141,6 +210,7 @@ function TaskDetailsPage() {
     const [error, setError] = useState('');
     const [editOpen, setEditOpen] = useState(false);
     const [reassignOpen, setReassignOpen] = useState(false);
+    const [noteAction, setNoteAction] = useState(null);
     const [menuOpen, setMenuOpen] = useState(false);
     const [updateText, setUpdateText] = useState('');
     const [people, setPeople] = useState([]);
@@ -262,6 +332,56 @@ function TaskDetailsPage() {
         }
     };
 
+    const submitNoteAction = async (description) => {
+        const action = noteAction;
+        if (!action) return;
+        const path = action === 'return'
+            ? 'return'
+            : action === 'complete'
+                ? 'completion'
+                : 'confirm-completion';
+        setBusy(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/${path}`,
+                { description },
+                { skipToast: true },
+            );
+            setTask(res.data?.task || null);
+            setNoteAction(null);
+            setTab('updates');
+            toast({
+                title: action === 'return' ? 'Task returned' : action === 'complete' ? 'Sent for confirmation' : 'Task closed',
+                description: res.data?.message || 'Updated.',
+            });
+        } catch (err) {
+            toast({ title: 'Could not update the task', description: err?.response?.data?.message || 'Try again.' });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const reopenTask = async () => {
+        setBusy(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/reopen`,
+                {},
+                { skipToast: true },
+            );
+            setTask(res.data?.task || null);
+            setTab('updates');
+            toast({
+                title: 'Task reopened',
+                description: res.data?.message || 'The task is pending again.',
+            });
+        } catch (err) {
+            toast({ title: 'Could not reopen the task', description: err?.response?.data?.message || 'Try again.' });
+        } finally {
+            setBusy(false);
+        }
+    };
+
     const setStatus = async (status) => {
         setMenuOpen(false);
         setBusy(true);
@@ -297,7 +417,7 @@ function TaskDetailsPage() {
     const comments = Array.isArray(task.comments) ? task.comments : [];
     const number = taskNumber || task.taskNumber || '';
     const sentEmails = Array.isArray(task.emails) ? task.emails : [];
-    const loggedTaskMail = sentEmails.some((item) => /task update|work update|task comment|task created|task reassigned/i.test(`${item.emailType || ''} ${item.subject || ''}`));
+    const loggedTaskMail = sentEmails.some((item) => /task update|work update|task comment|task created|task reassigned|task returned|confirm completion|confirmed completed|confirm close|confirmed closed|task closed|task reopened/i.test(`${item.emailType || ''} ${item.subject || ''}`));
     const updateMails = loggedTaskMail ? [] : [
         ...updates.filter((item) => item.emailSent).map((item) => ({ ...item, channel: 'Task updated' })),
         ...comments.filter((item) => item.emailSent).map((item) => ({ ...item, channel: 'New comment' })),
@@ -305,7 +425,7 @@ function TaskDetailsPage() {
 
     return (
         <Shell>
-            <button type="button" onClick={() => router.push('/task-manager')} className="mb-3 text-sm font-semibold text-[#2563EB]">
+            <button type="button" onClick={handleBackToList} className="mb-3 text-sm font-semibold text-[#2563EB]">
                 Task Manager
             </button>
             <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
@@ -322,14 +442,45 @@ function TaskDetailsPage() {
                             {task.closeMessage ? <p className="mt-1 text-sm text-slate-500">{task.closeMessage}</p> : null}
                         </div>
                         <div className="flex items-center gap-2">
-                            {task.canComplete && (
+                            {(task.canReopen || task.showReopen) && (
+                                <button
+                                    type="button"
+                                    disabled={busy || !task.canReopen}
+                                    title={task.canReopen ? undefined : 'Reopen Request is disabled after the task is Completed'}
+                                    onClick={reopenTask}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    <RefreshCw size={14} /> Reopen Request
+                                </button>
+                            )}
+                            {task.canReturn && (
                                 <button
                                     type="button"
                                     disabled={busy}
-                                    onClick={() => setStatus('Completed')}
+                                    onClick={() => setNoteAction('return')}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                                >
+                                    <RefreshCw size={14} /> Return
+                                </button>
+                            )}
+                            {task.canSubmitCompletion && (
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => setNoteAction('complete')}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
                                 >
-                                    <Check size={14} /> Mark completed
+                                    <Check size={14} /> Close
+                                </button>
+                            )}
+                            {task.canConfirmComplete && (
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => setNoteAction('confirm')}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
+                                >
+                                    <Check size={14} /> Confirm Close
                                 </button>
                             )}
                             {task.canRequestClose && (
@@ -354,7 +505,7 @@ function TaskDetailsPage() {
                             )}
                             <button
                                 type="button"
-                                disabled={!task.canReassign}
+                                disabled={!task.canReassign || busy}
                                 onClick={() => setReassignOpen(true)}
                                 className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-40"
                             >
@@ -374,7 +525,8 @@ function TaskDetailsPage() {
                                 {menuOpen && (
                                     <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
                                         {['In Progress', 'Completed', 'Cancelled'].map((status) => {
-                                            const locked = task.workflowLocked && !(status === 'Completed' && task.canComplete);
+                                            const locked = (task.workflowLocked && !(status === 'Completed' && task.canComplete))
+                                                || (status === 'Completed' && (task.canSubmitCompletion || task.canConfirmComplete || task.canReturn || task.completionPending || task.closeScheduled));
                                             return (
                                                 <button key={status} type="button" disabled={busy || locked} onClick={() => setStatus(status)} className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40">
                                                     Mark as {status}
@@ -422,7 +574,13 @@ function TaskDetailsPage() {
                                 <p className="font-semibold text-slate-800">Description</p>
                                 <p className="mt-2 whitespace-pre-wrap">{task.description || 'No description.'}</p>
                                 {task.accessPath && task.taskCategory !== 'General Task' ? (
-                                    <a href={task.accessPath} className="mt-3 inline-flex text-sm font-semibold text-[#2563EB]">
+                                    <a
+                                        href={task.accessPath}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(event) => openSectionPage(event, task.accessPath)}
+                                        className="mt-3 inline-flex text-sm font-semibold text-[#2563EB]"
+                                    >
                                         Open this section
                                     </a>
                                 ) : null}
@@ -491,7 +649,7 @@ function TaskDetailsPage() {
                                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                                     <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-800"><Mail size={16} /> Emails for this task</h3>
                                     {task.accessPath && task.taskCategory !== 'General Task' ? (
-                                        <a href={task.accessPath} className="text-sm font-semibold text-[#2563EB]">Open the related page</a>
+                                        <a href={task.accessPath} target="_blank" rel="noopener noreferrer" onClick={(event) => openSectionPage(event, task.accessPath)} className="text-sm font-semibold text-[#2563EB]">Open the related page</a>
                                     ) : null}
                                 </div>
                                 <EmailInbox
@@ -586,9 +744,24 @@ function TaskDetailsPage() {
                     onClose={() => setReassignOpen(false)}
                     onDone={(result) => {
                         setReassignOpen(false);
+                        setTab('updates');
                         toast({ title: 'Task reassigned', description: result?.message || 'The assignee was updated.' });
                         load();
                     }}
+                />
+            )}
+            {noteAction && (
+                <NoteModal
+                    title={noteAction === 'return' ? 'Return Task' : noteAction === 'complete' ? 'Close Task' : 'Confirm Close'}
+                    hint={noteAction === 'return'
+                        ? 'This returns the task to the original assignee. They receive the description by email and on their notification.'
+                        : noteAction === 'complete'
+                            ? 'The original assignee is emailed to confirm this close before the status becomes Completed.'
+                            : 'Confirming closes this task. The requester can reopen it for 2 days. After that the status becomes Completed and Reopen Request is disabled. The description is saved on Work Updates.'}
+                    submitLabel={noteAction === 'return' ? 'Return' : noteAction === 'complete' ? 'Send for confirmation' : 'Confirm Close'}
+                    busy={busy}
+                    onClose={() => { if (!busy) setNoteAction(null); }}
+                    onSubmit={submitNoteAction}
                 />
             )}
         </Shell>
@@ -669,6 +842,24 @@ function senderLabel(from) {
     if (named?.[1]?.trim()) return named[1].trim();
     if (/verp|vitsllc|vegadigital|no-?reply/i.test(raw)) return 'VeRP';
     return raw;
+}
+
+function emailPlain(value) {
+    return String(value || '')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&#39;|&apos;/gi, "'")
+        .replace(/&quot;/gi, '"')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
 }
 
 function emailSnippet(value, limit = 120) {
@@ -799,12 +990,14 @@ function SentEmailBlock({ email }) {
                 <p><span className="text-slate-400">Date:</span> {formatWhen(email.sentAt)}</p>
             </div>
             {email.html ? (
-                <iframe
-                    title={email.subject || 'Email'}
-                    sandbox=""
-                    srcDoc={email.html}
-                    className="h-[420px] w-full border-t border-slate-100 bg-white"
-                />
+                <div className="border-t border-slate-100 bg-white">
+                    <iframe
+                        title={email.subject || "Sent email"}
+                        sandbox=""
+                        srcDoc={email.html}
+                        className="h-[36rem] w-full border-0 bg-white"
+                    />
+                </div>
             ) : (
                 <p className="px-4 pb-4 text-sm text-slate-500">This email was sent before the message copy was saved. The subject and recipients above are the record of it.</p>
             )}
