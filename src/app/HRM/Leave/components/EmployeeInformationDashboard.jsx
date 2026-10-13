@@ -3679,7 +3679,7 @@ export default function EmployeeInformationDashboard({
 
                     <section className="overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white">
                         <div className="flex items-center justify-between gap-3 border-b border-[#EEF2F6] px-4 py-3">
-                            <p className="text-[14px] font-bold text-[#1B2A4A]">Employee Tasks</p>
+                            <p className="text-[14px] font-bold text-[#1B2A4A]">Pending Tasks</p>
                             <Link href={employeeTaskListHref(employee.name)} className="inline-flex shrink-0 items-center text-[13px] font-semibold text-[#2563EB]">
                                 View All Tasks <ChevronRight size={16} />
                             </Link>
@@ -3737,7 +3737,7 @@ export default function EmployeeInformationDashboard({
                                             </tr>
                                         );
                                     }) : (
-                                        <tr><td colSpan={7} className="px-3 py-3 text-[13px] text-[#94A3B8]">No tasks for this employee.</td></tr>
+                                        <tr><td colSpan={7} className="px-3 py-3 text-[13px] text-[#94A3B8]">No pending tasks assigned to this employee.</td></tr>
                                     )}
                                 </tbody>
                             </table>
