@@ -358,6 +358,25 @@ function workedMinutes(timeIn, timeOut) {
     return diff;
 }
 
+function spanWorkedMinutes(date, span) {
+    const inn = String(span?.timeIn || '').trim();
+    const out = String(span?.timeOut || '').trim();
+    if (!inn || !out || inn === 'OT' || out === 'OT') return null;
+    const start = clockToMinutes(inn);
+    const end = clockToMinutes(out);
+    if (start == null || end == null) return null;
+    const outDate = String(span?.timeOutDate || '').trim();
+    if (outDate && date && outDate > date) {
+        const from = new Date(`${date}T12:00:00.000Z`);
+        const to = new Date(`${outDate}T12:00:00.000Z`);
+        const days = Math.round((to.getTime() - from.getTime()) / 86400000);
+        if (days > 0) return end - start + days * 24 * 60;
+    }
+    let diff = end - start;
+    if (diff <= 0) diff += 24 * 60;
+    return diff;
+}
+
 function recordWorkedMinutes(record) {
     const inn = String(record?.timeIn || '').trim();
     const out = String(record?.timeOut || '').trim();
@@ -365,21 +384,20 @@ function recordWorkedMinutes(record) {
         const hours = Number(record?.flexibleWorkedHours) || 0;
         return hours > 0 ? Math.round(hours * 60) : null;
     }
-    const start = clockToMinutes(inn);
-    const end = clockToMinutes(out);
-    if (start != null && end != null) {
-        const date = String(record?.date || '').trim();
-        const outDate = String(record?.timeOutDate || '').trim();
-        if (outDate && date && outDate > date) {
-            const from = new Date(`${date}T12:00:00.000Z`);
-            const to = new Date(`${outDate}T12:00:00.000Z`);
-            const days = Math.round((to.getTime() - from.getTime()) / 86400000);
-            if (days > 0) return end - start + days * 24 * 60;
-        }
-        let diff = end - start;
-        if (diff <= 0) diff += 24 * 60;
-        return diff;
-    }
+    const date = String(record?.date || '').trim();
+    const spans = [
+        ...(Array.isArray(record?.punchSessions) ? record.punchSessions : []),
+        { timeIn: record?.timeIn, timeOut: record?.timeOut, timeOutDate: record?.timeOutDate },
+    ];
+    let total = 0;
+    let any = false;
+    spans.forEach((span) => {
+        const minutes = spanWorkedMinutes(date, span);
+        if (minutes == null) return;
+        any = true;
+        total += minutes;
+    });
+    if (any) return total;
     const hours = Number(record?.flexibleWorkedHours) || 0;
     return hours > 0 ? Math.round(hours * 60) : null;
 }
@@ -880,14 +898,13 @@ function flexibleLossHoursOf(record, week) {
     return Math.max(0, required - wholeHourCount(worked));
 }
 
-/** Exact hours short, including minutes. A 15-minute remainder stays 15 minutes. */
+/** Exact hours short from the punches. 4:50 PM to 11:05 PM on a 10-hour day is 3 hours 45 minutes. */
 function flexibleExactLossHoursOf(record, week) {
     const required = flexibleDayHours(week, record?.date);
-    let worked = Number(record?.flexibleWorkedHours) || 0;
-    if (!(worked > 0)) {
-        const minutes = recordWorkedMinutes(record);
-        worked = minutes == null ? 0 : Math.max(0, minutes) / 60;
-    }
+    const minutes = recordWorkedMinutes(record);
+    const worked = minutes != null
+        ? Math.max(0, minutes) / 60
+        : Math.max(0, Number(record?.flexibleWorkedHours) || 0);
     return Math.max(0, required - worked);
 }
 

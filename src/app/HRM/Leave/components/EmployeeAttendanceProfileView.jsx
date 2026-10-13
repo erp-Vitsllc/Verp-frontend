@@ -424,12 +424,15 @@ function flexibleMissedDayFraction(event, week) {
     if (String(event?.hourAdjustStatus || '') === 'approved') {
         return Math.max(0, n(event?.hoursApproved)) / required;
     }
-    let worked = Number(event?.flexibleWorkedHours) || 0;
-    if (!(worked > 0)) {
-        const inn = clockToMinutes(event?.timeIn);
-        const out = clockToMinutes(event?.timeOut);
-        worked = inn != null && out != null ? Math.max(0, out - inn) / 60 : 0;
+    const inn = clockToMinutes(event?.timeIn);
+    const out = clockToMinutes(event?.timeOut);
+    let worked = 0;
+    if (inn != null && out != null) {
+        let diff = out - inn;
+        if (diff <= 0) diff += 24 * 60;
+        worked = diff / 60;
     }
+    if (!(worked > 0)) worked = Math.max(0, Number(event?.flexibleWorkedHours) || 0);
     return Math.max(0, required - worked) / required;
 }
 
