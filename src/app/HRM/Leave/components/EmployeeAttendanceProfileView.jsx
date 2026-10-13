@@ -414,18 +414,12 @@ function flexibleRequiredHours(week, dateKey) {
     return 9;
 }
 
-function wholeHours(value) {
-    const hours = Number(value);
-    if (!Number.isFinite(hours) || hours <= 0) return 0;
-    return Math.floor(hours + 1e-9);
-}
-
 /** Flexible late arrival and early go deduct the missed hours only. */
 function flexibleMissedDayFraction(event, week) {
     const key = String(event?.statusKey || '');
     if (String(week?.timingMode || '').toLowerCase() !== 'flexible') return null;
     if (key !== 'late_arrived' && key !== 'early_go') return null;
-    const required = wholeHours(flexibleRequiredHours(week, event?.date));
+    const required = flexibleRequiredHours(week, event?.date);
     if (!(required > 0)) return 0;
     if (String(event?.hourAdjustStatus || '') === 'approved') {
         return Math.max(0, n(event?.hoursApproved)) / required;
@@ -436,7 +430,7 @@ function flexibleMissedDayFraction(event, week) {
         const out = clockToMinutes(event?.timeOut);
         worked = inn != null && out != null ? Math.max(0, out - inn) / 60 : 0;
     }
-    return Math.max(0, required - wholeHours(worked)) / required;
+    return Math.max(0, required - worked) / required;
 }
 
 function deductionCutTexts(events, policy, week) {

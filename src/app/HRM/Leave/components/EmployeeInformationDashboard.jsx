@@ -880,6 +880,26 @@ function flexibleLossHoursOf(record, week) {
     return Math.max(0, required - wholeHourCount(worked));
 }
 
+/** Exact hours short, including minutes. A 15-minute remainder stays 15 minutes. */
+function flexibleExactLossHoursOf(record, week) {
+    const required = flexibleDayHours(week, record?.date);
+    let worked = Number(record?.flexibleWorkedHours) || 0;
+    if (!(worked > 0)) {
+        const minutes = recordWorkedMinutes(record);
+        worked = minutes == null ? 0 : Math.max(0, minutes) / 60;
+    }
+    return Math.max(0, required - worked);
+}
+
+function exactHourLabel(hours) {
+    const totalMinutes = Math.max(0, Math.round((Number(hours) || 0) * 60));
+    const whole = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    if (!mins) return `${whole} hr`;
+    if (!whole) return `${mins} min`;
+    return `${whole} hr ${mins} min`;
+}
+
 function takenHoursOf(row, week, kind) {
     const shift = shiftForDate(week, row?.date);
     if (kind === 'early_go' && shift) {
@@ -896,12 +916,11 @@ function takenHoursOf(row, week, kind) {
 function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
     const approved = String(row?.hourAdjustStatus || '') === 'approved';
     const flexiblePunch = isFlexibleWeek(week) && (kind === 'early_go' || kind === 'late_arrived');
-    const flexibleRequired = wholeHourCount(flexibleDayHours(week, row?.date));
     const dayHours = flexiblePunch
-        ? (flexibleRequired || flexibleDayHours(week, row?.date) || 8)
+        ? (flexibleDayHours(week, row?.date) || 8)
         : ((approved ? flexibleDayHours(week, row?.date) : 0) || dayHoursOf(week, row?.date) || 8);
     const missedHours = flexiblePunch
-        ? (approved ? n(row.hoursApproved) : flexibleLossHoursOf(row, week))
+        ? (approved ? n(row.hoursApproved) : flexibleExactLossHoursOf(row, week))
         : (approved ? n(row.hoursApproved) : (n(row?.hoursTaken) || takenHoursOf(row, week, kind)));
     const hours = flexiblePunch || approved ? missedHours : missedHours * unauthTimes;
     if (!(hours > 0) || !(daily > 0) || !(dayHours > 0)) return 0;
@@ -963,9 +982,9 @@ function deductionEventDetail(record, week) {
         const approved = String(record?.hourAdjustStatus || '') === 'approved';
         if (isFlexibleWeek(week)) {
             if (approved) return `${n(record.hoursApproved)} approved hr`;
-            const loss = flexibleLossHoursOf(record, week);
-            const required = wholeHourCount(flexibleDayHours(week, record?.date));
-            return `${loss} hr short of ${required} hr`;
+            const loss = flexibleExactLossHoursOf(record, week);
+            const required = flexibleDayHours(week, record?.date);
+            return `${exactHourLabel(loss)} short of ${exactHourLabel(required)}`;
         }
     }
     if (key === 'late_arrived') {
@@ -1008,7 +1027,7 @@ function deductionLossHours(record, week) {
     const approved = String(record?.hourAdjustStatus || '') === 'approved';
     if (approved) return n(record.hoursApproved);
     if (isFlexibleWeek(week) && (key === 'early_go' || key === 'late_arrived')) {
-        return flexibleLossHoursOf(record, week);
+        return flexibleExactLossHoursOf(record, week);
     }
     if (key === 'authorized_leave' || key === 'unauthorized_leave') {
         const weight = leaveDayWeight(record, key === 'authorized_leave');
@@ -3453,6 +3472,7 @@ export default function EmployeeInformationDashboard({
                                 </span>
                             </button>
                         </div>
+                        {isFlexibleWeek(scheduleWeek) ? (
                         <div className="mt-2 overflow-hidden rounded-xl border border-[#E7EEF6]">
                             <div className="px-3 pt-2.5">
                                 <p className="text-[13px] font-bold text-[#1B2A4A]">Salary Addition</p>
@@ -3476,6 +3496,7 @@ export default function EmployeeInformationDashboard({
                                 onOpen={setAdditionModal}
                             />
                         </div>
+                        ) : null}
                         <div className="mt-2 overflow-hidden rounded-xl border border-[#E7EEF6]">
                             <div className="flex items-center justify-between gap-2 px-3 py-2.5">
                                 <p className="text-[13px] font-bold text-[#1B2A4A]">Salary Deduction for {formatMonthLabel(monthKey)}</p>
