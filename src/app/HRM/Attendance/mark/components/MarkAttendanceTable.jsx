@@ -8,6 +8,7 @@ import { ChevronDown, ChevronRight, ChevronUp, Search, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import { notifyLeavePendingInboxChanged } from '@/app/HRM/Leave/utils/leavePendingInboxCount';
 import { hasPermission } from '@/utils/permissions';
 import { isNextDayCheckout, NextDayCheckoutTime } from '@/app/HRM/Attendance/utils/nextDayCheckout';
 import { nonHrMarkableDateKeys } from '@/app/HRM/Attendance/utils/nonHrMarkWindow';
@@ -514,7 +515,7 @@ function pendingRequestTitle(mark, kind) {
     return 'Request';
 }
 
-function rowDecisionFor(mark, employee, { isFlowchartHr = false, viewerId = '' } = {}) {
+function rowDecisionFor(mark, employee, { isFlowchartHr = false, viewerId = '', canApproveLeave = false } = {}) {
     if (!mark) return null;
     const viewer = String(viewerId || '').trim();
     const reportee = String(employee?.primaryReportee || '').trim();
@@ -535,7 +536,11 @@ function rowDecisionFor(mark, employee, { isFlowchartHr = false, viewerId = '' }
             };
         }
     }
-    if (String(mark.leaveRequestStatus || '') === 'pending' && isReportee && mark.attendanceId) {
+    if (
+        String(mark.leaveRequestStatus || '') === 'pending' &&
+        mark.attendanceId &&
+        (isReportee || canApproveLeave)
+    ) {
         return {
             kind: 'leave',
             attendanceId: String(mark.attendanceId),
@@ -1060,6 +1065,9 @@ function EmployeeRow({
         }
         : baseMark;
     const statusText = formatStatusLabel(shownMark, timeIn, pastDay);
+    const pendingLeaveLabel = String(mark?.leaveRequestStatus || '') === 'pending'
+        ? String(mark?.requestedStatusLabel || rowDecision?.title || 'Leave').trim()
+        : '';
     const statusFull = statusHoverTitle(statusText);
     const rawIn = mark?.rawTimeIn || timeIn;
     const rawOut = mark?.rawTimeOut || timeOut;
@@ -1122,14 +1130,20 @@ function EmployeeRow({
             <td className="px-3 py-3 align-middle min-w-[220px]">
                 <div className="flex flex-col gap-0.5 min-w-0">
                     <span
-                        className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${statusChipClass(shownMark, statusText)}`}
-                        title={[statusFull, mark?.reason, adjustTitle, rowDecision ? `Pending: ${rowDecision.title}` : '']
+                        className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${
+                            pendingLeaveLabel ? 'text-amber-800 bg-amber-50' : statusChipClass(shownMark, statusText)
+                        }`}
+                        title={[pendingLeaveLabel ? `${pendingLeaveLabel} pending` : statusFull, mark?.reason, adjustTitle, rowDecision ? `Pending: ${rowDecision.title}` : '']
                             .filter(Boolean)
                             .join(' — ')}
                     >
-                        {statusText}
+                        {pendingLeaveLabel || statusText}
                     </span>
-                    {rowDecision ? (
+                    {pendingLeaveLabel ? (
+                        <span className="text-[10px] font-semibold text-amber-700 whitespace-nowrap" title={pendingLeaveLabel}>
+                            {pendingLeaveLabel} pending
+                        </span>
+                    ) : rowDecision ? (
                         <span className="text-[10px] font-semibold text-blue-700 whitespace-nowrap" title={rowDecision.title}>
                             {rowDecision.title} pending
                         </span>
@@ -1335,10 +1349,16 @@ export default function MarkAttendanceTable({
     const [compOffEmployee, setCompOffEmployee] = useState(null);
     const [decidingEmployeeId, setDecidingEmployeeId] = useState('');
     const [canUseOtActions, setCanUseOtActions] = useState(false);
+    const [canApproveLeave, setCanApproveLeave] = useState(false);
     const viewerId = useMemo(() => currentEmployeeMongoId(), []);
 
     useEffect(() => {
         setCanUseOtActions(hasPermission('hrm_attendance_ot', 'isView'));
+        setCanApproveLeave(
+            hasPermission('hrm_leave', 'isView')
+            || hasPermission('hrm_leave', 'isCreate')
+            || hasPermission('hrm_leave', 'isEdit'),
+        );
     }, []);
     const bulkButtonRef = useRef(null);
     const employeesRef = useRef([]);
@@ -1796,18 +1816,17 @@ export default function MarkAttendanceTable({
         setLeaveDeciding(true);
         setLeaveDecideError('');
         try {
-            const res = await axiosInstance.post('/Attendance/me/leave-request/decide', {
+            const res = await axiosInstance.post('/Leave/pending-requests/decide', {
                 attendanceId,
-                date: leaveDecide?.mark?.date || dateKey,
-                employeeMongoId: leaveDecide?.employee?.id || '',
                 decision: choice,
-                approvedStatusKey: approvedStatusKey || '',
+                approvedStatusKey: approvedStatusKey || leaveDecide?.mark?.requestedStatusKey || '',
             });
             toast({
                 title: choice === 'approved' ? 'Approved' : 'Rejected',
                 description: res.data?.message || 'Leave request updated.',
             });
             notifyAttendancePendingInboxChanged();
+            notifyLeavePendingInboxChanged();
             setLeaveDecide(null);
             setDayReload((value) => value + 1);
         } catch (error) {
@@ -1829,7 +1848,7 @@ export default function MarkAttendanceTable({
                 });
                 description = res.data?.message || '';
             } else if (decision.kind === 'leave') {
-                const res = await axiosInstance.post('/Attendance/me/leave-request/decide', {
+                const res = await axiosInstance.post('/Leave/pending-requests/decide', {
                     attendanceId: decision.attendanceId,
                     decision: choice,
                 });
@@ -1853,6 +1872,7 @@ export default function MarkAttendanceTable({
                 description: description || `${decision.title} updated.`,
             });
             notifyAttendancePendingInboxChanged();
+            if (decision.kind === 'leave') notifyLeavePendingInboxChanged();
             setDayReload((value) => value + 1);
             return true;
         } catch (error) {
@@ -2204,6 +2224,7 @@ export default function MarkAttendanceTable({
                                 rowDecision={rowDecisionFor(marks[employee.id] || null, employee, {
                                     isFlowchartHr,
                                     viewerId,
+                                    canApproveLeave,
                                 })}
                                 deciding={decidingEmployeeId === employee.id}
                                 onDecide={(choice) =>
@@ -2212,6 +2233,7 @@ export default function MarkAttendanceTable({
                                         rowDecisionFor(marks[employee.id] || null, employee, {
                                             isFlowchartHr,
                                             viewerId,
+                                            canApproveLeave,
                                         }),
                                         choice,
                                     )
@@ -2222,6 +2244,7 @@ export default function MarkAttendanceTable({
                                         rowDecisionFor(marks[employee.id] || null, employee, {
                                             isFlowchartHr,
                                             viewerId,
+                                            canApproveLeave,
                                         }),
                                     )
                                 }
@@ -2341,7 +2364,7 @@ export default function MarkAttendanceTable({
                 onDecide={(choice) => {
                     const employee = changeReview?.employee;
                     const decision = employee
-                        ? rowDecisionFor(changeReview?.mark, employee, { isFlowchartHr, viewerId })
+                        ? rowDecisionFor(changeReview?.mark, employee, { isFlowchartHr, viewerId, canApproveLeave })
                         : null;
                     if (!employee || !decision) return;
                     decideRowRequest(employee, decision, choice).then((ok) => {

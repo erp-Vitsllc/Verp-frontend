@@ -1264,7 +1264,6 @@ function attendanceRequestPending(record) {
         record.hourAdjustStatus,
         record.leaveRequestStatus,
         record.flexibleOtStatus,
-        record.approvalStatus,
     ].some((value) => String(value || '').trim().toLowerCase() === 'pending');
 }
 
@@ -1495,7 +1494,9 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     if (dayNote?.takenFrom) compOffLines.push(`Comp off taken from ${formatDayLabel(dayNote.takenFrom)}`);
     const showTip = hoveredDate === dateKey && inMonth && !beforeStart && !ctx.salaryLock?.locked;
     const canOpenMark = Boolean(markTarget?.employeeId) && inMonth && !beforeStart;
-    const requestPending = compact && inMonth && !beforeStart && attendanceRequestPending(record);
+    const requestPending = compact && inMonth && !beforeStart && (
+        attendanceRequestPending(record) || Boolean(ctx.pendingRequestDates?.has(dateKey))
+    );
     const openMarkPage = (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -1576,6 +1577,7 @@ function buildMonthCalendarContext({
     monthlySalary,
     joinKey,
     visibleFrom,
+    pendingRequestDates = [],
 }) {
     const recordsByDate = {};
     (records || []).forEach((row) => {
@@ -1687,6 +1689,11 @@ function buildMonthCalendarContext({
         calendarNotes,
         adjustmentByDate: buildAdjustmentIndex(monthRecords),
         visibleFrom: visibleFrom || '',
+        pendingRequestDates: new Set(
+            (Array.isArray(pendingRequestDates) ? pendingRequestDates : [])
+                .map((date) => String(date || '').trim())
+                .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)),
+        ),
     };
 }
 
@@ -1710,6 +1717,7 @@ function GroupEmployeeCalendar({ employee, payload, holidayRows, leavePolicy, on
             monthlySalary: Number(employee.monthlySalary) || 0,
             joinKey: employee.visibleFrom || '',
             visibleFrom: employee.visibleFrom || '',
+            pendingRequestDates: employee.pendingRequestDates,
         });
     }, [employee, holidayRows, leavePolicy, monthKey, payload]);
     const anchor = useMemo(() => new Date(`${monthKey}-01T12:00:00`), [monthKey]);
@@ -1810,7 +1818,7 @@ function GroupAttendanceBoard({ groupKey, groupLabel, monthKey, holidayRows, lea
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
                     <h2 className="text-[15px] font-bold text-[#1B2A4A]">{groupLabel} attendance</h2>
-                    <p className="text-[12px] font-medium text-[#64748B]">Three calendars per row. Click a name to open that employee. Double-click a day to mark attendance. A day with a pending request (overtime, missed punch, leave, or approval) blinks slowly.</p>
+                    <p className="text-[12px] font-medium text-[#64748B]">Three calendars per row. Click a name to open that employee. Double-click a day to mark attendance. Only a day with a pending request (overtime, missed punch, leave, or attendance change) blinks slowly.</p>
                 </div>
             </div>
             <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1.5">
