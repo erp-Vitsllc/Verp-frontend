@@ -11,6 +11,16 @@ describe('groupCalendarDayKind', () => {
         assert.equal(groupCalendarDayKind('authorized_leave'), 'authorized');
         assert.equal(groupCalendarDayKind('compoff_leave'), 'compoff');
         assert.equal(groupCalendarDayKind('unauthorized_leave'), 'absent');
+        assert.equal(groupCalendarDayKind('not_marked'), 'absent');
+    });
+
+    it('keeps an approved future leave and hides unauthorized or pending future days', () => {
+        assert.equal(groupCalendarDayKind('authorized_leave', { isFuture: true }), 'authorized');
+        assert.equal(groupCalendarDayKind('sick_leave', { isFuture: true }), 'sick');
+        assert.equal(groupCalendarDayKind('on_leave', { isFuture: true }), 'annual');
+        assert.equal(groupCalendarDayKind('unauthorized_leave', { isFuture: true }), 'future');
+        assert.equal(groupCalendarDayKind('not_marked', { isFuture: true }), 'future');
+        assert.equal(groupCalendarDayKind('unauthorized_leave', { isToday: true }), 'absent');
     });
 
     it('keeps days before the employee starts blank', () => {

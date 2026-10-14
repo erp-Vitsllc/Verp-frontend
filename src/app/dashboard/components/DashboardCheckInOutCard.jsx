@@ -90,7 +90,6 @@ function formatElapsed(totalSeconds) {
     return `${h}:${m}:${s}`;
 }
 
-/** Hours and minutes already worked, for the checkout confirmation. */
 function priorSessionSeconds(record) {
     const date = record?.date || '';
     return (Array.isArray(record?.punchSessions) ? record.punchSessions : []).reduce((sum, session) => {
@@ -101,13 +100,6 @@ function priorSessionSeconds(record) {
         if (span < 0 || (session?.timeOutDate && date && session.timeOutDate > date)) span += 24 * 3600;
         return sum + Math.max(0, span);
     }, 0);
-}
-
-function formatWorkedHoursMinutes(totalSeconds) {
-    const sec = Math.max(0, Math.floor(totalSeconds));
-    const h = String(Math.floor(sec / 3600)).padStart(2, '0');
-    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
-    return `${h}:${m}`;
 }
 
 /** Current Dubai clock HH:mm:ss — used for optimistic check-in when API omits time. */
@@ -589,7 +581,7 @@ export default function DashboardCheckInOutCard() {
                 }
                 description={
                     confirmAction === 'out'
-                        ? `You have ${formatWorkedHoursMinutes(elapsed)} worked.`
+                        ? `You have ${formatElapsed(elapsed)} worked.`
                         : ''
                 }
                 confirmLabel="OK"

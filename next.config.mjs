@@ -1,3 +1,4 @@
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -6,6 +7,11 @@ const __dirname = path.dirname(__filename);
 
 /** LAN IP for testing on phone/Mac Safari (ipconfig → IPv4). Override via LAN_DEV_HOST in .env.local */
 const lanDevHost = process.env.LAN_DEV_HOST || '192.168.100.200';
+
+const cpuCount = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
+// Default webpack parallelism (~100) blew the Windows heap on large ERP pages.
+// Forcing 1 worker made every localhost navigation recompile in series. 4 is the middle.
+const devCompileWorkers = Math.max(2, Math.min(4, cpuCount || 2));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -24,10 +30,10 @@ const nextConfig = {
   reactStrictMode: true,
   productionBrowserSourceMaps: false,
 
-  // Drop compiled pages from memory quickly while clicking around in `next dev`.
+  // Keep recently opened screens compiled. A 15s / 2-page buffer recompiled almost every click.
   onDemandEntries: {
-    maxInactiveAge: 15 * 1000,
-    pagesBufferLength: 2,
+    maxInactiveAge: 3 * 60 * 1000,
+    pagesBufferLength: 6,
   },
 
   // Image optimization
@@ -123,25 +129,26 @@ const nextConfig = {
     optimizeCss: false, // Disabled due to 'unsupported color function lab' error
     optimizePackageImports: ['lucide-react', 'react-phone-input-2', 'recharts', 'date-fns'],
     webpackMemoryOptimizations: true,
-    cpus: 1,
+    cpus: devCompileWorkers,
     preloadEntriesOnStart: false,
     serverSourceMaps: false,
   },
 
   // Webpack optimizations
   webpack: (config, { isServer, dev }) => {
-    // One compile at a time — parallel webpack workers were blowing the Windows heap
-    // (RangeError: Array buffer allocation failed) on large ERP pages.
-    config.parallelism = 1;
+    // Production builds stay single-threaded so a full ERP compile does not exhaust the Windows heap.
+    // Dev uses a few workers so localhost is not stuck compiling one module at a time.
+    config.parallelism = dev ? devCompileWorkers : 1;
 
     if (dev) {
       config.watchOptions = {
         ignored: ['**/node_modules/**', '**/.git/**', '**/.next/**'],
+        aggregateTimeout: 300,
       };
       if (config.cache && typeof config.cache === 'object') {
         config.cache = {
           ...config.cache,
-          compression: 'gzip',
+          compression: false,
           maxMemoryGenerations: 1,
         };
       }

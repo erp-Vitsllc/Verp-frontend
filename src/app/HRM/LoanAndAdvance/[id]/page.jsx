@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { Suspense, useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import { NotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 
 import axiosInstance from '@/utils/axios';
@@ -1141,7 +1142,14 @@ export default function LoanRequestDetails() {
                                 )}
                             </div>
 
-                            <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
+                            <div id="loan-focus-record" className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
+                                <Suspense fallback={null}>
+                                    <NotificationFocusScroll
+                                        loading={false}
+                                        focusCardPrefix="loan-focus-"
+                                        deps={[loan?._id]}
+                                    />
+                                </Suspense>
                                 <LoanActionPanel
                                     loan={loan}
                                     typeLabel={typeLabel}

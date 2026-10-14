@@ -597,8 +597,8 @@ function AnnualLeavePageContent() {
         [],
     );
 
-    const handleAcceptRequest = useCallback(
-        (row) => {
+    const handleSelectRequest = useCallback(
+        (row, mode = 'approve') => {
             if (!row?.id || !row.employeeMongoId) return;
             if (!isValidDateKey(row.startDateKey) || !isValidDateKey(row.endDateKey)) return;
 
@@ -610,32 +610,25 @@ function AnnualLeavePageContent() {
                     approvalId: row.id,
                 }),
             );
-            setLeaveModalMode('approve');
+            setLeaveModalMode(mode === 'edit' ? 'edit' : 'approve');
             setApproveRequest(row);
-            setModalOpen(true);
+            setModalOpen(false);
         },
         [router],
     );
 
-    const handleEditRequest = useCallback(
-        (row) => {
-            if (!row?.id || !row.employeeMongoId) return;
-            if (!isValidDateKey(row.startDateKey) || !isValidDateKey(row.endDateKey)) return;
-
-            setSavedLeaveKey(`${row.employeeMongoId}|${row.startDateKey}|${row.endDateKey}`);
-            router.replace(
-                leaveDashboardHref({
-                    from: row.startDateKey,
-                    to: row.endDateKey,
-                    approvalId: row.id,
-                }),
-            );
-            setLeaveModalMode('edit');
-            setApproveRequest(row);
-            setModalOpen(true);
-        },
-        [router],
-    );
+    const closeRequestPanel = useCallback(() => {
+        setApproveRequest(null);
+        setLeaveModalMode('apply');
+        router.replace(
+            leaveDashboardHref({
+                employeeId,
+                employeeName,
+                from,
+                to,
+            }),
+        );
+    }, [employeeId, employeeName, from, router, to]);
 
     const modalEmployees = useMemo(() => {
         if (!approveRequest?.employeeMongoId) return enrolledEmployees;
@@ -664,11 +657,11 @@ function AnnualLeavePageContent() {
                 <div className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-hidden">
                     <Navbar />
                     <div
-                        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 sm:px-5 lg:px-8"
+                        className="min-h-0 flex-1 snap-y snap-mandatory overflow-x-hidden overflow-y-auto"
                         style={{ backgroundColor: '#F2F6F9' }}
                     >
-                        <section className="flex min-h-full flex-col py-3 sm:py-5 lg:py-8">
-                        <ErpPageHeader title="Leave Dashboard">
+                        <section className="flex h-full snap-start snap-always flex-col overflow-y-auto px-3 py-3 sm:px-5 lg:px-8 xl:overflow-hidden">
+                        <ErpPageHeader title="Leave Dashboard" className="!mb-3 shrink-0">
                             <div className="flex flex-wrap items-center gap-3">
                             <button
                                 type="button"
@@ -765,6 +758,7 @@ function AnnualLeavePageContent() {
                             </div>
                         </ErpPageHeader>
 
+                        <div className="flex min-h-0 flex-1 flex-col">
                         <LeaveDashboard
                             employees={enrolledEmployees}
                             employeeId={employeeId}
@@ -790,13 +784,50 @@ function AnnualLeavePageContent() {
                             refreshKey={dashboardRefreshKey}
                             onDataChanged={() => setDashboardRefreshKey((value) => value + 1)}
                             onApprovalRowSelect={handleApprovalRowSelect}
-                            onAcceptRequest={handleAcceptRequest}
-                            onEditRequest={handleEditRequest}
+                            onSelectRequest={handleSelectRequest}
+                            fillViewport
+                            approvalPanel={
+                                !modalOpen &&
+                                approveRequest &&
+                                (leaveModalMode === 'approve' || leaveModalMode === 'edit') ? (
+                                    <AnnualLeaveFilterModal
+                                        embedded
+                                        open
+                                        onClose={closeRequestPanel}
+                                        employees={modalEmployees}
+                                        salaryVisibility={salaryVisibility}
+                                        initialEmployeeId={
+                                            approveRequest?.employeeMongoId
+                                                ? approveRequest.employeeMongoId
+                                                : ''
+                                        }
+                                        initialStartDate={approveRequest?.startDateKey || from}
+                                        initialEndDate={approveRequest?.endDateKey || to}
+                                        initialLeaveMode={leaveModeFromStatusKey(
+                                            approveRequest?.requestedStatusKey,
+                                        )}
+                                        onApply={handleModalApply}
+                                        onReject={handleModalReject}
+                                        showReject={leaveModalMode === 'approve'}
+                                        applyLabel={leaveModalMode === 'edit' ? 'Save' : 'Approve'}
+                                        modalTitle={leaveModalMode === 'edit' ? 'Edit Leave' : 'Approve Leave'}
+                                        requestedLeaveLabel={approveRequest?.leaveType || ''}
+                                        requestedDateLabel={
+                                            approveRequest?.startDate && approveRequest?.endDate
+                                                ? `${approveRequest.startDate} → ${approveRequest.endDate}`
+                                                : ''
+                                        }
+                                        submitting={confirming}
+                                        enableAnnualEligibilityGate
+                                    />
+                                ) : null
+                            }
                             calendarLeaveFocus={calendarLeaveFocus}
                         />
+                        </div>
                         </section>
 
-                        <section className="flex min-h-full flex-col pb-3 sm:pb-5 lg:pb-8">
+                        <section className="flex h-full snap-start snap-always flex-col overflow-hidden px-3 py-3 sm:px-5 lg:px-8">
                         <LeaveCalendarView
                             employeeId={employeeId}
                             from={from}

@@ -16,3 +16,40 @@ export function markAttendanceHref({ date, staffType, blinkEmployee } = {}) {
     const query = params.toString();
     return query ? `/HRM/Attendance/mark?${query}` : '/HRM/Attendance/mark';
 }
+
+function dateKeyOf(value) {
+    const key = String(value || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : '';
+}
+
+/** Open Mark Attendance on the request day, same as an app attendance request. */
+export function attendanceRequestMarkHref({
+    date,
+    staffType,
+    attendanceId,
+    employeeId,
+    kind,
+    type,
+} = {}) {
+    const params = new URLSearchParams();
+    const day = dateKeyOf(date);
+    if (day) params.set('date', day);
+    const group = normalizeWorkLocationKey(staffType) || 'office';
+    params.set('staffType', group);
+    const employee = String(employeeId || '').trim();
+    if (employee) params.set('blinkEmployee', employee);
+    const id = String(attendanceId || '').trim();
+    const typeKey = String(type || '').toLowerCase();
+    const kindKey = String(kind || '').toLowerCase();
+    if (id && (typeKey.includes('flexible ot') || kindKey === 'flexible_ot')) {
+        params.set('otAttendanceId', id);
+    } else if (id && (typeKey.includes('hour') || kindKey === 'hour_adjust')) {
+        params.set('hourAttendanceId', id);
+    } else if (id && (typeKey.includes('change') || kindKey === 'attendance_change')) {
+        params.set('changeRequestId', id);
+    } else if (id) {
+        params.set('leaveAttendanceId', id);
+    }
+    const query = params.toString();
+    return query ? `/HRM/Attendance/mark?${query}` : '/HRM/Attendance/mark';
+}

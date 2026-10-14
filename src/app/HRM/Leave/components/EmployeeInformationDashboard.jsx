@@ -1210,18 +1210,27 @@ function recordsInWindow(records, from, to) {
     });
 }
 
+function requestApproved(record) {
+    return [record?.leaveRequestStatus, record?.approvalStatus].some(
+        (value) => String(value || '').trim().toLowerCase() === 'approved',
+    );
+}
+
 function dayKind(record, { isFuture, isToday, isHoliday, isWeeklyOff }) {
     const key = String(record?.statusKey || '');
-    if (shownEventKind(record)) return 'attention';
+    // A future day stays blank until leave is approved. Unauthorized leave is only a past day.
+    const unapprovedFuture = Boolean(isFuture) && !requestApproved(record);
+    if (shownEventKind(record) && !unapprovedFuture) return 'attention';
     if (key === 'on_office' || key === 'work_from_home') return 'present';
-    if (key === 'unauthorized_leave' || key === 'not_marked') return 'absent';
     if (key === 'sick_leave') return 'sick';
     if (key === 'authorized_leave') return 'authorized';
     if (key === 'on_leave') return 'annual';
     if (key === 'compoff_leave') return 'compoff';
     if (key === 'holiday' || isHoliday) return 'holiday';
     if (key === 'weekly_off' || isWeeklyOff) return 'weekend';
-    if (isFuture || isToday) return 'future';
+    if (isFuture) return 'future';
+    if (key === 'unauthorized_leave' || key === 'not_marked') return 'absent';
+    if (isToday) return 'future';
     if (!record) return 'absent';
     return 'empty';
 }
@@ -1247,6 +1256,16 @@ function dayEarlyText(record, week) {
     const actual = clockToMinutes(record.timeOut);
     if (!shift || actual == null) return '—';
     return formatHourlyGap(Math.max(0, shift.end - actual));
+}
+
+function attendanceRequestPending(record) {
+    if (!record) return false;
+    return [
+        record.hourAdjustStatus,
+        record.leaveRequestStatus,
+        record.flexibleOtStatus,
+        record.approvalStatus,
+    ].some((value) => String(value || '').trim().toLowerCase() === 'pending');
 }
 
 function dayApprovalLabel(record) {
@@ -1417,7 +1436,8 @@ function DayTip({
     );
 }
 
-function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = false }) {
+function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = false, markTarget = null }) {
+    const router = useRouter();
     const dateKey = format(day, 'yyyy-MM-dd');
     const inMonth = dateKey.slice(0, 7) === ctx.monthKey;
     const record = inMonth ? ctx.recordsByDate[dateKey] : null;
@@ -1442,7 +1462,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     const description = dayDescription(record);
     const adjustment = inMonth && !beforeStart && !ctx.salaryLock?.locked ? ctx.adjustmentByDate.get(dateKey) : null;
     const adjustmentText = adjustmentNote(adjustment ? { date: dateKey, ...adjustment } : null);
-    const approval = dayApprovalLabel(record);
+    const approval = kind === 'future' ? '' : dayApprovalLabel(record);
     const scheduled = flowchartMinutes(ctx.scheduleWeek, dateKey, record);
     const balance = worked == null || !(scheduled > 0) ? null : scheduled - worked;
     const flexibleShort = flexibleDay ? flexibleShortMinutes(record, ctx.scheduleWeek) : null;
@@ -1474,16 +1494,36 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     if (dayNote?.givenTo) compOffLines.push(`Comp off given to ${formatDayLabel(dayNote.givenTo)}`);
     if (dayNote?.takenFrom) compOffLines.push(`Comp off taken from ${formatDayLabel(dayNote.takenFrom)}`);
     const showTip = hoveredDate === dateKey && inMonth && !beforeStart && !ctx.salaryLock?.locked;
+    const canOpenMark = Boolean(markTarget?.employeeId) && inMonth && !beforeStart;
+    const requestPending = compact && inMonth && !beforeStart && attendanceRequestPending(record);
+    const openMarkPage = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!canOpenMark) return;
+        router.push(markAttendanceHref({
+            date: dateKey,
+            staffType: markTarget.staffType,
+            blinkEmployee: markTarget.employeeId,
+        }));
+    };
     return (
         <div
-            className="relative"
+            className={`relative ${canOpenMark ? 'cursor-pointer' : ''}`}
+            data-attendance-day={canOpenMark ? dateKey : undefined}
+            title={requestPending
+                ? 'Attendance request pending. Double-click to mark this day'
+                : (canOpenMark ? 'Double-click to mark this day' : undefined)}
             onMouseEnter={() => inMonth && !beforeStart && setHoveredDate(dateKey)}
             onMouseLeave={() => setHoveredDate('')}
+            onClick={(event) => {
+                if (canOpenMark) event.stopPropagation();
+            }}
+            onDoubleClick={openMarkPage}
         >
             <div className={`${compact
                 ? 'flex h-8 w-full items-center justify-center rounded-[7px] text-[11px] font-semibold tabular-nums leading-none'
                 : 'flex min-h-12 w-full flex-col items-center justify-center rounded-[9px] px-0.5 py-1 text-[13px] font-semibold tabular-nums leading-none'
-            } ${DAY_STYLE[kind] || DAY_STYLE.empty}`}>
+            } ${DAY_STYLE[kind] || DAY_STYLE.empty}${requestPending ? ' attendance-request-blink' : ''}`}>
                 <span>{format(day, 'd')}</span>
                 {!compact && adjustmentText ? (
                     <span className={`mt-0.5 text-center text-[8px] font-bold leading-tight ${adjInk(kind)}`}>
@@ -1681,7 +1721,10 @@ function GroupEmployeeCalendar({ employee, payload, holidayRows, leavePolicy, on
     return (
         <article
             className={`cursor-pointer rounded-2xl border border-[#E6EDF5] bg-white px-3 py-3 shadow-sm transition hover:border-[#93C5FD] ${hoveredDate ? 'relative z-30' : 'relative z-0'}`}
-            onClick={() => onOpen(employee.id)}
+            onClick={(event) => {
+                if (event.target.closest('[data-attendance-day]')) return;
+                onOpen(employee.id);
+            }}
         >
             <div className="mb-2 min-w-0">
                 <p className="truncate text-[14px] font-bold text-[#1B2A4A]">{employee.employeeName || 'Employee'}</p>
@@ -1701,6 +1744,10 @@ function GroupEmployeeCalendar({ employee, payload, holidayRows, leavePolicy, on
                         hoveredDate={hoveredDate}
                         setHoveredDate={setHoveredDate}
                         compact
+                        markTarget={{
+                            employeeId: employee.id,
+                            staffType: payload.staffType || employee.staffType,
+                        }}
                     />
                 ))}
             </div>
@@ -1744,10 +1791,26 @@ function GroupAttendanceBoard({ groupKey, groupLabel, monthKey, holidayRows, lea
     const employees = Array.isArray(payload?.employees) ? payload.employees : [];
     return (
         <section className="rounded-2xl border border-[#E6EDF5] bg-[#F8FAFC] p-3">
+            <style>{`
+                @keyframes attendance-request-blink {
+                    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+                    45% { opacity: 0.35; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.45); }
+                    70% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+                }
+                .attendance-request-blink {
+                    animation: attendance-request-blink 2.4s ease-in-out infinite;
+                }
+                @media (prefers-reduced-motion: reduce) {
+                    .attendance-request-blink {
+                        animation: none;
+                        box-shadow: inset 0 0 0 2px rgba(220, 38, 38, 0.75);
+                    }
+                }
+            `}</style>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
                     <h2 className="text-[15px] font-bold text-[#1B2A4A]">{groupLabel} attendance</h2>
-                    <p className="text-[12px] font-medium text-[#64748B]">Three calendars per row. Click a calendar to open that employee.</p>
+                    <p className="text-[12px] font-medium text-[#64748B]">Three calendars per row. Click a name to open that employee. Double-click a day to mark attendance. A day with a pending request (overtime, missed punch, leave, or approval) blinks slowly.</p>
                 </div>
             </div>
             <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1.5">
@@ -3605,6 +3668,10 @@ export default function EmployeeInformationDashboard({
                                                 ctx={calendarCtx}
                                                 hoveredDate={hoveredDate}
                                                 setHoveredDate={setHoveredDate}
+                                                markTarget={{
+                                                    employeeId: employeeMongoId,
+                                                    staffType,
+                                                }}
                                             />
                                         ))}
                                     </div>

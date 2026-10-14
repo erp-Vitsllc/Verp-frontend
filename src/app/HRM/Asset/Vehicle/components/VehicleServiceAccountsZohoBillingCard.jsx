@@ -975,7 +975,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
     );
 
     return (
-        <div className={`w-full ${className}`.trim()}>
+        <div id="service-focus-payment" className={`w-full ${className}`.trim()}>
             <VehicleServiceLockedSection
                 locked={paymentGate.locked}
                 message={paymentGate.message || 'Complete Service first — then Make Payment unlocks'}

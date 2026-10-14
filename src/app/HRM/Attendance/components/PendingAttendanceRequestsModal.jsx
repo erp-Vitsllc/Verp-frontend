@@ -18,6 +18,7 @@ import { mapPendingInboxToRow } from '@/utils/notificationInboxPresentation';
 import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
 import { buildEmployeeHubDashboardPath, isEmployeeHubRequestItem } from '@/utils/employeeHubRequest';
 import { notifyAttendancePendingInboxChanged } from '../utils/attendancePendingInboxCount';
+import { attendanceRequestMarkHref } from '../utils/markAttendanceHref';
 
 function isAttendanceChangeItem(row) {
     const raw = row?.raw || row || {};
@@ -55,13 +56,16 @@ function buildAttendancePath(row) {
         });
         return `/HRM/Attendance/mark?${qs.toString()}`;
     }
-    if (!empId) return '';
-    const qs = new URLSearchParams({
-        focusAttendance: '1',
-        attendanceEmployeeId: String(empId),
+    const attendanceId = String(row?.id || row?.dashboardActionId || row?.raw?.id || '').trim();
+    if (!empId && !attendanceId) return '';
+    return attendanceRequestMarkHref({
+        date,
+        staffType: row?.staffType || row?.raw?.staffType || 'office',
+        attendanceId,
+        employeeId: empId,
+        kind: row?.leaveRequestKind || row?.raw?.leaveRequestKind || '',
+        type: row?.requestType || row?.raw?.requestType || '',
     });
-    if (date) qs.set('attendanceDate', String(date));
-    return `/dashboard?${qs.toString()}`;
 }
 
 /** Shape attendance inbox API rows like Fine/Reward for the shared notification tab. */

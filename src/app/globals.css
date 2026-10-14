@@ -282,6 +282,38 @@
   }
 }
 
+/* Task / notification deep link: flash the target card or table row twice. */
+@keyframes record-focus-blink {
+  0%,
+  100% {
+    outline-color: transparent;
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+    background-color: transparent;
+  }
+  40%,
+  60% {
+    outline-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
+    background-color: rgba(219, 234, 254, 0.9);
+  }
+}
+
+.record-focus-blink,
+tr.record-focus-blink > td {
+  outline: 3px solid transparent;
+  outline-offset: 2px;
+  animation: record-focus-blink 0.7s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .record-focus-blink,
+  tr.record-focus-blink > td {
+    animation: none;
+    outline: 3px solid #2563eb;
+    outline-offset: 2px;
+  }
+}
+
 /* Home dashboard — GPU card lift + staggered pops */
 .dash-card-lift {
   transition: box-shadow 0.4s cubic-bezier(0.22, 1, 0.36, 1);

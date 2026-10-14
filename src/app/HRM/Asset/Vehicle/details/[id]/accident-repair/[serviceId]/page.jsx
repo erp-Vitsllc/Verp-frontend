@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
@@ -281,6 +282,12 @@ function VehicleAccidentRepairDetailPageContent() {
             }
         }, [router, vehicleId]),
     );
+
+    useNotificationFocusScroll({
+        loading,
+        focusCardPrefix: '',
+        deps: [asset?._id, serviceId],
+    });
 
     if (loading) {
         return (

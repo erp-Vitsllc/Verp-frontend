@@ -572,7 +572,7 @@ function TaskDetailsPage() {
                         {tab === 'overview' && (
                             <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-700">
                                 <p className="font-semibold text-slate-800">Description</p>
-                                <p className="mt-2 whitespace-pre-wrap">{task.description || 'No description.'}</p>
+                                <p className="mt-2 whitespace-pre-wrap leading-6">{task.description || 'No description.'}</p>
                                 {task.accessPath && task.taskCategory !== 'General Task' ? (
                                     <a
                                         href={task.accessPath}

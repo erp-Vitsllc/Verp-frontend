@@ -108,6 +108,7 @@ export default function AnnualLeaveFilterModal({
     onReject,
     rejectLabel = 'Reject',
     enableAnnualEligibilityGate = false,
+    embedded = false,
 }) {
     const rootRef = useRef(null);
     const loadedSalaryVisibility = useLeaveSalaryVisibility();
@@ -311,19 +312,17 @@ export default function AnnualLeaveFilterModal({
         });
     };
 
-    if (!mounted || !open) return null;
+    if (!open || (!embedded && !mounted)) return null;
 
-    return createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <button
-                type="button"
-                aria-label="Close"
-                className="absolute inset-0 bg-black/30"
-                onClick={() => onClose?.()}
-            />
+    const form = (
+        <>
             <div
                 ref={rootRef}
-                className="relative z-[101] w-full max-w-md rounded-xl border border-gray-200 bg-white p-5 shadow-2xl"
+                className={
+                    embedded
+                        ? 'w-full'
+                        : 'relative z-[101] w-full max-w-md rounded-xl border border-gray-200 bg-white p-5 shadow-2xl'
+                }
                 onMouseDown={(event) => event.stopPropagation()}
             >
                 <h3 className="mb-4 text-center text-base font-bold text-gray-900">{modalTitle}</h3>
@@ -611,6 +610,20 @@ export default function AnnualLeaveFilterModal({
                     animation: leave-date-blink 0.55s ease-in-out 4;
                 }
             `}</style>
+        </>
+    );
+
+    if (embedded) return form;
+
+    return createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <button
+                type="button"
+                aria-label="Close"
+                className="absolute inset-0 bg-black/30"
+                onClick={() => onClose?.()}
+            />
+            {form}
         </div>,
         document.body,
     );

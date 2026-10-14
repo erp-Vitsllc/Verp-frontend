@@ -53,6 +53,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
+import { runNotificationFocusScroll } from '@/utils/notificationFocusNavigation';
 import { ASSET_FOCUS_PREFIX } from '@/utils/assetNotificationRouting';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import { openBlankPreviewTab, resolveAttachmentForViewer } from '@/utils/attachmentPreview';
@@ -1175,7 +1176,7 @@ function VehicleDetailsPageContent() {
     useNotificationFocusScroll({
         loading,
         focusCardPrefix: ASSET_FOCUS_PREFIX,
-        deps: [asset?._id, asset?.vehicleProfileActivationStatus],
+        deps: [asset?._id, asset?.vehicleProfileActivationStatus, activeTab, serviceInnerTab],
     });
 
     const onVehicleServiceRowClick = useCallback(
@@ -1762,6 +1763,7 @@ function VehicleDetailsPageContent() {
         const serviceId = searchParams.get('carWashServiceId');
         if (!serviceId) return;
         if (!openCarWashReviewFromUrl(serviceId)) return;
+        runNotificationFocusScroll('car-wash-form-title', { attempts: 20, intervalMs: 150 });
         const params = new URLSearchParams(searchParams.toString());
         params.delete('carWashServiceId');
         const qs = params.toString();

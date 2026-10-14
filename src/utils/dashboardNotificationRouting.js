@@ -27,6 +27,7 @@ import {
     buildLeaveDashboardNotificationPath,
     isLeaveDashboardNotification,
 } from '@/app/HRM/Leave/utils/leaveNotificationRouting';
+import { attendanceRequestMarkHref } from '@/app/HRM/Attendance/utils/markAttendanceHref';
 
 /** Subtitle after "Requester •" in My Requests modals when `extra1` is empty (e.g. notice without reason). */
 export function myRequestNotificationSecondaryText(item) {
@@ -468,7 +469,12 @@ export const buildDashboardNotificationPath = (item) => {
         if (employeeId) return `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`;
         return '/HRM/Salary';
     }
-    if (type.includes('attendance leave') || type.includes('attendance')) {
+    if (
+        type.includes('attendance leave') ||
+        type.includes('attendance') ||
+        type.includes('flexible ot') ||
+        type.includes('hour approval')
+    ) {
         let meta = {};
         try {
             meta =
@@ -480,24 +486,27 @@ export const buildDashboardNotificationPath = (item) => {
         } catch {
             meta = {};
         }
-        const empId =
-            meta.employeeMongoId ||
-            item.subjectMongoId ||
-            item.employeeMongoId ||
-            item.targetEmployeeId ||
-            '';
-        const date =
-            meta.date ||
-            item.extra1 ||
-            item.date ||
-            '';
-        if (!empId) return '/dashboard?focusAttendance=1';
-        const qs = new URLSearchParams({
-            focusAttendance: '1',
-            attendanceEmployeeId: String(empId),
+        const day = [meta.date, meta.from, item.date, item.extra1].find((value) =>
+            /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim()),
+        );
+        return attendanceRequestMarkHref({
+            date: day || '',
+            staffType: meta.staffType || item.staffType || 'office',
+            attendanceId:
+                meta.attendanceId ||
+                item.requestObjectId ||
+                item.id ||
+                item.dashboardActionId ||
+                '',
+            employeeId:
+                meta.employeeMongoId ||
+                item.employeeMongoId ||
+                item.subjectMongoId ||
+                item.targetEmployeeId ||
+                '',
+            kind: meta.leaveRequestKind || meta.kind || item.leaveRequestKind || '',
+            type: typeRaw,
         });
-        if (date) qs.set('attendanceDate', String(date));
-        return `/dashboard?${qs.toString()}`;
     }
     if (type.includes('reward')) {
         const path = buildRewardNotificationPath(item);

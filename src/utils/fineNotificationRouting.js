@@ -1,8 +1,5 @@
 import { appendAssetQueryParams } from '@/utils/assetNotificationRouting';
-import {
-    NOTIFICATION_FOCUS_HIGHLIGHT_CLASSES,
-    runNotificationFocusScroll,
-} from '@/utils/notificationFocusNavigation';
+import { highlightFocusedElement } from '@/utils/notificationFocusNavigation';
 import { buildEmployeeHubDashboardPath, isEmployeeHubRequestItem } from '@/utils/employeeHubRequest';
 
 export const FINE_FOCUS_PREFIX = 'fine-focus-';
@@ -64,7 +61,7 @@ export function runFineListFocusScroll(focusFine, options) {
     if (!id || typeof document === 'undefined') return () => {};
 
     let tries = 0;
-    const { attempts = 14, intervalMs = 150, highlightMs = 3000 } = options || {};
+    const { attempts = 14, intervalMs = 150 } = options || {};
 
     const timer = setInterval(() => {
         let el = document.getElementById(buildFineFocusElementId(id));
@@ -76,10 +73,7 @@ export function runFineListFocusScroll(focusFine, options) {
         }
         if (el) {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            el.classList.add(...NOTIFICATION_FOCUS_HIGHLIGHT_CLASSES);
-            setTimeout(() => {
-                el.classList.remove(...NOTIFICATION_FOCUS_HIGHLIGHT_CLASSES);
-            }, highlightMs);
+            highlightFocusedElement(el);
             clearInterval(timer);
         }
         tries += 1;

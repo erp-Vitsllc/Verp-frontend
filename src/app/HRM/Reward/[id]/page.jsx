@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { Suspense, useState, useEffect, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import { NotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -954,7 +955,14 @@ export default function RewardDetailsPage() {
                                     </div>
 
                         {/* Right Column: Action Card — Fine-style compact boxes */}
-                        <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
+                        <div id="reward-focus-record" className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
+                            <Suspense fallback={null}>
+                                <NotificationFocusScroll
+                                    loading={false}
+                                    focusCardPrefix="reward-focus-"
+                                    deps={[reward?._id]}
+                                />
+                            </Suspense>
                             <div className="bg-white rounded-lg shadow-sm p-4 w-full h-full flex flex-col overflow-hidden">
                                                 {(() => {
                                     const status = reward?.rewardStatus;

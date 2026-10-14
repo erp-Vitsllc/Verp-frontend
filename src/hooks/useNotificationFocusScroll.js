@@ -5,11 +5,12 @@ import { useSearchParams } from 'next/navigation';
 import {
     COMPANY_ACTIVATION_FOCUS_PREFIX,
     resolveNotificationFocusTargetId,
+    resolveSectionFocusTargetIds,
     runNotificationFocusScroll,
 } from '@/utils/notificationFocusNavigation';
 
 /**
- * After notification deep-link: scroll to target card/section and pulse blue ring.
+ * After a task or notification deep link: scroll to the card or row and blink it twice.
  * Supports company `?focusCard=` and employee `#section-id` hash routes.
  */
 export function useNotificationFocusScroll({
@@ -27,6 +28,7 @@ export function useNotificationFocusScroll({
         const focusCertificate = String(searchParams?.get('focusCertificate') || '').trim();
         const focusAsset = String(searchParams?.get('focusAsset') || '').trim();
         const focusAccessory = String(searchParams?.get('focusAccessory') || '').trim();
+        const focus = String(searchParams?.get('focus') || '').trim();
         const hash = window.location.hash || '';
         const targetId = resolveNotificationFocusTargetId({
             focusCard,
@@ -37,9 +39,16 @@ export function useNotificationFocusScroll({
             hash,
             ownerTabIndex,
         });
-        if (!targetId) return undefined;
+        const targetIds = targetId ? [targetId] : resolveSectionFocusTargetIds(focus);
+        if (!targetIds.length) return undefined;
 
-        return runNotificationFocusScroll(targetId);
+        return runNotificationFocusScroll(targetIds);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- caller passes tab/layout deps intentionally
     }, [loading, searchParams, focusCardPrefix, ownerTabIndex, ...deps]);
+}
+
+/** Mount inside a Suspense boundary on pages that do not already call useSearchParams. */
+export function NotificationFocusScroll(props) {
+    useNotificationFocusScroll(props);
+    return null;
 }

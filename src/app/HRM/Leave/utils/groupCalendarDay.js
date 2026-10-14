@@ -7,7 +7,6 @@ export function groupCalendarDayKind(
     const key = String(statusKey || '');
     if (key === 'on_office' || key === 'work_from_home') return 'present';
     if (key === 'late_arrived' || key === 'early_go' || key === 'mispunch') return 'attention';
-    if (key === 'unauthorized_leave' || key === 'not_marked') return 'absent';
     if (key === 'sick_leave') return 'sick';
     if (key === 'authorized_leave') return 'authorized';
     if (key === 'on_leave') return 'annual';
@@ -15,7 +14,10 @@ export function groupCalendarDayKind(
     if (beforeStart) return 'empty';
     if (key === 'holiday' || isHoliday) return 'holiday';
     if (key === 'weekly_off' || isWeeklyOff) return 'weekend';
-    if (isFuture || isToday) return 'future';
+    // Pending or unmarked future leave is not unauthorized. That color is for past days only.
+    if (isFuture) return 'future';
+    if (key === 'unauthorized_leave' || key === 'not_marked') return 'absent';
+    if (isToday) return 'future';
     if (!key) return 'absent';
     return 'empty';
 }

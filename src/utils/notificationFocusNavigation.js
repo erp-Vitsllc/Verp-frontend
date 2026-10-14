@@ -144,33 +144,54 @@ export function buildEmployeePathWithFocus(basePath, label = '') {
     return appendQuery(withoutHash, 'focusCard', id);
 }
 
-export const NOTIFICATION_FOCUS_HIGHLIGHT_CLASSES = [
-    'ring-2',
-    'ring-blue-500',
-    'ring-offset-2',
-    'transition-all',
-    'duration-1000',
-    'animate-pulse',
-];
+/** Two-blink outline used by every task / notification deep link. */
+export const RECORD_FOCUS_BLINK_CLASS = 'record-focus-blink';
+export const RECORD_FOCUS_BLINK_MS = 1400;
 
-/** Scroll + blue ring highlight (shared by company + employee profile pages). */
-export function runNotificationFocusScroll(targetId, { attempts = 12, intervalMs = 150, highlightMs = 3000 } = {}) {
-    if (!targetId || typeof document === 'undefined') return () => {};
+export const NOTIFICATION_FOCUS_HIGHLIGHT_CLASSES = [RECORD_FOCUS_BLINK_CLASS];
+
+export function highlightFocusedElement(el) {
+    if (!el) return;
+    el.classList.remove(RECORD_FOCUS_BLINK_CLASS);
+    void el.offsetWidth;
+    el.classList.add(RECORD_FOCUS_BLINK_CLASS);
+    window.setTimeout(() => {
+        el.classList.remove(RECORD_FOCUS_BLINK_CLASS);
+    }, RECORD_FOCUS_BLINK_MS);
+}
+
+function focusTargetIds(targetId) {
+    const list = Array.isArray(targetId) ? targetId : [targetId];
+    return list.map((id) => String(id || '').trim()).filter(Boolean);
+}
+
+/** Scroll the card or row into view, then blink it twice. */
+export function runNotificationFocusScroll(targetId, { attempts = 16, intervalMs = 150 } = {}) {
+    const ids = focusTargetIds(targetId);
+    if (!ids.length || typeof document === 'undefined') return () => {};
     let tries = 0;
     const timer = setInterval(() => {
-        const el = document.getElementById(targetId);
+        const el = ids.map((id) => document.getElementById(id)).find(Boolean);
         if (el) {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            el.classList.add(...NOTIFICATION_FOCUS_HIGHLIGHT_CLASSES);
-            setTimeout(() => {
-                el.classList.remove(...NOTIFICATION_FOCUS_HIGHLIGHT_CLASSES);
-            }, highlightMs);
+            highlightFocusedElement(el);
             clearInterval(timer);
         }
         tries += 1;
         if (tries >= attempts) clearInterval(timer);
     }, intervalMs);
     return () => clearInterval(timer);
+}
+
+/** `?focus=` on service, handover, loan, and reward pages. */
+export function resolveSectionFocusTargetIds(focus = '') {
+    const key = String(focus || '').trim().toLowerCase();
+    if (!key) return [];
+    if (key === 'payment' || key === 'accounts_payment') {
+        return ['service-focus-payment', 'oil-service-make-payment-panel'];
+    }
+    if (key === 'record' || key === 'details') return ['service-focus-record'];
+    return [key, `service-focus-${key}`];
 }
 
 export function resolveNotificationFocusTargetId({

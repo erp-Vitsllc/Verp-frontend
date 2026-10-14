@@ -185,7 +185,12 @@ function PaymentsPageContent() {
             setExpandedPaymentId(expandId);
             requestAnimationFrame(() => {
                 const row = document.getElementById(`payment-row-${expandId}`);
-                row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                if (!row) return;
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                row.classList.remove('record-focus-blink');
+                void row.offsetWidth;
+                row.classList.add('record-focus-blink');
+                window.setTimeout(() => row.classList.remove('record-focus-blink'), 1400);
             });
         }
     }, [mounted, searchParams, payments]);

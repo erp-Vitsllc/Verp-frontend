@@ -153,7 +153,7 @@ export default function FlexibleOtModal({
                 confirmNextDay: nextDayIntent,
                 targetDate: nextDayIntent ? targetDate : '',
             });
-            const appliedNow = direct;
+            const appliedNow = direct || Boolean(response.data?.applied);
             const presentCopy = remainderHours > 0
                 ? `${choiceLabel(targetDate)} is Present for ${dayHourLabel(creditedDay)} hr. Apply OT stays on that day for the remaining ${remainderHours} hr.`
                 : `${choiceLabel(targetDate)} is Present for ${dayHourLabel(creditedDay)} hr.`;

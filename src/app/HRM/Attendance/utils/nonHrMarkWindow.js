@@ -7,26 +7,15 @@ function shiftDateKey(dateKey, deltaDays) {
     return `${y}-${m}-${d}`;
 }
 
-/** Today plus two earlier days. Holiday dates are skipped and do not count. */
-export function nonHrMarkableDateKeys(todayKey, holidayDates, extraDays = 2) {
+/** Today plus the previous calendar days. Holidays are included and count. */
+export function nonHrMarkableDateKeys(todayKey, _holidayDates, extraDays = 7) {
     const today = String(todayKey || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) return new Set();
 
-    const holidays = new Set(
-        (Array.isArray(holidayDates) ? holidayDates : [])
-            .map((date) => String(date || '').trim())
-            .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)),
-    );
+    const days = Number.isFinite(Number(extraDays)) ? Math.max(0, Number(extraDays)) : 7;
     const allowed = new Set([today]);
-    let cursor = today;
-    let picked = 0;
-    let guard = 0;
-    while (picked < extraDays && guard < 90) {
-        guard += 1;
-        cursor = shiftDateKey(cursor, -1);
-        if (holidays.has(cursor)) continue;
-        allowed.add(cursor);
-        picked += 1;
+    for (let offset = 1; offset <= days; offset += 1) {
+        allowed.add(shiftDateKey(today, -offset));
     }
     return allowed;
 }

@@ -126,7 +126,6 @@ function formatLeaveDateLabel(dateKey) {
     }
 }
 
-const APPROVAL_PREVIEW_LIMIT = 5;
 const APPROVAL_CATEGORY_PENDING = 'pending';
 const APPROVAL_CATEGORY_APPROVED = 'approved';
 
@@ -449,6 +448,9 @@ export default function LeaveDashboard({
     onApprovalRowSelect,
     onAcceptRequest,
     onEditRequest,
+    onSelectRequest,
+    approvalPanel = null,
+    fillViewport = false,
     calendarLeaveFocus = null,
 }) {
     const router = useRouter();
@@ -591,9 +593,7 @@ export default function LeaveDashboard({
     const [pendingError, setPendingError] = useState('');
     const [decidingId, setDecidingId] = useState('');
     const [approvalCategory, setApprovalCategory] = useState(APPROVAL_CATEGORY_PENDING);
-    const [approvalModalOpen, setApprovalModalOpen] = useState(false);
     const [blinkRowId, setBlinkRowId] = useState('');
-    const [pinnedApprovalRow, setPinnedApprovalRow] = useState(null);
 
     const [trackYear, setTrackYear] = useState(isAllYear ? ALL_LEAVE_YEAR : selectedYear);
     const [trackBucket, setTrackBucket] = useState('week');
@@ -672,20 +672,31 @@ export default function LeaveDashboard({
         setTrackYear(isAllYear ? ALL_LEAVE_YEAR : selectedYear);
     }, [isAllYear, selectedYear]);
 
+    const openRequestPanel = useCallback(
+        (row, mode) => {
+            if (!row?.id) return;
+            if (onSelectRequest) {
+                onSelectRequest(row, mode);
+                return;
+            }
+            if (mode === 'edit') onEditRequest?.(row);
+            else onAcceptRequest?.(row);
+        },
+        [onAcceptRequest, onEditRequest, onSelectRequest],
+    );
+
     const handleAccept = useCallback(
         (row) => {
-            if (!row?.id) return;
-            onAcceptRequest?.(row);
+            openRequestPanel(row, 'approve');
         },
-        [onAcceptRequest],
+        [openRequestPanel],
     );
 
     const handleEdit = useCallback(
         (row) => {
-            if (!row?.id) return;
-            onEditRequest?.(row);
+            openRequestPanel(row, 'edit');
         },
-        [onEditRequest],
+        [openRequestPanel],
     );
 
     const handleDelete = useCallback(
@@ -845,22 +856,6 @@ export default function LeaveDashboard({
         return list;
     }, [approvalCategory, employeeId, yearPendingItems]);
 
-    const previewApprovalItems = useMemo(() => {
-        const preview = categoryApprovalItems.slice(0, APPROVAL_PREVIEW_LIMIT);
-        const selected =
-            findApprovalRowById(categoryApprovalItems, selectedApprovalId) ||
-            (pinnedApprovalRow && rowStatusKey(pinnedApprovalRow) === approvalCategory
-                ? findApprovalRowById(categoryApprovalItems, pinnedApprovalRow.id) || pinnedApprovalRow
-                : null);
-        if (!selected || preview.some((row) => String(row.id) === String(selected.id))) {
-            return preview;
-        }
-        return [selected, ...preview.filter((row) => String(row.id) !== String(selected.id))].slice(
-            0,
-            APPROVAL_PREVIEW_LIMIT,
-        );
-    }, [approvalCategory, categoryApprovalItems, pinnedApprovalRow, selectedApprovalId]);
-
     const periodLabel = monthLabel || (isAllYear ? '' : String(selectedYear));
     const approvalEmptyLabel =
         approvalCategory === APPROVAL_CATEGORY_PENDING
@@ -897,6 +892,7 @@ export default function LeaveDashboard({
     })();
 
     const approvalRowClickTimerRef = useRef(null);
+    const openedPanelForIdRef = useRef('');
 
     const handleRowSelect = useCallback(
         (row) => {
@@ -905,10 +901,12 @@ export default function LeaveDashboard({
             }
             approvalRowClickTimerRef.current = window.setTimeout(() => {
                 approvalRowClickTimerRef.current = null;
-                onApprovalRowSelect?.(row);
+                const mode = rowStatusKey(row) === 'pending' ? 'approve' : 'edit';
+                if (onSelectRequest) onSelectRequest(row, mode);
+                else onApprovalRowSelect?.(row);
             }, 250);
         },
-        [onApprovalRowSelect],
+        [onApprovalRowSelect, onSelectRequest],
     );
 
     const handleRowDoubleClick = useCallback(
@@ -950,35 +948,42 @@ export default function LeaveDashboard({
         if (nextCategory === APPROVAL_CATEGORY_PENDING || nextCategory === APPROVAL_CATEGORY_APPROVED) {
             setApprovalCategory(nextCategory);
         }
-        setPinnedApprovalRow(row);
         setBlinkRowId(row.id);
-        onApprovalRowSelect?.(row);
+        const mode = rowStatusKey(row) === 'pending' ? 'approve' : 'edit';
+        if (onSelectRequest) onSelectRequest(row, mode);
+        else onApprovalRowSelect?.(row);
 
         const timer = window.setTimeout(() => setBlinkRowId(''), 1800);
         return () => window.clearTimeout(timer);
-    }, [calendarLeaveFocus, onApprovalRowSelect]);
+    }, [calendarLeaveFocus, onApprovalRowSelect, onSelectRequest]);
 
     useEffect(() => {
-        if (!selectedApprovalId) return undefined;
+        if (!selectedApprovalId) {
+            openedPanelForIdRef.current = '';
+            return undefined;
+        }
         const row = findApprovalRowById(approvalRowsRef.current, selectedApprovalId);
         if (row) {
             const nextCategory = rowStatusKey(row);
             if (nextCategory === APPROVAL_CATEGORY_PENDING || nextCategory === APPROVAL_CATEGORY_APPROVED) {
                 setApprovalCategory(nextCategory);
             }
-            setPinnedApprovalRow(row);
+            if (onSelectRequest && openedPanelForIdRef.current !== String(row.id)) {
+                openedPanelForIdRef.current = String(row.id);
+                onSelectRequest(row, nextCategory === 'pending' ? 'approve' : 'edit');
+            }
         }
         setBlinkRowId(row?.id || selectedApprovalId);
         const timer = window.setTimeout(() => setBlinkRowId(''), 1800);
         return () => window.clearTimeout(timer);
-    }, [selectedApprovalId, pendingItems]);
+    }, [onSelectRequest, pendingItems, selectedApprovalId]);
 
     useEffect(() => {
         if (!blinkRowId) return undefined;
         const node = document.querySelector(`[data-approval-id="${blinkRowId}"]`);
         node?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         return undefined;
-    }, [approvalModalOpen, blinkRowId]);
+    }, [blinkRowId]);
 
     const handleReturnToSource = useCallback(() => {
         if (!sourceEmployeeId || !sourceFrom || !sourceTo) return;
@@ -991,15 +996,6 @@ export default function LeaveDashboard({
             requestedStatusKey: 'on_leave',
         });
     }, [onApprovalRowSelect, sourceDisplayName, sourceEmployeeId, sourceFrom, sourceTo]);
-
-    useEffect(() => {
-        if (!approvalModalOpen) return undefined;
-        const handleKeyDown = (event) => {
-            if (event.key === 'Escape') setApprovalModalOpen(false);
-        };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [approvalModalOpen]);
 
     const chartGroups = useMemo(() => {
         const labels = new Map();
@@ -1059,17 +1055,17 @@ export default function LeaveDashboard({
     );
 
     return (
-        <div className="space-y-5">
+        <div className={fillViewport ? 'flex h-full min-h-0 flex-1 flex-col gap-3' : 'space-y-5'}>
             <style>{`
                 @keyframes leave-approval-blink {
                     0%, 100% { background-color: #DBEAFE; }
                     50% { background-color: #93C5FD; }
                 }
                 .leave-approval-row-blink {
-                    animation: leave-approval-blink 0.4s ease-in-out 4;
+                    animation: leave-approval-blink 0.7s ease-in-out 2;
                 }
             `}</style>
-            <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
+            <section className="shrink-0 rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <h3 className="text-[15px] font-semibold text-[#111827]">Leave Availability</h3>
@@ -1124,9 +1120,9 @@ export default function LeaveDashboard({
                 </div>
             </section>
 
-            <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-                <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
-                    <div className="mb-4 flex items-start justify-between gap-3">
+            <div className={`grid min-h-0 grid-cols-1 gap-3 ${fillViewport ? 'min-h-0 flex-1' : ''} xl:grid-cols-2`}>
+                <section className="flex min-h-[280px] flex-col overflow-hidden rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5 xl:h-full xl:min-h-0">
+                    <div className="mb-4 flex shrink-0 items-start justify-between gap-3">
                         <div className="min-w-0">
                             <h3 className="text-[15px] font-semibold text-[#111827]">Leave Approval</h3>
                             {displayEmployeeName ? (
@@ -1160,15 +1156,6 @@ export default function LeaveDashboard({
                                 approvedCount={approvedCount}
                                 onChange={setApprovalCategory}
                             />
-                            {categoryApprovalItems.length > APPROVAL_PREVIEW_LIMIT ? (
-                                <button
-                                    type="button"
-                                    onClick={() => setApprovalModalOpen(true)}
-                                    className="text-xs font-semibold text-[#2563EB] hover:underline"
-                                >
-                                    See more
-                                </button>
-                            ) : null}
                             {canReturnToSource ? (
                                 <button
                                     type="button"
@@ -1186,9 +1173,9 @@ export default function LeaveDashboard({
                             <ErpErrorBanner message={pendingError} onRetry={fetchPendingRequests} />
                         </div>
                     ) : null}
-                    <div className="overflow-x-auto">
+                    <div className="min-h-0 flex-1 overflow-auto">
                         <table className="w-full min-w-[620px] text-left text-sm">
-                            <thead>
+                            <thead className="sticky top-0 z-[1] bg-white">
                                 <tr className="border-b border-[#E5E7EB] text-[11px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
                                     <th className="px-2 py-2">Name</th>
                                     <th className="px-2 py-2">Leave Type</th>
@@ -1207,7 +1194,7 @@ export default function LeaveDashboard({
                                     </tr>
                                 ) : (
                                     <LeaveApprovalTable
-                                        rows={previewApprovalItems}
+                                        rows={categoryApprovalItems}
                                         decidingId={decidingId}
                                         isRowSelected={isRowSelected}
                                         isEmployeeHighlighted={isEmployeeHighlighted}
@@ -1227,8 +1214,9 @@ export default function LeaveDashboard({
                     </div>
                 </section>
 
-                <section className="self-end rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
-                    <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="grid min-h-0 gap-3 xl:h-full xl:grid-rows-2">
+                <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
+                    <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
                         <div className="min-w-0">
                             <h3 className="text-[15px] font-semibold text-[#111827]">Team Leave Track</h3>
                             <p className="mt-0.5 text-[11px] text-[#9CA3AF]">
@@ -1292,13 +1280,13 @@ export default function LeaveDashboard({
                             <ErpErrorBanner message={trackError} onRetry={() => fetchTeamTrack(isAllYear ? ALL_LEAVE_YEAR : trackYear)} />
                         </div>
                     ) : null}
-                    <div className="h-[220px] w-full min-h-[220px] min-w-0">
+                    <div className="min-h-[140px] w-full min-w-0 flex-1">
                         {trackLoading ? (
                             <div className="flex h-full items-center justify-center text-sm text-[#6B7280]">
                                 Loading team leave track...
                             </div>
                         ) : (
-                            <RechartsBox height={220} minHeight={220} minWidth={0} className="h-full">
+                            <RechartsBox fillParent minHeight={120} minWidth={0} className="h-full">
                                 <BarChart
                                     data={chartData}
                                     margin={{ top: 8, right: 8, left: -18, bottom: trackBucket === 'week' ? 4 : 0 }}
@@ -1382,6 +1370,23 @@ export default function LeaveDashboard({
                         )}
                     </div>
                 </section>
+                <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
+                    {approvalPanel ? (
+                        <div className="min-h-0 flex-1 overflow-auto">{approvalPanel}</div>
+                    ) : (
+                        <div className="flex h-full min-h-[140px] flex-col justify-center gap-3">
+                            <div className="flex items-center justify-between rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] px-4 py-3">
+                                <span className="text-sm font-semibold text-[#374151]">Pending tasks</span>
+                                <span className="text-2xl font-semibold tabular-nums text-[#111827]">{pendingCount}</span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] px-4 py-3">
+                                <span className="text-sm font-semibold text-[#374151]">Approved tasks</span>
+                                <span className="text-2xl font-semibold tabular-nums text-[#111827]">{approvedCount}</span>
+                            </div>
+                        </div>
+                    )}
+                </section>
+                </div>
             </div>
             {trackDetail && typeof document !== 'undefined'
                 ? createPortal(
@@ -1430,79 +1435,6 @@ export default function LeaveDashboard({
                                 ) : (
                                     <p className="py-8 text-center text-sm text-[#6B7280]">No leave in this bar.</p>
                                 )}
-                            </div>
-                        </div>
-                    </div>,
-                    document.body,
-                )
-                : null}
-            {approvalModalOpen && typeof document !== 'undefined'
-                ? createPortal(
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                        <button
-                            type="button"
-                            aria-label="Close leave requests"
-                            className="absolute inset-0 bg-black/30"
-                            onClick={() => setApprovalModalOpen(false)}
-                        />
-                        <div className="relative z-[101] flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl">
-                            <div className="flex items-center justify-between gap-3 border-b border-[#E5E7EB] px-5 py-4">
-                                <h3 className="text-[15px] font-semibold text-[#111827]">Leave Approval</h3>
-                                <div className="flex items-center gap-3">
-                                    <ApprovalCategoryFilters
-                                        value={approvalCategory}
-                                        pendingCount={pendingCount}
-                                        approvedCount={approvedCount}
-                                        onChange={setApprovalCategory}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setApprovalModalOpen(false)}
-                                        className="rounded-md px-2 py-1 text-sm font-semibold text-[#6B7280] hover:bg-[#F3F4F6]"
-                                    >
-                                        Close
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="min-h-0 flex-1 overflow-auto p-4">
-                                <table className="w-full min-w-[620px] text-left text-sm">
-                                    <thead>
-                                        <tr className="border-b border-[#E5E7EB] text-[11px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
-                                            <th className="px-2 py-2">Name</th>
-                                            <th className="px-2 py-2">Leave Type</th>
-                                            <th className="px-2 py-2">Start Date</th>
-                                            <th className="px-2 py-2">End Date</th>
-                                            <th className="px-2 py-2">Status</th>
-                                            <th className="px-2 py-2 text-center">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <LeaveApprovalTable
-                                            rows={categoryApprovalItems}
-                                            decidingId={decidingId}
-                                            isRowSelected={isRowSelected}
-                                            isEmployeeHighlighted={isEmployeeHighlighted}
-                                            onRowSelect={(row) => {
-                                                handleRowSelect(row);
-                                                setApprovalModalOpen(false);
-                                            }}
-                                            onRowDoubleClick={handleRowDoubleClick}
-                                            onDecide={handleDecide}
-                                            onAccept={(row) => {
-                                                setApprovalModalOpen(false);
-                                                handleAccept(row);
-                                            }}
-                                            onEdit={(row) => {
-                                                setApprovalModalOpen(false);
-                                                handleEdit(row);
-                                            }}
-                                            onDelete={handleDelete}
-                                            onReturn={handleReturn}
-                                            blinkRowId={blinkRowId}
-                                            emptyLabel={approvalEmptyLabel}
-                                        />
-                                    </tbody>
-                                </table>
                             </div>
                         </div>
                     </div>,

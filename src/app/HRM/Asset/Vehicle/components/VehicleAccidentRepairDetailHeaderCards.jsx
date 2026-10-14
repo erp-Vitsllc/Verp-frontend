@@ -100,7 +100,7 @@ export default function VehicleAccidentRepairDetailHeaderCards({
                 </div>
             </div>
 
-            <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
+            <div id="service-focus-record" className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
                 <div className="bg-white rounded-lg shadow-sm p-4 w-full h-full flex flex-col overflow-hidden">
                     <div className="flex items-center justify-between gap-2 mb-3 shrink-0 min-h-[26px]">
                         <div className="flex items-center gap-2 min-w-0">

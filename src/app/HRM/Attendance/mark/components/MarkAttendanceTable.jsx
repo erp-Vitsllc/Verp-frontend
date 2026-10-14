@@ -25,6 +25,7 @@ import {
 import FlexibleOtModal from './FlexibleOtModal';
 import HourAdjustModal, { hourAdjustOffer } from './HourAdjustModal';
 import CompOffSettleModal from '../../components/CompOffSettleModal';
+import AttendanceLeaveDecideModal from '@/app/dashboard/components/AttendanceLeaveDecideModal';
 
 const MARK_OPTIONS = [
     { key: 'on_office', label: 'On work' },
@@ -218,10 +219,10 @@ function shiftDateKey(dateKey, deltaDays) {
 }
 
 const HR_ONLY_MARK_TITLE =
-    'Only the flowchart HR assignee can mark attendance outside today and the two previous days, including future days. Holidays are skipped.';
+    'Only the flowchart HR assignee can mark attendance outside today and the seven previous days, including future days. Holidays are included.';
 const HR_ONLY_CLEAR_TITLE = 'Only the flowchart HR assignee can clear attendance.';
 const RECENT_MARK_NOTE =
-    'Any status can be marked for today and the two previous days. Holidays are skipped.';
+    'Attendance and leave can be marked for today and the seven previous days, including holidays. The day updates immediately. HR and the primary reportee are emailed.';
 
 function storedViewerUser() {
     if (typeof window === 'undefined') return null;
@@ -424,6 +425,15 @@ function applyDayRecordsToState(employees, records) {
             leaveRequestStatus: rec.leaveRequestStatus || '',
             leaveRequestKind: rec.leaveRequestKind || '',
             leaveRequestSession: rec.leaveRequestSession || '',
+            leaveRequestReason: rec.leaveRequestReason || '',
+            leaveRequestFromDate: rec.leaveRequestFromDate || '',
+            leaveRequestToDate: rec.leaveRequestToDate || '',
+            leaveRequestDayPart: rec.leaveRequestDayPart || '',
+            leaveRequestTimeIn: rec.leaveRequestTimeIn || '',
+            leaveRequestTimeOut: rec.leaveRequestTimeOut || '',
+            previousStatusLabel: rec.previousStatusLabel || '',
+            requestedStatusKey: rec.requestedStatusKey || '',
+            requestedStatusLabel: rec.requestedStatusLabel || '',
             hourAdjustStatus: rec.hourAdjustStatus || '',
             hourAdjustKind: rec.hourAdjustKind || '',
             hoursTaken: rec.hoursTaken || 0,
@@ -455,11 +465,17 @@ function applyDayRecordsToState(employees, records) {
     return { nextEmployees, nextMarks };
 }
 
-function mergePendingChanges(nextMarks, pendingChanges) {
+function mergePendingChanges(nextMarks, pendingChanges, { dateKey = '', employeeIds = null } = {}) {
+    const day = String(dateKey || '').trim();
+    const allowed = employeeIds instanceof Set ? employeeIds : null;
     const next = { ...nextMarks };
     for (const change of pendingChanges || []) {
         const id = String(change?.employeeMongoId || '');
         if (!id) continue;
+        if (allowed && !allowed.has(id)) continue;
+        const changeDay = String(change?.date || '').trim();
+        const targetDay = change?.confirmNextDay === true ? String(change?.targetDate || '').trim() : '';
+        if (day && changeDay !== day && targetDay !== day) continue;
         next[id] = {
             ...(next[id] || {}),
             pendingChange: {
@@ -469,13 +485,88 @@ function mergePendingChanges(nextMarks, pendingChanges) {
                 statusLabel: change.statusLabel || '',
                 requestedByName: change.requestedByName || '',
                 reason: change.reason || '',
-                date: change.date || '',
-                targetDate: change.targetDate || '',
+                timeIn: change.timeIn || '',
+                timeOut: change.timeOut || '',
+                date: changeDay,
+                targetDate: String(change?.targetDate || '').trim(),
                 confirmNextDay: change.confirmNextDay === true,
             },
         };
     }
     return next;
+}
+
+function pendingRequestTitle(mark, kind) {
+    if (kind === 'change') {
+        return String(mark?.pendingChange?.statusLabel || '').trim() || 'Attendance change';
+    }
+    if (kind === 'leave') {
+        const label = String(mark?.requestedStatusLabel || '').trim();
+        if (label) return label;
+        const requestKind = String(mark?.leaveRequestKind || '').toLowerCase();
+        if (requestKind.includes('late')) return 'Late in';
+        if (requestKind.includes('early')) return 'Early go';
+        if (requestKind.includes('yellow')) return 'Present';
+        return 'Leave';
+    }
+    if (kind === 'ot') return 'Overtime';
+    if (kind === 'hour') return 'Hours';
+    return 'Request';
+}
+
+function rowDecisionFor(mark, employee, { isFlowchartHr = false, viewerId = '' } = {}) {
+    if (!mark) return null;
+    const viewer = String(viewerId || '').trim();
+    const reportee = String(employee?.primaryReportee || '').trim();
+    const isReportee = Boolean(viewer) && viewer === reportee;
+    const change = mark.pendingChange;
+    if (change?.id) {
+        const canDecideChange =
+            change.stage === 'pending_hr'
+                ? isFlowchartHr
+                : change.stage === 'pending_reportee'
+                    ? isReportee
+                    : false;
+        if (canDecideChange) {
+            return {
+                kind: 'change',
+                id: String(change.id),
+                title: pendingRequestTitle(mark, 'change'),
+            };
+        }
+    }
+    if (String(mark.leaveRequestStatus || '') === 'pending' && isReportee && mark.attendanceId) {
+        return {
+            kind: 'leave',
+            attendanceId: String(mark.attendanceId),
+            title: pendingRequestTitle(mark, 'leave'),
+        };
+    }
+    if (
+        isFlowchartHr &&
+        change?.action !== 'flexible_ot' &&
+        String(mark.flexibleOtStatus || '') === 'pending' &&
+        mark.attendanceId
+    ) {
+        return {
+            kind: 'ot',
+            attendanceId: String(mark.attendanceId),
+            title: pendingRequestTitle(mark, 'ot'),
+        };
+    }
+    if (
+        isFlowchartHr &&
+        change?.action !== 'hour_adjust' &&
+        String(mark.hourAdjustStatus || '') === 'pending' &&
+        mark.attendanceId
+    ) {
+        return {
+            kind: 'hour',
+            attendanceId: String(mark.attendanceId),
+            title: pendingRequestTitle(mark, 'hour'),
+        };
+    }
+    return null;
 }
 
 function mapActiveEmployee(emp) {
@@ -808,6 +899,106 @@ function MarkAttendanceMenu({ anchorRect, onSelect, onClose, options = MARK_OPTI
     );
 }
 
+function AttendanceChangeReviewModal({ open, employee, mark, deciding, onClose, onDecide }) {
+    if (!open) return null;
+    const change = mark?.pendingChange || {};
+    const waitingOnHr = change.stage === 'pending_hr';
+    return (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+            <button
+                type="button"
+                className="absolute inset-0 bg-black/40"
+                aria-label="Close"
+                onClick={onClose}
+                disabled={deciding}
+            />
+            <div
+                role="dialog"
+                aria-modal="true"
+                className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl"
+            >
+                <div className="border-b border-slate-100 px-5 py-4">
+                    <h2 className="text-base font-semibold text-slate-900">
+                        {waitingOnHr ? 'HR approval' : 'Attendance request'}
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                        {waitingOnHr
+                            ? 'Approving this updates the attendance day.'
+                            : 'Approving this sends the change to HR. The day stays as it is until HR approves.'}
+                    </p>
+                </div>
+                <div className="space-y-2 px-5 py-4 text-sm text-slate-700">
+                    <p>
+                        <span className="text-slate-500">Employee: </span>
+                        <strong>{employee?.name || 'Employee'}</strong>
+                        {employee?.empNo ? ` (${employee.empNo})` : ''}
+                    </p>
+                    <p>
+                        <span className="text-slate-500">Date: </span>
+                        {change.date || mark?.date || '—'}
+                    </p>
+                    <p>
+                        <span className="text-slate-500">Requested by: </span>
+                        {change.requestedByName || '—'}
+                    </p>
+                    <p>
+                        <span className="text-slate-500">Currently: </span>
+                        {mark?.label || 'Not marked'}
+                    </p>
+                    <p>
+                        <span className="text-slate-500">Requested: </span>
+                        {change.statusLabel || 'Updated'}
+                    </p>
+                    {change.timeIn || change.timeOut ? (
+                        <p>
+                            <span className="text-slate-500">Time: </span>
+                            {change.timeIn || '—'} – {change.timeOut || '—'}
+                        </p>
+                    ) : null}
+                    {change.confirmNextDay && change.targetDate ? (
+                        <p>
+                            <span className="text-slate-500">Day to mark present: </span>
+                            {change.targetDate}
+                        </p>
+                    ) : null}
+                    {change.reason ? (
+                        <p>
+                            <span className="text-slate-500">Reason: </span>
+                            {change.reason}
+                        </p>
+                    ) : null}
+                </div>
+                <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                    <button
+                        type="button"
+                        disabled={deciding}
+                        onClick={onClose}
+                        className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-600"
+                    >
+                        Close
+                    </button>
+                    <button
+                        type="button"
+                        disabled={deciding}
+                        onClick={() => onDecide?.('rejected')}
+                        className="h-9 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700"
+                    >
+                        Reject
+                    </button>
+                    <button
+                        type="button"
+                        disabled={deciding}
+                        onClick={() => onDecide?.('approved')}
+                        className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white"
+                    >
+                        Approve
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function EmployeeRow({
     index,
     employee,
@@ -821,9 +1012,12 @@ function EmployeeRow({
     canReviewHour = false,
     canRequestOt = false,
     otDirect = false,
+    nextDayDirect = false,
     canReviewOt = false,
-    canDecidePending = false,
-    onOpenPending,
+    rowDecision = null,
+    deciding = false,
+    onDecide,
+    onOpenRequest,
     pastDay = false,
     dateKey = '',
     scheduleWeek = null,
@@ -929,42 +1123,16 @@ function EmployeeRow({
                 <div className="flex flex-col gap-0.5 min-w-0">
                     <span
                         className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${statusChipClass(shownMark, statusText)}`}
-                        title={[statusFull, mark?.reason, adjustTitle].filter(Boolean).join(' — ')}
+                        title={[statusFull, mark?.reason, adjustTitle, rowDecision ? `Pending: ${rowDecision.title}` : '']
+                            .filter(Boolean)
+                            .join(' — ')}
                     >
                         {statusText}
                     </span>
-                    {mark?.pendingChange ? (
-                        canDecidePending ? (
-                            <button
-                                type="button"
-                                onClick={() => onOpenPending?.(employee, mark)}
-                                className="w-fit text-left text-[10px] font-semibold text-amber-700 hover:underline"
-                                title="Open this request"
-                            >
-                                {mark.pendingChange.stage === 'pending_hr'
-                                    ? 'Waiting for HR'
-                                    : 'Waiting for primary reportee'}
-                                {mark.pendingChange.statusLabel
-                                    ? ` · ${mark.pendingChange.statusLabel}`
-                                    : ''}
-                            </button>
-                        ) : (
-                            <span
-                                className="text-[10px] font-semibold text-amber-700"
-                                title={
-                                    mark.pendingChange.stage === 'pending_hr'
-                                        ? 'Waiting for HR approval'
-                                        : 'Waiting for primary reportee approval'
-                                }
-                            >
-                                {mark.pendingChange.stage === 'pending_hr'
-                                    ? 'Waiting for HR'
-                                    : 'Waiting for primary reportee'}
-                                {mark.pendingChange.statusLabel
-                                    ? ` · ${mark.pendingChange.statusLabel}`
-                                    : ''}
-                            </span>
-                        )
+                    {rowDecision ? (
+                        <span className="text-[10px] font-semibold text-blue-700 whitespace-nowrap" title={rowDecision.title}>
+                            {rowDecision.title} pending
+                        </span>
                     ) : null}
                     {adjustLines.map((line) => (
                         <span key={line} className="text-[10px] font-semibold text-violet-700 whitespace-nowrap" title={line}>
@@ -1011,7 +1179,7 @@ function EmployeeRow({
                 {!shift.sun && !shift.moon ? <span className="text-gray-300">—</span> : null}
             </td>
             <td className="px-3 py-3 align-middle">
-                {canReviewOt ? (
+                {canReviewOt && rowDecision?.kind !== 'ot' ? (
                     <button
                         type="button"
                         onClick={() => onRequestOt?.(employee, mark)}
@@ -1029,7 +1197,9 @@ function EmployeeRow({
                                 disabled={!canRequestOt}
                                 title={
                                     canRequestOt
-                                        ? 'Choose an authorized leave day. That day becomes Present after HR approves. It is not set on the next calendar day unless you select it.'
+                                        ? nextDayDirect
+                                            ? 'Choose an authorized leave day in this month. That day becomes Present now. HR and the primary reportee are emailed.'
+                                            : 'Choose an authorized leave day. That day becomes Present after HR approves. It is not set on the next calendar day unless you select it.'
                                         : 'Enable Apply OT and next day present on your permission group'
                                 }
                                 onClick={() => {
@@ -1063,7 +1233,31 @@ function EmployeeRow({
                 )}
             </td>
             <td className="px-2 py-3 align-middle text-right">
-                <div className="relative inline-flex items-center justify-end min-h-[32px]">
+                <div className="relative inline-flex items-center justify-end gap-1 min-h-[32px]">
+                    {rowDecision ? (
+                        <>
+                            <button
+                                type="button"
+                                disabled={deciding}
+                                title={`Reject ${rowDecision.title}`}
+                                aria-label={`Reject ${rowDecision.title} for ${employee.name}`}
+                                onClick={() => onDecide?.('rejected')}
+                                className="h-7 whitespace-nowrap rounded-md border border-red-200 bg-white px-2 text-[11px] font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                Reject
+                            </button>
+                            <button
+                                type="button"
+                                disabled={deciding}
+                                title={`Open ${rowDecision.title}`}
+                                aria-label={`Approve ${rowDecision.title} for ${employee.name}`}
+                                onClick={() => onOpenRequest?.()}
+                                className="h-7 whitespace-nowrap rounded-md bg-blue-600 px-2 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                Approve
+                            </button>
+                        </>
+                    ) : (
                     <button
                         ref={buttonRef}
                         type="button"
@@ -1079,6 +1273,7 @@ function EmployeeRow({
                     >
                         Mark
                     </button>
+                    )}
                     {menuOpen && anchorRect ? (
                         <MarkAttendanceMenu
                             anchorRect={anchorRect}
@@ -1100,110 +1295,13 @@ function EmployeeRow({
     );
 }
 
-function PendingChangeDecideModal({ change, employee, dateKey, onClose, onDecided }) {
-    const { toast } = useToast();
-    const [saving, setSaving] = useState(false);
-    if (!change) return null;
-    const waitingOnHr = change.stage === 'pending_hr';
-    const selectedDay = change.confirmNextDay && change.targetDate ? change.targetDate : '';
-
-    const decide = async (decision) => {
-        if (!change.id || saving) return;
-        setSaving(true);
-        try {
-            const res = await axiosInstance.post('/Attendance/change-request/decide', {
-                id: change.id,
-                decision,
-            });
-            toast({
-                title: decision === 'approved' ? 'Approved' : 'Rejected',
-                description: res.data?.message || 'Attendance change updated.',
-            });
-            notifyAttendancePendingInboxChanged();
-            onDecided?.();
-        } catch (error) {
-            toast({
-                variant: 'destructive',
-                title: 'Could not update',
-                description: error?.response?.data?.message || 'The attendance change was not updated.',
-            });
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4">
-            <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
-                <h3 className="text-lg font-black text-slate-900">
-                    {waitingOnHr ? 'HR approval' : 'Primary reportee approval'}
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                    {waitingOnHr
-                        ? 'Approving this updates the attendance day.'
-                        : 'Approving this sends the change to HR. The day stays as it is until HR approves.'}
-                </p>
-                <div className="mt-4 space-y-2 text-sm text-slate-700">
-                    <p>
-                        <span className="text-slate-500">Employee: </span>
-                        <strong>{employee?.name || 'Employee'}</strong>
-                    </p>
-                    <p>
-                        <span className="text-slate-500">Date: </span>
-                        {dateKey || change.date || '—'}
-                    </p>
-                    {selectedDay ? (
-                        <p>
-                            <span className="text-slate-500">Day to mark present: </span>
-                            {selectedDay}
-                        </p>
-                    ) : null}
-                    <p>
-                        <span className="text-slate-500">Changed by: </span>
-                        {change.requestedByName || '—'}
-                    </p>
-                    <p>
-                        <span className="text-slate-500">Requested: </span>
-                        {change.statusLabel || 'Updated'}
-                    </p>
-                    {change.reason ? (
-                        <p>
-                            <span className="text-slate-500">Reason: </span>
-                            {change.reason}
-                        </p>
-                    ) : null}
-                </div>
-                <div className="mt-4 flex justify-end gap-2">
-                    <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">
-                        Close
-                    </button>
-                    <button
-                        type="button"
-                        disabled={saving}
-                        onClick={() => decide('rejected')}
-                        className="rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600"
-                    >
-                        Reject
-                    </button>
-                    <button
-                        type="button"
-                        disabled={saving}
-                        onClick={() => decide('approved')}
-                        className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
-                    >
-                        Approve
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-}
-
 export default function MarkAttendanceTable({
     dateKey,
     staffType = 'office',
     otAttendanceId = '',
     hourAttendanceId = '',
+    leaveAttendanceId = '',
+    changeRequestId = '',
     blinkEmployeeId = '',
 }) {
     const { toast } = useToast();
@@ -1229,9 +1327,13 @@ export default function MarkAttendanceTable({
     const [sortDirection, setSortDirection] = useState('asc');
     const [otModal, setOtModal] = useState(null);
     const [hourModal, setHourModal] = useState(null);
+    const [leaveDecide, setLeaveDecide] = useState(null);
+    const [leaveDeciding, setLeaveDeciding] = useState(false);
+    const [leaveDecideError, setLeaveDecideError] = useState('');
+    const [changeReview, setChangeReview] = useState(null);
     const [scheduleWeek, setScheduleWeek] = useState(null);
     const [compOffEmployee, setCompOffEmployee] = useState(null);
-    const [pendingReview, setPendingReview] = useState(null);
+    const [decidingEmployeeId, setDecidingEmployeeId] = useState('');
     const [canUseOtActions, setCanUseOtActions] = useState(false);
     const viewerId = useMemo(() => currentEmployeeMongoId(), []);
 
@@ -1367,23 +1469,46 @@ export default function MarkAttendanceTable({
                 dayRecordsRef.current = records;
                 // Roster is already filtered by staffType from API
                 const { nextEmployees, nextMarks } = applyDayRecordsToState(allEmployees, records);
+                const mergedMarks = mergePendingChanges(nextMarks, pendingChanges, {
+                    dateKey,
+                    employeeIds: new Set(nextEmployees.map((row) => row.id)),
+                });
                 setEmployees(nextEmployees);
-                setMarks(mergePendingChanges(nextMarks, pendingChanges));
+                setMarks(mergedMarks);
                 if (otAttendanceId) {
                     const match = nextEmployees.find(
-                        (row) => nextMarks[row.id]?.attendanceId === String(otAttendanceId),
+                        (row) => mergedMarks[row.id]?.attendanceId === String(otAttendanceId),
                     );
-                    if (match && nextMarks[match.id]?.flexibleOtStatus === 'pending') {
-                        setOtModal({ employee: match, mark: nextMarks[match.id], mode: 'review' });
+                    if (match && mergedMarks[match.id]?.flexibleOtStatus === 'pending') {
+                        setOtModal({ employee: match, mark: mergedMarks[match.id], mode: 'review' });
                     }
                 }
                 if (hourAttendanceId) {
                     const match = nextEmployees.find(
-                        (row) => nextMarks[row.id]?.attendanceId === String(hourAttendanceId),
+                        (row) => mergedMarks[row.id]?.attendanceId === String(hourAttendanceId),
                     );
-                    if (match && nextMarks[match.id]?.hourAdjustStatus === 'pending') {
-                        setHourModal({ employee: match, mark: nextMarks[match.id], mode: 'review' });
+                    if (match && mergedMarks[match.id]?.hourAdjustStatus === 'pending') {
+                        setHourModal({ employee: match, mark: mergedMarks[match.id], mode: 'review' });
                     }
+                }
+                if (leaveAttendanceId) {
+                    const match = nextEmployees.find(
+                        (row) => mergedMarks[row.id]?.attendanceId === String(leaveAttendanceId),
+                    ) || nextEmployees.find(
+                        (row) =>
+                            String(row.id) === String(blinkEmployeeId || '') &&
+                            mergedMarks[row.id]?.leaveRequestStatus === 'pending',
+                    );
+                    if (match && mergedMarks[match.id]?.leaveRequestStatus === 'pending') {
+                        setLeaveDecideError('');
+                        setLeaveDecide({ employee: match, mark: mergedMarks[match.id] });
+                    }
+                }
+                if (changeRequestId) {
+                    const match = nextEmployees.find(
+                        (row) => String(mergedMarks[row.id]?.pendingChange?.id || '') === String(changeRequestId),
+                    );
+                    if (match) setChangeReview({ employee: match, mark: mergedMarks[match.id] });
                 }
             } catch {
                 if (!cancelled) {
@@ -1399,7 +1524,7 @@ export default function MarkAttendanceTable({
         return () => {
             cancelled = true;
         };
-    }, [dateKey, loading, allEmployees, dayReload, otAttendanceId, hourAttendanceId]);
+    }, [dateKey, loading, allEmployees, dayReload, otAttendanceId, hourAttendanceId, leaveAttendanceId, changeRequestId, blinkEmployeeId]);
 
     useEffect(() => {
         setSearchQuery('');
@@ -1413,7 +1538,7 @@ export default function MarkAttendanceTable({
     }, [selectedIds.size]);
 
     const todayKey = dubaiDateKey();
-    const earliestMarkKey = shiftDateKey(todayKey, -2);
+    const earliestMarkKey = shiftDateKey(todayKey, -7);
     const allowedMarkDates = useMemo(
         () => nonHrMarkableDateKeys(todayKey, holidayDates),
         [todayKey, holidayDates],
@@ -1576,7 +1701,10 @@ export default function MarkAttendanceTable({
                 dayRecords,
             );
             setEmployees(nextEmployees);
-            setMarks(mergePendingChanges(nextMarks, pendingChanges));
+            setMarks(mergePendingChanges(nextMarks, pendingChanges, {
+                    dateKey,
+                    employeeIds: new Set(nextEmployees.map((row) => row.id)),
+                }));
             notifyAttendancePendingInboxChanged();
         } catch (err) {
             console.error('Failed to save attendance', err);
@@ -1600,7 +1728,10 @@ export default function MarkAttendanceTable({
                     records,
                 );
                 setEmployees(nextEmployees);
-                setMarks(mergePendingChanges(nextMarks, pendingChanges));
+                setMarks(mergePendingChanges(nextMarks, pendingChanges, {
+                    dateKey,
+                    employeeIds: new Set(nextEmployees.map((row) => row.id)),
+                }));
             } catch {
                 /* ignore */
             }
@@ -1631,6 +1762,109 @@ export default function MarkAttendanceTable({
             markKey: key,
             markLabel: label,
         });
+    };
+
+    const openRowRequest = (employee, decision) => {
+        if (!decision) return;
+        const mark = marks[employee.id] || null;
+        if (decision.kind === 'ot') {
+            setOtModal({
+                employee,
+                mark,
+                intent: 'apply',
+                mode: 'review',
+            });
+            return;
+        }
+        if (decision.kind === 'hour') {
+            setHourModal({ employee, mark, mode: 'review' });
+            return;
+        }
+        if (decision.kind === 'leave') {
+            setLeaveDecideError('');
+            setLeaveDecide({ employee, mark });
+            return;
+        }
+        if (decision.kind === 'change') {
+            setChangeReview({ employee, mark });
+        }
+    };
+
+    const submitLeaveDecision = async (choice, approvedStatusKey) => {
+        const attendanceId = String(leaveDecide?.mark?.attendanceId || '').trim();
+        if (!attendanceId || leaveDeciding) return;
+        setLeaveDeciding(true);
+        setLeaveDecideError('');
+        try {
+            const res = await axiosInstance.post('/Attendance/me/leave-request/decide', {
+                attendanceId,
+                date: leaveDecide?.mark?.date || dateKey,
+                employeeMongoId: leaveDecide?.employee?.id || '',
+                decision: choice,
+                approvedStatusKey: approvedStatusKey || '',
+            });
+            toast({
+                title: choice === 'approved' ? 'Approved' : 'Rejected',
+                description: res.data?.message || 'Leave request updated.',
+            });
+            notifyAttendancePendingInboxChanged();
+            setLeaveDecide(null);
+            setDayReload((value) => value + 1);
+        } catch (error) {
+            setLeaveDecideError(error?.response?.data?.message || 'The request was not updated.');
+        } finally {
+            setLeaveDeciding(false);
+        }
+    };
+
+    const decideRowRequest = async (employee, decision, choice) => {
+        if (!decision || decidingEmployeeId) return;
+        setDecidingEmployeeId(employee.id);
+        try {
+            let description = '';
+            if (decision.kind === 'change') {
+                const res = await axiosInstance.post('/Attendance/change-request/decide', {
+                    id: decision.id,
+                    decision: choice,
+                });
+                description = res.data?.message || '';
+            } else if (decision.kind === 'leave') {
+                const res = await axiosInstance.post('/Attendance/me/leave-request/decide', {
+                    attendanceId: decision.attendanceId,
+                    decision: choice,
+                });
+                description = res.data?.message || '';
+            } else if (decision.kind === 'ot') {
+                const res = await axiosInstance.post('/Attendance/flexible-ot/decide', {
+                    attendanceId: decision.attendanceId,
+                    decision: choice,
+                    confirmNextDay: false,
+                });
+                description = res.data?.message || '';
+            } else if (decision.kind === 'hour') {
+                const res = await axiosInstance.post('/Attendance/hour-adjust/decide', {
+                    attendanceId: decision.attendanceId,
+                    decision: choice,
+                });
+                description = res.data?.message || '';
+            }
+            toast({
+                title: choice === 'approved' ? 'Approved' : 'Rejected',
+                description: description || `${decision.title} updated.`,
+            });
+            notifyAttendancePendingInboxChanged();
+            setDayReload((value) => value + 1);
+            return true;
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not update',
+                description: error?.response?.data?.message || 'The request was not updated.',
+            });
+            return false;
+        } finally {
+            setDecidingEmployeeId('');
+        }
     };
 
     const handleBulkRequestMark = (key, label) => {
@@ -1702,7 +1936,7 @@ export default function MarkAttendanceTable({
                     35%, 65% { background-color: #FDE68A; }
                 }
                 .attendance-employee-blink {
-                    animation: attendance-employee-blink 0.9s ease-in-out 1;
+                    animation: attendance-employee-blink 0.7s ease-in-out 2;
                 }
             `}</style>
             {dayLoading ? (
@@ -1967,18 +2201,32 @@ export default function MarkAttendanceTable({
                                     (Boolean(viewerId) &&
                                         viewerId === String(employee.primaryReportee || ''))
                                 }
-                                canDecidePending={
-                                    marks[employee.id]?.pendingChange?.stage === 'pending_hr'
-                                        ? isFlowchartHr
-                                        : marks[employee.id]?.pendingChange?.stage === 'pending_reportee'
-                                            ? Boolean(viewerId) &&
-                                              viewerId === String(employee.primaryReportee || '')
-                                            : false
+                                rowDecision={rowDecisionFor(marks[employee.id] || null, employee, {
+                                    isFlowchartHr,
+                                    viewerId,
+                                })}
+                                deciding={decidingEmployeeId === employee.id}
+                                onDecide={(choice) =>
+                                    decideRowRequest(
+                                        employee,
+                                        rowDecisionFor(marks[employee.id] || null, employee, {
+                                            isFlowchartHr,
+                                            viewerId,
+                                        }),
+                                        choice,
+                                    )
                                 }
-                                onOpenPending={(row, mark) =>
-                                    setPendingReview({ employee: row, change: mark?.pendingChange || null })
+                                onOpenRequest={() =>
+                                    openRowRequest(
+                                        employee,
+                                        rowDecisionFor(marks[employee.id] || null, employee, {
+                                            isFlowchartHr,
+                                            viewerId,
+                                        }),
+                                    )
                                 }
                                 otDirect={isFlowchartHr}
+                                nextDayDirect={isFlowchartHr || canUseOtActions}
                                 canReviewOt={
                                     isFlowchartHr &&
                                     String(marks[employee.id]?.flexibleOtStatus || '') === 'pending'
@@ -2057,6 +2305,50 @@ export default function MarkAttendanceTable({
                 onClose={() => setCompOffEmployee(null)}
                 onChanged={() => setDayReload((value) => value + 1)}
             />
+            <AttendanceLeaveDecideModal
+                isOpen={Boolean(leaveDecide)}
+                dateKey={leaveDecide?.mark?.date || dateKey}
+                employeeName={leaveDecide?.employee?.name || ''}
+                currentLabel={leaveDecide?.mark?.previousStatusLabel || leaveDecide?.mark?.label || ''}
+                requestedLabel={leaveDecide?.mark?.requestedStatusLabel || ''}
+                reason={leaveDecide?.mark?.leaveRequestReason || leaveDecide?.mark?.reason || ''}
+                attachmentName={leaveDecide?.mark?.attachmentName || ''}
+                kind={leaveDecide?.mark?.leaveRequestKind || 'leave'}
+                fromDate={leaveDecide?.mark?.leaveRequestFromDate || ''}
+                toDate={leaveDecide?.mark?.leaveRequestToDate || ''}
+                dayPart={leaveDecide?.mark?.leaveRequestDayPart || ''}
+                session={leaveDecide?.mark?.leaveRequestSession || ''}
+                requestTimeIn={leaveDecide?.mark?.leaveRequestTimeIn || ''}
+                requestTimeOut={leaveDecide?.mark?.leaveRequestTimeOut || ''}
+                deciding={leaveDeciding}
+                error={leaveDecideError}
+                onClose={() => {
+                    if (leaveDeciding) return;
+                    setLeaveDecide(null);
+                    setLeaveDecideError('');
+                }}
+                onDecide={submitLeaveDecision}
+            />
+            <AttendanceChangeReviewModal
+                open={Boolean(changeReview)}
+                employee={changeReview?.employee}
+                mark={changeReview?.mark}
+                deciding={decidingEmployeeId === changeReview?.employee?.id}
+                onClose={() => {
+                    if (decidingEmployeeId) return;
+                    setChangeReview(null);
+                }}
+                onDecide={(choice) => {
+                    const employee = changeReview?.employee;
+                    const decision = employee
+                        ? rowDecisionFor(changeReview?.mark, employee, { isFlowchartHr, viewerId })
+                        : null;
+                    if (!employee || !decision) return;
+                    decideRowRequest(employee, decision, choice).then((ok) => {
+                        if (ok) setChangeReview(null);
+                    });
+                }}
+            />
             <FlexibleOtModal
                 open={Boolean(otModal)}
                 mode={otModal?.mode || 'request'}
@@ -2070,16 +2362,6 @@ export default function MarkAttendanceTable({
                 }
                 onClose={() => setOtModal(null)}
                 onSaved={() => setDayReload((value) => value + 1)}
-            />
-            <PendingChangeDecideModal
-                change={pendingReview?.change}
-                employee={pendingReview?.employee}
-                dateKey={dateKey}
-                onClose={() => setPendingReview(null)}
-                onDecided={() => {
-                    setPendingReview(null);
-                    setDayReload((value) => value + 1);
-                }}
             />
         </>
     );

@@ -39,6 +39,16 @@ function normalizeStaffType(value) {
     return normalizeWorkLocationKey(value);
 }
 
+function leaveRowHasValue(row) {
+    return [
+        row?.authorizedLeave,
+        row?.unauthorizedLeave,
+        row?.sickLeave,
+        row?.compoffLeave,
+        row?.annualLeaveTaken,
+    ].some((value) => Number(value) > 0);
+}
+
 function mapEmployeeFallback(emp) {
     return {
         _id: String(emp?._id || emp?.employeeId || ''),
@@ -516,8 +526,10 @@ export default function LeavePage() {
         employeeOptions.find((option) => option.value === selectedEmployeeId) || employeeOptions[0];
 
     const filteredRows = useMemo(() => {
-        if (staffTab === 'all') return enrolledRows;
-        return enrolledRows.filter((row) => normalizeStaffType(row.staffType) === staffTab);
+        const groupRows = staffTab === 'all'
+            ? enrolledRows
+            : enrolledRows.filter((row) => normalizeStaffType(row.staffType) === staffTab);
+        return groupRows.filter(leaveRowHasValue);
     }, [enrolledRows, staffTab]);
 
     const groupCards = useMemo(() => {
@@ -861,11 +873,7 @@ export default function LeavePage() {
                                                 >
                                                     {isEmployeeFiltered
                                                         ? 'No leave days found for this employee in the selected period.'
-                                                        : staffTab === 'all'
-                                                          ? 'No employees found.'
-                                                          : staffTab === 'site'
-                                                            ? 'No site staffs found.'
-                                                            : 'No staff found.'}
+                                                        : 'No leave in this period.'}
                                                 </td>
                                             </tr>
                                         ) : isEmployeeFiltered ? (

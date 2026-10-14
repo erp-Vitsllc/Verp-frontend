@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
@@ -793,6 +794,12 @@ function VehicleHandoverAssignPageContent() {
         // activeTab only used for live- → real-id redirect query; do not reload on tab switch.
         // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: avoid reload on Details/Attachment tab
     }, [assignId, router, toast, vehicleId, fetchHandoverFines]);
+
+    useNotificationFocusScroll({
+        loading,
+        focusCardPrefix: '',
+        deps: [vehicle?._id, assignId, historyEntry?._id],
+    });
 
     if (loading) {
         return (

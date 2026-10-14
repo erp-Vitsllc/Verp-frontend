@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
     AlertTriangle,
@@ -8,6 +9,7 @@ import {
     ArrowUp,
     Calendar,
     CheckCircle2,
+    ChevronDown,
     Clock,
     FileText,
     MoreHorizontal,
@@ -104,6 +106,17 @@ function personKey(value) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+/** Workflow titles were stored in requester/assignee fields. They are not employees. */
+function isTaskTitleName(value) {
+    const text = String(value || '').trim().replace(/\s+/g, ' ');
+    if (!text) return true;
+    const lower = text.toLowerCase();
+    if (['system', 'unassigned', 'task manager', 'system monitor'].includes(lower)) return true;
+    if (/\bpending with\b/i.test(text) || /[—–]/.test(text)) return true;
+    if (/\b(overdue|make payment|ready to service|on service|accounts approve|hr approval|complete service)\b/i.test(lower)) return true;
+    return /^(oil service|mechanical work|tire change|tyre change|body work|accident repair|car wash|vehicle service)\b/i.test(lower);
+}
+
 function paramValue(params, key, fallback = '') {
     const value = params.get(key);
     if (value == null || value === 'null' || value === 'undefined') return fallback;
@@ -143,12 +156,16 @@ function taskDetailsHref(task, tab) {
 }
 
 function taskEmployees(tasks) {
-    const skip = new Set(['', 'system', 'unassigned']);
+    const titleKeys = new Set();
+    tasks.forEach((task) => {
+        titleKeys.add(personKey(task?.taskName));
+        titleKeys.add(personKey(notificationTitle(task)));
+    });
     const people = new Map();
     const add = (name) => {
         const label = String(name || '').trim().replace(/\s+/g, ' ');
         const key = personKey(label);
-        if (skip.has(key) || people.has(key)) return;
+        if (!key || titleKeys.has(key) || isTaskTitleName(label) || people.has(key)) return;
         people.set(key, label);
     };
     tasks.forEach((task) => {
@@ -457,6 +474,127 @@ function StatCard({ label, value, change, goodWhenUp, icon: Icon, wrap, bubble, 
     );
 }
 
+function EmployeeTaskFilter({ value, employees, onChange }) {
+    const [open, setOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const [menuPos, setMenuPos] = useState(null);
+    const rootRef = useRef(null);
+    const menuRef = useRef(null);
+    const searchRef = useRef(null);
+    const selected = employees.find((employee) => employee.key === value);
+    const needle = search.trim().toLowerCase();
+    const shown = needle
+        ? employees.filter((employee) => employee.name.toLowerCase().includes(needle))
+        : employees;
+
+    const placeMenu = useCallback(() => {
+        const rect = rootRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const width = Math.max(rect.width, 260);
+        const left = Math.min(Math.max(8, rect.left), window.innerWidth - width - 8);
+        setMenuPos({ top: rect.bottom + 4, left, width });
+    }, []);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const frame = requestAnimationFrame(() => searchRef.current?.focus());
+        const onPointer = (event) => {
+            const target = event.target;
+            if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+            setOpen(false);
+        };
+        const onKey = (event) => {
+            if (event.key === 'Escape') setOpen(false);
+        };
+        window.addEventListener('mousedown', onPointer);
+        window.addEventListener('keydown', onKey);
+        window.addEventListener('resize', placeMenu);
+        window.addEventListener('scroll', placeMenu, true);
+        return () => {
+            cancelAnimationFrame(frame);
+            window.removeEventListener('mousedown', onPointer);
+            window.removeEventListener('keydown', onKey);
+            window.removeEventListener('resize', placeMenu);
+            window.removeEventListener('scroll', placeMenu, true);
+        };
+    }, [open, placeMenu]);
+
+    const choose = (key) => {
+        onChange(key);
+        setSearch('');
+        setOpen(false);
+    };
+
+    return (
+        <div className="relative w-[220px] shrink-0" ref={rootRef}>
+            <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={open}
+                aria-label="Employee"
+                onClick={() => {
+                    if (open) {
+                        setOpen(false);
+                        return;
+                    }
+                    setSearch('');
+                    placeMenu();
+                    setOpen(true);
+                }}
+                className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 text-left text-[13px] text-slate-700"
+            >
+                <span className="truncate">{selected?.name || 'All Employees'}</span>
+                <ChevronDown size={14} className="shrink-0 text-slate-400" />
+            </button>
+            {open && menuPos && typeof document !== 'undefined' && createPortal(
+                <div
+                    ref={menuRef}
+                    style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, width: menuPos.width, zIndex: 80 }}
+                    className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg"
+                >
+                    <div className="border-b border-slate-100 p-2">
+                        <div className="relative">
+                            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                                ref={searchRef}
+                                value={search}
+                                onChange={(event) => setSearch(event.target.value)}
+                                placeholder="Search employee"
+                                aria-label="Search employee"
+                                className="h-8 w-full rounded-md border border-slate-200 bg-white pl-8 pr-2 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
+                            />
+                        </div>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto py-1" role="listbox">
+                        <button
+                            type="button"
+                            onClick={() => choose('')}
+                            className={`block w-full px-3 py-1.5 text-left text-[13px] hover:bg-slate-50 ${value ? 'text-slate-600' : 'bg-slate-100 font-medium text-slate-800'}`}
+                        >
+                            All Employees
+                        </button>
+                        {shown.map((employee) => (
+                            <button
+                                key={employee.key}
+                                type="button"
+                                onClick={() => choose(employee.key)}
+                                title={employee.name}
+                                className={`block w-full truncate px-3 py-1.5 text-left text-[13px] hover:bg-slate-50 ${employee.key === value ? 'bg-slate-100 font-medium text-slate-800' : 'text-slate-700'}`}
+                            >
+                                {employee.name}
+                            </button>
+                        ))}
+                        {!shown.length && (
+                            <p className="px-3 py-2 text-[13px] text-slate-400">No employees found</p>
+                        )}
+                    </div>
+                </div>,
+                document.body,
+            )}
+        </div>
+    );
+}
+
 function TaskManagerContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -611,7 +749,7 @@ function TaskManagerContent() {
 
     const employeesWithTasks = useMemo(() => {
         const rows = taskEmployees(tasks);
-        if (employeeFilter && !rows.some((row) => row.key === employeeFilter)) {
+        if (employeeFilter && !isTaskTitleName(employeeFilter) && !rows.some((row) => row.key === employeeFilter)) {
             const name = employeeFilter.replace(/\b[a-z]/g, (char) => char.toUpperCase());
             rows.push({ key: employeeFilter, name });
             rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
@@ -818,20 +956,14 @@ function TaskManagerContent() {
                                     className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
                                 />
                             </div>
-                            <select
+                            <EmployeeTaskFilter
                                 value={employeeFilter}
-                                onChange={(event) => {
-                                    setEmployeeFilter(event.target.value);
+                                employees={employeesWithTasks}
+                                onChange={(next) => {
+                                    setEmployeeFilter(next);
                                     setPage(1);
                                 }}
-                                aria-label="Employee"
-                                className="h-9 w-[200px] shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
-                            >
-                                <option value="">All Employees</option>
-                                {employeesWithTasks.map((employee) => (
-                                    <option key={employee.key} value={employee.key}>{employee.name}</option>
-                                ))}
-                            </select>
+                            />
                             <div className="relative w-[180px] shrink-0">
                                 <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                 <input
