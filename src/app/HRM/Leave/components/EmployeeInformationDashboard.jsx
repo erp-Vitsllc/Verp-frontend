@@ -173,6 +173,8 @@ function employeeTaskListHref(name) {
 }
 
 function employeeTaskDetailsHref(task) {
+    const direct = String(task?.href || '').trim();
+    if (direct.startsWith('/')) return direct;
     const id = String(task?.actionId || '').trim();
     if (!id) return '';
     const params = new URLSearchParams();
@@ -400,6 +402,40 @@ function recordWorkedMinutes(record) {
     if (any) return total;
     const hours = Number(record?.flexibleWorkedHours) || 0;
     return hours > 0 ? Math.round(hours * 60) : null;
+}
+
+function buildApprovedOtRows(records, monthKey) {
+    const prefix = String(monthKey || '');
+    return (records || [])
+        .filter((row) => {
+            const date = String(row?.date || '');
+            if (prefix && !date.startsWith(prefix)) return false;
+            if (String(row?.flexibleOtStatus || '').trim() !== 'approved') return false;
+            return (Number(row?.flexibleOtApprovedHours) || 0) > 0;
+        })
+        .map((row) => {
+            const minutes = recordWorkedMinutes(row);
+            const approvedHours = Number(row.flexibleOtApprovedHours) || 0;
+            return {
+                id: String(row._id || row.date),
+                date: row.date,
+                dateLabel: formatDayLabel(row.date),
+                timeIn: formatClock12(row.timeIn),
+                timeOut: formatClock12(row.timeOut),
+                timeOutNextDay: isNextDayCheckout({
+                    date: row.date,
+                    timeIn: row.timeIn,
+                    timeOut: row.timeOut,
+                    timeOutDate: row.timeOutDate,
+                }),
+                workedLabel: minutes == null ? '—' : formatHourMinute(minutes),
+                approvedHours,
+                approvedLabel: formatHourMeasure(approvedHours),
+                description: String(row.flexibleOtReason || '').trim(),
+                placedOn: String(row.flexibleOtNextDayDate || '').trim(),
+            };
+        })
+        .sort((left, right) => String(right.date).localeCompare(String(left.date)));
 }
 
 function dubaiNowMinutes() {
@@ -681,6 +717,11 @@ function monthKeysBetween(fromKey, toKey) {
         cursor = `${nextYear}-${String(nextMonth).padStart(2, '0')}`;
     }
     return months;
+}
+
+function isNextDayCompOffRow(row) {
+    if (String(row?.flexibleFromOtDate || '').trim()) return true;
+    return String(row?.timeIn || '').trim() === 'OT' && String(row?.timeOut || '').trim() === 'OT';
 }
 
 function dayAdjustment(row) {
@@ -1258,15 +1299,6 @@ function dayEarlyText(record, week) {
     return formatHourlyGap(Math.max(0, shift.end - actual));
 }
 
-function attendanceRequestPending(record) {
-    if (!record) return false;
-    return [
-        record.hourAdjustStatus,
-        record.leaveRequestStatus,
-        record.flexibleOtStatus,
-    ].some((value) => String(value || '').trim().toLowerCase() === 'pending');
-}
-
 function dayApprovalLabel(record) {
     if (!record) return '';
     const key = String(record.statusKey || '');
@@ -1366,12 +1398,23 @@ function DayTip({
     moreLines,
     otText = '',
     compOffLines = [],
+    requestLines = [],
     alignRight,
 }) {
     const [more, setMore] = useState(false);
     const approvalClass = approvalText === 'Approved' ? 'text-[#16A34A]' : 'text-[#DC2626]';
     return (
         <div className={`absolute z-30 w-80 rounded-xl border border-[#E6EDF5] bg-white p-3 text-left shadow-xl ${alignRight ? 'right-0' : 'left-1/2'} top-full mt-1`}>
+            {requestLines.length ? (
+                <div className="mb-2 space-y-1 rounded-lg bg-[#FEF2F2] px-2 py-1.5">
+                    {requestLines.map((line, index) => (
+                        <p key={`${line.label}-${line.requestedBy}-${index}`} className="text-[12px] leading-snug text-[#991B1B]">
+                            <span className="font-semibold">{line.label}</span>
+                            <span className="font-medium"> — requested by {line.requestedBy}</span>
+                        </p>
+                    ))}
+                </div>
+            ) : null}
             <p className="text-[13px] font-bold text-[#1B2A4A]">{dateLabel}</p>
             <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] font-semibold">
                 <span className={`h-2 w-2 rounded-full ${dotClass}`} />
@@ -1494,9 +1537,10 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     if (dayNote?.takenFrom) compOffLines.push(`Comp off taken from ${formatDayLabel(dayNote.takenFrom)}`);
     const showTip = hoveredDate === dateKey && inMonth && !beforeStart && !ctx.salaryLock?.locked;
     const canOpenMark = Boolean(markTarget?.employeeId) && inMonth && !beforeStart;
-    const requestPending = compact && inMonth && !beforeStart && (
-        attendanceRequestPending(record) || Boolean(ctx.pendingRequestDates?.has(dateKey))
-    );
+    const requestLines = compact && inMonth && !beforeStart
+        ? (ctx.pendingRequestsByDate?.get(dateKey) || [])
+        : [];
+    const requestPending = requestLines.length > 0;
     const openMarkPage = (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -1511,9 +1555,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         <div
             className={`relative ${canOpenMark ? 'cursor-pointer' : ''}`}
             data-attendance-day={canOpenMark ? dateKey : undefined}
-            title={requestPending
-                ? 'Attendance request pending. Double-click to mark this day'
-                : (canOpenMark ? 'Double-click to mark this day' : undefined)}
+            title={requestPending ? undefined : (canOpenMark ? 'Double-click to mark this day' : undefined)}
             onMouseEnter={() => inMonth && !beforeStart && setHoveredDate(dateKey)}
             onMouseLeave={() => setHoveredDate('')}
             onClick={(event) => {
@@ -1557,12 +1599,28 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                         balanceText={flexibleShort != null ? formatHourlyGap(Math.max(0, flexibleShort)) : formatHourlyGap(balance)}
                         deductText={deduct == null ? '—' : formatAed(deduct, 2)}
                         moreLines={moreLines}
+                        requestLines={requestLines}
                         alignRight={column >= 4}
                     />
                 </div>
             ) : null}
         </div>
     );
+}
+
+function groupPendingRequests(requests) {
+    const byDate = new Map();
+    for (const row of Array.isArray(requests) ? requests : []) {
+        const date = String(row?.date || '').trim();
+        const label = String(row?.label || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !label) continue;
+        if (!byDate.has(date)) byDate.set(date, []);
+        byDate.get(date).push({
+            label,
+            requestedBy: String(row?.requestedBy || '').trim() || 'Employee',
+        });
+    }
+    return byDate;
 }
 
 function buildMonthCalendarContext({
@@ -1577,7 +1635,7 @@ function buildMonthCalendarContext({
     monthlySalary,
     joinKey,
     visibleFrom,
-    pendingRequestDates = [],
+    pendingRequests = [],
 }) {
     const recordsByDate = {};
     (records || []).forEach((row) => {
@@ -1689,11 +1747,7 @@ function buildMonthCalendarContext({
         calendarNotes,
         adjustmentByDate: buildAdjustmentIndex(monthRecords),
         visibleFrom: visibleFrom || '',
-        pendingRequestDates: new Set(
-            (Array.isArray(pendingRequestDates) ? pendingRequestDates : [])
-                .map((date) => String(date || '').trim())
-                .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)),
-        ),
+        pendingRequestsByDate: groupPendingRequests(pendingRequests),
     };
 }
 
@@ -1717,7 +1771,7 @@ function GroupEmployeeCalendar({ employee, payload, holidayRows, leavePolicy, on
             monthlySalary: Number(employee.monthlySalary) || 0,
             joinKey: employee.visibleFrom || '',
             visibleFrom: employee.visibleFrom || '',
-            pendingRequestDates: employee.pendingRequestDates,
+            pendingRequests: employee.pendingRequests,
         });
     }, [employee, holidayRows, leavePolicy, monthKey, payload]);
     const anchor = useMemo(() => new Date(`${monthKey}-01T12:00:00`), [monthKey]);
@@ -1818,7 +1872,7 @@ function GroupAttendanceBoard({ groupKey, groupLabel, monthKey, holidayRows, lea
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
                     <h2 className="text-[15px] font-bold text-[#1B2A4A]">{groupLabel} attendance</h2>
-                    <p className="text-[12px] font-medium text-[#64748B]">Three calendars per row. Click a name to open that employee. Double-click a day to mark attendance. Only a day with a pending request (overtime, missed punch, leave, or attendance change) blinks slowly.</p>
+                    <p className="text-[12px] font-medium text-[#64748B]">Three calendars per row. Click a name to open that employee. Double-click a day to mark attendance. A day blinks only while it still has a pending attendance request, such as leave, missed punch, late in, or early out. Hover that day to see the request and who sent it.</p>
                 </div>
             </div>
             <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1.5">
@@ -1879,6 +1933,8 @@ function Panel({ title, aside, children }) {
 }
 
 function prepStatusLabel(row) {
+    const explicit = String(row?.status || '').trim();
+    if (explicit) return explicit;
     const key = String(row?.appliedKey || '');
     const title = String(row?.title || '');
     if (key === 'mispunch' || key === 'late_arrived' || key === 'early_go') return 'Awaiting Explanation';
@@ -1887,11 +1943,19 @@ function prepStatusLabel(row) {
     return 'Approval Pending';
 }
 
+function salaryPrepRowTouchesMonth(row, monthKey) {
+    const from = String(row?.fromDate || row?.dateKey || '').slice(0, 7);
+    const to = String(row?.toDate || row?.fromDate || row?.dateKey || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(from)) return true;
+    const end = /^\d{4}-\d{2}$/.test(to) ? to : from;
+    return from <= monthKey && monthKey <= end;
+}
+
 function tableToneClass(label) {
     const text = String(label || '');
     if (/deduct|^high$/i.test(text)) return 'text-[#EF4444]';
     if (/^medium$/i.test(text)) return 'text-[#F59E0B]';
-    if (/await|explanation|approv|review|pending/i.test(text)) return 'text-[#F97316]';
+    if (/await|explanation|approv|review|pending|waiting/i.test(text)) return 'text-[#F97316]';
     return 'text-[#64748B]';
 }
 
@@ -1903,6 +1967,67 @@ function TableTone({ label }) {
 const TH = 'whitespace-nowrap px-3 py-2.5 text-left text-[12px] font-medium text-[#94A3B8]';
 const TD = 'px-3 py-2.5 align-middle text-[13px] text-[#1B2A4A]';
 const OUTLINE_BTN = 'inline-flex h-7 items-center justify-center whitespace-nowrap rounded-md border border-[#93C5FD] bg-white px-2.5 text-[12px] font-semibold text-[#2563EB]';
+const CARD_PAGE_SIZE = 10;
+
+function pageWindow(page, pageCount) {
+    if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
+    const pages = new Set([1, pageCount, page - 1, page, page + 1].filter((value) => value >= 1 && value <= pageCount));
+    return [...pages].sort((left, right) => left - right);
+}
+
+function CardPageBar({ page, pageCount, total, onPage }) {
+    const start = total ? (page - 1) * CARD_PAGE_SIZE + 1 : 0;
+    const end = total ? Math.min(total, page * CARD_PAGE_SIZE) : 0;
+    const pages = pageWindow(page, pageCount);
+    return (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#EEF2F6] px-4 py-2.5">
+            <p className="text-[12px] text-[#64748B]">
+                {total ? `Showing ${start}–${end} of ${total}` : 'Showing 0'}
+            </p>
+            <div className="flex items-center gap-1">
+                <button
+                    type="button"
+                    disabled={page <= 1}
+                    onClick={() => onPage(page - 1)}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E6EDF5] text-[#64748B] disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Previous page"
+                >
+                    <ChevronLeft size={14} />
+                </button>
+                {pages.map((value, index) => {
+                    const previous = pages[index - 1];
+                    const gap = previous && value - previous > 1;
+                    return (
+                        <span key={value} className="inline-flex items-center gap-1">
+                            {gap ? <span className="px-0.5 text-[12px] text-[#94A3B8]">…</span> : null}
+                            <button
+                                type="button"
+                                onClick={() => onPage(value)}
+                                className={`inline-flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-[12px] font-semibold ${
+                                    value === page
+                                        ? 'bg-[#2563EB] text-white'
+                                        : 'border border-[#E6EDF5] text-[#64748B]'
+                                }`}
+                                aria-current={value === page ? 'page' : undefined}
+                            >
+                                {value}
+                            </button>
+                        </span>
+                    );
+                })}
+                <button
+                    type="button"
+                    disabled={page >= pageCount}
+                    onClick={() => onPage(page + 1)}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E6EDF5] text-[#64748B] disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Next page"
+                >
+                    <ChevronRight size={14} />
+                </button>
+            </div>
+        </div>
+    );
+}
 const SOLID_BTN = 'inline-flex h-7 items-center justify-center whitespace-nowrap rounded-md bg-[#2563EB] px-2.5 text-[12px] font-semibold text-white';
 
 function LeaveStat({ label, value, accent = false }) {
@@ -2340,9 +2465,22 @@ export default function EmployeeInformationDashboard({
     const [spanLoading, setSpanLoading] = useState(false);
     const [additionWeekId, setAdditionWeekId] = useState('all');
     const [additionModal, setAdditionModal] = useState('');
+    const [otPage, setOtPage] = useState(1);
+    const [otView, setOtView] = useState(null);
     const [groupKey, setGroupKey] = useState('');
     const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+    const [prepPage, setPrepPage] = useState(1);
+    const [taskPage, setTaskPage] = useState(1);
     const groupMenuRef = useRef(null);
+
+    useEffect(() => {
+        setPrepPage(1);
+        setOtPage(1);
+    }, [employeeMongoId, period, monthKey]);
+
+    useEffect(() => {
+        setTaskPage(1);
+    }, [employeeMongoId]);
 
     useEffect(() => {
         if (!groupMenuOpen) return undefined;
@@ -2589,7 +2727,8 @@ export default function EmployeeInformationDashboard({
         let compoffUsed = 0;
         let compoffPending = 0;
         countedRecords.forEach((row) => {
-            const key = String(row?.statusKey || '');
+            const stored = String(row?.statusKey || '');
+            const key = stored !== 'compoff_leave' && isNextDayCompOffRow(row) ? 'compoff_leave' : stored;
             const kind = deductionKind(row);
             if (key === 'on_office') present += 1;
             if (key === 'work_from_home') wfh += 1;
@@ -2598,8 +2737,10 @@ export default function EmployeeInformationDashboard({
             if (kind === 'mispunch') missed += 1;
             if (key === 'compoff_leave') {
                 compoffUsed += 1;
-                const state = String(row?.compOff?.state || '');
-                if (!state || state === 'open') compoffPending += 1;
+                if (stored === 'compoff_leave') {
+                    const state = String(row?.compOff?.state || '');
+                    if (!state || state === 'open') compoffPending += 1;
+                }
             }
         });
         let absent = 0;
@@ -2968,8 +3109,24 @@ export default function EmployeeInformationDashboard({
         : 0;
     const accumulatedPct = monthlySalary > 0 ? Math.round((accumulated / monthlySalary) * 10000) / 100 : 0;
 
-    const pending = profile?.requests?.pending || [];
+    const pending = (Array.isArray(profile?.requests?.pending) ? profile.requests.pending : []).filter((row) =>
+        period === 'month' ? Boolean(row.spanAllMonths) || salaryPrepRowTouchesMonth(row, monthKey) : true,
+    );
     const workTasks = Array.isArray(profile?.requests?.workTasks) ? profile.requests.workTasks : [];
+    const prepPageCount = Math.max(1, Math.ceil(pending.length / CARD_PAGE_SIZE));
+    const taskPageCount = Math.max(1, Math.ceil(workTasks.length / CARD_PAGE_SIZE));
+    const prepPageSafe = Math.min(prepPage, prepPageCount);
+    const taskPageSafe = Math.min(taskPage, taskPageCount);
+    const approvedOtRows = useMemo(
+        () => buildApprovedOtRows(monthRecords, monthKey),
+        [monthRecords, monthKey],
+    );
+    const approvedOtTotal = approvedOtRows.reduce((sum, row) => sum + row.approvedHours, 0);
+    const otPageCount = Math.max(1, Math.ceil(approvedOtRows.length / CARD_PAGE_SIZE));
+    const otPageSafe = Math.min(otPage, otPageCount);
+    const otPageRows = approvedOtRows.slice((otPageSafe - 1) * CARD_PAGE_SIZE, otPageSafe * CARD_PAGE_SIZE);
+    const pendingPageRows = pending.slice((prepPageSafe - 1) * CARD_PAGE_SIZE, prepPageSafe * CARD_PAGE_SIZE);
+    const taskPageRows = workTasks.slice((taskPageSafe - 1) * CARD_PAGE_SIZE, taskPageSafe * CARD_PAGE_SIZE);
     const oldestMonth = choices[choices.length - 1] || currentMonth;
     const newestMonth = choices[0] || currentMonth;
     const headerRange = (() => {
@@ -3057,10 +3214,18 @@ export default function EmployeeInformationDashboard({
         const keys = key === 'on_office' ? ['on_office', 'work_from_home'] : [key];
         const source = period === 'month' ? countedRecords : profile?.events || [];
         const rows = (source || []).filter((row) => {
+            if (key === 'compoff_leave') {
+                return String(row?.statusKey || '') === 'compoff_leave' || isNextDayCompOffRow(row);
+            }
             if (key === 'late_arrived' || key === 'early_go' || key === 'mispunch' || key === 'unauthorized_leave') {
                 return deductionKind(row) === key;
             }
             return keys.includes(String(row?.statusKey || ''));
+        }).map((row) => {
+            if (key === 'compoff_leave' && String(row?.statusKey || '') !== 'compoff_leave' && isNextDayCompOffRow(row)) {
+                return { ...row, statusKey: 'compoff_leave', statusLabel: 'Comp Off Leave' };
+            }
+            return row;
         });
         onOpenCategory?.(
             key,
@@ -3764,19 +3929,30 @@ export default function EmployeeInformationDashboard({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {pending.length ? pending.map((row, index) => {
+                                    {pendingPageRows.length ? pendingPageRows.map((row, index) => {
                                         const statusLabel = prepStatusLabel(row);
-                                        const takeAction = statusLabel === 'Approval Pending';
+                                        const takeAction = /pending|waiting|await|review/i.test(statusLabel);
+                                        const href = String(row?.href || '').trim();
                                         return (
                                             <tr key={row.id} className="border-b border-[#F4F7FB] last:border-0">
-                                                <td className={`${TD} text-[#94A3B8]`}>{index + 1}</td>
+                                                <td className={`${TD} text-[#94A3B8]`}>{(prepPageSafe - 1) * CARD_PAGE_SIZE + index + 1}</td>
                                                 <td className={`${TD} truncate font-medium`}>{row.title}</td>
                                                 <td className={`${TD} truncate`}>{row.subtitle || '—'}</td>
                                                 <td className={`${TD} whitespace-nowrap`}>{row.dateLabel || '—'}</td>
                                                 <td className={`${TD} truncate`}>{row.owner || '—'}</td>
                                                 <td className={TD}><TableTone label={statusLabel} /></td>
                                                 <td className={TD}>
-                                                    <button type="button" onClick={onOpenLeaveList} className={takeAction ? SOLID_BTN : OUTLINE_BTN}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (href) {
+                                                                router.push(href);
+                                                                return;
+                                                            }
+                                                            onOpenLeaveList?.();
+                                                        }}
+                                                        className={takeAction ? SOLID_BTN : OUTLINE_BTN}
+                                                    >
                                                         {takeAction ? 'Take Action' : 'View Task'}
                                                     </button>
                                                 </td>
@@ -3788,6 +3964,12 @@ export default function EmployeeInformationDashboard({
                                 </tbody>
                             </table>
                         </div>
+                        <CardPageBar
+                            page={prepPageSafe}
+                            pageCount={prepPageCount}
+                            total={pending.length}
+                            onPage={setPrepPage}
+                        />
                     </section>
 
                     <section className="overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white">
@@ -3811,7 +3993,7 @@ export default function EmployeeInformationDashboard({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {workTasks.length ? workTasks.map((task) => {
+                                    {taskPageRows.length ? taskPageRows.map((task) => {
                                         const href = employeeTaskDetailsHref(task);
                                         return (
                                             <tr key={task.actionId || task.taskNumber} className="border-b border-[#F4F7FB] last:border-0">
@@ -3850,11 +4032,17 @@ export default function EmployeeInformationDashboard({
                                             </tr>
                                         );
                                     }) : (
-                                        <tr><td colSpan={7} className="px-3 py-3 text-[13px] text-[#94A3B8]">No pending tasks assigned to this employee.</td></tr>
+                                        <tr><td colSpan={7} className="px-3 py-3 text-[13px] text-[#94A3B8]">No pending tasks for this employee.</td></tr>
                                     )}
                                 </tbody>
                             </table>
                         </div>
+                        <CardPageBar
+                            page={taskPageSafe}
+                            pageCount={taskPageCount}
+                            total={workTasks.length}
+                            onPage={setTaskPage}
+                        />
                     </section>
 
                     <div className="flex items-center justify-between gap-4 rounded-2xl border border-[#E6EDF5] bg-white px-4 py-3.5">
@@ -3869,9 +4057,111 @@ export default function EmployeeInformationDashboard({
                             View Annual Calendar
                         </Link>
                     </div>
+
+                    <section className="flex min-h-[240px] flex-1 flex-col overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white">
+                        <div className="border-b border-[#EEF2F6] px-4 py-3">
+                            <p className="text-[14px] font-bold text-[#1B2A4A]">
+                                OT reference ({monthLoading ? '…' : formatHourMeasure(approvedOtTotal)} approved)
+                            </p>
+                            <p className="mt-0.5 text-[12px] text-[#94A3B8]">
+                                Approved overtime in {formatMonthLabel(monthKey)}
+                            </p>
+                        </div>
+                        <div className="min-h-0 flex-1 overflow-x-auto">
+                            <table className="w-full min-w-[720px] border-collapse text-left">
+                                <thead>
+                                    <tr className="border-b border-[#EEF2F6]">
+                                        <th className={TH}>Date</th>
+                                        <th className={TH}>Time In</th>
+                                        <th className={TH}>Time Out</th>
+                                        <th className={TH}>Total hrs worked</th>
+                                        <th className={TH}>OT approved hours</th>
+                                        <th className={`${TH} w-[5.5rem]`}>View</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {monthLoading ? (
+                                        <tr>
+                                            <td colSpan={6} className="px-3 py-6 text-center text-[13px] text-[#94A3B8]">
+                                                Loading overtime…
+                                            </td>
+                                        </tr>
+                                    ) : otPageRows.length ? otPageRows.map((row) => (
+                                        <tr key={row.id} className="border-b border-[#F4F7FB] last:border-0">
+                                            <td className={`${TD} whitespace-nowrap font-medium`}>{row.dateLabel}</td>
+                                            <td className={`${TD} whitespace-nowrap`}>{row.timeIn}</td>
+                                            <td className={`${TD} whitespace-nowrap`}>
+                                                <NextDayCheckoutTime time={row.timeOut} nextDay={row.timeOutNextDay} />
+                                            </td>
+                                            <td className={`${TD} whitespace-nowrap tabular-nums`}>{row.workedLabel}</td>
+                                            <td className={`${TD} whitespace-nowrap font-semibold tabular-nums text-[#16A34A]`}>{row.approvedLabel}</td>
+                                            <td className={TD}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setOtView(row)}
+                                                    className={OUTLINE_BTN}
+                                                >
+                                                    View
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    )) : (
+                                        <tr>
+                                            <td colSpan={6} className="px-3 py-6 text-[13px] text-[#94A3B8]">
+                                                No approved overtime in {formatMonthLabel(monthKey)}.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                        <CardPageBar
+                            page={otPageSafe}
+                            pageCount={otPageCount}
+                            total={approvedOtRows.length}
+                            onPage={setOtPage}
+                        />
+                    </section>
                 </div>
             </div>
             )}
+            {otView && typeof document !== 'undefined' ? createPortal(
+                <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/40 p-4" onClick={() => setOtView(null)} role="presentation">
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="ot-approved-description-title"
+                        className="w-full max-w-md overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white shadow-2xl"
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <div className="flex items-start justify-between gap-3 border-b border-[#EEF2F6] px-5 py-4">
+                            <div>
+                                <h3 id="ot-approved-description-title" className="text-[15px] font-bold text-[#1B2A4A]">
+                                    OT approved
+                                </h3>
+                                <p className="mt-0.5 text-[12px] text-[#64748B]">
+                                    {otView.dateLabel} · {otView.approvedLabel}
+                                </p>
+                            </div>
+                            <button type="button" onClick={() => setOtView(null)} className="rounded-lg p-2 text-[#94A3B8] hover:bg-[#F8FAFC] hover:text-[#1B2A4A]" aria-label="Close">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="px-5 py-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#94A3B8]">Description</p>
+                            <p className="mt-1.5 text-[13px] font-medium leading-snug text-[#1B2A4A]">
+                                {otView.description || 'No description was saved for this approval.'}
+                            </p>
+                            {otView.placedOn ? (
+                                <p className="mt-3 text-[12px] text-[#64748B]">
+                                    Present from this overtime was placed on {formatDayLabel(otView.placedOn)}.
+                                </p>
+                            ) : null}
+                        </div>
+                    </div>
+                </div>,
+                document.body,
+            ) : null}
             <SalaryAdditionListModal
                 mode={additionModal}
                 ready={additionReady}

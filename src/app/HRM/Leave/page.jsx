@@ -160,6 +160,14 @@ const TABLE_COLUMNS = [
     { key: 'annualLeaveTaken', label: 'Annual Leave Taken' },
 ];
 
+const COUNT_COLUMNS = {
+    authorizedLeave: { leaveType: 'authorized', statusKey: 'authorized_leave', label: 'Authorize Leave' },
+    unauthorizedLeave: { leaveType: 'unauthorized', statusKey: 'unauthorized_leave', label: 'Unauthorized Leave' },
+    sickLeave: { leaveType: 'sick', statusKey: 'sick_leave', label: 'Sick Leave' },
+    compoffLeave: { leaveType: 'compoff', statusKey: 'compoff_leave', label: 'Comp Off Leave' },
+    annualLeaveTaken: { leaveType: 'annual', statusKey: 'on_leave', label: 'Annual Leave Taken' },
+};
+
 const DETAIL_COLUMNS = [
     { key: 'slNo', label: 'SL No' },
     { key: 'leaveType', label: 'Leave Type' },
@@ -207,6 +215,89 @@ const selectStyles = {
     singleValue: (base) => ({ ...base, fontSize: 13, color: '#374151' }),
     placeholder: (base) => ({ ...base, fontSize: 13, color: '#9ca3af' }),
 };
+
+function LeaveCountModal({
+    open,
+    employeeName,
+    leaveLabel,
+    periodLabel,
+    rows,
+    loading,
+    error,
+    onClose,
+}) {
+    useEffect(() => {
+        if (!open) return undefined;
+        const onKey = (event) => {
+            if (event.key === 'Escape') onClose();
+        };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [open, onClose]);
+
+    if (!open || typeof document === 'undefined') return null;
+
+    return createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <button
+                type="button"
+                aria-label="Close"
+                className="absolute inset-0 bg-black/30"
+                onClick={onClose}
+            />
+            <div
+                className="relative z-[101] flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl border border-gray-200 bg-white shadow-2xl"
+                onMouseDown={(event) => event.stopPropagation()}
+            >
+                <div className="border-b border-gray-100 px-5 py-4">
+                    <h3 className="text-base font-bold text-gray-900">{employeeName || 'Employee'}</h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                        {leaveLabel}
+                        {periodLabel ? ` · ${periodLabel}` : ''}
+                    </p>
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto px-5 py-3">
+                    {loading ? (
+                        <p className="py-8 text-center text-sm text-slate-500">Loading dates...</p>
+                    ) : error ? (
+                        <p className="py-8 text-center text-sm text-red-600">{error}</p>
+                    ) : rows.length === 0 ? (
+                        <p className="py-8 text-center text-sm text-slate-500">No dates in this period.</p>
+                    ) : (
+                        <table className="w-full text-sm">
+                            <thead className="border-b border-gray-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                <tr>
+                                    <th className="py-2 pr-3">SL No</th>
+                                    <th className="py-2 pr-3">Date</th>
+                                    <th className="py-2">Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {rows.map((row, index) => (
+                                    <tr key={row.id || `${row.date}-${index}`}>
+                                        <td className="py-2.5 pr-3 tabular-nums text-slate-500">{index + 1}</td>
+                                        <td className="py-2.5 pr-3 font-medium text-slate-900">{formatDisplayDate(row.date)}</td>
+                                        <td className="py-2.5 text-slate-700">{row.durationLabel || 'Full time'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+                <div className="flex justify-end border-t border-gray-100 px-5 py-3">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>,
+        document.body,
+    );
+}
 
 function CustomMonthRangeModal({
     open,
@@ -304,6 +395,10 @@ export default function LeavePage() {
     const [draftFromMonth, setDraftFromMonth] = useState(() => `${new Date().getFullYear()}-01`);
     const [draftToMonth, setDraftToMonth] = useState(() => currentMonthKey());
     const [customError, setCustomError] = useState('');
+    const [countModal, setCountModal] = useState(null);
+    const [countRows, setCountRows] = useState([]);
+    const [countLoading, setCountLoading] = useState(false);
+    const [countError, setCountError] = useState('');
     const filterRef = useRef(null);
 
     const periodRange = useMemo(
@@ -320,6 +415,24 @@ export default function LeavePage() {
         },
         [router],
     );
+
+    const openCountModal = useCallback((row, columnKey) => {
+        const spec = COUNT_COLUMNS[columnKey];
+        if (!spec || !row?._id) return;
+        setCountModal({
+            employeeMongoId: String(row._id),
+            employeeName: row.employeeName || 'Employee',
+            leaveType: spec.leaveType,
+            statusKey: spec.statusKey,
+            label: spec.label,
+        });
+    }, []);
+
+    const closeCountModal = useCallback(() => {
+        setCountModal(null);
+        setCountRows([]);
+        setCountError('');
+    }, []);
 
     const writeLeaveListUrl = useCallback((group, month) => {
         const params = new URLSearchParams();
@@ -448,6 +561,50 @@ export default function LeavePage() {
     useEffect(() => {
         fetchEmployeeLeaves();
     }, [fetchEmployeeLeaves]);
+
+    useEffect(() => {
+        if (!countModal) return undefined;
+        let cancelled = false;
+        setCountLoading(true);
+        setCountError('');
+        setCountRows([]);
+        axiosInstance
+            .get('/Leave/calendar', {
+                params: {
+                    from: periodRange.from,
+                    to: periodRange.to,
+                    leaveType: countModal.leaveType,
+                    employeeId: countModal.employeeMongoId,
+                },
+                skipToast: true,
+            })
+            .then((response) => {
+                if (cancelled) return;
+                const entries = Array.isArray(response.data?.entries) ? response.data.entries : [];
+                const list = filterLeaveEntriesBySalary(entries, salaryVisibility)
+                    .filter((entry) => String(entry.employeeMongoId || '') === countModal.employeeMongoId)
+                    .filter((entry) => !entry.isPending)
+                    .filter((entry) => String(entry.statusKey || '') === countModal.statusKey)
+                    .map((entry) => ({
+                        id: entry.id || `${entry.date}-${entry.statusKey}`,
+                        date: entry.date,
+                        durationLabel: entry.durationLabel || 'Full time',
+                    }))
+                    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+                setCountRows(list);
+            })
+            .catch((err) => {
+                if (cancelled) return;
+                setCountRows([]);
+                setCountError(err?.response?.data?.message || 'Could not load these dates.');
+            })
+            .finally(() => {
+                if (!cancelled) setCountLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [countModal, periodRange.from, periodRange.to, salaryVisibility]);
 
     const selectedEmployee = useMemo(
         () => rows.find((row) => String(row._id) === String(selectedEmployeeId)) || null,
@@ -897,33 +1054,37 @@ export default function LeavePage() {
                                             tableRows.map((row, index) => (
                                                 <tr
                                                     key={row._id || row.employeeId || index}
-                                                    className="cursor-pointer transition-colors hover:bg-gray-50"
-                                                    onClick={() => openProfilePage(row._id)}
+                                                    className="transition-colors hover:bg-gray-50"
                                                 >
                                                     <td className="whitespace-nowrap px-2 py-2 text-xs tabular-nums text-gray-500 sm:px-4 sm:py-3 sm:text-sm lg:px-6">
                                                         {index + 1}
                                                     </td>
-                                                    <td className="whitespace-nowrap px-2 py-2 text-xs font-medium text-gray-900 sm:px-4 sm:py-3 sm:text-sm lg:px-6">
-                                                        {row.employeeName || 'N/A'}
+                                                    <td className="whitespace-nowrap px-2 py-2 text-xs font-medium sm:px-4 sm:py-3 sm:text-sm lg:px-6">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openProfilePage(row._id)}
+                                                            className="font-medium text-blue-700 hover:underline"
+                                                        >
+                                                            {row.employeeName || 'N/A'}
+                                                        </button>
                                                     </td>
                                                     <td className="whitespace-nowrap px-2 py-2 text-xs text-gray-700 sm:px-4 sm:py-3 sm:text-sm lg:px-6">
                                                         {row.employeeId || 'N/A'}
                                                     </td>
-                                                    <td className="whitespace-nowrap px-2 py-2 text-xs tabular-nums text-gray-700 sm:px-4 sm:py-3 sm:text-sm lg:px-6">
-                                                        {row.authorizedLeave}
-                                                    </td>
-                                                    <td className="whitespace-nowrap px-2 py-2 text-xs tabular-nums text-gray-700 sm:px-4 sm:py-3 sm:text-sm lg:px-6">
-                                                        {row.unauthorizedLeave}
-                                                    </td>
-                                                    <td className="whitespace-nowrap px-2 py-2 text-xs tabular-nums text-gray-700 sm:px-4 sm:py-3 sm:text-sm lg:px-6">
-                                                        {row.sickLeave}
-                                                    </td>
-                                                    <td className="whitespace-nowrap px-2 py-2 text-xs tabular-nums text-gray-700 sm:px-4 sm:py-3 sm:text-sm lg:px-6">
-                                                        {row.compoffLeave}
-                                                    </td>
-                                                    <td className="whitespace-nowrap px-2 py-2 text-xs tabular-nums text-gray-700 sm:px-4 sm:py-3 sm:text-sm lg:px-6">
-                                                        {row.annualLeaveTaken}
-                                                    </td>
+                                                    {Object.keys(COUNT_COLUMNS).map((columnKey) => (
+                                                        <td
+                                                            key={columnKey}
+                                                            className="whitespace-nowrap px-2 py-2 text-xs sm:px-4 sm:py-3 sm:text-sm lg:px-6"
+                                                        >
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => openCountModal(row, columnKey)}
+                                                                className="tabular-nums font-semibold text-blue-700 hover:underline"
+                                                            >
+                                                                {Number(row[columnKey]) || 0}
+                                                            </button>
+                                                        </td>
+                                                    ))}
                                                 </tr>
                                             ))
                                         )}
@@ -931,6 +1092,16 @@ export default function LeavePage() {
                                 </table>
                             </div>
                         </div>
+                        <LeaveCountModal
+                            open={Boolean(countModal)}
+                            employeeName={countModal?.employeeName || ''}
+                            leaveLabel={countModal?.label || ''}
+                            periodLabel={formatRangeLabel(periodRange.from, periodRange.to)}
+                            rows={countRows}
+                            loading={countLoading}
+                            error={countError}
+                            onClose={closeCountModal}
+                        />
                     </div>
                 </div>
             </div>

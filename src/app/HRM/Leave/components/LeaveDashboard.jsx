@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
-import { Check, ChevronLeft, ChevronRight, Pencil, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Pencil, Trash2, X } from 'lucide-react';
 import {
     Bar,
     BarChart,
@@ -209,9 +209,11 @@ function LeaveApprovalTable({
         const selected = isRowSelected(row);
         const employeeMatch = isEmployeeHighlighted(row);
         const statusKey = rowStatusKey(row);
-        const canDecide = statusKey === 'pending' && row.canDecide !== false;
-        const canEdit = row.canEdit === true;
-        const canDelete = canEdit && statusKey === 'approved';
+        const canDecide = statusKey === 'pending' && row.canDecide === true;
+        const canEdit = row.canEdit === true || canDecide;
+        const canMaintain = row.canMaintain === true && statusKey !== 'pending';
+        const canDelete = canMaintain && statusKey === 'approved';
+        const pendingWith = statusKey === 'pending' ? String(row.pendingWithName || '').trim() : '';
         const blinking = String(blinkRowId || '') === String(row.id);
 
         return (
@@ -259,6 +261,11 @@ function LeaveApprovalTable({
                     >
                         {row.status || 'Pending'}
                     </span>
+                    {pendingWith ? (
+                        <span className="mt-1 block text-[11px] font-medium text-[#6B7280]">
+                            Pending with {pendingWith}
+                        </span>
+                    ) : null}
                 </td>
                 <td className="px-2 py-3">
                     {canDecide || canEdit ? (
@@ -326,7 +333,7 @@ function LeaveApprovalTable({
                                     <Trash2 size={13} />
                                 </button>
                             ) : null}
-                            {statusKey === 'approved' && canEdit ? (
+                            {statusKey === 'approved' && canMaintain ? (
                                 <button
                                     type="button"
                                     disabled={decidingId === row.id}
@@ -343,7 +350,9 @@ function LeaveApprovalTable({
                             ) : null}
                         </div>
                     ) : (
-                        <div className="text-center text-[#9CA3AF]">—</div>
+                        <div className="text-center text-[11px] font-semibold text-[#6B7280]">
+                            {pendingWith ? `Pending with ${pendingWith}` : '—'}
+                        </div>
                     )}
                 </td>
             </tr>
@@ -597,6 +606,8 @@ export default function LeaveDashboard({
 
     const [trackYear, setTrackYear] = useState(isAllYear ? ALL_LEAVE_YEAR : selectedYear);
     const [trackBucket, setTrackBucket] = useState('week');
+    const [rightFocus, setRightFocus] = useState('track');
+    const [focusedRow, setFocusedRow] = useState(null);
     const [trackDetail, setTrackDetail] = useState(null);
     const [trackMonths, setTrackMonths] = useState([]);
     const [trackRangeLabel, setTrackRangeLabel] = useState('');
@@ -687,6 +698,8 @@ export default function LeaveDashboard({
 
     const handleAccept = useCallback(
         (row) => {
+            setFocusedRow(row);
+            setRightFocus('approve');
             openRequestPanel(row, 'approve');
         },
         [openRequestPanel],
@@ -694,6 +707,8 @@ export default function LeaveDashboard({
 
     const handleEdit = useCallback(
         (row) => {
+            setFocusedRow(row);
+            setRightFocus('approve');
             openRequestPanel(row, 'edit');
         },
         [openRequestPanel],
@@ -902,6 +917,8 @@ export default function LeaveDashboard({
             approvalRowClickTimerRef.current = window.setTimeout(() => {
                 approvalRowClickTimerRef.current = null;
                 const mode = rowStatusKey(row) === 'pending' ? 'approve' : 'edit';
+                setFocusedRow(row);
+                setRightFocus('approve');
                 if (onSelectRequest) onSelectRequest(row, mode);
                 else onApprovalRowSelect?.(row);
             }, 250);
@@ -950,6 +967,8 @@ export default function LeaveDashboard({
         }
         setBlinkRowId(row.id);
         const mode = rowStatusKey(row) === 'pending' ? 'approve' : 'edit';
+        setFocusedRow(row);
+        setRightFocus('approve');
         if (onSelectRequest) onSelectRequest(row, mode);
         else onApprovalRowSelect?.(row);
 
@@ -970,6 +989,8 @@ export default function LeaveDashboard({
             }
             if (onSelectRequest && openedPanelForIdRef.current !== String(row.id)) {
                 openedPanelForIdRef.current = String(row.id);
+                setFocusedRow(row);
+                setRightFocus('approve');
                 onSelectRequest(row, nextCategory === 'pending' ? 'approve' : 'edit');
             }
         }
@@ -1053,6 +1074,9 @@ export default function LeaveDashboard({
         },
         [fetchTeamTrack, isAllMonth, isAllYear, onYearChange, trackMaxYear, trackMinYear, trackYear],
     );
+
+    const approveExpanded = Boolean(approvalPanel) && rightFocus === 'approve';
+    const focusedPendingWith = String(focusedRow?.pendingWithName || '').trim();
 
     return (
         <div className={fillViewport ? 'flex h-full min-h-0 flex-1 flex-col gap-3' : 'space-y-5'}>
@@ -1214,11 +1238,22 @@ export default function LeaveDashboard({
                     </div>
                 </section>
 
-                <div className="grid min-h-0 gap-3 xl:h-full xl:grid-rows-2">
-                <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
-                    <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
+                <div
+                    className={`grid min-h-0 gap-3 xl:h-full ${
+                        approveExpanded
+                            ? 'xl:grid-rows-[auto_minmax(0,1fr)]'
+                            : 'xl:grid-rows-[minmax(0,1fr)_auto]'
+                    }`}
+                >
+                <section
+                    className={`flex flex-col overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-sm ${
+                        approveExpanded ? 'shrink-0 px-4 py-3' : 'h-full min-h-0 p-4 sm:p-5'
+                    }`}
+                >
+                    <div className={`flex shrink-0 items-center justify-between gap-2 ${approveExpanded ? '' : 'mb-3'}`}>
                         <div className="min-w-0">
                             <h3 className="text-[15px] font-semibold text-[#111827]">Team Leave Track</h3>
+                            {approveExpanded ? null : (
                             <p className="mt-0.5 text-[11px] text-[#9CA3AF]">
                                 {trackBucket === 'week'
                                     ? 'Sunday through today. Future leave is not included.'
@@ -1226,8 +1261,28 @@ export default function LeaveDashboard({
                                       ? 'Weeks 1–4 through today. Future leave is not included.'
                                       : 'Through today. Future leave is not included.'}
                             </p>
+                            )}
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-[#6B7280]">
+                        {approvalPanel ? (
+                            <button
+                                type="button"
+                                onClick={() => setRightFocus(approveExpanded ? 'track' : 'approve')}
+                                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[#E5E7EB] px-2 py-1 text-[11px] font-semibold text-[#374151] hover:bg-[#F9FAFB]"
+                            >
+                                {approveExpanded ? (
+                                    <>
+                                        <ChevronDown size={14} />
+                                        Expand
+                                    </>
+                                ) : (
+                                    <>
+                                        <ChevronUp size={14} />
+                                        Reduce
+                                    </>
+                                )}
+                            </button>
+                        ) : null}
+                        <div className={`items-center gap-2 text-xs text-[#6B7280] ${approveExpanded ? 'hidden' : 'flex'}`}>
                             <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] p-0.5">
                                 {[
                                     { key: 'week', label: 'Week' },
@@ -1275,12 +1330,12 @@ export default function LeaveDashboard({
                             </button>
                         </div>
                     </div>
-                    {trackError ? (
+                    {trackError && !approveExpanded ? (
                         <div className="mb-3">
                             <ErpErrorBanner message={trackError} onRetry={() => fetchTeamTrack(isAllYear ? ALL_LEAVE_YEAR : trackYear)} />
                         </div>
                     ) : null}
-                    <div className="min-h-[140px] w-full min-w-0 flex-1">
+                    <div className={approveExpanded ? 'hidden' : 'min-h-[140px] w-full min-w-0 flex-1'}>
                         {trackLoading ? (
                             <div className="flex h-full items-center justify-center text-sm text-[#6B7280]">
                                 Loading team leave track...
@@ -1370,18 +1425,41 @@ export default function LeaveDashboard({
                         )}
                     </div>
                 </section>
-                <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
-                    {approvalPanel ? (
+                <section
+                    className={`flex flex-col overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-sm ${
+                        approveExpanded ? 'h-full min-h-0 p-4 sm:p-5' : 'shrink-0 p-3'
+                    }`}
+                >
+                    {approveExpanded && approvalPanel ? (
                         <div className="min-h-0 flex-1 overflow-auto">{approvalPanel}</div>
+                    ) : approvalPanel ? (
+                        <button
+                            type="button"
+                            onClick={() => setRightFocus('approve')}
+                            className="flex w-full items-center justify-between gap-3 rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] px-4 py-3 text-left hover:bg-[#F3F4F6]"
+                        >
+                            <span className="min-w-0">
+                                <span className="block truncate text-sm font-semibold text-[#111827]">
+                                    {focusedRow?.name || 'Request'}
+                                    {focusedRow?.leaveType ? ` · ${focusedRow.leaveType}` : ''}
+                                </span>
+                                <span className="mt-0.5 block text-[11px] font-medium text-[#6B7280]">
+                                    {focusedPendingWith
+                                        ? `Pending with ${focusedPendingWith}`
+                                        : 'Open this request'}
+                                </span>
+                            </span>
+                            <ChevronDown size={16} className="shrink-0 text-[#6B7280]" />
+                        </button>
                     ) : (
-                        <div className="flex h-full min-h-[140px] flex-col justify-center gap-3">
-                            <div className="flex items-center justify-between rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] px-4 py-3">
+                        <div className="flex flex-col gap-2">
+                            <div className="flex items-center justify-between rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] px-4 py-2.5">
                                 <span className="text-sm font-semibold text-[#374151]">Pending tasks</span>
-                                <span className="text-2xl font-semibold tabular-nums text-[#111827]">{pendingCount}</span>
+                                <span className="text-lg font-semibold tabular-nums text-[#111827]">{pendingCount}</span>
                             </div>
-                            <div className="flex items-center justify-between rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] px-4 py-3">
+                            <div className="flex items-center justify-between rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] px-4 py-2.5">
                                 <span className="text-sm font-semibold text-[#374151]">Approved tasks</span>
-                                <span className="text-2xl font-semibold tabular-nums text-[#111827]">{approvedCount}</span>
+                                <span className="text-lg font-semibold tabular-nums text-[#111827]">{approvedCount}</span>
                             </div>
                         </div>
                     )}

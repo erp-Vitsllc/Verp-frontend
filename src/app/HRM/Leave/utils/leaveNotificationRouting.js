@@ -1,5 +1,3 @@
-import { attendanceRequestMarkHref } from '@/app/HRM/Attendance/utils/markAttendanceHref';
-
 function parseMeta(extra3) {
     if (!extra3) return {};
     if (typeof extra3 === 'object') return extra3;
@@ -22,7 +20,15 @@ export function isLeaveDashboardNotification(item = {}) {
     const kind = String(
         item?.leaveRequestKind || meta?.leaveRequestKind || meta?.kind || '',
     ).trim();
-    return kind === 'leave' || kind === 'future_leave' || kind === 'future_annual';
+    return (
+        kind === 'leave' ||
+        kind === 'future_leave' ||
+        kind === 'future_annual' ||
+        kind === 'yellow' ||
+        kind === 'future_late' ||
+        kind === 'future_early' ||
+        kind === 'past_late'
+    );
 }
 
 export function buildLeaveDashboardNotificationPath(item = {}) {
@@ -38,22 +44,6 @@ export function buildLeaveDashboardNotificationPath(item = {}) {
             (!meta?.hubRequest && (item?.requestObjectId || item?.id || item?.dashboardActionId)) ||
             '',
     ).trim();
-
-    if (isDateKey(from) && attendanceId && !meta?.hubRequest) {
-        return attendanceRequestMarkHref({
-            date: from,
-            staffType: meta.staffType || item.staffType || 'office',
-            attendanceId,
-            employeeId:
-                meta.employeeMongoId ||
-                item.employeeMongoId ||
-                item.subjectMongoId ||
-                item.targetEmployeeId ||
-                '',
-            kind: meta.leaveRequestKind || meta.kind || item.leaveRequestKind || 'leave',
-            type: item.type || item.requestType || 'Employee Leave Request',
-        });
-    }
 
     const params = new URLSearchParams();
     if (isDateKey(from)) params.set('from', from);

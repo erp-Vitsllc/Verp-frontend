@@ -484,8 +484,23 @@ function mergePendingChanges(nextMarks, pendingChanges, { dateKey = '', employee
                 stage: change.stage || '',
                 action: change.action || 'mark',
                 statusLabel: change.statusLabel || '',
+                requestedById: String(change.requestedById || ''),
                 requestedByName: change.requestedByName || '',
+                reporteeId: String(change.reporteeId || ''),
+                reporteeName: change.reporteeName || '',
+                hrName: change.hrName || '',
                 reason: change.reason || '',
+                rejectReason: change.rejectReason || '',
+                rejectedByName: change.rejectedByName || '',
+                hoursApproved: change.hoursApproved,
+                flexibleOtApprovedHours: change.flexibleOtApprovedHours,
+                flexibleOtHours: change.flexibleOtHours,
+                createdAt: change.createdAt || null,
+                decidedAtReportee: change.decidedAtReportee || null,
+                hoursTaken: change.hoursTaken,
+                hoursMax: change.hoursMax,
+                hourAdjustKind: change.hourAdjustKind || '',
+                hourAdjustFlexible: change.hourAdjustFlexible === true,
                 timeIn: change.timeIn || '',
                 timeOut: change.timeOut || '',
                 date: changeDay,
@@ -515,6 +530,27 @@ function pendingRequestTitle(mark, kind) {
     return 'Request';
 }
 
+function pendingApproverName(change) {
+    if (change?.stage === 'pending_hr') return change.hrName || 'HR';
+    if (change?.stage === 'pending_requester') return change.requestedByName || 'requester';
+    return change?.reporteeName || 'HOD';
+}
+
+function viewerCanDecideChange(change, { isFlowchartHr, viewer, isReportee }) {
+    if (!change?.id) return false;
+    if (change.stage === 'pending_hr') return isFlowchartHr;
+    if (change.stage === 'pending_reportee') {
+        return isReportee || (Boolean(viewer) && viewer === String(change.reporteeId || ''));
+    }
+    if (
+        change.stage === 'pending_requester' &&
+        (change.action === 'hour_adjust' || change.action === 'flexible_ot')
+    ) {
+        return Boolean(viewer) && viewer === String(change.requestedById || '');
+    }
+    return false;
+}
+
 function rowDecisionFor(mark, employee, { isFlowchartHr = false, viewerId = '', canApproveLeave = false } = {}) {
     if (!mark) return null;
     const viewer = String(viewerId || '').trim();
@@ -522,12 +558,23 @@ function rowDecisionFor(mark, employee, { isFlowchartHr = false, viewerId = '', 
     const isReportee = Boolean(viewer) && viewer === reportee;
     const change = mark.pendingChange;
     if (change?.id) {
-        const canDecideChange =
-            change.stage === 'pending_hr'
-                ? isFlowchartHr
-                : change.stage === 'pending_reportee'
-                    ? isReportee
-                    : false;
+        const canDecideChange = viewerCanDecideChange(change, { isFlowchartHr, viewer, isReportee });
+        if (canDecideChange && change.action === 'flexible_ot') {
+            return {
+                kind: 'ot',
+                id: String(change.id),
+                attendanceId: String(mark.attendanceId || ''),
+                title: 'OT Approval',
+            };
+        }
+        if (canDecideChange && change.action === 'hour_adjust') {
+            return {
+                kind: 'hour',
+                id: String(change.id),
+                attendanceId: String(mark.attendanceId || ''),
+                title: pendingRequestTitle(mark, 'hour'),
+            };
+        }
         if (canDecideChange) {
             return {
                 kind: 'change',
@@ -535,6 +582,14 @@ function rowDecisionFor(mark, employee, { isFlowchartHr = false, viewerId = '', 
                 title: pendingRequestTitle(mark, 'change'),
             };
         }
+        return {
+            kind: 'waiting',
+            title: `Pending for approval (${pendingApproverName(change)})`,
+            requestTitle:
+                change.action === 'hour_adjust'
+                    ? pendingRequestTitle(mark, 'hour')
+                    : pendingRequestTitle(mark, 'change'),
+        };
     }
     if (
         String(mark.leaveRequestStatus || '') === 'pending' &&
@@ -589,6 +644,7 @@ function mapActiveEmployee(emp) {
         name,
         staffType,
         primaryReportee: String(emp?.primaryReportee || ''),
+        primaryReporteeName: String(emp?.primaryReporteeName || ''),
         timeIn: '—',
         timeOut: '—',
     };
@@ -904,9 +960,39 @@ function MarkAttendanceMenu({ anchorRect, onSelect, onClose, options = MARK_OPTI
     );
 }
 
+function clockInputValue(value) {
+    const match = /^(\d{1,2}):(\d{2})/.exec(String(value || '').trim());
+    if (!match) return '';
+    return `${match[1].padStart(2, '0')}:${match[2]}`;
+}
+
 function AttendanceChangeReviewModal({ open, employee, mark, deciding, onClose, onDecide }) {
-    if (!open) return null;
     const change = mark?.pendingChange || {};
+    const showHours = change.action === 'hour_adjust' || change.action === 'flexible_ot';
+    const [editing, setEditing] = useState(false);
+    const [timeIn, setTimeIn] = useState('');
+    const [timeOut, setTimeOut] = useState('');
+    const [hours, setHours] = useState('');
+
+    useEffect(() => {
+        if (!open) return;
+        setEditing(false);
+        setTimeIn(clockInputValue(change.timeIn));
+        setTimeOut(clockInputValue(change.timeOut));
+        const stored =
+            change.action === 'flexible_ot' ? change.flexibleOtApprovedHours : change.hoursApproved;
+        setHours(stored ? String(stored) : '');
+    }, [
+        open,
+        change.id,
+        change.timeIn,
+        change.timeOut,
+        change.hoursApproved,
+        change.flexibleOtApprovedHours,
+        change.action,
+    ]);
+
+    if (!open) return null;
     const waitingOnHr = change.stage === 'pending_hr';
     return (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
@@ -954,7 +1040,41 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, onClose, 
                         <span className="text-slate-500">Requested: </span>
                         {change.statusLabel || 'Updated'}
                     </p>
-                    {change.timeIn || change.timeOut ? (
+                    {editing ? (
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                            <label className="text-xs text-slate-500">
+                                Time in
+                                <input
+                                    type="time"
+                                    value={timeIn}
+                                    onChange={(event) => setTimeIn(event.target.value)}
+                                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                />
+                            </label>
+                            <label className="text-xs text-slate-500">
+                                Time out
+                                <input
+                                    type="time"
+                                    value={timeOut}
+                                    onChange={(event) => setTimeOut(event.target.value)}
+                                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                />
+                            </label>
+                            {showHours ? (
+                                <label className="col-span-2 text-xs text-slate-500">
+                                    Approved hours
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.25"
+                                        value={hours}
+                                        onChange={(event) => setHours(event.target.value)}
+                                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                    />
+                                </label>
+                            ) : null}
+                        </div>
+                    ) : change.timeIn || change.timeOut ? (
                         <p>
                             <span className="text-slate-500">Time: </span>
                             {change.timeIn || '—'} – {change.timeOut || '—'}
@@ -985,6 +1105,14 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, onClose, 
                     <button
                         type="button"
                         disabled={deciding}
+                        onClick={() => setEditing((value) => !value)}
+                        className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700"
+                    >
+                        {editing ? 'Done' : 'Edit'}
+                    </button>
+                    <button
+                        type="button"
+                        disabled={deciding}
                         onClick={() => onDecide?.('rejected')}
                         className="h-9 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700"
                     >
@@ -993,7 +1121,13 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, onClose, 
                     <button
                         type="button"
                         disabled={deciding}
-                        onClick={() => onDecide?.('approved')}
+                        onClick={() =>
+                            onDecide?.('approved', {
+                                timeIn,
+                                timeOut,
+                                approvedHours: showHours && hours !== '' ? Number(hours) : undefined,
+                            })
+                        }
                         className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white"
                     >
                         Approve
@@ -1143,9 +1277,21 @@ function EmployeeRow({
                         <span className="text-[10px] font-semibold text-amber-700 whitespace-nowrap" title={pendingLeaveLabel}>
                             {pendingLeaveLabel} pending
                         </span>
+                    ) : rowDecision?.kind === 'waiting' ? (
+                        <span className="text-[10px] font-semibold text-amber-700 whitespace-nowrap" title={rowDecision.title}>
+                            {rowDecision.requestTitle || 'Request'} pending
+                        </span>
                     ) : rowDecision ? (
                         <span className="text-[10px] font-semibold text-blue-700 whitespace-nowrap" title={rowDecision.title}>
                             {rowDecision.title} pending
+                        </span>
+                    ) : null}
+                    {mark?.pendingChange?.rejectReason ? (
+                        <span
+                            className="text-[10px] font-semibold text-rose-700 max-w-[180px] truncate"
+                            title={mark.pendingChange.rejectReason}
+                        >
+                            Rejected: {mark.pendingChange.rejectReason}
                         </span>
                     ) : null}
                     {adjustLines.map((line) => (
@@ -1248,14 +1394,24 @@ function EmployeeRow({
             </td>
             <td className="px-2 py-3 align-middle text-right">
                 <div className="relative inline-flex items-center justify-end gap-1 min-h-[32px]">
-                    {rowDecision ? (
+                    {rowDecision?.kind === 'waiting' ? (
+                        <span
+                            className="max-w-[220px] text-right text-[11px] font-semibold leading-snug text-amber-800"
+                            title={rowDecision.title}
+                        >
+                            {rowDecision.title}
+                        </span>
+                    ) : rowDecision ? (
                         <>
                             <button
                                 type="button"
                                 disabled={deciding}
                                 title={`Reject ${rowDecision.title}`}
                                 aria-label={`Reject ${rowDecision.title} for ${employee.name}`}
-                                onClick={() => onDecide?.('rejected')}
+                                onClick={() => {
+                                    if (rowDecision.kind === 'hour' || rowDecision.kind === 'ot') onOpenRequest?.('reject');
+                                    else onDecide?.('rejected');
+                                }}
                                 className="h-7 whitespace-nowrap rounded-md border border-red-200 bg-white px-2 text-[11px] font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 Reject
@@ -1264,11 +1420,11 @@ function EmployeeRow({
                                 type="button"
                                 disabled={deciding}
                                 title={`Open ${rowDecision.title}`}
-                                aria-label={`Approve ${rowDecision.title} for ${employee.name}`}
-                                onClick={() => onOpenRequest?.()}
+                                aria-label={`${mark?.pendingChange?.rejectReason ? 'Reapply' : 'Approve'} ${rowDecision.title} for ${employee.name}`}
+                                onClick={() => onOpenRequest?.(rowDecision.kind === 'hour' ? 'approve' : undefined)}
                                 className="h-7 whitespace-nowrap rounded-md bg-blue-600 px-2 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                                Approve
+                                {mark?.pendingChange?.rejectReason ? 'Reapply' : 'Approve'}
                             </button>
                         </>
                     ) : (
@@ -1349,6 +1505,7 @@ export default function MarkAttendanceTable({
     const [compOffEmployee, setCompOffEmployee] = useState(null);
     const [decidingEmployeeId, setDecidingEmployeeId] = useState('');
     const [canUseOtActions, setCanUseOtActions] = useState(false);
+    const [flowchartHrName, setFlowchartHrName] = useState('');
     const [canApproveLeave, setCanApproveLeave] = useState(false);
     const viewerId = useMemo(() => currentEmployeeMongoId(), []);
 
@@ -1363,6 +1520,7 @@ export default function MarkAttendanceTable({
     const bulkButtonRef = useRef(null);
     const employeesRef = useRef([]);
     const dayRecordsRef = useRef([]);
+    const openedHourRequestRef = useRef('');
 
     useEffect(() => {
         employeesRef.current = employees;
@@ -1377,6 +1535,7 @@ export default function MarkAttendanceTable({
                 });
                 if (!cancelled) {
                     setIsFlowchartHr(viewerIsDesignatedFlowchartHr(storedViewerUser(), data));
+                    setFlowchartHrName(String(data?.name || '').trim());
                 }
             } catch {
                 if (!cancelled) setIsFlowchartHr(false);
@@ -1528,7 +1687,15 @@ export default function MarkAttendanceTable({
                     const match = nextEmployees.find(
                         (row) => String(mergedMarks[row.id]?.pendingChange?.id || '') === String(changeRequestId),
                     );
-                    if (match) setChangeReview({ employee: match, mark: mergedMarks[match.id] });
+                    if (match && mergedMarks[match.id]?.pendingChange?.action === 'flexible_ot') {
+                        setOtModal({
+                            employee: match,
+                            mark: mergedMarks[match.id],
+                            mode: 'review',
+                        });
+                    } else if (match && mergedMarks[match.id]?.pendingChange?.action !== 'hour_adjust') {
+                        setChangeReview({ employee: match, mark: mergedMarks[match.id] });
+                    }
                 }
             } catch {
                 if (!cancelled) {
@@ -1545,6 +1712,23 @@ export default function MarkAttendanceTable({
             cancelled = true;
         };
     }, [dateKey, loading, allEmployees, dayReload, otAttendanceId, hourAttendanceId, leaveAttendanceId, changeRequestId, blinkEmployeeId]);
+
+    useEffect(() => {
+        if (!hrReady || dayLoading) return;
+        const id = String(changeRequestId || '').trim();
+        const token = `${id}:${isFlowchartHr ? 1 : 0}`;
+        if (!id || openedHourRequestRef.current === token) return;
+        const match = employees.find(
+            (row) => String(marks[row.id]?.pendingChange?.id || '') === id,
+        );
+        if (!match) return;
+        openedHourRequestRef.current = token;
+        const mark = marks[match.id];
+        if (mark?.pendingChange?.action !== 'hour_adjust') return;
+        const decision = rowDecisionFor(mark, match, { isFlowchartHr, viewerId, canApproveLeave });
+        if (decision?.kind !== 'hour') return;
+        setHourModal({ employee: match, mark, mode: 'review' });
+    }, [hrReady, dayLoading, changeRequestId, employees, marks, isFlowchartHr, viewerId, canApproveLeave]);
 
     useEffect(() => {
         setSearchQuery('');
@@ -1784,15 +1968,25 @@ export default function MarkAttendanceTable({
         });
     };
 
-    const openRowRequest = (employee, decision) => {
+    const openRowRequest = (employee, decision, intent) => {
         if (!decision) return;
         const mark = marks[employee.id] || null;
+        if (decision.kind === 'hour') {
+            setHourModal({
+                employee,
+                mark,
+                mode: 'review',
+                rejectFirst: intent === 'reject',
+            });
+            return;
+        }
         if (decision.kind === 'ot') {
             setOtModal({
                 employee,
                 mark,
                 intent: 'apply',
                 mode: 'review',
+                rejectFirst: intent === 'reject',
             });
             return;
         }
@@ -1810,7 +2004,7 @@ export default function MarkAttendanceTable({
         }
     };
 
-    const submitLeaveDecision = async (choice, approvedStatusKey) => {
+    const submitLeaveDecision = async (choice, approvedStatusKey, _pay, edits) => {
         const attendanceId = String(leaveDecide?.mark?.attendanceId || '').trim();
         if (!attendanceId || leaveDeciding) return;
         setLeaveDeciding(true);
@@ -1820,6 +2014,8 @@ export default function MarkAttendanceTable({
                 attendanceId,
                 decision: choice,
                 approvedStatusKey: approvedStatusKey || leaveDecide?.mark?.requestedStatusKey || '',
+                ...(edits?.timeIn ? { timeIn: edits.timeIn } : {}),
+                ...(edits?.timeOut ? { timeOut: edits.timeOut } : {}),
             });
             toast({
                 title: choice === 'approved' ? 'Approved' : 'Rejected',
@@ -1836,7 +2032,7 @@ export default function MarkAttendanceTable({
         }
     };
 
-    const decideRowRequest = async (employee, decision, choice) => {
+    const decideRowRequest = async (employee, decision, choice, edits) => {
         if (!decision || decidingEmployeeId) return;
         setDecidingEmployeeId(employee.id);
         try {
@@ -1845,6 +2041,9 @@ export default function MarkAttendanceTable({
                 const res = await axiosInstance.post('/Attendance/change-request/decide', {
                     id: decision.id,
                     decision: choice,
+                    ...(edits?.timeIn ? { timeIn: edits.timeIn } : {}),
+                    ...(edits?.timeOut ? { timeOut: edits.timeOut } : {}),
+                    ...(Number(edits?.approvedHours) > 0 ? { approvedHours: edits.approvedHours } : {}),
                 });
                 description = res.data?.message || '';
             } else if (decision.kind === 'leave') {
@@ -2238,7 +2437,7 @@ export default function MarkAttendanceTable({
                                         choice,
                                     )
                                 }
-                                onOpenRequest={() =>
+                                onOpenRequest={(intent) =>
                                     openRowRequest(
                                         employee,
                                         rowDecisionFor(marks[employee.id] || null, employee, {
@@ -2246,6 +2445,7 @@ export default function MarkAttendanceTable({
                                             viewerId,
                                             canApproveLeave,
                                         }),
+                                        intent,
                                     )
                                 }
                                 otDirect={isFlowchartHr}
@@ -2315,6 +2515,7 @@ export default function MarkAttendanceTable({
             <HourAdjustModal
                 open={Boolean(hourModal)}
                 mode={hourModal?.mode}
+                rejectFirst={hourModal?.rejectFirst === true}
                 employee={hourModal?.employee}
                 mark={hourModal?.mark}
                 week={scheduleWeek}
@@ -2343,6 +2544,10 @@ export default function MarkAttendanceTable({
                 session={leaveDecide?.mark?.leaveRequestSession || ''}
                 requestTimeIn={leaveDecide?.mark?.leaveRequestTimeIn || ''}
                 requestTimeOut={leaveDecide?.mark?.leaveRequestTimeOut || ''}
+                timeIn={leaveDecide?.mark?.rawTimeIn || ''}
+                timeOut={leaveDecide?.mark?.rawTimeOut || ''}
+                changedBy={leaveDecide?.employee?.name || ''}
+                hrReview={isFlowchartHr || canApproveLeave}
                 deciding={leaveDeciding}
                 error={leaveDecideError}
                 onClose={() => {
@@ -2361,13 +2566,13 @@ export default function MarkAttendanceTable({
                     if (decidingEmployeeId) return;
                     setChangeReview(null);
                 }}
-                onDecide={(choice) => {
+                onDecide={(choice, edits) => {
                     const employee = changeReview?.employee;
                     const decision = employee
                         ? rowDecisionFor(changeReview?.mark, employee, { isFlowchartHr, viewerId, canApproveLeave })
                         : null;
                     if (!employee || !decision) return;
-                    decideRowRequest(employee, decision, choice).then((ok) => {
+                    decideRowRequest(employee, decision, choice, edits).then((ok) => {
                         if (ok) setChangeReview(null);
                     });
                 }}
@@ -2383,6 +2588,12 @@ export default function MarkAttendanceTable({
                         ? Number(otModal.mark.flexibleRequiredHours)
                         : scheduleDayHours(scheduleWeek, otModal?.mark?.date || dateKey)
                 }
+                hrName={flowchartHrName}
+                viewerIsReportee={
+                    Boolean(viewerId) &&
+                    viewerId === String(otModal?.employee?.primaryReportee || '')
+                }
+                rejectFirst={otModal?.rejectFirst === true}
                 onClose={() => setOtModal(null)}
                 onSaved={() => setDayReload((value) => value + 1)}
             />

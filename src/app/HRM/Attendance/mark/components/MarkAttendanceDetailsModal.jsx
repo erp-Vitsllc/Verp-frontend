@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { Paperclip, X } from 'lucide-react';
 import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
+import { useToast } from '@/hooks/use-toast';
 import { weekForStaffType, normalizeWorkLocationKey } from '@/utils/workLocations';
 
 const WEEKDAY_KEYS = [
@@ -150,6 +151,7 @@ export default function MarkAttendanceDetailsModal({
     const [mapNotice, setMapNotice] = useState('');
     const [mapSaving, setMapSaving] = useState(false);
     const fileRef = useRef(null);
+    const { toast } = useToast();
     const bulkCount = Array.isArray(employeeIds) ? employeeIds.length : 0;
     const isBulk = bulkCount > 1;
     const resolvedStaffType = normalizeWorkLocationKey(employee?.staffType || staffType);
@@ -243,14 +245,15 @@ export default function MarkAttendanceDetailsModal({
             );
             const pending = Array.isArray(res.data?.pending) ? res.data.pending : [];
             onMapped?.();
-            if (pending.length) {
-                setMapNotice(
-                    res.data?.message || 'Sent for approval. Attendance stays unchanged until HR approves.',
-                );
-                return;
-            }
-            setMapNotice('');
-            setMapOpen(false);
+            toast({
+                title: pending.length ? 'Sent for approval' : 'Attendance mapped',
+                description:
+                    res.data?.message ||
+                    (pending.length
+                        ? 'Sent for approval. Attendance stays unchanged until it is approved.'
+                        : 'Check-in and check-out copied. Overtime stays with the other employee.'),
+            });
+            onClose?.();
         } catch (err) {
             setMapError(err?.response?.data?.message || 'Could not map this employee.');
         } finally {
@@ -448,9 +451,8 @@ export default function MarkAttendanceDetailsModal({
                             <div className="min-w-0">
                                 <h2 className="text-base font-semibold text-gray-900">Map with other user</h2>
                                 <p className="text-sm text-gray-500 mt-0.5">
-                                    Copy this day’s check-in, check-out, and location onto{' '}
-                                    {employee?.name || 'this employee'}. A later check-out on the
-                                    selected employee is copied here for this day only.
+                                    Copy the selected employee’s check-in and check-out for this day onto{' '}
+                                    {employee?.name || 'this employee'}. Overtime stays with the other employee.
                                 </p>
                             </div>
                             <button

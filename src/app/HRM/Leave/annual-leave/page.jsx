@@ -12,6 +12,9 @@ import LeaveCalendarView from '../components/LeaveCalendarView';
 import LeaveDashboard, { ALL_LEAVE_STATUS } from '../components/LeaveDashboard';
 import LeaveGroupFilterDropdown, { ALL_LEAVE_GROUP } from '../components/LeaveGroupFilterDropdown';
 import AnnualLeaveFilterModal from '../components/AnnualLeaveFilterModal';
+import LeaveRequestDecisionCard, {
+    isAttendanceClarificationRequest,
+} from '../components/LeaveRequestDecisionCard';
 import PendingLeaveRequestsModal from '../components/PendingLeaveRequestsModal';
 import { isValidDateKey } from '../utils/leaveCalendarUtils';
 import {
@@ -376,6 +379,9 @@ function AnnualLeavePageContent() {
             if (confirming) return;
             const isExisting =
                 (leaveModalMode === 'approve' || leaveModalMode === 'edit') && approveRequest?.id;
+            const pendingEdit =
+                leaveModalMode === 'edit' &&
+                String(approveRequest?.statusKey || '') === 'pending';
             const escalateToHr = Boolean(sendToHr);
             setConfirming(true);
             try {
@@ -386,12 +392,13 @@ function AnnualLeavePageContent() {
                     employee,
                     leaveMode,
                     attendanceId: isExisting ? approveRequest.id : '',
-                    approve: isExisting && !escalateToHr,
+                    approve: isExisting && !escalateToHr && !pendingEdit,
                     hrOverride: !isExisting && Boolean(hrOverride),
                     sendToHr: escalateToHr,
                 });
+                const advanced = Boolean(response.data?.advanced);
                 toast({
-                    title: escalateToHr
+                    title: advanced || escalateToHr
                         ? 'Sent to HR'
                         : isExisting
                           ? 'Leave saved'
@@ -400,9 +407,11 @@ function AnnualLeavePageContent() {
                         response.data?.message ||
                         (escalateToHr
                             ? 'HR has been notified. Approve or reject it from Leave Approval.'
-                            : isExisting
-                              ? 'Leave is approved and shown on the calendar.'
-                              : 'Request is pending. Accept or reject it from Leave Approval.'),
+                            : pendingEdit
+                              ? 'The request was updated.'
+                              : isExisting
+                                ? 'Leave is approved and shown on the calendar.'
+                                : 'Request is pending. Accept or reject it from Leave Approval.'),
                 });
                 setModalOpen(false);
                 setApproveRequest(null);
@@ -425,6 +434,27 @@ function AnnualLeavePageContent() {
             if (confirming || !approveRequest?.id) return;
             setConfirming(true);
             try {
+                if (String(approveRequest.statusKey || 'pending') === 'pending') {
+                    const response = await axiosInstance.post(
+                        '/Leave/pending-requests/decide',
+                        {
+                            attendanceId: approveRequest.id,
+                            decision: 'rejected',
+                            approvedStatusKey: approveRequest.requestedStatusKey || '',
+                        },
+                        { skipToast: true },
+                    );
+                    toast({
+                        title: 'Leave rejected',
+                        description: response.data?.message || 'Leave request was rejected.',
+                    });
+                    setModalOpen(false);
+                    setApproveRequest(null);
+                    setLeaveModalMode('apply');
+                    setDashboardRefreshKey((value) => value + 1);
+                    notifyLeavePendingInboxChanged();
+                    return;
+                }
                 const response = await applyLeaveSelection({
                     nextEmployeeId: nextEmployeeId || approveRequest.employeeMongoId,
                     startDate: startDate || approveRequest.startDateKey,
@@ -595,6 +625,51 @@ function AnnualLeavePageContent() {
             }
         },
         [],
+    );
+
+    const handleQuickDecide = useCallback(
+        async (row, decision, edits) => {
+            if (!row?.id || confirming) return;
+            setConfirming(true);
+            try {
+                const response = await axiosInstance.post(
+                    '/Leave/pending-requests/decide',
+                    {
+                        attendanceId: row.id,
+                        decision,
+                        approvedStatusKey: row.requestedStatusKey || '',
+                        ...(decision !== 'rejected' && edits?.timeIn ? { timeIn: edits.timeIn } : {}),
+                        ...(decision !== 'rejected' && edits?.timeOut ? { timeOut: edits.timeOut } : {}),
+                    },
+                    { skipToast: true },
+                );
+                const advanced = Boolean(response.data?.advanced);
+                toast({
+                    title:
+                        decision === 'updated'
+                            ? 'Request updated'
+                            : advanced
+                              ? 'Sent to HR'
+                              : decision === 'approved'
+                                ? 'Request accepted'
+                                : 'Request rejected',
+                    description: response.data?.message || 'The request was updated.',
+                });
+                setApproveRequest(null);
+                setLeaveModalMode('apply');
+                setDashboardRefreshKey((value) => value + 1);
+                notifyLeavePendingInboxChanged();
+            } catch (err) {
+                toast({
+                    title: 'Could not update request',
+                    description: err?.response?.data?.message || err.message || 'Failed to update this request.',
+                    variant: 'destructive',
+                });
+            } finally {
+                setConfirming(false);
+            }
+        },
+        [confirming],
     );
 
     const handleSelectRequest = useCallback(
@@ -790,6 +865,19 @@ function AnnualLeavePageContent() {
                                 !modalOpen &&
                                 approveRequest &&
                                 (leaveModalMode === 'approve' || leaveModalMode === 'edit') ? (
+                                    isAttendanceClarificationRequest(approveRequest) ||
+                                    (leaveModalMode === 'approve' && approveRequest.canDecide !== true) ? (
+                                        <LeaveRequestDecisionCard
+                                            row={approveRequest}
+                                            startEditing={leaveModalMode === 'edit'}
+                                            canEdit={approveRequest.canEdit === true}
+                                            submitting={confirming}
+                                            onAccept={(row, edits) => handleQuickDecide(row, 'approved', edits)}
+                                            onReject={(row) => handleQuickDecide(row, 'rejected')}
+                                            onSave={(row, edits) => handleQuickDecide(row, 'updated', edits)}
+                                            onEdit={(row) => handleSelectRequest(row, 'edit')}
+                                        />
+                                    ) : (
                                     <AnnualLeaveFilterModal
                                         embedded
                                         open
@@ -809,7 +897,26 @@ function AnnualLeavePageContent() {
                                         onApply={handleModalApply}
                                         onReject={handleModalReject}
                                         showReject={leaveModalMode === 'approve'}
-                                        applyLabel={leaveModalMode === 'edit' ? 'Save' : 'Approve'}
+                                        applyLabel={
+                                            leaveModalMode === 'edit'
+                                                ? 'Save'
+                                                : approveRequest?.approvalStage === 'pending_reportee'
+                                                  ? 'Accept'
+                                                  : 'Approve'
+                                        }
+                                        note={
+                                            [
+                                                approveRequest?.pendingWithName
+                                                    ? `Pending with ${approveRequest.pendingWithName}.`
+                                                    : '',
+                                                leaveModalMode === 'approve' &&
+                                                approveRequest?.approvalStage === 'pending_reportee'
+                                                    ? 'Accepting sends this request to HR. The leave is applied after HR accepts.'
+                                                    : '',
+                                            ]
+                                                .filter(Boolean)
+                                                .join(' ')
+                                        }
                                         modalTitle={leaveModalMode === 'edit' ? 'Edit Leave' : 'Approve Leave'}
                                         requestedLeaveLabel={approveRequest?.leaveType || ''}
                                         requestedDateLabel={
@@ -820,6 +927,7 @@ function AnnualLeavePageContent() {
                                         submitting={confirming}
                                         enableAnnualEligibilityGate
                                     />
+                                    )
                                 ) : null
                             }
                             calendarLeaveFocus={calendarLeaveFocus}

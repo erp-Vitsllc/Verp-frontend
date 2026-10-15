@@ -86,6 +86,38 @@ export default function PendingLeaveRequestsModal({
         load();
     }, [isOpen, load]);
 
+    const decideRequest = async (row, decision) => {
+        const raw = row?.raw || row;
+        let meta = {};
+        try {
+            meta = typeof raw?.extra3 === 'string' ? JSON.parse(raw.extra3 || '{}') : raw?.extra3 || {};
+        } catch {
+            meta = {};
+        }
+        const attendanceId = String(meta.attendanceId || raw?.id || raw?.requestObjectId || '').trim();
+        if (!attendanceId) return;
+        if (decision === 'rejected' && !window.confirm('Reject this request?')) return;
+        try {
+            const response = await axiosInstance.post(
+                '/Leave/pending-requests/decide',
+                { attendanceId, decision },
+                { skipToast: true },
+            );
+            toast({
+                title: response.data?.advanced ? 'Sent to HR' : decision === 'approved' ? 'Accepted' : 'Rejected',
+                description: response.data?.message || 'The request was updated.',
+            });
+            await load({ force: true });
+            if (typeof onRefreshParent === 'function') onRefreshParent();
+        } catch (e) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not update request',
+                description: e?.response?.data?.message || e.message || 'Failed to update this request.',
+            });
+        }
+    };
+
     const handleRowActivate = (row) => {
         const path = buildLeaveDashboardNotificationPath(row?.raw || row);
         if (!path) {
@@ -106,13 +138,46 @@ export default function PendingLeaveRequestsModal({
             isOpen={isOpen}
             onClose={onClose}
             title="Leave notifications"
-            subtitle="Pending leave requests assigned to you as primary reportee."
+            subtitle="Accept or reject requests that are pending with you."
             items={notificationRows}
             loading={loading && items.length === 0}
             refreshing={refreshing}
             emptyMessage="No pending leave notifications for you."
             onItemClick={handleRowActivate}
             getItemHref={(row) => buildLeaveDashboardNotificationPath(row?.raw || row) || ''}
+            renderRowActions={(raw) => {
+                let meta = {};
+                try {
+                    meta = typeof raw?.extra3 === 'string' ? JSON.parse(raw.extra3 || '{}') : raw?.extra3 || {};
+                } catch {
+                    meta = {};
+                }
+                if (meta.hubRequest || meta.canDecide === false || !meta.leaveDashboard) return null;
+                return (
+                    <div className="flex shrink-0 flex-col justify-center gap-1 pr-3">
+                        <button
+                            type="button"
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                decideRequest(raw, 'approved');
+                            }}
+                            className="rounded-md bg-[#16A34A] px-2 py-1 text-[11px] font-semibold text-white"
+                        >
+                            Accept
+                        </button>
+                        <button
+                            type="button"
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                decideRequest(raw, 'rejected');
+                            }}
+                            className="rounded-md bg-[#DC2626] px-2 py-1 text-[11px] font-semibold text-white"
+                        >
+                            Reject
+                        </button>
+                    </div>
+                );
+            }}
         />
     );
 }

@@ -30,6 +30,17 @@ const REPORTEE_LEAVE_OPTIONS = [
     },
 ];
 
+function isPunchCorrectionKind(kind) {
+    const key = String(kind || '');
+    return key === 'yellow' || key === 'past_late' || key === 'future_late' || key === 'future_early';
+}
+
+function clockInputValue(value) {
+    const match = /^(\d{1,2}):(\d{2})/.exec(String(value || '').trim());
+    if (!match) return '';
+    return `${match[1].padStart(2, '0')}:${match[2]}`;
+}
+
 export default function AttendanceLeaveDecideModal({
     isOpen,
     dateKey,
@@ -45,6 +56,10 @@ export default function AttendanceLeaveDecideModal({
     session = '',
     requestTimeIn = '',
     requestTimeOut = '',
+    timeIn = '',
+    timeOut = '',
+    changedBy = '',
+    hrReview = false,
     deciding = false,
     error = '',
     onClose,
@@ -52,12 +67,18 @@ export default function AttendanceLeaveDecideModal({
 }) {
     const [chosenKey, setChosenKey] = useState('');
     const [localError, setLocalError] = useState('');
+    const [editingTimes, setEditingTimes] = useState(false);
+    const [editIn, setEditIn] = useState('');
+    const [editOut, setEditOut] = useState('');
 
     useEffect(() => {
         if (!isOpen) return;
         setChosenKey('');
         setLocalError('');
-    }, [isOpen, dateKey]);
+        setEditingTimes(false);
+        setEditIn(clockInputValue(timeIn || requestTimeIn));
+        setEditOut(clockInputValue(timeOut || requestTimeOut));
+    }, [isOpen, dateKey, timeIn, timeOut, requestTimeIn, requestTimeOut]);
 
     if (!isOpen) return null;
 
@@ -120,8 +141,142 @@ export default function AttendanceLeaveDecideModal({
             return;
         }
         setLocalError('');
-        onDecide?.('approved', chosenKey, '');
+        onDecide?.(
+            'approved',
+            chosenKey,
+            '',
+            isPunchCorrectionKind(kindKey) && (editIn || editOut)
+                ? { timeIn: editIn, timeOut: editOut }
+                : undefined,
+        );
     };
+
+    if (isPunchCorrectionKind(kindKey)) {
+        const punchIn = String(timeIn || requestTimeIn || '').trim();
+        const punchOut = String(timeOut || requestTimeOut || '').trim();
+        const requestedText = requestedLabel || (kindKey === 'yellow' ? 'Present' : 'Updated');
+        return (
+            <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+                <button
+                    type="button"
+                    className="absolute inset-0 bg-black/40"
+                    aria-label="Close"
+                    onClick={onClose}
+                    disabled={deciding}
+                />
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl"
+                >
+                    <div className="border-b border-slate-100 px-5 py-4">
+                        <h2 className="text-base font-semibold text-slate-900">
+                            {hrReview ? 'HR approval' : 'Primary reportee approval'}
+                        </h2>
+                        <p className="mt-1 text-xs text-slate-500">
+                            Approving this updates the attendance day.
+                        </p>
+                    </div>
+                    <div className="space-y-2 px-5 py-4 text-sm text-slate-700">
+                        <p>
+                            <span className="text-slate-500">Employee: </span>
+                            <strong>{employeeName || 'Employee'}</strong>
+                        </p>
+                        <p>
+                            <span className="text-slate-500">Date: </span>
+                            {dateKey || '—'}
+                        </p>
+                        <p>
+                            <span className="text-slate-500">Changed by: </span>
+                            {changedBy || employeeName || '—'}
+                        </p>
+                        <p>
+                            <span className="text-slate-500">Currently: </span>
+                            {currentLabel || 'Not marked'}
+                        </p>
+                        <p>
+                            <span className="text-slate-500">Requested: </span>
+                            {requestedText}
+                        </p>
+                        {editingTimes ? (
+                            <div className="grid grid-cols-2 gap-2 pt-1">
+                                <label className="text-xs text-slate-500">
+                                    Check in
+                                    <input
+                                        type="time"
+                                        value={editIn}
+                                        onChange={(event) => setEditIn(event.target.value)}
+                                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                    />
+                                </label>
+                                <label className="text-xs text-slate-500">
+                                    Check out
+                                    <input
+                                        type="time"
+                                        value={editOut}
+                                        onChange={(event) => setEditOut(event.target.value)}
+                                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                    />
+                                </label>
+                            </div>
+                        ) : punchIn || punchOut ? (
+                            <p>
+                                <span className="text-slate-500">Time: </span>
+                                {punchIn || '—'} – {punchOut || '—'}
+                            </p>
+                        ) : null}
+                        {reason ? (
+                            <p>
+                                <span className="text-slate-500">Reason: </span>
+                                {reason}
+                            </p>
+                        ) : null}
+                        {attachmentName ? (
+                            <p>
+                                <span className="text-slate-500">Attachment: </span>
+                                {attachmentName}
+                            </p>
+                        ) : null}
+                        {error ? <p className="text-xs text-rose-500">{error}</p> : null}
+                    </div>
+                    <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                        <button
+                            type="button"
+                            disabled={deciding}
+                            onClick={onClose}
+                            className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-600"
+                        >
+                            Close
+                        </button>
+                        <button
+                            type="button"
+                            disabled={deciding}
+                            onClick={() => setEditingTimes((value) => !value)}
+                            className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                        >
+                            {editingTimes ? 'Done' : 'Edit'}
+                        </button>
+                        <button
+                            type="button"
+                            disabled={deciding}
+                            onClick={() => onDecide?.('rejected')}
+                            className="h-9 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-50"
+                        >
+                            Reject
+                        </button>
+                        <button
+                            type="button"
+                            disabled={deciding}
+                            onClick={handleApprove}
+                            className="h-9 rounded-lg bg-[#EA3D2F] px-4 text-sm font-semibold text-white disabled:opacity-50"
+                        >
+                            {deciding ? 'Saving…' : 'Approve'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">

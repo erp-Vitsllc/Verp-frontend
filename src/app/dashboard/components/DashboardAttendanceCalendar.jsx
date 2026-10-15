@@ -841,7 +841,7 @@ export default function DashboardAttendanceCalendar({
         }
     };
 
-    const submitLeaveDecision = async (decision, approvedStatusKey, leavePayType) => {
+    const submitLeaveDecision = async (decision, approvedStatusKey, leavePayType, edits) => {
         if (!decideModal?.record?._id && !decideModal?.dateKey) return;
         setDecideSubmitting(true);
         setDecideError('');
@@ -855,6 +855,8 @@ export default function DashboardAttendanceCalendar({
                     decision,
                     approvedStatusKey: approvedStatusKey || '',
                     leavePayType: leavePayType || '',
+                    ...(edits?.timeIn ? { timeIn: edits.timeIn } : {}),
+                    ...(edits?.timeOut ? { timeOut: edits.timeOut } : {}),
                 },
                 { skipToast: true },
             );
@@ -1279,6 +1281,9 @@ export default function DashboardAttendanceCalendar({
                 session={decideModal?.record?.leaveRequestSession || ''}
                 requestTimeIn={decideModal?.record?.leaveRequestTimeIn || ''}
                 requestTimeOut={decideModal?.record?.leaveRequestTimeOut || ''}
+                timeIn={decideModal?.record?.timeIn || ''}
+                timeOut={decideModal?.record?.timeOut || ''}
+                changedBy={employeeName}
                 deciding={decideSubmitting}
                 error={decideError}
                 onClose={() => {

@@ -230,6 +230,7 @@ export default function NotificationInboxModal({
     emptyMessage = 'No notifications found.',
     onItemClick,
     getItemHref,
+    renderRowActions,
     onDelete,
     hideItemTitle = false,
     listMaxHeight,
@@ -638,6 +639,9 @@ export default function NotificationInboxModal({
                                                             aria-hidden
                                                         />
                                                     </button>
+                                                    {typeof renderRowActions === 'function'
+                                                        ? renderRowActions(row.raw ?? row, row)
+                                                        : null}
                                                     {onDelete ? (
                                                         <button
                                                             type="button"

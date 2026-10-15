@@ -139,53 +139,94 @@ function Row({ label, value }) {
     );
 }
 
-export default function HourAdjustModal({ open, mode = 'request', employee, mark, week, onClose, onSaved }) {
+export default function HourAdjustModal({
+    open,
+    mode = 'request',
+    rejectFirst = false,
+    employee,
+    mark,
+    week,
+    onClose,
+    onSaved,
+}) {
     const { toast } = useToast();
     const preview = hourAdjustPreview(mark, week);
+    const queued = mark?.pendingChange?.action === 'hour_adjust' ? mark.pendingChange : null;
     const [approvedHours, setApprovedHours] = useState('');
     const [reason, setReason] = useState('');
+    const [rejectReason, setRejectReason] = useState('');
+    const [rejecting, setRejecting] = useState(false);
     const [saving, setSaving] = useState(false);
     const review = mode === 'review';
+    const flexible = Boolean(preview?.flexible);
+    const maxHours =
+        queued && queued.hoursMax != null && queued.hoursMax !== ''
+            ? Number(queued.hoursMax)
+            : preview?.max;
+    const lossHours =
+        queued && queued.hoursTaken != null && queued.hoursTaken !== ''
+            ? Number(queued.hoursTaken)
+            : preview?.taken;
+    const priorReject = String(queued?.rejectReason || '').trim();
+    const priorBy = String(queued?.rejectedByName || '').trim();
+    const requesterTurn = queued?.stage === 'pending_requester';
 
     useEffect(() => {
         if (!open) return;
-        const source = preview?.flexible ? preview?.taken : mark?.hoursApproved || preview?.taken || '';
+        const queuedHours = queued?.hoursApproved;
+        const source =
+            queuedHours != null && queuedHours !== ''
+                ? queuedHours
+                : preview?.flexible
+                    ? preview?.taken
+                    : mark?.hoursApproved || preview?.taken || '';
         setApprovedHours(source || source === 0 ? String(source) : '');
-        setReason(preview?.flexible ? '' : mark?.hourAdjustReason || '');
-    }, [open, mark?.attendanceId, mark?.hoursApproved, mark?.hourAdjustReason, preview?.taken, preview?.flexible]);
+        setReason(preview?.flexible ? '' : String(queued?.reason || mark?.hourAdjustReason || ''));
+        setRejectReason('');
+        setRejecting(Boolean(rejectFirst));
+    }, [
+        open,
+        rejectFirst,
+        mark?.attendanceId,
+        mark?.hoursApproved,
+        mark?.hourAdjustReason,
+        queued?.id,
+        queued?.hoursApproved,
+        queued?.reason,
+        preview?.taken,
+        preview?.flexible,
+    ]);
 
     if (!open || !mark || !preview) return null;
 
-    const submit = async () => {
-        const flexible = Boolean(preview.flexible);
+    const readHours = () => {
         const typed = String(approvedHours ?? '').trim();
         const hours = flexible ? wholeHours(approvedHours) : roundHours(approvedHours);
+        const limit = Number(maxHours);
         if (!flexible && !String(reason || '').trim()) {
-            toast({ variant: 'destructive', title: 'Description is required' });
-            return;
+            return { error: 'Description is required' };
         }
         if (flexible) {
-            if (!/^\d+$/.test(typed) || hours > preview.max) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Check approved hours',
-                    description: `Enter a whole number from 0 up to ${preview.max}.`,
-                });
-                return;
+            if (!/^\d+$/.test(typed) || hours > limit) {
+                return { error: `Enter a whole number from 0 up to ${limit}.` };
             }
-        } else if (hours > preview.max + 0.001) {
-            toast({
-                variant: 'destructive',
-                title: 'Check approved hours',
-                description: `Enter hours from 0 up to ${preview.max}.`,
-            });
+        } else if (hours > limit + 0.001) {
+            return { error: `Enter hours from 0 up to ${limit}.` };
+        }
+        return { hours };
+    };
+
+    const submit = async () => {
+        const parsed = readHours();
+        if (parsed.error) {
+            toast({ variant: 'destructive', title: 'Check the request', description: parsed.error });
             return;
         }
         setSaving(true);
         try {
             const response = await axiosInstance.post('/Attendance/hour-adjust/request', {
                 attendanceId: mark.attendanceId,
-                approvedHours: hours,
+                approvedHours: parsed.hours,
                 reason: flexible ? '' : reason,
             });
             toast({
@@ -210,15 +251,43 @@ export default function HourAdjustModal({ open, mode = 'request', employee, mark
     };
 
     const decide = async (decision) => {
+        if (decision === 'rejected' && !rejecting) {
+            setRejecting(true);
+            return;
+        }
+        if (decision === 'rejected' && !String(rejectReason || '').trim()) {
+            toast({ variant: 'destructive', title: 'Reject reason is required' });
+            return;
+        }
+        let hours = 0;
+        if (decision === 'approved') {
+            const parsed = readHours();
+            if (parsed.error) {
+                toast({ variant: 'destructive', title: 'Check the request', description: parsed.error });
+                return;
+            }
+            hours = parsed.hours;
+        }
         setSaving(true);
         try {
-            await axiosInstance.post('/Attendance/hour-adjust/decide', {
-                attendanceId: mark.attendanceId,
+            const changeId = String(queued?.id || '').trim();
+            const payload = {
                 decision,
-            });
+                approvedHours: decision === 'approved' ? hours : undefined,
+                hourReason: decision === 'approved' ? (flexible ? '' : reason) : undefined,
+                rejectReason: decision === 'rejected' ? String(rejectReason || '').trim() : '',
+            };
+            const response = changeId
+                ? await axiosInstance.post('/Attendance/change-request/decide', { id: changeId, ...payload })
+                : await axiosInstance.post('/Attendance/hour-adjust/decide', {
+                    attendanceId: mark.attendanceId,
+                    ...payload,
+                });
             toast({
-                title: decision === 'approved' ? 'Hours approved' : 'Request rejected',
-                description: decision === 'approved' ? 'Deduction uses the approved hours.' : 'Deduction stays unchanged.',
+                title: decision === 'approved' ? (requesterTurn ? 'Request sent' : 'Hours approved') : 'Request rejected',
+                description:
+                    response.data?.message ||
+                    (decision === 'approved' ? 'The hour request was updated.' : 'The hour request was sent back.'),
             });
             notifyAttendancePendingInboxChanged();
             onSaved?.();
@@ -234,111 +303,115 @@ export default function HourAdjustModal({ open, mode = 'request', employee, mark
         }
     };
 
-    const flexible = Boolean(preview.flexible);
-    const shownLoss = review ? wholeHours(mark.hoursTaken) || preview.taken : preview.taken;
-    const shownApproved = wholeHours(mark.hoursApproved);
+    const shownLoss = flexible ? wholeHours(lossHours) : lossHours;
+    const approveLabel = priorReject || requesterTurn ? 'Reapply' : 'Approve';
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
                 <h3 className="text-lg font-black text-slate-900">{review ? 'Review hour request' : preview.title}</h3>
                 <p className="mt-1 text-sm text-slate-500">{employee?.name}</p>
-                {flexible ? (
-                    <>
-                        <div className="mt-4">
+                {requesterTurn ? (
+                    <p className="mt-2 text-sm text-slate-500">
+                        Update the hours and send the request again, or reject it to remove the request.
+                    </p>
+                ) : null}
+                <div className="mt-4">
+                    {flexible ? (
+                        <>
                             <Row label="Loss of hours" value={`${shownLoss} hrs`} />
                             <Row label="Unauth taken" value={`${shownLoss * 2} hrs`} />
-                        </div>
+                        </>
+                    ) : (
+                        <>
+                            <Row label="Hours taken" value={String(preview.taken)} />
+                            <Row label="Maximum hours" value={`${maxHours} (${preview.taken} × 2)`} />
+                        </>
+                    )}
+                </div>
+                {priorReject ? (
+                    <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                        Rejected{priorBy ? ` by ${priorBy}` : ''}: {priorReject}
+                    </div>
+                ) : null}
+                <div className="mt-4 space-y-3">
+                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+                        {flexible ? 'Approved hours' : 'Approved to (hrs)'}
+                        <input
+                            type="number"
+                            inputMode={flexible ? 'numeric' : 'decimal'}
+                            min="0"
+                            max={maxHours}
+                            step={flexible ? '1' : '0.5'}
+                            value={approvedHours}
+                            onChange={(event) => {
+                                const next = event.target.value;
+                                if (flexible && next !== '' && !/^\d+$/.test(next)) return;
+                                setApprovedHours(next);
+                            }}
+                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800"
+                        />
+                    </label>
+                    {flexible ? null : (
+                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+                            Description
+                            <textarea
+                                value={reason}
+                                onChange={(event) => setReason(event.target.value)}
+                                rows={3}
+                                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800"
+                            />
+                        </label>
+                    )}
+                    {review && rejecting ? (
+                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+                            Reject reason
+                            <textarea
+                                value={rejectReason}
+                                onChange={(event) => setRejectReason(event.target.value)}
+                                rows={3}
+                                required
+                                className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm text-slate-800"
+                            />
+                        </label>
+                    ) : null}
+                    <div className="flex justify-end gap-2">
+                        <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">
+                            Cancel
+                        </button>
                         {review ? (
                             <>
-                                <Row label="Approved hours" value={`${shownApproved} hrs`} />
-                                <div className="mt-4 flex justify-end gap-2">
-                                    <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Cancel</button>
-                                    <button type="button" disabled={saving} onClick={() => decide('rejected')} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600">Reject</button>
-                                    <button type="button" disabled={saving} onClick={() => decide('approved')} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white">Approve</button>
-                                </div>
-                            </>
-                        ) : (
-                            <div className="mt-4 space-y-3">
-                                <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                                    Approved hours
-                                    <input
-                                        type="number"
-                                        inputMode="numeric"
-                                        min="0"
-                                        max={preview.max}
-                                        step="1"
-                                        value={approvedHours}
-                                        onChange={(event) => {
-                                            const next = event.target.value;
-                                            if (next === '' || /^\d+$/.test(next)) setApprovedHours(next);
-                                        }}
-                                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800"
-                                    />
-                                </label>
-                                <div className="flex justify-end gap-2">
-                                    <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Cancel</button>
+                                <button
+                                    type="button"
+                                    disabled={saving || (rejecting && !String(rejectReason || '').trim())}
+                                    onClick={() => decide('rejected')}
+                                    className="rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600 disabled:opacity-50"
+                                >
+                                    {rejecting ? 'Confirm reject' : 'Reject'}
+                                </button>
+                                {rejecting ? null : (
                                     <button
                                         type="button"
                                         disabled={saving}
-                                        onClick={submit}
+                                        onClick={() => decide('approved')}
                                         className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
                                     >
-                                        {mode === 'direct' ? 'Approve' : 'Send to HR'}
+                                        {approveLabel}
                                     </button>
-                                </div>
-                            </div>
-                        )}
-                    </>
-                ) : (
-                    <>
-                        <div className="mt-4">
-                            <Row label="Hours taken" value={String(preview.taken)} />
-                            <Row label="Maximum hours" value={`${preview.max} (${preview.taken} × 2)`} />
-                        </div>
-                        {review ? (
-                            <>
-                                <Row label="Approved hours" value={mark.hoursApproved == null || mark.hoursApproved === '' ? '—' : String(mark.hoursApproved)} />
-                                <Row label="Description" value={mark.hourAdjustReason} />
-                                <div className="mt-4 flex justify-end gap-2">
-                                    <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Close</button>
-                                    <button type="button" disabled={saving} onClick={() => decide('rejected')} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600">Reject</button>
-                                    <button type="button" disabled={saving} onClick={() => decide('approved')} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white">Approve</button>
-                                </div>
+                                )}
                             </>
                         ) : (
-                            <div className="mt-4 space-y-3">
-                                <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                                    Approved to (hrs)
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        max={preview.max}
-                                        step="0.5"
-                                        value={approvedHours}
-                                        onChange={(event) => setApprovedHours(event.target.value)}
-                                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800"
-                                    />
-                                </label>
-                                <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                                    Description
-                                    <textarea
-                                        value={reason}
-                                        onChange={(event) => setReason(event.target.value)}
-                                        rows={3}
-                                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800"
-                                    />
-                                </label>
-                                <div className="flex justify-end gap-2">
-                                    <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600">Cancel</button>
-                                    <button type="button" disabled={saving} onClick={submit} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white">
-                                        {mode === 'direct' ? 'Approve' : 'Send to HR'}
-                                    </button>
-                                </div>
-                            </div>
+                            <button
+                                type="button"
+                                disabled={saving}
+                                onClick={submit}
+                                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
+                            >
+                                {mode === 'direct' ? 'Approve' : 'Send request'}
+                            </button>
                         )}
-                    </>
-                )}
+                    </div>
+                </div>
             </div>
         </div>
     );

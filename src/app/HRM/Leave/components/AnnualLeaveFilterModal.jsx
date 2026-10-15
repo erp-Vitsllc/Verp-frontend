@@ -109,6 +109,7 @@ export default function AnnualLeaveFilterModal({
     rejectLabel = 'Reject',
     enableAnnualEligibilityGate = false,
     embedded = false,
+    note = '',
 }) {
     const rootRef = useRef(null);
     const loadedSalaryVisibility = useLeaveSalaryVisibility();
@@ -325,7 +326,12 @@ export default function AnnualLeaveFilterModal({
                 }
                 onMouseDown={(event) => event.stopPropagation()}
             >
-                <h3 className="mb-4 text-center text-base font-bold text-gray-900">{modalTitle}</h3>
+                {embedded ? null : (
+                    <h3 className="mb-4 text-center text-base font-bold text-gray-900">{modalTitle}</h3>
+                )}
+                {note ? (
+                    <p className="mb-3 text-center text-[11px] leading-snug text-[#6B7280]">{note}</p>
+                ) : null}
                 {requestedLeaveLabel ? (
                     <div className="mb-3 rounded-lg border border-[#DDE3EA] bg-[#F8FAFC] px-3 py-2 text-center text-xs text-[#475467]">
                         Requested:{' '}

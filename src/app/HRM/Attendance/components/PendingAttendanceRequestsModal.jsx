@@ -29,6 +29,12 @@ function isAttendanceChangeItem(row) {
     );
 }
 
+function clockInputValue(value) {
+    const match = /^(\d{1,2}):(\d{2})/.exec(String(value || '').trim());
+    if (!match) return '';
+    return `${match[1].padStart(2, '0')}:${match[2]}`;
+}
+
 function isCompanyShellName(name) {
     return /\(company\)\s*$/i.test(String(name || '').trim());
 }
@@ -39,6 +45,16 @@ function buildAttendancePath(row) {
     }
     const empId = row?.employeeMongoId || row?.raw?.employeeMongoId || '';
     const date = row?.date || row?.extra1 || row?.raw?.date || '';
+    if ((row?.action || row?.raw?.action) === 'hour_adjust' || (row?.action || row?.raw?.action) === 'flexible_ot') {
+        return attendanceRequestMarkHref({
+            date,
+            staffType: row?.staffType || row?.raw?.staffType || 'office',
+            attendanceId: String(row?.id || row?.dashboardActionId || row?.raw?.id || ''),
+            employeeId: empId,
+            kind: 'attendance_change',
+            type: 'Attendance Change Request',
+        });
+    }
     if (isAttendanceChangeItem(row)) return '';
     if (row?.leaveRequestKind === 'flexible_ot' || row?.requestType === 'Flexible OT Request') {
         const qs = new URLSearchParams({
@@ -121,6 +137,10 @@ export default function PendingAttendanceRequestsModal({
     const [refreshing, setRefreshing] = useState(false);
     const [items, setItems] = useState([]);
     const [review, setReview] = useState(null);
+    const [editingReview, setEditingReview] = useState(false);
+    const [editIn, setEditIn] = useState('');
+    const [editOut, setEditOut] = useState('');
+    const [editHours, setEditHours] = useState('');
     const [deciding, setDeciding] = useState(false);
     const itemsRef = useRef(items);
     itemsRef.current = items;
@@ -184,24 +204,34 @@ export default function PendingAttendanceRequestsModal({
         load();
     }, [isOpen, load]);
 
+    useEffect(() => {
+        if (!review) return;
+        setEditingReview(false);
+        setEditIn(clockInputValue(review.timeIn));
+        setEditOut(clockInputValue(review.timeOut));
+        const stored =
+            review.action === 'flexible_ot' ? review.flexibleOtApprovedHours : review.hoursApproved;
+        setEditHours(stored ? String(stored) : '');
+    }, [review]);
+
     const handleRowActivate = (row) => {
         const source = row?.raw || row;
+        const path = buildAttendancePath(source);
+        if (path) {
+            navigateFromNotificationClick(router, path);
+            onClose();
+            if (typeof onRefreshParent === 'function') onRefreshParent();
+            return;
+        }
         if (isAttendanceChangeItem(source)) {
             setReview(source);
             return;
         }
-        const path = buildAttendancePath(source);
-        if (!path) {
-            toast({
-                variant: 'destructive',
-                title: 'Unable to open',
-                description: 'Could not resolve this attendance notification.',
-            });
-            return;
-        }
-        navigateFromNotificationClick(router, path);
-        onClose();
-        if (typeof onRefreshParent === 'function') onRefreshParent();
+        toast({
+            variant: 'destructive',
+            title: 'Unable to open',
+            description: 'Could not resolve this attendance notification.',
+        });
     };
 
     const decideChange = async (decision) => {
@@ -209,9 +239,15 @@ export default function PendingAttendanceRequestsModal({
         if (!id || deciding) return;
         setDeciding(true);
         try {
+            const showHours = review?.action === 'hour_adjust' || review?.action === 'flexible_ot';
             const res = await axiosInstance.post('/Attendance/change-request/decide', {
                 id,
                 decision,
+                ...(decision === 'approved' && editIn ? { timeIn: editIn } : {}),
+                ...(decision === 'approved' && editOut ? { timeOut: editOut } : {}),
+                ...(decision === 'approved' && showHours && editHours !== ''
+                    ? { approvedHours: Number(editHours) }
+                    : {}),
             });
             toast({
                 title: decision === 'approved' ? 'Approved' : 'Rejected',
@@ -287,7 +323,41 @@ export default function PendingAttendanceRequestsModal({
                                 <span className="text-slate-500">Requested: </span>
                                 {review.requestedStatusLabel || 'Updated'}
                             </p>
-                            {review.timeIn || review.timeOut ? (
+                            {editingReview ? (
+                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                    <label className="text-xs text-slate-500">
+                                        Time in
+                                        <input
+                                            type="time"
+                                            value={editIn}
+                                            onChange={(event) => setEditIn(event.target.value)}
+                                            className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                        />
+                                    </label>
+                                    <label className="text-xs text-slate-500">
+                                        Time out
+                                        <input
+                                            type="time"
+                                            value={editOut}
+                                            onChange={(event) => setEditOut(event.target.value)}
+                                            className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                        />
+                                    </label>
+                                    {review.action === 'hour_adjust' || review.action === 'flexible_ot' ? (
+                                        <label className="col-span-2 text-xs text-slate-500">
+                                            Approved hours
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.25"
+                                                value={editHours}
+                                                onChange={(event) => setEditHours(event.target.value)}
+                                                className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                            />
+                                        </label>
+                                    ) : null}
+                                </div>
+                            ) : review.timeIn || review.timeOut ? (
                                 <p>
                                     <span className="text-slate-500">Time: </span>
                                     {review.timeIn || '—'} – {review.timeOut || '—'}
@@ -314,6 +384,14 @@ export default function PendingAttendanceRequestsModal({
                                 className="h-9 px-3 rounded-lg border border-slate-200 text-sm text-slate-600"
                             >
                                 Close
+                            </button>
+                            <button
+                                type="button"
+                                disabled={deciding}
+                                onClick={() => setEditingReview((value) => !value)}
+                                className="h-9 px-3 rounded-lg border border-slate-200 text-sm font-semibold text-slate-700"
+                            >
+                                {editingReview ? 'Done' : 'Edit'}
                             </button>
                             <button
                                 type="button"
