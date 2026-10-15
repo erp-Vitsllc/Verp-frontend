@@ -61,6 +61,7 @@ export default function AttendanceLeaveDecideModal({
     changedBy = '',
     hrReview = false,
     deciding = false,
+    rejectFirst = false,
     error = '',
     onClose,
     onDecide,
@@ -70,15 +71,19 @@ export default function AttendanceLeaveDecideModal({
     const [editingTimes, setEditingTimes] = useState(false);
     const [editIn, setEditIn] = useState('');
     const [editOut, setEditOut] = useState('');
+    const [rejecting, setRejecting] = useState(false);
+    const [rejectReason, setRejectReason] = useState('');
 
     useEffect(() => {
         if (!isOpen) return;
         setChosenKey('');
         setLocalError('');
         setEditingTimes(false);
+        setRejecting(Boolean(rejectFirst));
+        setRejectReason('');
         setEditIn(clockInputValue(timeIn || requestTimeIn));
         setEditOut(clockInputValue(timeOut || requestTimeOut));
-    }, [isOpen, dateKey, timeIn, timeOut, requestTimeIn, requestTimeOut]);
+    }, [isOpen, dateKey, rejectFirst, timeIn, timeOut, requestTimeIn, requestTimeOut]);
 
     if (!isOpen) return null;
 
@@ -134,6 +139,32 @@ export default function AttendanceLeaveDecideModal({
             : kindKey === 'future_early'
               ? 'Approve shows this future day green as Early go approved.'
               : 'Approve applies the status you choose. Reject keeps the current status.';
+
+    const handleReject = () => {
+        if (!rejecting) {
+            setRejecting(true);
+            setLocalError('');
+            return;
+        }
+        if (!String(rejectReason).trim()) {
+            setLocalError('Reject reason is required.');
+            return;
+        }
+        setLocalError('');
+        onDecide?.('rejected', '', '', { rejectReason: String(rejectReason).trim() });
+    };
+
+    const rejectReasonField = rejecting ? (
+        <label className="block text-xs font-semibold text-slate-500">
+            Reject reason
+            <textarea
+                value={rejectReason}
+                onChange={(event) => setRejectReason(event.target.value)}
+                rows={3}
+                className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-slate-800"
+            />
+        </label>
+    ) : null;
 
     const handleApprove = () => {
         if (!skipStatusPicker && !chosenKey) {
@@ -237,7 +268,8 @@ export default function AttendanceLeaveDecideModal({
                                 {attachmentName}
                             </p>
                         ) : null}
-                        {error ? <p className="text-xs text-rose-500">{error}</p> : null}
+                        {rejectReasonField}
+                        {error || localError ? <p className="text-xs text-rose-500">{localError || error}</p> : null}
                     </div>
                     <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
                         <button
@@ -258,11 +290,11 @@ export default function AttendanceLeaveDecideModal({
                         </button>
                         <button
                             type="button"
-                            disabled={deciding}
-                            onClick={() => onDecide?.('rejected')}
+                            disabled={deciding || (rejecting && !String(rejectReason).trim())}
+                            onClick={handleReject}
                             className="h-9 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-50"
                         >
-                            Reject
+                            {rejecting ? 'Confirm reject' : 'Reject'}
                         </button>
                         <button
                             type="button"
@@ -400,17 +432,18 @@ export default function AttendanceLeaveDecideModal({
                     ) : null}
 
                     <p className="text-xs text-slate-500">{helpText}</p>
+                    {rejectReasonField}
                     {localError || error ? (
                         <p className="text-xs text-rose-500">{localError || error}</p>
                     ) : null}
                     <div className="flex items-center gap-2 pt-1">
                         <button
                             type="button"
-                            disabled={deciding}
-                            onClick={() => onDecide?.('rejected')}
+                            disabled={deciding || (rejecting && !String(rejectReason).trim())}
+                            onClick={handleReject}
                             className="flex-1 h-10 rounded-xl text-sm font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                         >
-                            Reject
+                            {rejecting ? 'Confirm reject' : 'Reject'}
                         </button>
                         <button
                             type="button"

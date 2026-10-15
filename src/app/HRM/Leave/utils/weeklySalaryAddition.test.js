@@ -6,6 +6,8 @@ import {
     buildWeeklySalaryAddition,
     defaultWorkWeekIndex,
     formatHourMeasure,
+    compOffReferenceLinks,
+    leaveDatesTakenByOvertime,
 } from './weeklySalaryAddition.js';
 
 const DAILY = 1000;
@@ -705,5 +707,95 @@ describe('weekly salary addition counts', () => {
         assert.equal(result.calendar['2026-10-08'].takenFrom, '2026-09-28');
         assert.match(pay.compOffRows.find((row) => row.date === '2026-10-08').text, /taken from 28-Sep-2026/);
         assert.match(pay.compOffRows.find((row) => row.date === '2026-09-28').text, /given to 08-Oct-2026/);
+    });
+});
+
+describe('leaveDatesTakenByOvertime', () => {
+    it('uses the leave day that was taken, not the overtime day', () => {
+        const taken = leaveDatesTakenByOvertime([
+            {
+                date: '2026-10-10',
+                statusKey: 'on_office',
+                timeIn: '08:03',
+                timeOut: '07:18',
+                flexibleOtStatus: 'approved',
+                flexibleOtApprovedHours: 10,
+                flexibleOtNextDayDate: '2026-10-12',
+            },
+            {
+                date: '2026-10-12',
+                statusKey: 'on_office',
+                timeIn: 'OT',
+                timeOut: 'OT',
+                flexibleFromOtDate: '2026-10-10',
+            },
+        ], '2026-10');
+        assert.deepEqual(taken.get('2026-10-10'), [{ date: '2026-10-12', hours: 0 }]);
+    });
+
+    it('gives settled comp off the earliest overtime, and leaves the rest on the overtime day', () => {
+        const taken = leaveDatesTakenByOvertime([
+            {
+                date: '2026-10-05',
+                statusKey: 'on_office',
+                timeIn: '08:00',
+                timeOut: '20:00',
+                flexibleOtStatus: 'approved',
+                flexibleOtApprovedHours: 16,
+            },
+            {
+                date: '2026-10-08',
+                statusKey: 'compoff_leave',
+                compOff: { state: 'adjusted', chargeMonth: '2026-10', otHoursDeducted: 10 },
+            },
+            {
+                date: '2026-10-09',
+                statusKey: 'compoff_leave',
+                compOff: { state: 'adjusted', chargeMonth: '2026-10', otHoursDeducted: 6 },
+            },
+        ], '2026-10');
+        assert.deepEqual(taken.get('2026-10-05'), [
+            { date: '2026-10-08', hours: 10 },
+            { date: '2026-10-09', hours: 6 },
+        ]);
+    });
+});
+
+describe('compOffReferenceLinks', () => {
+    it('lists each comp off day with the overtime date that was approved for it', () => {
+        const rows = compOffReferenceLinks([
+            {
+                date: '2026-10-10',
+                statusKey: 'on_office',
+                timeIn: '08:03',
+                timeOut: '07:18',
+                flexibleOtStatus: 'approved',
+                flexibleOtApprovedHours: 10,
+                flexibleOtNextDayDate: '2026-10-12',
+                flexibleOtReason: 'Cover the leave',
+            },
+            {
+                date: '2026-10-12',
+                statusKey: 'on_office',
+                timeIn: 'OT',
+                timeOut: 'OT',
+                flexibleFromOtDate: '2026-10-10',
+            },
+            {
+                date: '2026-10-08',
+                statusKey: 'compoff_leave',
+                reason: 'Family',
+                compOff: { state: 'open', chargeMonth: '2026-10' },
+            },
+            {
+                date: '2026-10-15',
+                statusKey: 'compoff_leave',
+                compOff: { state: 'adjusted', chargeMonth: '2026-11', otHoursDeducted: 10 },
+            },
+        ], '2026-10');
+        assert.deepEqual(rows.map((row) => row.date), ['2026-10-12', '2026-10-08']);
+        assert.deepEqual(rows[0].sourceDates, ['2026-10-10']);
+        assert.equal(rows[0].description, 'Cover the leave');
+        assert.deepEqual(rows[1].sourceDates, []);
     });
 });

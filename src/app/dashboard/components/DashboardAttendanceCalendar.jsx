@@ -747,6 +747,8 @@ export default function DashboardAttendanceCalendar({
         requestedStatusKey,
         reason,
         attachmentName,
+        timeIn,
+        timeOut,
     }) => {
         if (!requestModal?.dateKey || !requestedStatusKey) return;
         setRequestSubmitting(true);
@@ -759,10 +761,13 @@ export default function DashboardAttendanceCalendar({
                     requestedStatusKey,
                     reason: reason || '',
                     attachmentName: attachmentName || '',
+                    timeIn: timeIn || '',
+                    timeOut: timeOut || '',
                 },
                 { skipToast: true },
             );
-            notifyLeavePendingInboxChanged();
+            if (requestedStatusKey === 'late_arrived') notifyAttendancePendingInboxChanged();
+            else notifyLeavePendingInboxChanged();
             setRequestModal(null);
             await loadMonth();
         } catch (err) {
@@ -857,6 +862,7 @@ export default function DashboardAttendanceCalendar({
                     leavePayType: leavePayType || '',
                     ...(edits?.timeIn ? { timeIn: edits.timeIn } : {}),
                     ...(edits?.timeOut ? { timeOut: edits.timeOut } : {}),
+                    ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
                 },
                 { skipToast: true },
             );

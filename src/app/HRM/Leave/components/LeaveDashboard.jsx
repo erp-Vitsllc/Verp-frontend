@@ -291,7 +291,9 @@ function LeaveApprovalTable({
                                         disabled={decidingId === row.id}
                                         onClick={(event) => {
                                             event.stopPropagation();
-                                            onDecide(row, 'rejected');
+                                            const reason = window.prompt('Reject reason');
+                                            if (!String(reason || '').trim()) return;
+                                            onDecide(row, 'rejected', { rejectReason: String(reason).trim() });
                                         }}
                                         onDoubleClick={(event) => event.stopPropagation()}
                                         className="flex h-7 w-7 items-center justify-center rounded-md bg-[#EF4444] text-white disabled:opacity-50"
@@ -780,8 +782,9 @@ export default function LeaveDashboard({
     );
 
     const handleDecide = useCallback(
-        async (row, decision) => {
+        async (row, decision, edits) => {
             if (!row?.id || decidingId) return;
+            if (decision === 'rejected' && !String(edits?.rejectReason || '').trim()) return;
             setDecidingId(row.id);
             try {
                 await axiosInstance.post(
@@ -790,6 +793,7 @@ export default function LeaveDashboard({
                         attendanceId: row.id,
                         decision,
                         approvedStatusKey: row.requestedStatusKey || '',
+                        ...(decision === 'rejected' ? { rejectReason: edits.rejectReason } : {}),
                     },
                     { skipToast: true },
                 );

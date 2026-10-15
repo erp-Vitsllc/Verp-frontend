@@ -1,6 +1,6 @@
 'use client';
 
-import { CalendarDays, ShieldCheck, X } from 'lucide-react';
+import { CalendarDays, Clock, Fingerprint, LogOut, ShieldCheck, X } from 'lucide-react';
 
 export default function LeaveRequestTypeModal({ isOpen, submitting = false, icon = null, onClose, onSelect }) {
     if (!isOpen) return null;
@@ -17,10 +17,34 @@ export default function LeaveRequestTypeModal({ isOpen, submitting = false, icon
         {
             key: 'authorized',
             label: 'Authorized leave request',
-            description: 'Full or half day authorized leave',
+            description: 'Full, half, or quarter day. Reason is required.',
             Icon: ShieldCheck,
             wrap: 'bg-blue-50 text-blue-600',
             border: 'hover:border-blue-200',
+        },
+        {
+            key: 'late',
+            label: 'Late arrival request',
+            description: 'Future working day. Reason is required.',
+            Icon: Clock,
+            wrap: 'bg-amber-50 text-amber-600',
+            border: 'hover:border-amber-200',
+        },
+        {
+            key: 'early',
+            label: 'Early go request',
+            description: 'Future working day. Reason is required.',
+            Icon: LogOut,
+            wrap: 'bg-orange-50 text-orange-600',
+            border: 'hover:border-orange-200',
+        },
+        {
+            key: 'mispunch',
+            label: 'Mispunch request',
+            description: 'A day you missed a punch. Reason is required.',
+            Icon: Fingerprint,
+            wrap: 'bg-yellow-50 text-yellow-700',
+            border: 'hover:border-yellow-200',
         },
     ];
 

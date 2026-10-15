@@ -96,11 +96,19 @@ export default function PendingLeaveRequestsModal({
         }
         const attendanceId = String(meta.attendanceId || raw?.id || raw?.requestObjectId || '').trim();
         if (!attendanceId) return;
-        if (decision === 'rejected' && !window.confirm('Reject this request?')) return;
+        let rejectReason = '';
+        if (decision === 'rejected') {
+            rejectReason = String(window.prompt('Reject reason') || '').trim();
+            if (!rejectReason) return;
+        }
         try {
             const response = await axiosInstance.post(
                 '/Leave/pending-requests/decide',
-                { attendanceId, decision },
+                {
+                    attendanceId,
+                    decision,
+                    ...(rejectReason ? { rejectReason } : {}),
+                },
                 { skipToast: true },
             );
             toast({

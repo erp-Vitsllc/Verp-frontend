@@ -306,7 +306,7 @@ function AnnualLeavePageContent() {
     }, []);
 
     const applyLeaveSelection = useCallback(
-        async ({ nextEmployeeId, startDate, endDate, employee, leaveMode, attendanceId, approve, reject, hrOverride, sendToHr }) => {
+        async ({ nextEmployeeId, startDate, endDate, employee, leaveMode, attendanceId, approve, reject, rejectReason, hrOverride, sendToHr }) => {
             const response = await axiosInstance.post(
                 '/Leave/apply',
                 {
@@ -318,7 +318,9 @@ function AnnualLeavePageContent() {
                         : applyLeaveMode(leaveMode),
                     ...(attendanceId ? { attendanceId } : {}),
                     ...(approve ? { approve: true } : {}),
-                    ...(reject ? { reject: true } : {}),
+                    ...(reject
+                        ? { reject: true, rejectReason: String(rejectReason || '').trim() }
+                        : {}),
                     ...(hrOverride ? { hrOverride: true } : {}),
                     ...(sendToHr ? { sendToHr: true } : {}),
                 },
@@ -430,8 +432,10 @@ function AnnualLeavePageContent() {
     );
 
     const handleModalReject = useCallback(
-        async ({ employeeId: nextEmployeeId, startDate, endDate, employee, leaveMode }) => {
+        async ({ employeeId: nextEmployeeId, startDate, endDate, employee, leaveMode, rejectReason }) => {
             if (confirming || !approveRequest?.id) return;
+            const reason = String(rejectReason || '').trim();
+            if (!reason) return;
             setConfirming(true);
             try {
                 if (String(approveRequest.statusKey || 'pending') === 'pending') {
@@ -441,6 +445,7 @@ function AnnualLeavePageContent() {
                             attendanceId: approveRequest.id,
                             decision: 'rejected',
                             approvedStatusKey: approveRequest.requestedStatusKey || '',
+                            rejectReason: reason,
                         },
                         { skipToast: true },
                     );
@@ -463,6 +468,7 @@ function AnnualLeavePageContent() {
                     leaveMode,
                     attendanceId: approveRequest.id,
                     reject: true,
+                    rejectReason: reason,
                 });
                 toast({
                     title: 'Leave rejected',
@@ -640,6 +646,9 @@ function AnnualLeavePageContent() {
                         approvedStatusKey: row.requestedStatusKey || '',
                         ...(decision !== 'rejected' && edits?.timeIn ? { timeIn: edits.timeIn } : {}),
                         ...(decision !== 'rejected' && edits?.timeOut ? { timeOut: edits.timeOut } : {}),
+                        ...(decision === 'rejected' && edits?.rejectReason
+                            ? { rejectReason: edits.rejectReason }
+                            : {}),
                     },
                     { skipToast: true },
                 );
@@ -873,7 +882,9 @@ function AnnualLeavePageContent() {
                                             canEdit={approveRequest.canEdit === true}
                                             submitting={confirming}
                                             onAccept={(row, edits) => handleQuickDecide(row, 'approved', edits)}
-                                            onReject={(row) => handleQuickDecide(row, 'rejected')}
+                                            onReject={(row, rejectReason) =>
+                                                handleQuickDecide(row, 'rejected', { rejectReason })
+                                            }
                                             onSave={(row, edits) => handleQuickDecide(row, 'updated', edits)}
                                             onEdit={(row) => handleSelectRequest(row, 'edit')}
                                         />

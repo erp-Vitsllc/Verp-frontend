@@ -172,8 +172,17 @@ export default function AttendanceFutureRequestModal({
 }) {
     const fileRef = useRef(null);
     const isAnnualLeave = variant === 'annual';
+    const isMispunch = variant === 'mispunch';
+    const isFuturePunch = variant === 'late' || variant === 'early';
+    const isSingleDate = isMispunch || isFuturePunch;
+    const reasonRequired = !isAnnualLeave;
     const dayAfterTomorrow = nextDateKey(nextDateKey(dubaiTodayKey()));
-    const minimumDate = isAnnualLeave ? earliestDate || '' : laterDateKey(earliestDate, dayAfterTomorrow);
+    const todayKey = dubaiTodayKey();
+    const minimumDate = isMispunch
+        ? ''
+        : isAnnualLeave
+          ? earliestDate || ''
+          : laterDateKey(earliestDate, dayAfterTomorrow);
     const [fromDate, setFromDate] = useState(dateKey || '');
     const [toDate, setToDate] = useState(dateKey || '');
     const [leaveDuration, setLeaveDuration] = useState('');
@@ -185,7 +194,11 @@ export default function AttendanceFutureRequestModal({
 
     useEffect(() => {
         if (!isOpen) return;
-        const start = dateKey && minimumDate && dateKey < minimumDate ? minimumDate : dateKey || minimumDate || '';
+        const start = isMispunch
+            ? todayKey
+            : dateKey && minimumDate && dateKey < minimumDate
+              ? minimumDate
+              : dateKey || minimumDate || '';
         setFromDate(start);
         setToDate(start);
         setLeaveDuration('');
@@ -194,7 +207,7 @@ export default function AttendanceFutureRequestModal({
         setReason('');
         setAttachment(null);
         setLocalError('');
-    }, [isOpen, dateKey, minimumDate]);
+    }, [isOpen, dateKey, minimumDate, isMispunch, todayKey]);
     const isMultiDay = Boolean(fromDate && toDate && fromDate !== toDate);
     const leaveDayCount = useMemo(
         () => countLeaveDays(fromDate, toDate, holidayDates, offWeekdays),
@@ -216,19 +229,40 @@ export default function AttendanceFutureRequestModal({
         ? partialLeaveMessage(scheduleWeek, fromDate || dateKey, dayPart, session)
         : '';
     const authorizedBlock = !isAnnualLeave ? authorizedSpanMessage(leaveDuration, fromDate, toDate) : '';
-    const requestKind = isAnnualLeave ? 'annual_leave' : 'leave';
+    const requestKind = isAnnualLeave
+        ? 'annual_leave'
+        : isMispunch
+          ? 'mispunch'
+          : variant === 'late'
+            ? 'late_arrived'
+            : variant === 'early'
+              ? 'early_go'
+              : 'leave';
     const requestTypeLabel = isAnnualLeave
         ? 'Annual Leave'
-        : dayPart === 'half' && leaveDuration === 'single'
-          ? 'Half day leave'
-          : dayPart === 'quarter' && leaveDuration === 'single'
-            ? 'Quarter day leave'
-            : 'Authorized Leave';
+        : isMispunch
+          ? 'Mispunch'
+          : variant === 'late'
+            ? 'Late arrival'
+            : variant === 'early'
+              ? 'Early go'
+              : dayPart === 'half' && leaveDuration === 'single'
+                ? 'Half day leave'
+                : dayPart === 'quarter' && leaveDuration === 'single'
+                  ? 'Quarter day leave'
+                  : 'Authorized Leave';
+    const durationName = isMispunch
+        ? 'Mispunch request'
+        : variant === 'late'
+          ? 'Late arrival request'
+          : variant === 'early'
+            ? 'Early go request'
+            : 'Leave request';
     const durationLabel =
-        fromDate && toDate && toDate >= fromDate && leaveDayCount > 0
+        fromDate && toDate && toDate >= fromDate && (isSingleDate || leaveDayCount > 0)
             ? fromDate === toDate
-                ? `Leave request for ${formatDisplayDate(fromDate)} · ${leaveDayCount} day${leaveDayCount === 1 ? '' : 's'}`
-                : `Leave request for ${formatDisplayDate(fromDate)} to ${formatDisplayDate(toDate)} · ${leaveDayCount} day${leaveDayCount === 1 ? '' : 's'}`
+                ? `${durationName} for ${formatDisplayDate(fromDate)}${isSingleDate ? '' : ` · ${leaveDayCount} day${leaveDayCount === 1 ? '' : 's'}`}`
+                : `${durationName} for ${formatDisplayDate(fromDate)} to ${formatDisplayDate(toDate)} · ${leaveDayCount} day${leaveDayCount === 1 ? '' : 's'}`
             : '';
 
     const handleClose = () => {
@@ -267,36 +301,48 @@ export default function AttendanceFutureRequestModal({
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (!isAnnualLeave && !leaveDuration) {
+        if (!isAnnualLeave && !isSingleDate && !leaveDuration) {
             setLocalError('Choose single day or multiple days.');
             return;
         }
-        if (authorizedBlock) {
+        if (!isSingleDate && authorizedBlock) {
             setLocalError(authorizedBlock);
             return;
         }
         if (!fromDate || !toDate) {
-            setLocalError('Choose a start date and an end date.');
+            setLocalError(isSingleDate ? 'Choose a date.' : 'Choose a start date and an end date.');
             return;
         }
         if (toDate < fromDate) {
             setLocalError('To date cannot be before the from date.');
             return;
         }
-        if (!isAnnualLeave && (fromDate < dayAfterTomorrow || toDate < dayAfterTomorrow)) {
+        if (!isAnnualLeave && !isSingleDate && (fromDate < dayAfterTomorrow || toDate < dayAfterTomorrow)) {
             setLocalError('Authorized leave cannot be requested for today or tomorrow.');
             return;
         }
-        if (minimumDate && fromDate < minimumDate) {
+        if (isMispunch && fromDate > todayKey) {
+            setLocalError('Mispunch can only be requested for today or a past day.');
+            return;
+        }
+        if (isFuturePunch && fromDate <= todayKey) {
+            setLocalError('This request is only for a future working day.');
+            return;
+        }
+        if (!isMispunch && minimumDate && fromDate < minimumDate) {
             setLocalError(`The earliest date you can request is ${minimumDate}.`);
             return;
         }
-        const effectiveDayPart = isMultiDay || isAnnualLeave ? 'full' : dayPart;
+        const effectiveDayPart = isMultiDay || isAnnualLeave || isSingleDate ? 'full' : dayPart;
         if ((effectiveDayPart === 'half' || effectiveDayPart === 'quarter') && session !== 'am' && session !== 'pm') {
             setLocalError('Choose AM or PM for a half day or quarter day.');
             return;
         }
         const trimmed = String(reason || '').trim();
+        if (reasonRequired && !trimmed) {
+            setLocalError('Reason is required.');
+            return;
+        }
         if (attachment) {
             const check = validateErpUploadFile(attachment);
             if (!check.ok) {
@@ -348,10 +394,19 @@ export default function AttendanceFutureRequestModal({
                             {!eyebrow && dateKey ? (
                                 <p className="text-sm text-slate-500 mt-1">{dateKey}</p>
                             ) : null}
-                            {!isAnnualLeave ? (
+                            {isMispunch ? (
+                                <p className="text-xs text-slate-400 mt-1">
+                                    Choose the day you missed a punch. Reason is required.
+                                </p>
+                            ) : isFuturePunch ? (
+                                <p className="text-xs text-slate-400 mt-1">
+                                    Future working days only.
+                                    {minimumDate ? ` Earliest date is ${minimumDate}.` : ''} Reason is required.
+                                </p>
+                            ) : !isAnnualLeave ? (
                                 <p className="text-xs text-slate-400 mt-1">
                                     Today and tomorrow cannot be requested.
-                                    {minimumDate ? ` Earliest date is ${minimumDate}.` : ''}
+                                    {minimumDate ? ` Earliest date is ${minimumDate}.` : ''} Reason is required.
                                 </p>
                             ) : earliestDate ? (
                                 <p className="text-xs text-slate-400 mt-1">
@@ -383,7 +438,7 @@ export default function AttendanceFutureRequestModal({
                         ) : null}
                     </div>
 
-                    {!isAnnualLeave ? (
+                    {!isAnnualLeave && !isSingleDate ? (
                         <div>
                             <span className={labelClass}>Leave duration</span>
                             <div className="grid grid-cols-2 gap-2">
@@ -412,7 +467,7 @@ export default function AttendanceFutureRequestModal({
                         </div>
                     ) : null}
 
-                    {isAnnualLeave || leaveDuration ? (
+                    {isAnnualLeave || isSingleDate || leaveDuration ? (
                     <>
                     {durationLabel ? (
                         <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-3.5 py-2.5">
@@ -425,18 +480,28 @@ export default function AttendanceFutureRequestModal({
                         </div>
                     ) : null}
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className={isSingleDate ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-2 gap-3'}>
                         <label className="block">
-                            <span className={labelClass}>Start date</span>
+                            <span className={labelClass}>{isSingleDate ? 'Date' : 'Start date'}</span>
                             <input
                                 type="date"
                                 value={fromDate}
-                                min={minimumDate || earliestDate || undefined}
-                                onChange={(e) => handleFromDateChange(e.target.value)}
+                                min={isMispunch ? undefined : minimumDate || earliestDate || undefined}
+                                max={isMispunch ? todayKey : undefined}
+                                onChange={(e) => {
+                                    if (isSingleDate) {
+                                        setFromDate(e.target.value);
+                                        setToDate(e.target.value);
+                                        setLocalError('');
+                                        return;
+                                    }
+                                    handleFromDateChange(e.target.value);
+                                }}
                                 disabled={submitting}
                                 className={fieldClass}
                             />
                         </label>
+                        {isSingleDate ? null : (
                         <label className="block">
                             <span className={labelClass}>End date</span>
                             <input
@@ -458,13 +523,14 @@ export default function AttendanceFutureRequestModal({
                                 className={fieldClass}
                             />
                         </label>
+                        )}
                     </div>
 
                     {authorizedBlock ? (
                         <p className="text-sm font-medium text-rose-600">{authorizedBlock}</p>
                     ) : null}
 
-                    {!isAnnualLeave && leaveDuration === 'single' ? (
+                    {!isAnnualLeave && !isSingleDate && leaveDuration === 'single' ? (
                         <label className="block">
                             <span className={labelClass}>Time</span>
                             <select
@@ -521,11 +587,12 @@ export default function AttendanceFutureRequestModal({
                     ) : null}
 
                     <label className="block">
-                        <span className={labelClass}>Description (optional)</span>
+                        <span className={labelClass}>{reasonRequired ? 'Reason' : 'Reason (optional)'}</span>
                         <textarea
                             value={reason}
                             onChange={(e) => setReason(e.target.value)}
                             rows={3}
+                            required={reasonRequired}
                             placeholder="Briefly explain this request…"
                             className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/80 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 resize-y min-h-[88px]"
                         />

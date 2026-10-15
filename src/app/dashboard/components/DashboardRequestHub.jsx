@@ -25,6 +25,7 @@ import { HUB_ASSET_TYPES, HUB_KINDS } from '@/utils/employeeHubRequest';
 import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import { notifyFinePendingInboxChanged } from '@/app/HRM/Fine/utils/finePendingInboxCount';
 import { notifyLoanPendingInboxChanged } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
+import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import { notifyLeavePendingInboxChanged } from '@/app/HRM/Leave/utils/leavePendingInboxCount';
 import { notifyAssetPendingInboxChanged } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { dashboardItem } from './dashboardMotion';
@@ -351,7 +352,7 @@ function DecideModal({ request, canDecide, submitting, error, onClose, onDecide 
                     {canDecide ? (
                         <label className="block">
                             <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                                Note <span className="normal-case tracking-normal font-medium">(optional)</span>
+                                Note <span className="normal-case tracking-normal font-medium">(required to reject)</span>
                             </span>
                             <textarea
                                 value={note}
@@ -367,7 +368,7 @@ function DecideModal({ request, canDecide, submitting, error, onClose, onDecide 
                         <div className="flex justify-end gap-2 pt-1">
                             <button
                                 type="button"
-                                disabled={submitting}
+                                disabled={submitting || !String(note || '').trim()}
                                 onClick={() => onDecide('Rejected', note)}
                                 className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-60"
                             >
@@ -564,23 +565,39 @@ export default function DashboardRequestHub() {
         setSubmitting(true);
         setError('');
         try {
-            const res = await axiosInstance.post(
-                '/Attendance/me/future-request',
-                {
-                    date: fromDate || leaveDateKey,
-                    fromDate: fromDate || leaveDateKey,
-                    toDate: toDate || fromDate || leaveDateKey,
-                    kind: kind || (leaveVariant === 'annual' ? 'annual_leave' : 'leave'),
-                    dayPart: dayPart || 'full',
-                    session: session || '',
-                    timeIn: timeIn || '',
-                    timeOut: timeOut || '',
-                    reason,
-                    attachmentName: attachmentName || '',
-                },
-                { skipToast: true },
-            );
-            notifyLeavePendingInboxChanged();
+            const requestKind = kind || (leaveVariant === 'annual' ? 'annual_leave' : 'leave');
+            const res =
+                requestKind === 'mispunch'
+                    ? await axiosInstance.post(
+                          '/Attendance/me/yellow-request',
+                          {
+                              date: fromDate || leaveDateKey,
+                              reason,
+                              attachmentName: attachmentName || '',
+                          },
+                          { skipToast: true },
+                      )
+                    : await axiosInstance.post(
+                          '/Attendance/me/future-request',
+                          {
+                              date: fromDate || leaveDateKey,
+                              fromDate: fromDate || leaveDateKey,
+                              toDate: toDate || fromDate || leaveDateKey,
+                              kind: requestKind,
+                              dayPart: dayPart || 'full',
+                              session: session || '',
+                              timeIn: timeIn || '',
+                              timeOut: timeOut || '',
+                              reason,
+                              attachmentName: attachmentName || '',
+                          },
+                          { skipToast: true },
+                      );
+            if (requestKind === 'leave' || requestKind === 'annual_leave') {
+                notifyLeavePendingInboxChanged();
+            } else {
+                notifyAttendancePendingInboxChanged();
+            }
             window.dispatchEvent(new CustomEvent(ATTENDANCE_CHECK_CHANGED));
             window.dispatchEvent(new CustomEvent(MY_REQUESTS_CHANGED));
             toast({
@@ -632,6 +649,10 @@ export default function DashboardRequestHub() {
 
     const submitDecision = async (decision, note) => {
         if (!decide?.request?.id) return;
+        if (decision === 'Rejected' && !String(note || '').trim()) {
+            setError('Reject reason is required.');
+            return;
+        }
         setSubmitting(true);
         setError('');
         try {
@@ -747,12 +768,32 @@ export default function DashboardRequestHub() {
                     dateKey={leaveDateKey}
                     earliestDate={leaveEarliestDate}
                     scheduleWeek={leaveScheduleWeek}
-                    variant={leaveVariant === 'annual' ? 'annual' : 'authorized'}
+                    variant={
+                        leaveVariant === 'annual'
+                            ? 'annual'
+                            : leaveVariant === 'late'
+                              ? 'late'
+                              : leaveVariant === 'early'
+                                ? 'early'
+                                : leaveVariant === 'mispunch'
+                                  ? 'mispunch'
+                                  : 'authorized'
+                    }
                     holidayDates={leaveHolidayDates}
                     offWeekdays={leaveOffWeekdays}
                     submitting={submitting}
                     error={error}
-                    heading={leaveVariant === 'annual' ? 'Annual leave' : 'Authorized leave'}
+                    heading={
+                        leaveVariant === 'annual'
+                            ? 'Annual leave'
+                            : leaveVariant === 'late'
+                              ? 'Late arrival'
+                              : leaveVariant === 'early'
+                                ? 'Early go'
+                                : leaveVariant === 'mispunch'
+                                  ? 'Mispunch'
+                                  : 'Authorized leave'
+                    }
                     eyebrow="Request"
                     icon={
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-sky-50 text-sky-600">

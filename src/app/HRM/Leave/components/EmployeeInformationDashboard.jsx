@@ -57,8 +57,11 @@ import {
     buildMonthWorkWeeks,
     buildWeeklySalaryAddition,
     emptyWeeklySalaryAddition,
+    compOffReferenceLinks,
     formatHourMeasure,
+    leaveDatesTakenByOvertime,
 } from '../utils/weeklySalaryAddition';
+import { employeePendingRequests } from '../utils/pendingCalendarDays';
 import { punchAttendanceKind } from '../utils/punchAttendanceKind';
 import { mispunchDayAmounts, mispunchPolicyRule } from '../utils/mispunchDeduction';
 
@@ -404,22 +407,49 @@ function recordWorkedMinutes(record) {
     return hours > 0 ? Math.round(hours * 60) : null;
 }
 
-function buildApprovedOtRows(records, monthKey) {
+/** The leave-day placeholder. The overtime work day stays, and its date is moved to the leave. */
+function overtimePlaceholderDay(row) {
+    if (String(row?.statusKey || '') === 'compoff_leave') return true;
+    const inn = String(row?.timeIn || '').trim();
+    const out = String(row?.timeOut || '').trim();
+    if (inn === 'OT' || out === 'OT') return true;
+    return Boolean(String(row?.flexibleFromOtDate || '').trim());
+}
+
+function punchRowRank(row) {
+    const inn = String(row?.timeIn || '').trim();
+    return inn && inn !== 'OT' ? 1 : 0;
+}
+
+function buildApprovedOtRows(records, monthKey, notesByDate = {}, countTo = '') {
     const prefix = String(monthKey || '');
-    return (records || [])
-        .filter((row) => {
-            const date = String(row?.date || '');
-            if (prefix && !date.startsWith(prefix)) return false;
-            if (String(row?.flexibleOtStatus || '').trim() !== 'approved') return false;
-            return (Number(row?.flexibleOtApprovedHours) || 0) > 0;
-        })
-        .map((row) => {
+    const taken = leaveDatesTakenByOvertime(records, monthKey);
+    const byDate = new Map();
+    (records || []).forEach((row) => {
+        const date = String(row?.date || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || (prefix && !date.startsWith(prefix))) return;
+        if (String(row?.flexibleOtStatus || '').trim() !== 'approved') return;
+        if (!((Number(row?.flexibleOtApprovedHours) || 0) > 0)) return;
+        if (overtimePlaceholderDay(row)) return;
+        const inside = !countTo || date <= countTo;
+        const noted = Number(notesByDate?.[date]?.otHours) || 0;
+        const stored = Number(row.flexibleOtApprovedHours) || 0;
+        const approvedHours = inside && noted > 0 ? noted : stored;
+        if (!(approvedHours > 0)) return;
+        if (inside && !(noted > 0) && !taken.has(date) && !String(notesByDate?.[date]?.givenTo || '').trim()) return;
+        const current = byDate.get(date);
+        if (!current || punchRowRank(row) >= punchRowRank(current.row)) {
+            byDate.set(date, { row, approvedHours });
+        }
+    });
+    return [...byDate.values()]
+        .flatMap(({ row, approvedHours }) => {
             const minutes = recordWorkedMinutes(row);
-            const approvedHours = Number(row.flexibleOtApprovedHours) || 0;
-            return {
+            const base = {
                 id: String(row._id || row.date),
                 date: row.date,
                 dateLabel: formatDayLabel(row.date),
+                workDate: row.date,
                 timeIn: formatClock12(row.timeIn),
                 timeOut: formatClock12(row.timeOut),
                 timeOutNextDay: isNextDayCheckout({
@@ -432,10 +462,97 @@ function buildApprovedOtRows(records, monthKey) {
                 approvedHours,
                 approvedLabel: formatHourMeasure(approvedHours),
                 description: String(row.flexibleOtReason || '').trim(),
-                placedOn: String(row.flexibleOtNextDayDate || '').trim(),
+                placedOn: '',
             };
+            return rowsForLeaveTaken(base, taken.get(row.date) || [], notesByDate?.[row.date]);
         })
         .sort((left, right) => String(right.date).localeCompare(String(left.date)));
+}
+
+function rowOnLeaveDate(row, leaveDate, hours = row.approvedHours) {
+    const approvedHours = Math.round((Number(hours) || 0) * 100) / 100;
+    return {
+        ...row,
+        id: `${row.id}-${leaveDate}`,
+        date: leaveDate,
+        dateLabel: formatDayLabel(leaveDate),
+        workDate: row.workDate || row.date,
+        approvedHours,
+        approvedLabel: formatHourMeasure(approvedHours),
+    };
+}
+
+/** The date shown is the leave day taken, not the overtime request or approval day. */
+function rowsForLeaveTaken(row, uses, note) {
+    const whole = (uses || []).find((use) => !(Number(use?.hours) > 0));
+    const given = String(note?.givenTo || '').trim();
+    if (whole?.date) return [rowOnLeaveDate(row, whole.date)];
+    const parts = (uses || []).filter((use) => Number(use?.hours) > 0 && use?.date);
+    if (!parts.length) {
+        return [given && given !== row.date ? rowOnLeaveDate(row, given) : row];
+    }
+    const placed = [];
+    let left = Math.round((Number(row.approvedHours) || 0) * 100) / 100;
+    parts.forEach((use) => {
+        const hours = Math.round(Math.min(left, Number(use.hours) || 0) * 100) / 100;
+        if (!(hours > 0)) return;
+        left = Math.round((left - hours) * 100) / 100;
+        placed.push(rowOnLeaveDate(row, use.date, hours));
+    });
+    if (left > 0) {
+        placed.push({
+            ...row,
+            approvedHours: left,
+            approvedLabel: formatHourMeasure(left),
+        });
+    }
+    return placed.length ? placed : [row];
+}
+
+function hasRealClock(row) {
+    const inn = String(row?.timeIn || '').trim();
+    const out = String(row?.timeOut || '').trim();
+    return Boolean((inn && inn !== 'OT') || (out && out !== 'OT'));
+}
+
+function dayCountLabel(count) {
+    const total = Math.max(0, Math.round(Number(count) || 0));
+    return `${total} ${total === 1 ? 'day' : 'days'}`;
+}
+
+function buildCompOffReferenceRows(records, monthKey) {
+    const byDate = new Map();
+    (records || []).forEach((row) => {
+        const date = String(row?.date || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+        const current = byDate.get(date);
+        if (!current || punchRowRank(row) >= punchRowRank(current)) byDate.set(date, row);
+    });
+    return compOffReferenceLinks(records, monthKey).map((link) => {
+        const day = byDate.get(link.date) || {};
+        const source = (link.sourceDates || [])
+            .map((date) => byDate.get(date))
+            .find((row) => row && hasRealClock(row)) || null;
+        const punch = hasRealClock(day) ? day : (source || day);
+        const minutes = recordWorkedMinutes(punch);
+        const approvedDates = (link.sourceDates || []).map((date) => formatDayLabel(date)).filter((label) => label && label !== '—');
+        return {
+            id: String(day._id || link.date),
+            date: link.date,
+            dateLabel: formatDayLabel(link.date),
+            timeIn: formatClock12(punch?.timeIn),
+            timeOut: formatClock12(punch?.timeOut),
+            timeOutNextDay: isNextDayCheckout({
+                date: punch?.date || link.date,
+                timeIn: punch?.timeIn,
+                timeOut: punch?.timeOut,
+                timeOutDate: punch?.timeOutDate,
+            }),
+            workedLabel: minutes == null ? '—' : formatHourMinute(minutes),
+            otApprovedLabel: approvedDates.length ? approvedDates.join(', ') : '—',
+            description: link.description,
+        };
+    });
 }
 
 function dubaiNowMinutes() {
@@ -1408,9 +1525,12 @@ function DayTip({
             {requestLines.length ? (
                 <div className="mb-2 space-y-1 rounded-lg bg-[#FEF2F2] px-2 py-1.5">
                     {requestLines.map((line, index) => (
-                        <p key={`${line.label}-${line.requestedBy}-${index}`} className="text-[12px] leading-snug text-[#991B1B]">
+                        <p key={`${line.label}-${line.requestedBy}-${line.pendingWith}-${index}`} className="text-[12px] leading-snug text-[#991B1B]">
                             <span className="font-semibold">{line.label}</span>
                             <span className="font-medium"> — requested by {line.requestedBy}</span>
+                            {line.pendingWith ? (
+                                <span className="mt-0.5 block font-medium">Pending with {line.pendingWith}</span>
+                            ) : null}
                         </p>
                     ))}
                 </div>
@@ -1537,7 +1657,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     if (dayNote?.takenFrom) compOffLines.push(`Comp off taken from ${formatDayLabel(dayNote.takenFrom)}`);
     const showTip = hoveredDate === dateKey && inMonth && !beforeStart && !ctx.salaryLock?.locked;
     const canOpenMark = Boolean(markTarget?.employeeId) && inMonth && !beforeStart;
-    const requestLines = compact && inMonth && !beforeStart
+    const requestLines = inMonth && !beforeStart
         ? (ctx.pendingRequestsByDate?.get(dateKey) || [])
         : [];
     const requestPending = requestLines.length > 0;
@@ -1618,6 +1738,7 @@ function groupPendingRequests(requests) {
         byDate.get(date).push({
             label,
             requestedBy: String(row?.requestedBy || '').trim() || 'Employee',
+            pendingWith: String(row?.pendingWith || '').trim(),
         });
     }
     return byDate;
@@ -2467,6 +2588,8 @@ export default function EmployeeInformationDashboard({
     const [additionModal, setAdditionModal] = useState('');
     const [otPage, setOtPage] = useState(1);
     const [otView, setOtView] = useState(null);
+    const [compOffPage, setCompOffPage] = useState(1);
+    const [compOffView, setCompOffView] = useState(null);
     const [groupKey, setGroupKey] = useState('');
     const [groupMenuOpen, setGroupMenuOpen] = useState(false);
     const [prepPage, setPrepPage] = useState(1);
@@ -2476,6 +2599,7 @@ export default function EmployeeInformationDashboard({
     useEffect(() => {
         setPrepPage(1);
         setOtPage(1);
+        setCompOffPage(1);
     }, [employeeMongoId, period, monthKey]);
 
     useEffect(() => {
@@ -3118,13 +3242,20 @@ export default function EmployeeInformationDashboard({
     const prepPageSafe = Math.min(prepPage, prepPageCount);
     const taskPageSafe = Math.min(taskPage, taskPageCount);
     const approvedOtRows = useMemo(
-        () => buildApprovedOtRows(monthRecords, monthKey),
-        [monthRecords, monthKey],
+        () => buildApprovedOtRows(monthRecords, monthKey, calendarNotes, countTo),
+        [monthRecords, monthKey, calendarNotes, countTo],
     );
     const approvedOtTotal = approvedOtRows.reduce((sum, row) => sum + row.approvedHours, 0);
     const otPageCount = Math.max(1, Math.ceil(approvedOtRows.length / CARD_PAGE_SIZE));
     const otPageSafe = Math.min(otPage, otPageCount);
     const otPageRows = approvedOtRows.slice((otPageSafe - 1) * CARD_PAGE_SIZE, otPageSafe * CARD_PAGE_SIZE);
+    const compOffRows = useMemo(
+        () => buildCompOffReferenceRows(monthRecords, monthKey),
+        [monthRecords, monthKey],
+    );
+    const compOffPageCount = Math.max(1, Math.ceil(compOffRows.length / CARD_PAGE_SIZE));
+    const compOffPageSafe = Math.min(compOffPage, compOffPageCount);
+    const compOffPageRows = compOffRows.slice((compOffPageSafe - 1) * CARD_PAGE_SIZE, compOffPageSafe * CARD_PAGE_SIZE);
     const pendingPageRows = pending.slice((prepPageSafe - 1) * CARD_PAGE_SIZE, prepPageSafe * CARD_PAGE_SIZE);
     const taskPageRows = workTasks.slice((taskPageSafe - 1) * CARD_PAGE_SIZE, taskPageSafe * CARD_PAGE_SIZE);
     const oldestMonth = choices[choices.length - 1] || currentMonth;
@@ -3175,6 +3306,12 @@ export default function EmployeeInformationDashboard({
         calendarNotes,
         adjustmentByDate,
         visibleFrom: '',
+        pendingRequestsByDate: employeePendingRequests({
+            records: monthRecords,
+            pending,
+            monthKey,
+            employeeName: employee.name,
+        }),
     };
     const selectedGroupLabel = staffGroups.find((group) => group.key === groupKey)?.label || '';
 
@@ -3806,6 +3943,22 @@ export default function EmployeeInformationDashboard({
 
                 <div className="flex min-w-0 flex-col gap-3">
                     <section className="relative rounded-2xl border border-[#E6EDF5] bg-white px-4 py-[14px]">
+                        <style>{`
+                            @keyframes attendance-request-blink {
+                                0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+                                45% { opacity: 0.35; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.45); }
+                                70% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+                            }
+                            .attendance-request-blink {
+                                animation: attendance-request-blink 2.4s ease-in-out infinite;
+                            }
+                            @media (prefers-reduced-motion: reduce) {
+                                .attendance-request-blink {
+                                    animation: none;
+                                    box-shadow: inset 0 0 0 2px rgba(220, 38, 38, 0.75);
+                                }
+                            }
+                        `}</style>
                         <div className="mb-2.5 flex items-center gap-2">
                             <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#EEF2FF] text-[#2563EB]">
                                 <CalendarDays size={16} strokeWidth={2.25} />
@@ -4064,7 +4217,7 @@ export default function EmployeeInformationDashboard({
                                 OT reference ({monthLoading ? '…' : formatHourMeasure(approvedOtTotal)} approved)
                             </p>
                             <p className="mt-0.5 text-[12px] text-[#94A3B8]">
-                                Approved overtime in {formatMonthLabel(monthKey)}
+                                Approved overtime in {formatMonthLabel(monthKey)}. When it covers a leave, the date is that leave day.
                             </p>
                         </div>
                         <div className="min-h-0 flex-1 overflow-x-auto">
@@ -4122,6 +4275,71 @@ export default function EmployeeInformationDashboard({
                             onPage={setOtPage}
                         />
                     </section>
+
+                    <section className="flex min-h-[240px] flex-1 flex-col overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white">
+                        <div className="border-b border-[#EEF2F6] px-4 py-3">
+                            <p className="text-[14px] font-bold text-[#1B2A4A]">
+                                Comp off reference ({monthLoading ? '…' : dayCountLabel(compOffRows.length)})
+                            </p>
+                            <p className="mt-0.5 text-[12px] text-[#94A3B8]">
+                                Comp off days in {formatMonthLabel(monthKey)}.
+                            </p>
+                        </div>
+                        <div className="min-h-0 flex-1 overflow-x-auto">
+                            <table className="w-full min-w-[720px] border-collapse text-left">
+                                <thead>
+                                    <tr className="border-b border-[#EEF2F6]">
+                                        <th className={TH}>Date</th>
+                                        <th className={TH}>Time In</th>
+                                        <th className={TH}>Time Out</th>
+                                        <th className={TH}>Total hrs worked</th>
+                                        <th className={TH}>OT approved date</th>
+                                        <th className={`${TH} w-[5.5rem]`}>View</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {monthLoading ? (
+                                        <tr>
+                                            <td colSpan={6} className="px-3 py-6 text-center text-[13px] text-[#94A3B8]">
+                                                Loading comp off…
+                                            </td>
+                                        </tr>
+                                    ) : compOffPageRows.length ? compOffPageRows.map((row) => (
+                                        <tr key={row.id} className="border-b border-[#F4F7FB] last:border-0">
+                                            <td className={`${TD} whitespace-nowrap font-medium`}>{row.dateLabel}</td>
+                                            <td className={`${TD} whitespace-nowrap`}>{row.timeIn}</td>
+                                            <td className={`${TD} whitespace-nowrap`}>
+                                                <NextDayCheckoutTime time={row.timeOut} nextDay={row.timeOutNextDay} />
+                                            </td>
+                                            <td className={`${TD} whitespace-nowrap tabular-nums`}>{row.workedLabel}</td>
+                                            <td className={`${TD} whitespace-nowrap font-semibold`}>{row.otApprovedLabel}</td>
+                                            <td className={TD}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setCompOffView(row)}
+                                                    className={OUTLINE_BTN}
+                                                >
+                                                    View
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    )) : (
+                                        <tr>
+                                            <td colSpan={6} className="px-3 py-6 text-[13px] text-[#94A3B8]">
+                                                No comp off in {formatMonthLabel(monthKey)}.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                        <CardPageBar
+                            page={compOffPageSafe}
+                            pageCount={compOffPageCount}
+                            total={compOffRows.length}
+                            onPage={setCompOffPage}
+                        />
+                    </section>
                 </div>
             </div>
             )}
@@ -4142,6 +4360,11 @@ export default function EmployeeInformationDashboard({
                                 <p className="mt-0.5 text-[12px] text-[#64748B]">
                                     {otView.dateLabel} · {otView.approvedLabel}
                                 </p>
+                                {otView.workDate && otView.workDate !== otView.date ? (
+                                    <p className="mt-1 text-[12px] text-[#64748B]">
+                                        Leave taken on this date. Overtime was worked on {formatDayLabel(otView.workDate)}.
+                                    </p>
+                                ) : null}
                             </div>
                             <button type="button" onClick={() => setOtView(null)} className="rounded-lg p-2 text-[#94A3B8] hover:bg-[#F8FAFC] hover:text-[#1B2A4A]" aria-label="Close">
                                 <X size={18} />
@@ -4157,6 +4380,41 @@ export default function EmployeeInformationDashboard({
                                     Present from this overtime was placed on {formatDayLabel(otView.placedOn)}.
                                 </p>
                             ) : null}
+                        </div>
+                    </div>
+                </div>,
+                document.body,
+            ) : null}
+            {compOffView && typeof document !== 'undefined' ? createPortal(
+                <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/40 p-4" onClick={() => setCompOffView(null)} role="presentation">
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="comp-off-description-title"
+                        className="w-full max-w-md overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white shadow-2xl"
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <div className="flex items-start justify-between gap-3 border-b border-[#EEF2F6] px-5 py-4">
+                            <div>
+                                <h3 id="comp-off-description-title" className="text-[15px] font-bold text-[#1B2A4A]">
+                                    Comp off
+                                </h3>
+                                <p className="mt-0.5 text-[12px] text-[#64748B]">
+                                    {compOffView.dateLabel}
+                                    {compOffView.otApprovedLabel && compOffView.otApprovedLabel !== '—'
+                                        ? ` · OT approved ${compOffView.otApprovedLabel}`
+                                        : ''}
+                                </p>
+                            </div>
+                            <button type="button" onClick={() => setCompOffView(null)} className="rounded-lg p-2 text-[#94A3B8] hover:bg-[#F8FAFC] hover:text-[#1B2A4A]" aria-label="Close">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="px-5 py-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#94A3B8]">Description</p>
+                            <p className="mt-1.5 text-[13px] font-medium leading-snug text-[#1B2A4A]">
+                                {compOffView.description || 'No description was saved for this comp off.'}
+                            </p>
                         </div>
                     </div>
                 </div>,

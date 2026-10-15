@@ -126,6 +126,8 @@ export default function AnnualLeaveFilterModal({
     const [eligibilityLoading, setEligibilityLoading] = useState(false);
     const [datesBlink, setDatesBlink] = useState(false);
     const [dateEditMode, setDateEditMode] = useState(false);
+    const [rejecting, setRejecting] = useState(false);
+    const [rejectReason, setRejectReason] = useState('');
     const isApplyMode = applyLabel === 'Apply' && !showReject;
     const showHrOverride = isApplyMode && isDesignatedHr;
     const showAnnualEligibility =
@@ -304,12 +306,22 @@ export default function AnnualLeaveFilterModal({
 
     const handleReject = () => {
         if (submitting) return;
+        if (!rejecting) {
+            setRejecting(true);
+            setError('');
+            return;
+        }
+        if (!String(rejectReason).trim()) {
+            setError('Reject reason is required.');
+            return;
+        }
         onReject?.({
             employeeId,
             startDate,
             endDate,
             employee: selectedEmployee,
             leaveMode,
+            rejectReason: String(rejectReason).trim(),
         });
     };
 
@@ -557,14 +569,27 @@ export default function AnnualLeaveFilterModal({
                         Cancel
                     </button>
                     {showReject ? (
-                        <button
-                            type="button"
-                            onClick={handleReject}
-                            disabled={submitting}
-                            className="min-w-[110px] flex-1 rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                            {submitting ? 'Saving...' : rejectLabel}
-                        </button>
+                        <>
+                            {rejecting ? (
+                                <label className="min-w-full text-xs font-semibold text-slate-500">
+                                    Reject reason
+                                    <textarea
+                                        value={rejectReason}
+                                        onChange={(event) => setRejectReason(event.target.value)}
+                                        rows={3}
+                                        className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm text-slate-800"
+                                    />
+                                </label>
+                            ) : null}
+                            <button
+                                type="button"
+                                onClick={handleReject}
+                                disabled={submitting || (rejecting && !String(rejectReason).trim())}
+                                className="min-w-[110px] flex-1 rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                {submitting ? 'Saving...' : rejecting ? 'Confirm reject' : rejectLabel}
+                            </button>
+                        </>
                     ) : null}
                     {showNotEligibleGate ? (
                         <>

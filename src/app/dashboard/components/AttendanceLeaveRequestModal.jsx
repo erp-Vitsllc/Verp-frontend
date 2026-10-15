@@ -6,16 +6,22 @@ import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, 
 
 const LEAVE_OPTIONS = [
     {
+        key: 'authorized_leave',
+        label: 'Authorized leave',
+        swatch: 'bg-[#2563EB]',
+        selected: 'border-[#2563EB] bg-blue-50/80',
+    },
+    {
         key: 'sick_leave',
         label: 'Sick Leave',
         swatch: 'bg-[#22C55E]',
         selected: 'border-[#22C55E] bg-emerald-50/80',
     },
     {
-        key: 'on_leave',
-        label: 'Other leave',
-        swatch: 'bg-[#6366F1]',
-        selected: 'border-[#6366F1] bg-indigo-50/80',
+        key: 'late_arrived',
+        label: 'Late arrival',
+        swatch: 'bg-[#F1C40F]',
+        selected: 'border-[#F1C40F] bg-amber-50/80',
     },
 ];
 
@@ -32,6 +38,8 @@ export default function AttendanceLeaveRequestModal({
     const [selectedKey, setSelectedKey] = useState('');
     const [reason, setReason] = useState('');
     const [attachment, setAttachment] = useState(null);
+    const [timeIn, setTimeIn] = useState('');
+    const [timeOut, setTimeOut] = useState('');
     const [localError, setLocalError] = useState('');
 
     useEffect(() => {
@@ -39,6 +47,8 @@ export default function AttendanceLeaveRequestModal({
         setSelectedKey('');
         setReason('');
         setAttachment(null);
+        setTimeIn('');
+        setTimeOut('');
         setLocalError('');
     }, [isOpen, dateKey]);
 
@@ -65,16 +75,28 @@ export default function AttendanceLeaveRequestModal({
         }
         const trimmed = String(reason || '').trim();
         if (!trimmed) {
-            setLocalError('Description is required.');
+            setLocalError('Reason is required.');
             return;
         }
-        if (!attachment?.name) {
-            setLocalError('Attachment is required.');
+        if (selectedKey === 'sick_leave' && !attachment?.name) {
+            setLocalError('A document is required for sick leave.');
             return;
         }
-        const attachmentCheck = validateErpUploadFile(attachment);
-        if (!attachmentCheck.ok) {
-            setLocalError(attachmentCheck.message);
+        if (attachment) {
+            const attachmentCheck = validateErpUploadFile(attachment);
+            if (!attachmentCheck.ok) {
+                setLocalError(attachmentCheck.message);
+                return;
+            }
+        }
+        const arrived = String(timeIn || '').trim();
+        const left = String(timeOut || '').trim();
+        if (selectedKey === 'late_arrived' && (!arrived || !left)) {
+            setLocalError('Check-in time and check-out time are required.');
+            return;
+        }
+        if (selectedKey === 'late_arrived' && left <= arrived) {
+            setLocalError('Check-out time must be after check-in time.');
             return;
         }
         setLocalError('');
@@ -83,7 +105,9 @@ export default function AttendanceLeaveRequestModal({
             requestedStatusKey: selectedKey,
             requestedStatusLabel: opt?.label || selectedKey,
             reason: trimmed,
-            attachmentName: attachment.name,
+            attachmentName: selectedKey === 'sick_leave' ? attachment?.name || '' : '',
+            timeIn: selectedKey === 'late_arrived' ? arrived : '',
+            timeOut: selectedKey === 'late_arrived' ? left : '',
         });
     };
 
@@ -161,9 +185,38 @@ export default function AttendanceLeaveRequestModal({
                         </div>
                     </div>
 
+                    {selectedKey === 'late_arrived' ? (
+                        <div className="grid grid-cols-2 gap-3">
+                            <label className="block">
+                                <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                                    Check in
+                                </span>
+                                <input
+                                    type="time"
+                                    value={timeIn}
+                                    onChange={(e) => setTimeIn(e.target.value)}
+                                    required
+                                    className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50/80 text-sm text-slate-900"
+                                />
+                            </label>
+                            <label className="block">
+                                <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                                    Check out
+                                </span>
+                                <input
+                                    type="time"
+                                    value={timeOut}
+                                    onChange={(e) => setTimeOut(e.target.value)}
+                                    required
+                                    className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50/80 text-sm text-slate-900"
+                                />
+                            </label>
+                        </div>
+                    ) : null}
+
                     <label className="block">
                         <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                            Description
+                            Reason
                         </span>
                         <textarea
                             value={reason}
@@ -175,9 +228,10 @@ export default function AttendanceLeaveRequestModal({
                         />
                     </label>
 
+                    {selectedKey === 'sick_leave' ? (
                     <div>
                         <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                            Attachment
+                            Document
                         </span>
                         <input
                             ref={fileRef}
@@ -204,6 +258,7 @@ export default function AttendanceLeaveRequestModal({
                             </span>
                         </button>
                     </div>
+                    ) : null}
 
                     {localError || error ? (
                         <p className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">

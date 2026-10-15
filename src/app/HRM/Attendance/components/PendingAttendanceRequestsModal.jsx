@@ -142,6 +142,8 @@ export default function PendingAttendanceRequestsModal({
     const [editOut, setEditOut] = useState('');
     const [editHours, setEditHours] = useState('');
     const [deciding, setDeciding] = useState(false);
+    const [rejecting, setRejecting] = useState(false);
+    const [rejectReason, setRejectReason] = useState('');
     const itemsRef = useRef(items);
     itemsRef.current = items;
 
@@ -207,6 +209,8 @@ export default function PendingAttendanceRequestsModal({
     useEffect(() => {
         if (!review) return;
         setEditingReview(false);
+        setRejecting(false);
+        setRejectReason('');
         setEditIn(clockInputValue(review.timeIn));
         setEditOut(clockInputValue(review.timeOut));
         const stored =
@@ -237,6 +241,7 @@ export default function PendingAttendanceRequestsModal({
     const decideChange = async (decision) => {
         const id = String(review?.id || review?.dashboardActionId || '').trim();
         if (!id || deciding) return;
+        if (decision === 'rejected' && !String(rejectReason).trim()) return;
         setDeciding(true);
         try {
             const showHours = review?.action === 'hour_adjust' || review?.action === 'flexible_ot';
@@ -248,6 +253,7 @@ export default function PendingAttendanceRequestsModal({
                 ...(decision === 'approved' && showHours && editHours !== ''
                     ? { approvedHours: Number(editHours) }
                     : {}),
+                ...(decision === 'rejected' ? { rejectReason: String(rejectReason).trim() } : {}),
             });
             toast({
                 title: decision === 'approved' ? 'Approved' : 'Rejected',
@@ -375,6 +381,17 @@ export default function PendingAttendanceRequestsModal({
                                     {review.reason}
                                 </p>
                             ) : null}
+                            {rejecting ? (
+                                <label className="block text-xs font-semibold text-slate-500">
+                                    Reject reason
+                                    <textarea
+                                        value={rejectReason}
+                                        onChange={(event) => setRejectReason(event.target.value)}
+                                        rows={3}
+                                        className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm text-slate-800"
+                                    />
+                                </label>
+                            ) : null}
                         </div>
                         <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
                             <button
@@ -395,11 +412,17 @@ export default function PendingAttendanceRequestsModal({
                             </button>
                             <button
                                 type="button"
-                                disabled={deciding}
-                                onClick={() => decideChange('rejected')}
-                                className="h-9 px-3 rounded-lg border border-rose-200 text-sm font-semibold text-rose-700"
+                                disabled={deciding || (rejecting && !String(rejectReason).trim())}
+                                onClick={() => {
+                                    if (!rejecting) {
+                                        setRejecting(true);
+                                        return;
+                                    }
+                                    decideChange('rejected');
+                                }}
+                                className="h-9 px-3 rounded-lg border border-rose-200 text-sm font-semibold text-rose-700 disabled:opacity-50"
                             >
-                                Reject
+                                {rejecting ? 'Confirm reject' : 'Reject'}
                             </button>
                             <button
                                 type="button"

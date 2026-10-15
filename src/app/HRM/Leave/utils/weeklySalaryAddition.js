@@ -860,3 +860,149 @@ function buildBalancePay({
         ],
     };
 }
+
+/**
+ * Leave day an approved overtime was taken for.
+ * A direct placement uses the chosen leave day. A comp-off settlement takes the earliest overtime.
+ * hours 0 means the whole approval belongs on that leave day.
+ */
+export function leaveDatesTakenByOvertime(records = [], monthKey = '') {
+    const prefix = String(monthKey || '');
+    const inMonth = (date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && (!prefix || date.startsWith(prefix));
+    const direct = new Map();
+    const sources = [];
+    const leaves = [];
+    const seenSource = new Set();
+    const seenLeave = new Set();
+
+    for (const row of records || []) {
+        const date = String(row?.date || '').trim();
+        if (!inMonth(date)) continue;
+        const nextDay = String(row?.flexibleOtNextDayDate || '').trim();
+        const fromDay = String(row?.flexibleFromOtDate || '').trim();
+        if (nextDay && /^\d{4}-\d{2}-\d{2}$/.test(nextDay)) direct.set(date, nextDay);
+        if (fromDay && /^\d{4}-\d{2}-\d{2}$/.test(fromDay)) direct.set(fromDay, date);
+
+        if (String(row?.statusKey || '') === 'compoff_leave' && !seenLeave.has(date)) {
+            const charge = String(row?.compOff?.chargeMonth || '').trim() || date.slice(0, 7);
+            if ((!prefix || charge === prefix) && String(row?.compOff?.state || '') === 'adjusted') {
+                seenLeave.add(date);
+                leaves.push({
+                    date,
+                    hours: roundHours(row?.compOff?.otHoursDeducted) || COMP_OFF_DAY_HOURS,
+                });
+            }
+        }
+
+        if (seenSource.has(date)) continue;
+        if (String(row?.flexibleOtStatus || '') !== 'approved') continue;
+        if (nextDay || fromDay) continue;
+        const inn = String(row?.timeIn || '').trim();
+        const out = String(row?.timeOut || '').trim();
+        if (inn === 'OT' || out === 'OT') continue;
+        const hours = roundHours(row?.flexibleOtApprovedHours);
+        if (!(hours > 0)) continue;
+        seenSource.add(date);
+        sources.push({ date, hours });
+    }
+
+    sources.sort((left, right) => left.date.localeCompare(right.date));
+    leaves.sort((left, right) => left.date.localeCompare(right.date));
+    const pool = sources.map((row) => ({ ...row, left: row.hours }));
+    const taken = new Map();
+    const push = (source, leaveDate, hours) => {
+        const list = taken.get(source) || [];
+        list.push({ date: leaveDate, hours: roundHours(hours) });
+        taken.set(source, list);
+    };
+    for (const leave of leaves) {
+        let need = leave.hours;
+        for (const source of pool) {
+            if (!(need > 0) || !(source.left > 0) || direct.has(source.date)) continue;
+            const used = roundHours(Math.min(source.left, need));
+            source.left = roundHours(source.left - used);
+            need = roundHours(need - used);
+            push(source.date, leave.date, used);
+        }
+    }
+    for (const [source, leaveDate] of direct) {
+        if (!taken.has(source)) taken.set(source, [{ date: leaveDate, hours: 0 }]);
+    }
+    return taken;
+}
+
+function preferClockRow(current, next) {
+    if (!current) return next;
+    const clock = (row) => {
+        const inn = String(row?.timeIn || '').trim();
+        return Boolean(inn) && inn !== 'OT';
+    };
+    if (!clock(current) && clock(next)) return next;
+    return current;
+}
+
+/**
+ * Comp off days for one month.
+ * Date is the comp off day. sourceDates are the overtime days that were approved for it.
+ */
+export function compOffReferenceLinks(records = [], monthKey = '') {
+    const prefix = String(monthKey || '');
+    const inMonth = (date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && (!prefix || date.startsWith(prefix));
+    const taken = leaveDatesTakenByOvertime(records, monthKey);
+    const sourcesByLeave = new Map();
+    for (const [source, uses] of taken) {
+        for (const use of uses || []) {
+            const leaveDate = String(use?.date || '').trim();
+            if (!inMonth(leaveDate)) continue;
+            const list = sourcesByLeave.get(leaveDate) || [];
+            if (source && !list.includes(source)) list.push(source);
+            sourcesByLeave.set(leaveDate, list);
+        }
+    }
+
+    const best = new Map();
+    for (const row of records || []) {
+        const date = String(row?.date || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+        best.set(date, preferClockRow(best.get(date), row));
+    }
+
+    const days = new Map();
+    const remember = (date, sourceDates, description) => {
+        if (!inMonth(date) || days.has(date)) return;
+        const unique = [];
+        (sourceDates || []).forEach((source) => {
+            const key = String(source || '').trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(key) && !unique.includes(key)) unique.push(key);
+        });
+        unique.sort();
+        days.set(date, {
+            date,
+            sourceDates: unique,
+            description: String(description || '').trim(),
+        });
+    };
+
+    for (const row of best.values()) {
+        const date = String(row?.date || '').trim();
+        const compOff = String(row?.statusKey || '') === 'compoff_leave';
+        const fromDay = String(row?.flexibleFromOtDate || '').trim();
+        const placeholder = Boolean(fromDay)
+            || (String(row?.timeIn || '').trim() === 'OT' && String(row?.timeOut || '').trim() === 'OT');
+        if (!compOff && !placeholder) continue;
+        if (compOff) {
+            const charge = String(row?.compOff?.chargeMonth || '').trim();
+            if (charge ? charge !== prefix : !inMonth(date)) continue;
+        } else if (!inMonth(date)) continue;
+        const linked = sourcesByLeave.get(date) || [];
+        const source = [fromDay, ...linked].map((key) => best.get(key)).find((item) => item);
+        remember(date, [fromDay, ...linked], source?.flexibleOtReason || row?.reason || row?.leaveRequestReason);
+    }
+    for (const [leaveDate, sourceDates] of sourcesByLeave) {
+        if (days.has(leaveDate)) continue;
+        const source = sourceDates.map((key) => best.get(key)).find((item) => item);
+        remember(leaveDate, sourceDates, source?.flexibleOtReason || '');
+    }
+
+    return [...days.values()].sort((left, right) => right.date.localeCompare(left.date));
+}

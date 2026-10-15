@@ -404,10 +404,22 @@ function statusChipClass(mark, label) {
     return 'text-emerald-700 bg-emerald-50';
 }
 
+function pendingRecordScore(record) {
+    let score = 0;
+    if (String(record?.leaveRequestStatus || '') === 'pending') score += 4;
+    if (String(record?.hourAdjustStatus || '') === 'pending') score += 2;
+    if (String(record?.flexibleOtStatus || '') === 'pending') score += 2;
+    return score;
+}
+
 function applyDayRecordsToState(employees, records) {
-    const byId = new Map(
-        (Array.isArray(records) ? records : []).map((r) => [String(r.employeeMongoId), r]),
-    );
+    const byId = new Map();
+    for (const record of Array.isArray(records) ? records : []) {
+        const id = String(record?.employeeMongoId || '');
+        if (!id) continue;
+        const current = byId.get(id);
+        if (!current || pendingRecordScore(record) >= pendingRecordScore(current)) byId.set(id, record);
+    }
     const nextMarks = {};
     const nextEmployees = employees.map((e) => {
         const rec = byId.get(e.id);
@@ -435,6 +447,7 @@ function applyDayRecordsToState(employees, records) {
             previousStatusLabel: rec.previousStatusLabel || '',
             requestedStatusKey: rec.requestedStatusKey || '',
             requestedStatusLabel: rec.requestedStatusLabel || '',
+            leaveApprovalStage: rec.leaveApprovalStage || '',
             hourAdjustStatus: rec.hourAdjustStatus || '',
             hourAdjustKind: rec.hourAdjustKind || '',
             hoursTaken: rec.hoursTaken || 0,
@@ -530,10 +543,40 @@ function pendingRequestTitle(mark, kind) {
     return 'Request';
 }
 
-function pendingApproverName(change) {
-    if (change?.stage === 'pending_hr') return change.hrName || 'HR';
-    if (change?.stage === 'pending_requester') return change.requestedByName || 'requester';
-    return change?.reporteeName || 'HOD';
+function pendingApproverName(change, { flowchartHrName = '', reporteeName = '' } = {}) {
+    const hr = String(change?.hrName || flowchartHrName || '').trim();
+    const hod = String(change?.reporteeName || reporteeName || '').trim();
+    const requester = String(change?.requestedByName || '').trim();
+    if (change?.stage === 'pending_hr') return hr || 'HR';
+    if (change?.stage === 'pending_requester') return requester || 'requester';
+    return hod || 'HOD';
+}
+
+function waitingDecision(who, requestTitle) {
+    const name = String(who || '').trim() || 'approver';
+    return {
+        kind: 'waiting',
+        title: `Waiting for ${name}`,
+        requestTitle: String(requestTitle || '').trim(),
+    };
+}
+
+function waitingForApproval(change, mark, names) {
+    const who = pendingApproverName(change, names);
+    const requestTitle = change?.action === 'hour_adjust'
+        ? pendingRequestTitle(mark, 'hour')
+        : change?.action === 'flexible_ot'
+            ? pendingRequestTitle(mark, 'ot')
+            : pendingRequestTitle(mark, 'change');
+    return waitingDecision(who, requestTitle);
+}
+
+function leaveWaitingOnHr(mark) {
+    const stage = String(mark?.leaveApprovalStage || '').trim();
+    if (stage === 'pending_hr') return true;
+    if (stage === 'pending_reportee') return false;
+    const kind = String(mark?.leaveRequestKind || '').trim();
+    return kind === 'future_leave' || kind === 'future_annual';
 }
 
 function viewerCanDecideChange(change, { isFlowchartHr, viewer, isReportee }) {
@@ -551,11 +594,20 @@ function viewerCanDecideChange(change, { isFlowchartHr, viewer, isReportee }) {
     return false;
 }
 
-function rowDecisionFor(mark, employee, { isFlowchartHr = false, viewerId = '', canApproveLeave = false } = {}) {
+function rowDecisionFor(mark, employee, {
+    isFlowchartHr = false,
+    viewerId = '',
+    canApproveLeave = false,
+    flowchartHrName = '',
+} = {}) {
     if (!mark) return null;
     const viewer = String(viewerId || '').trim();
     const reportee = String(employee?.primaryReportee || '').trim();
     const isReportee = Boolean(viewer) && viewer === reportee;
+    const names = {
+        flowchartHrName,
+        reporteeName: String(employee?.primaryReporteeName || '').trim(),
+    };
     const change = mark.pendingChange;
     if (change?.id) {
         const canDecideChange = viewerCanDecideChange(change, { isFlowchartHr, viewer, isReportee });
@@ -582,49 +634,40 @@ function rowDecisionFor(mark, employee, { isFlowchartHr = false, viewerId = '', 
                 title: pendingRequestTitle(mark, 'change'),
             };
         }
-        return {
-            kind: 'waiting',
-            title: `Pending for approval (${pendingApproverName(change)})`,
-            requestTitle:
-                change.action === 'hour_adjust'
-                    ? pendingRequestTitle(mark, 'hour')
-                    : pendingRequestTitle(mark, 'change'),
-        };
+        return waitingForApproval(change, mark, names);
     }
-    if (
-        String(mark.leaveRequestStatus || '') === 'pending' &&
-        mark.attendanceId &&
-        (isReportee || canApproveLeave)
-    ) {
-        return {
-            kind: 'leave',
-            attendanceId: String(mark.attendanceId),
-            title: pendingRequestTitle(mark, 'leave'),
-        };
+    if (String(mark.leaveRequestStatus || '') === 'pending' && mark.attendanceId) {
+        const leaveWithHr = leaveWaitingOnHr(mark);
+        const canDecideLeave = leaveWithHr ? isFlowchartHr : isReportee;
+        if (canDecideLeave) {
+            return {
+                kind: 'leave',
+                attendanceId: String(mark.attendanceId),
+                title: pendingRequestTitle(mark, 'leave'),
+            };
+        }
+        const who = leaveWithHr ? (flowchartHrName || 'HR') : (names.reporteeName || 'primary reportee');
+        return waitingDecision(who, pendingRequestTitle(mark, 'leave'));
     }
-    if (
-        isFlowchartHr &&
-        change?.action !== 'flexible_ot' &&
-        String(mark.flexibleOtStatus || '') === 'pending' &&
-        mark.attendanceId
-    ) {
-        return {
-            kind: 'ot',
-            attendanceId: String(mark.attendanceId),
-            title: pendingRequestTitle(mark, 'ot'),
-        };
+    if (String(mark.flexibleOtStatus || '') === 'pending' && mark.attendanceId) {
+        if (isFlowchartHr) {
+            return {
+                kind: 'ot',
+                attendanceId: String(mark.attendanceId),
+                title: pendingRequestTitle(mark, 'ot'),
+            };
+        }
+        return waitingDecision(flowchartHrName || 'HR', pendingRequestTitle(mark, 'ot'));
     }
-    if (
-        isFlowchartHr &&
-        change?.action !== 'hour_adjust' &&
-        String(mark.hourAdjustStatus || '') === 'pending' &&
-        mark.attendanceId
-    ) {
-        return {
-            kind: 'hour',
-            attendanceId: String(mark.attendanceId),
-            title: pendingRequestTitle(mark, 'hour'),
-        };
+    if (String(mark.hourAdjustStatus || '') === 'pending' && mark.attendanceId) {
+        if (isFlowchartHr) {
+            return {
+                kind: 'hour',
+                attendanceId: String(mark.attendanceId),
+                title: pendingRequestTitle(mark, 'hour'),
+            };
+        }
+        return waitingDecision(flowchartHrName || 'HR', pendingRequestTitle(mark, 'hour'));
     }
     return null;
 }
@@ -966,17 +1009,21 @@ function clockInputValue(value) {
     return `${match[1].padStart(2, '0')}:${match[2]}`;
 }
 
-function AttendanceChangeReviewModal({ open, employee, mark, deciding, onClose, onDecide }) {
+function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFirst = false, onClose, onDecide }) {
     const change = mark?.pendingChange || {};
     const showHours = change.action === 'hour_adjust' || change.action === 'flexible_ot';
     const [editing, setEditing] = useState(false);
     const [timeIn, setTimeIn] = useState('');
     const [timeOut, setTimeOut] = useState('');
     const [hours, setHours] = useState('');
+    const [rejecting, setRejecting] = useState(false);
+    const [rejectReason, setRejectReason] = useState('');
 
     useEffect(() => {
         if (!open) return;
         setEditing(false);
+        setRejecting(Boolean(rejectFirst));
+        setRejectReason('');
         setTimeIn(clockInputValue(change.timeIn));
         setTimeOut(clockInputValue(change.timeOut));
         const stored =
@@ -990,6 +1037,7 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, onClose, 
         change.hoursApproved,
         change.flexibleOtApprovedHours,
         change.action,
+        rejectFirst,
     ]);
 
     if (!open) return null;
@@ -1092,6 +1140,17 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, onClose, 
                             {change.reason}
                         </p>
                     ) : null}
+                    {rejecting ? (
+                        <label className="block text-xs font-semibold text-slate-500">
+                            Reject reason
+                            <textarea
+                                value={rejectReason}
+                                onChange={(event) => setRejectReason(event.target.value)}
+                                rows={3}
+                                className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm text-slate-800"
+                            />
+                        </label>
+                    ) : null}
                 </div>
                 <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
                     <button
@@ -1112,11 +1171,17 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, onClose, 
                     </button>
                     <button
                         type="button"
-                        disabled={deciding}
-                        onClick={() => onDecide?.('rejected')}
-                        className="h-9 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700"
+                        disabled={deciding || (rejecting && !String(rejectReason).trim())}
+                        onClick={() => {
+                            if (!rejecting) {
+                                setRejecting(true);
+                                return;
+                            }
+                            onDecide?.('rejected', { rejectReason: String(rejectReason).trim() });
+                        }}
+                        className="h-9 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-50"
                     >
-                        Reject
+                        {rejecting ? 'Confirm reject' : 'Reject'}
                     </button>
                     <button
                         type="button"
@@ -1151,7 +1216,6 @@ function EmployeeRow({
     canReviewHour = false,
     canRequestOt = false,
     otDirect = false,
-    nextDayDirect = false,
     canReviewOt = false,
     rowDecision = null,
     deciding = false,
@@ -1278,8 +1342,9 @@ function EmployeeRow({
                             {pendingLeaveLabel} pending
                         </span>
                     ) : rowDecision?.kind === 'waiting' ? (
-                        <span className="text-[10px] font-semibold text-amber-700 whitespace-nowrap" title={rowDecision.title}>
-                            {rowDecision.requestTitle || 'Request'} pending
+                        <span className="max-w-[240px] text-[10px] font-semibold leading-snug text-amber-700" title={rowDecision.title}>
+                            {rowDecision.requestTitle ? `${rowDecision.requestTitle} · ` : ''}
+                            {rowDecision.title}
                         </span>
                     ) : rowDecision ? (
                         <span className="text-[10px] font-semibold text-blue-700 whitespace-nowrap" title={rowDecision.title}>
@@ -1357,9 +1422,7 @@ function EmployeeRow({
                                 disabled={!canRequestOt}
                                 title={
                                     canRequestOt
-                                        ? nextDayDirect
-                                            ? 'Choose an authorized leave day in this month. That day becomes Present now. HR and the primary reportee are emailed.'
-                                            : 'Choose an authorized leave day. That day becomes Present after HR approves. It is not set on the next calendar day unless you select it.'
+                                        ? 'Choose an authorized leave day in this month. That day becomes Present now. HR and the primary reportee are emailed.'
                                         : 'Enable Apply OT and next day present on your permission group'
                                 }
                                 onClick={() => {
@@ -1399,6 +1462,7 @@ function EmployeeRow({
                             className="max-w-[220px] text-right text-[11px] font-semibold leading-snug text-amber-800"
                             title={rowDecision.title}
                         >
+                            {rowDecision.requestTitle ? `${rowDecision.requestTitle} · ` : ''}
                             {rowDecision.title}
                         </span>
                     ) : rowDecision ? (
@@ -1408,10 +1472,7 @@ function EmployeeRow({
                                 disabled={deciding}
                                 title={`Reject ${rowDecision.title}`}
                                 aria-label={`Reject ${rowDecision.title} for ${employee.name}`}
-                                onClick={() => {
-                                    if (rowDecision.kind === 'hour' || rowDecision.kind === 'ot') onOpenRequest?.('reject');
-                                    else onDecide?.('rejected');
-                                }}
+                                onClick={() => onOpenRequest?.('reject')}
                                 className="h-7 whitespace-nowrap rounded-md border border-red-200 bg-white px-2 text-[11px] font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 Reject
@@ -1725,7 +1786,7 @@ export default function MarkAttendanceTable({
         openedHourRequestRef.current = token;
         const mark = marks[match.id];
         if (mark?.pendingChange?.action !== 'hour_adjust') return;
-        const decision = rowDecisionFor(mark, match, { isFlowchartHr, viewerId, canApproveLeave });
+        const decision = rowDecisionFor(mark, match, { isFlowchartHr, viewerId, canApproveLeave, flowchartHrName });
         if (decision?.kind !== 'hour') return;
         setHourModal({ employee: match, mark, mode: 'review' });
     }, [hrReady, dayLoading, changeRequestId, employees, marks, isFlowchartHr, viewerId, canApproveLeave]);
@@ -1996,11 +2057,11 @@ export default function MarkAttendanceTable({
         }
         if (decision.kind === 'leave') {
             setLeaveDecideError('');
-            setLeaveDecide({ employee, mark });
+            setLeaveDecide({ employee, mark, rejectFirst: intent === 'reject' });
             return;
         }
         if (decision.kind === 'change') {
-            setChangeReview({ employee, mark });
+            setChangeReview({ employee, mark, rejectFirst: intent === 'reject' });
         }
     };
 
@@ -2016,6 +2077,7 @@ export default function MarkAttendanceTable({
                 approvedStatusKey: approvedStatusKey || leaveDecide?.mark?.requestedStatusKey || '',
                 ...(edits?.timeIn ? { timeIn: edits.timeIn } : {}),
                 ...(edits?.timeOut ? { timeOut: edits.timeOut } : {}),
+                ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
             });
             toast({
                 title: choice === 'approved' ? 'Approved' : 'Rejected',
@@ -2044,12 +2106,14 @@ export default function MarkAttendanceTable({
                     ...(edits?.timeIn ? { timeIn: edits.timeIn } : {}),
                     ...(edits?.timeOut ? { timeOut: edits.timeOut } : {}),
                     ...(Number(edits?.approvedHours) > 0 ? { approvedHours: edits.approvedHours } : {}),
+                    ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
                 });
                 description = res.data?.message || '';
             } else if (decision.kind === 'leave') {
                 const res = await axiosInstance.post('/Leave/pending-requests/decide', {
                     attendanceId: decision.attendanceId,
                     decision: choice,
+                    ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
                 });
                 description = res.data?.message || '';
             } else if (decision.kind === 'ot') {
@@ -2057,12 +2121,14 @@ export default function MarkAttendanceTable({
                     attendanceId: decision.attendanceId,
                     decision: choice,
                     confirmNextDay: false,
+                    ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
                 });
                 description = res.data?.message || '';
             } else if (decision.kind === 'hour') {
                 const res = await axiosInstance.post('/Attendance/hour-adjust/decide', {
                     attendanceId: decision.attendanceId,
                     decision: choice,
+                    ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
                 });
                 description = res.data?.message || '';
             }
@@ -2424,6 +2490,7 @@ export default function MarkAttendanceTable({
                                     isFlowchartHr,
                                     viewerId,
                                     canApproveLeave,
+                                    flowchartHrName,
                                 })}
                                 deciding={decidingEmployeeId === employee.id}
                                 onDecide={(choice) =>
@@ -2433,6 +2500,7 @@ export default function MarkAttendanceTable({
                                             isFlowchartHr,
                                             viewerId,
                                             canApproveLeave,
+                                            flowchartHrName,
                                         }),
                                         choice,
                                     )
@@ -2444,12 +2512,11 @@ export default function MarkAttendanceTable({
                                             isFlowchartHr,
                                             viewerId,
                                             canApproveLeave,
+                                            flowchartHrName,
                                         }),
                                         intent,
                                     )
                                 }
-                                otDirect={isFlowchartHr}
-                                nextDayDirect={isFlowchartHr || canUseOtActions}
                                 canReviewOt={
                                     isFlowchartHr &&
                                     String(marks[employee.id]?.flexibleOtStatus || '') === 'pending'
@@ -2463,9 +2530,7 @@ export default function MarkAttendanceTable({
                                             isFlowchartHr &&
                                                 String(mark?.flexibleOtStatus || '') === 'pending'
                                                 ? 'review'
-                                                : isFlowchartHr
-                                                    ? 'direct'
-                                                    : 'request',
+                                                : 'request',
                                     })
                                 }
                                 onSettleCompOff={setCompOffEmployee}
@@ -2549,6 +2614,7 @@ export default function MarkAttendanceTable({
                 changedBy={leaveDecide?.employee?.name || ''}
                 hrReview={isFlowchartHr || canApproveLeave}
                 deciding={leaveDeciding}
+                rejectFirst={leaveDecide?.rejectFirst === true}
                 error={leaveDecideError}
                 onClose={() => {
                     if (leaveDeciding) return;
@@ -2562,6 +2628,7 @@ export default function MarkAttendanceTable({
                 employee={changeReview?.employee}
                 mark={changeReview?.mark}
                 deciding={decidingEmployeeId === changeReview?.employee?.id}
+                rejectFirst={changeReview?.rejectFirst === true}
                 onClose={() => {
                     if (decidingEmployeeId) return;
                     setChangeReview(null);
@@ -2569,7 +2636,7 @@ export default function MarkAttendanceTable({
                 onDecide={(choice, edits) => {
                     const employee = changeReview?.employee;
                     const decision = employee
-                        ? rowDecisionFor(changeReview?.mark, employee, { isFlowchartHr, viewerId, canApproveLeave })
+                        ? rowDecisionFor(changeReview?.mark, employee, { isFlowchartHr, viewerId, canApproveLeave, flowchartHrName })
                         : null;
                     if (!employee || !decision) return;
                     decideRowRequest(employee, decision, choice, edits).then((ok) => {
