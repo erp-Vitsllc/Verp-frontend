@@ -56,7 +56,7 @@ import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingI
 import EmployeeNameLink from '@/components/EmployeeNameLink';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { isAccessoryHiddenFromLiveAssetView, isAssetStatusBlockingUnattach, isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
-import { isLeaveActive, isLeaveDurationComplete, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, isAssetAssignmentAcknowledgmentPending, getAssetDetailsPrimaryStatusLabel, getAssetWaitingForDisplayName, userIsPendingAssetActionApprover } from '@/utils/assetStatusHelpers';
+import { isLeaveActive, isLeaveDurationComplete, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, getAssetDetailsPrimaryStatusLabel, getAssetWaitingForDisplayName, userIsPendingAssetActionApprover } from '@/utils/assetStatusHelpers';
 // AccessoriesModal import removed - no longer needed
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
 import AssignAssetModal from '../../components/AssignAssetModal';
