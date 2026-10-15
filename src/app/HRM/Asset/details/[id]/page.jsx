@@ -56,7 +56,7 @@ import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingI
 import EmployeeNameLink from '@/components/EmployeeNameLink';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { isAccessoryHiddenFromLiveAssetView, isAssetStatusBlockingUnattach, isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
-import { isLeaveActive, isLeaveDurationComplete, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, getAssetDetailsPrimaryStatusLabel, getAssetWaitingForDisplayName, userIsPendingAssetActionApprover } from '@/utils/assetStatusHelpers';
+import { isLeaveActive, isLeaveDurationComplete, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, isAssetAssignmentAcknowledgmentPending, getAssetDetailsPrimaryStatusLabel, getAssetWaitingForDisplayName, userIsPendingAssetActionApprover } from '@/utils/assetStatusHelpers';
 // AccessoriesModal import removed - no longer needed
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
 import AssignAssetModal from '../../components/AssignAssetModal';
@@ -368,6 +368,7 @@ function AssetDetailsPageContent() {
     const [transferInitialOption, setTransferInitialOption] = useState('Leave');
     const [showTransferChoiceModal, setShowTransferChoiceModal] = useState(false);
     const [showReturnChoiceModal, setShowReturnChoiceModal] = useState(false);
+    const [toolsAckActionBusy, setToolsAckActionBusy] = useState(null);
     const [showBulkReassignModal, setShowBulkReassignModal] = useState(false);
     const [bulkReassignAvailableAssets, setBulkReassignAvailableAssets] = useState([]);
     const [bulkReassignLoading, setBulkReassignLoading] = useState(false);
@@ -631,6 +632,52 @@ function AssetDetailsPageContent() {
                 title: "Error",
                 description: err?.response?.data?.message || "Failed to return asset."
             });
+        }
+    };
+
+    const handleForceAssignToolsAsset = async () => {
+        if (!window.confirm('Force assign this asset to the employee who has not responded?')) return;
+        setToolsAckActionBusy('force');
+        try {
+            const response = await axiosInstance.put(`/AssetItem/${assetId}/force-assign`);
+            toast({
+                title: 'Force assigned',
+                description: response?.data?.message || 'The employee is now the assignee.',
+            });
+            invalidateAssetPendingInbox('tools');
+            fetchAssetDetails();
+            fetchAssetHistory();
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not force assign',
+                description: err?.response?.data?.message || 'Force assign failed.',
+            });
+        } finally {
+            setToolsAckActionBusy(null);
+        }
+    };
+
+    const handleRevertPendingAssignment = async () => {
+        if (!window.confirm('Return this assignment to its previous status?')) return;
+        setToolsAckActionBusy('return');
+        try {
+            const response = await axiosInstance.put(`/AssetItem/${assetId}/revert-pending-assignment`);
+            toast({
+                title: 'Assignment returned',
+                description: response?.data?.message || 'The asset is back to its previous status.',
+            });
+            invalidateAssetPendingInbox('tools');
+            fetchAssetDetails();
+            fetchAssetHistory();
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not return assignment',
+                description: err?.response?.data?.message || 'Return failed.',
+            });
+        } finally {
+            setToolsAckActionBusy(null);
         }
     };
 
@@ -2093,6 +2140,28 @@ function AssetDetailsPageContent() {
         return latestHandover || null;
     }, [assetHistory]);
 
+    const toolsAckEscalationReady = useMemo(() => {
+        if (!isAssetController || !asset || !isAssetAssignmentAcknowledgmentPending(asset)) return false;
+        if (String(asset.assignedToType || '').toLowerCase() === 'company') return false;
+        const ack = asset.pendingActionDetails?.toolsAssignmentAck;
+        if (ack?.escalationActive) return true;
+        if (!ack?.requestedAt) return false;
+        const start = new Date(ack.requestedAt);
+        if (Number.isNaN(start.getTime())) return false;
+        const startUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+        const now = new Date();
+        const nowUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+        return Math.floor((nowUtc - startUtc) / 86400000) >= 7;
+    }, [asset, isAssetController]);
+
+    const liveHandoverDate = useMemo(() => {
+        if (asset?.assignedDate) return asset.assignedDate;
+        if (asset?.pendingActionDetails?.toolsAssignmentAck?.requestedAt) {
+            return asset.pendingActionDetails.toolsAssignmentAck.requestedAt;
+        }
+        return latestHandoverDocument?.date || null;
+    }, [asset, latestHandoverDocument]);
+
     const assetStatusLowerForHeader = String(asset?.status ?? '').trim().toLowerCase();
     const isAssetDraftStatusForHeader = assetStatusLowerForHeader === 'draft';
     const isRejectedStatusForHeader = assetStatusLowerForHeader === 'rejected';
@@ -3228,8 +3297,23 @@ function AssetDetailsPageContent() {
                         userHistoryCount={userHistoryCount}
                         serviceHistoryCount={serviceHistoryCount}
                         primaryActionButtons={toolsHeaderPrimaryButtons}
-                        onOpenReturnActions={() => setShowReturnChoiceModal(true)}
-                        returnActionsDisabled={returnHeaderActionsDisabled}
+                        forceAssignAction={
+                            toolsAckEscalationReady
+                                ? {
+                                    disabled: toolsAckActionBusy != null,
+                                    loading: toolsAckActionBusy === 'force',
+                                    onClick: handleForceAssignToolsAsset,
+                                }
+                                : null
+                        }
+                        onOpenReturnActions={() => {
+                            if (toolsAckEscalationReady) {
+                                handleRevertPendingAssignment();
+                                return;
+                            }
+                            setShowReturnChoiceModal(true);
+                        }}
+                        returnActionsDisabled={returnHeaderActionsDisabled && !toolsAckEscalationReady}
                         onDutyAction={
                             toolsHeaderOtherButtons.find((button) => button.label === 'Request On Duty') || null
                         }
@@ -4015,7 +4099,11 @@ function AssetDetailsPageContent() {
                                                     {(asset.assignedTo ||
                                                         (String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany) ||
                                                         asset.status === 'Service') ? (
-                                                        <HandoverFormView asset={asset} isPrint={false} />
+                                                        <HandoverFormView
+                                                            asset={asset}
+                                                            isPrint={false}
+                                                            overrideDate={liveHandoverDate}
+                                                        />
                                                     ) : (asset.status === 'Draft' ||
                                                         (!asset.assignedTo &&
                                                             !(String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany))) &&

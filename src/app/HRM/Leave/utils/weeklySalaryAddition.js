@@ -862,6 +862,18 @@ function buildBalancePay({
 }
 
 /**
+ * The approval was used to mark the next day present.
+ * Those hours are comp off. A settlement that still names an hour amount stays overtime.
+ */
+export function approvalPlacedAsNextDay(row, uses = []) {
+    if (String(row?.flexibleOtNextDayDate || '').trim()) return true;
+    return (uses || []).some((use) => {
+        const leaveDate = String(use?.date || '').trim();
+        return /^\d{4}-\d{2}-\d{2}$/.test(leaveDate) && !(Number(use?.hours) > 0);
+    });
+}
+
+/**
  * Leave day an approved overtime was taken for.
  * A direct placement uses the chosen leave day. A comp-off settlement takes the earliest overtime.
  * hours 0 means the whole approval belongs on that leave day.

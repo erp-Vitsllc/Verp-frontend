@@ -103,7 +103,12 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
     const handoverGrandTotal = assetsTotal + accessoriesTotal;
 
     const generatedAt = new Date();
-    const actionDateRaw = overrideDate || primaryAsset.updatedAt || primaryAsset.assignedDate || generatedAt;
+    const handoverDateValue =
+        overrideDate ||
+        primaryAsset.assignedDate ||
+        primaryAsset.pendingActionDetails?.toolsAssignmentAck?.requestedAt ||
+        null;
+    const actionDateRaw = handoverDateValue;
 
     const fontFamily = VITS_PDF_FONT_FAMILY;
     const ink = VITS_PDF_INK;
@@ -252,7 +257,7 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                                     {isCompanyAllocation ? companyObj?.companyId || '—' : assignedEmp.employeeId || '—'}
                                 </td>
                                 <td style={labelCellStyle}>Handover Date</td>
-                                <td style={valueCellStyle}>{formatDate(overrideDate || new Date())}</td>
+                                <td style={valueCellStyle}>{formatDate(handoverDateValue)}</td>
                             </tr>
                             <tr>
                                 <td style={labelCellStyle}>HOD Name</td>

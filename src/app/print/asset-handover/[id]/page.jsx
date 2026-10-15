@@ -13,6 +13,7 @@ function AssetHandoverPrintContent() {
 
     const [asset, setAsset] = useState(null);
     const [history, setHistory] = useState(null);
+    const [fallbackDate, setFallbackDate] = useState(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -24,7 +25,20 @@ function AssetHandoverPrintContent() {
                     setAsset(historyRes.data.details); // The snapshot is in details
                 } else {
                     const response = await axiosInstance.get(`/AssetItem/detail/${id}`);
-                    setAsset(response.data);
+                    const loaded = response.data;
+                    setAsset(loaded);
+                    const storedDate =
+                        loaded?.assignedDate ||
+                        loaded?.pendingActionDetails?.toolsAssignmentAck?.requestedAt ||
+                        null;
+                    if (!storedDate) {
+                        const historyRes = await axiosInstance.get(`/AssetItem/${id}/history`).catch(() => null);
+                        const rows = Array.isArray(historyRes?.data) ? historyRes.data : [];
+                        const handoverRow = rows.find(
+                            (row) => row?.action === 'Accepted' || row?.action === 'Assigned',
+                        );
+                        if (handoverRow?.date) setFallbackDate(handoverRow.date);
+                    }
                 }
             } catch (error) {
                 console.error('Error fetching asset for print:', error);
@@ -56,7 +70,14 @@ function AssetHandoverPrintContent() {
                 <HandoverFormView
                     asset={asset}
                     isPrint={true}
-                    overrideDate={history ? history.date : null}
+                    overrideDate={
+                        history
+                            ? history.date
+                            : asset.assignedDate ||
+                              asset.pendingActionDetails?.toolsAssignmentAck?.requestedAt ||
+                              fallbackDate ||
+                              null
+                    }
                 />
             )}
         </div>

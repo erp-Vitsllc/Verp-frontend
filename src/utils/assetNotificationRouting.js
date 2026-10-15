@@ -777,6 +777,10 @@ export function buildAssetNotificationPath(rawItem) {
         return buildAssetDetailPath(assetId, { tab: 'document', focusCard: 'pendingApproval' });
     }
 
+    if (typeRaw === 'Asset Assignment Escalation') {
+        return assetId ? buildAssetDetailPath(assetId, { tab: 'document' }) : '/HRM/Asset';
+    }
+
     if (typeRaw === 'Asset Assignment') {
         // Bulk batch must never fall through to a single-asset Accept page.
         if (meta?.isBulkAssignment && meta?.bulkAssignmentGroupId) {

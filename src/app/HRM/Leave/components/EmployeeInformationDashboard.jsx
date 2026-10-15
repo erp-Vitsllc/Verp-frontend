@@ -53,6 +53,7 @@ import DashboardSalaryEnrollLock, {
     salaryLockFromAttendancePayload,
 } from '@/app/dashboard/components/DashboardSalaryEnrollLock';
 import {
+    approvalPlacedAsNextDay,
     buildMonthAdditionChoices,
     buildMonthWorkWeeks,
     buildWeeklySalaryAddition,
@@ -431,6 +432,8 @@ function buildApprovedOtRows(records, monthKey, notesByDate = {}, countTo = '') 
         if (String(row?.flexibleOtStatus || '').trim() !== 'approved') return;
         if (!((Number(row?.flexibleOtApprovedHours) || 0) > 0)) return;
         if (overtimePlaceholderDay(row)) return;
+        const uses = taken.get(date) || [];
+        if (approvalPlacedAsNextDay(row, uses)) return;
         const inside = !countTo || date <= countTo;
         const noted = Number(notesByDate?.[date]?.otHours) || 0;
         const stored = Number(row.flexibleOtApprovedHours) || 0;

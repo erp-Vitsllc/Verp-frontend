@@ -35,6 +35,8 @@ export default function ToolsAssetProfileHeaderCards({
     returnActionsDisabled = false,
     /** Evaluated On Duty action — rendered beside RETURN while the asset is on leave. */
     onDutyAction = null,
+    /** Asset controller only, after 7 days with no assignment response. */
+    forceAssignAction = null,
 }) {
     const totalValue =
         (Number(asset?.assetValue) || 0) +
@@ -217,23 +219,33 @@ export default function ToolsAssetProfileHeaderCards({
                                 )}
                         </div>
 
-                        {(asset?.status === 'Pending' ||
-                            asset?.status === 'Draft' ||
-                            asset?.status === 'Submitted for Approval' ||
-                            asset?.acceptanceStatus === 'Pending' ||
-                            asset?.pendingAction) && (
+                        {(() => {
+                            const namedWait = formatAssetWaitingChipText(asset);
+                            const genericAcknowledgment = /^waiting:\s*acknowledg(e)?ment$/i.test(
+                                String(namedWait || '').trim(),
+                            );
+                            const approvalWait =
+                                asset?.status === 'Draft' ||
+                                asset?.status === 'Submitted for Approval' ||
+                                !!asset?.pendingAction;
+                            const chipText =
+                                asset?.status === 'Draft' && !asset?.actionRequiredBy
+                                    ? 'Waiting for submission'
+                                    : !genericAcknowledgment && namedWait
+                                        ? namedWait
+                                        : approvalWait
+                                            ? 'Waiting: approval'
+                                            : '';
+                            if (!chipText) return null;
+                            return (
                                 <div className="px-4 py-2 bg-rose-50 rounded-2xl border border-rose-200 shrink-0">
                                     <span className="text-[11px] font-black text-rose-600 uppercase tracking-wide flex items-center gap-2">
                                         <span className="w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
-                                        {asset?.status === 'Draft' && !asset?.actionRequiredBy
-                                            ? 'Waiting for submission'
-                                            : formatAssetWaitingChipText(asset) ||
-                                                (asset?.status === 'Draft'
-                                                    ? 'Waiting: approval'
-                                                    : 'Waiting: acknowledgment')}
+                                        {chipText}
                                     </span>
                                 </div>
-                            )}
+                            );
+                        })()}
                     </div>
                 </div>
             </div>
@@ -260,6 +272,25 @@ export default function ToolsAssetProfileHeaderCards({
 
                     <div className="flex-1 flex flex-col justify-center gap-3 min-w-0">
                         <div className="grid grid-cols-2 gap-3">
+                            {forceAssignAction ? (
+                                <button
+                                    type="button"
+                                    disabled={forceAssignAction.disabled}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!forceAssignAction.disabled) forceAssignAction.onClick?.();
+                                    }}
+                                    className={`${ACTION_BTN_BASE} col-span-2 ${forceAssignAction.disabled
+                                        ? 'opacity-50 cursor-not-allowed bg-slate-200/90 text-slate-500'
+                                        : 'hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-900'
+                                        }`}
+                                    style={{
+                                        backgroundColor: forceAssignAction.disabled ? undefined : '#fde68a',
+                                    }}
+                                >
+                                    {forceAssignAction.loading ? 'Please wait…' : 'FORCE ASSIGN TO HIM'}
+                                </button>
+                            ) : null}
                             {primaryActionButtons.map((action) => (
                                 <button
                                     key={action.key || action.label}

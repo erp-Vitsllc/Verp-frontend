@@ -436,6 +436,11 @@ export function buildUnderstandableNotificationTitle(item = {}) {
         case 'Vehicle Value Missing':
         case 'Asset Value Missing':
             return sanitizeNotificationText(item.extra1 || '') || type;
+        case 'Asset Assignment Escalation':
+            return (
+                sanitizeNotificationText(item.extra2 || '') ||
+                'This user is not responding. You can force assign him or return the assignment.'
+            );
         case 'Asset Leave': {
             const leaveTitle = sanitizeNotificationText(item.extra1 || '');
             if (/is complete leave take action/i.test(leaveTitle)) return leaveTitle;

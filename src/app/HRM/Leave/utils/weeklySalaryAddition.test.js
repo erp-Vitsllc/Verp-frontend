@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+    approvalPlacedAsNextDay,
     buildMonthAdditionChoices,
     buildMonthWorkWeeks,
     buildWeeklySalaryAddition,
@@ -707,6 +708,53 @@ describe('weekly salary addition counts', () => {
         assert.equal(result.calendar['2026-10-08'].takenFrom, '2026-09-28');
         assert.match(pay.compOffRows.find((row) => row.date === '2026-10-08').text, /taken from 28-Sep-2026/);
         assert.match(pay.compOffRows.find((row) => row.date === '2026-09-28').text, /given to 08-Oct-2026/);
+    });
+});
+
+describe('approvalPlacedAsNextDay', () => {
+    it('treats a next-day present approval as comp off, not overtime', () => {
+        const row = {
+            date: '2026-10-09',
+            statusKey: 'on_office',
+            timeIn: '08:03',
+            timeOut: '07:18',
+            flexibleOtStatus: 'approved',
+            flexibleOtApprovedHours: 10,
+            flexibleOtNextDayDate: '2026-10-10',
+        };
+        const taken = leaveDatesTakenByOvertime([
+            row,
+            {
+                date: '2026-10-10',
+                statusKey: 'on_office',
+                timeIn: 'OT',
+                timeOut: 'OT',
+                flexibleFromOtDate: '2026-10-09',
+            },
+        ], '2026-10');
+        assert.equal(approvalPlacedAsNextDay(row, taken.get('2026-10-09')), true);
+    });
+
+    it('keeps overtime that was partly used to settle a comp off', () => {
+        const row = {
+            date: '2026-10-05',
+            flexibleOtApprovedHours: 16,
+        };
+        const taken = leaveDatesTakenByOvertime([
+            {
+                ...row,
+                statusKey: 'on_office',
+                timeIn: '08:00',
+                timeOut: '20:00',
+                flexibleOtStatus: 'approved',
+            },
+            {
+                date: '2026-10-08',
+                statusKey: 'compoff_leave',
+                compOff: { state: 'adjusted', chargeMonth: '2026-10', otHoursDeducted: 10 },
+            },
+        ], '2026-10');
+        assert.equal(approvalPlacedAsNextDay(row, taken.get('2026-10-05')), false);
     });
 });
 
