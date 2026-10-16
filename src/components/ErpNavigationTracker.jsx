@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import {
     captureNavigationScroll,
     consumeNavigationPushSuppression,
+    noteTaskSectionLocation,
     consumeSkipTrackerPushOnce,
     getBrowserPathWithSearch,
     getLocationSyncEventName,
@@ -24,6 +25,7 @@ export default function ErpNavigationTracker() {
     useEffect(() => {
         const fromNext = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
         const resolved = getBrowserPathWithSearch() || fromNext;
+        noteTaskSectionLocation(resolved);
 
         if (consumeNavigationPushSuppression()) {
             prevHrefRef.current = resolved;

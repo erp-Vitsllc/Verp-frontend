@@ -3,6 +3,7 @@ import { shouldSuppressInAppNavigation } from '@/utils/linkContextMenu';
 const LIST_RETURN_KEY = 'verp:list-return-href';
 const NAV_STACK_KEY = 'verp:nav-return-stack';
 const SCROLL_MAP_KEY = 'verp:nav-scroll-map';
+const TASK_SECTION_RETURN_KEY = 'verp:task-section-return';
 const MAX_NAV_STACK = 200;
 
 let suppressNextNavigationPush = false;
@@ -214,23 +215,146 @@ export function getListReturnHref() {
     }
 }
 
+function readTaskSectionReturn() {
+    if (typeof window === 'undefined') return '';
+    try {
+        return sessionStorage.getItem(TASK_SECTION_RETURN_KEY) || '';
+    } catch {
+        return '';
+    }
+}
+
+function writeTaskSectionReturn(href) {
+    if (typeof window === 'undefined') return;
+    try {
+        if (!href) sessionStorage.removeItem(TASK_SECTION_RETURN_KEY);
+        else sessionStorage.setItem(TASK_SECTION_RETURN_KEY, href);
+    } catch {
+        // ignore quota / private mode
+    }
+}
+
+function taskDetailPath(href) {
+    const path = normalizeHref(href).split('?')[0];
+    return path.startsWith('/task-manager/') ? path : '';
+}
+
+/** Remember the task page so Back from the opened section returns there. */
+export function armTaskSectionReturn(taskHref) {
+    const task = normalizeHref(taskHref);
+    if (!taskDetailPath(task)) return;
+    writeTaskSectionReturn(task);
+}
+
+export function clearTaskSectionReturn() {
+    writeTaskSectionReturn('');
+}
+
+/** Drop the task-return marker once the user is back on that task. */
+export function noteTaskSectionLocation(href) {
+    const task = readTaskSectionReturn();
+    const taskPath = taskDetailPath(task);
+    if (!taskPath) return;
+    const current = normalizeHref(href).split('?')[0];
+    if (current === taskPath) clearTaskSectionReturn();
+}
+
+/**
+ * Same-page query cleanups (opening a modal, then stripping the query) sit above the task.
+ * Skip those so Back from the section lands on the task page.
+ */
+function skipSamePageEntriesAboveTask(taskHref) {
+    const task = normalizeHref(taskHref);
+    const taskPath = taskDetailPath(task);
+    if (!taskPath) return;
+    const currentPath = normalizeHref(getBrowserPathWithSearch()).split('?')[0];
+    if (!currentPath || currentPath === taskPath) return;
+    const stack = readStack();
+    let changed = false;
+    while (stack.length) {
+        const top = stack[stack.length - 1];
+        if (hrefsEquivalent(top, task) || taskDetailPath(top) === taskPath) break;
+        if (normalizeHref(top).split('?')[0] === currentPath) {
+            stack.pop();
+            changed = true;
+            continue;
+        }
+        break;
+    }
+    if (changed) writeStack(stack);
+}
+
+/**
+ * Open the task's record in this tab and keep the task page as Back.
+ * Ctrl/Cmd/middle-click still follow the real href in a new tab.
+ */
+export function navigateFromTaskSection(router, targetHref, taskHref = getBrowserPathWithSearch()) {
+    const task = normalizeHref(taskHref);
+    const target = normalizeHref(targetHref);
+    if (!router || !target) return;
+    if (taskDetailPath(task)) armTaskSectionReturn(task);
+    navigateFromList(router, target, task);
+}
+
+export function handleNavigateFromTaskSectionClick(event, router, targetHref) {
+    if (!router) return;
+    if (shouldSuppressInAppNavigation()) {
+        event?.preventDefault?.();
+        return;
+    }
+    if (
+        event?.defaultPrevented ||
+        event?.button !== 0 ||
+        event?.metaKey ||
+        event?.ctrlKey ||
+        event?.shiftKey ||
+        event?.altKey
+    ) {
+        return;
+    }
+    event?.preventDefault?.();
+    navigateFromTaskSection(router, targetHref);
+}
+
+/**
+ * router.replace without pushing the previous URL. Use when a deep link only
+ * cleans its own query after the modal or highlight is already open.
+ */
+export function replaceRouteWithoutStackPush(router, href) {
+    if (!router) return;
+    const next = normalizeHref(href);
+    if (!next) return;
+    skipTrackerPushOnce = true;
+    router.replace(next);
+}
+
 /**
  * Pop the top stack entry and navigate there. Each back consumes one entry (no loops).
  */
 export function tryNavigateListReturn(router) {
     if (!router) return false;
 
+    const taskReturn = readTaskSectionReturn();
+    if (taskReturn) skipSamePageEntriesAboveTask(taskReturn);
+
     let href = popNavigationReturnState();
     if (!href) {
         const saved = getListReturnHref();
         const current = normalizeHref(getBrowserPathWithSearch());
-        if (saved && !hrefsEquivalent(saved, current)) {
+        if (taskReturn && !hrefsEquivalent(taskReturn, current)) {
+            href = taskReturn;
+            clearTaskSectionReturn();
+        } else if (saved && !hrefsEquivalent(saved, current)) {
             href = normalizeHref(saved);
             clearListReturnState();
         }
     }
 
     if (!href) return false;
+
+    if (taskReturn && (hrefsEquivalent(href, taskReturn) || taskDetailPath(href) === taskDetailPath(taskReturn))) {
+        clearTaskSectionReturn();
+    }
 
     suppressNextNavigationStackPush();
     skipTrackerPushOnce = true;

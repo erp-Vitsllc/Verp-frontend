@@ -554,7 +554,7 @@ function CompanyProfilePageContent() {
 
     const desiredCompanyProfileSearch = useMemo(() => {
         const q = new URLSearchParams();
-        const passthrough = ['search', 'from', 'focusCard', 'page', 'focusCertificate', 'certSection', 'sectionPage'];
+        const passthrough = ['search', 'from', 'focusCard', 'page', 'focusCertificate', 'certSection', 'sectionPage', 'activationReview'];
         passthrough.forEach((key) => {
             const value = searchParams.get(key);
             if (value !== null && value !== '') q.set(key, value);
@@ -5274,6 +5274,14 @@ function CompanyProfilePageContent() {
             setActivationDecisionLoading(false);
         }
     };
+
+    const openedActivationFromTaskRef = useRef(false);
+    useEffect(() => {
+        if (searchParams?.get('activationReview') !== '1' || !company?._id) return;
+        if (openedActivationFromTaskRef.current) return;
+        openedActivationFromTaskRef.current = true;
+        openActivationReview(false);
+    }, [company?._id, searchParams]);
 
     if (loading) {
 

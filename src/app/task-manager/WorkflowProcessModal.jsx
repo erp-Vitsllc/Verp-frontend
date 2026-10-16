@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Check, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation';
 
 const PILL = {
     Completed: 'bg-emerald-50 text-emerald-600',
@@ -47,6 +49,7 @@ function PersonMark({ step }) {
 }
 
 export function WorkflowBoard({ actionId, onChanged }) {
+    const router = useRouter();
     const { toast } = useToast();
     const [data, setData] = useState(null);
     const [error, setError] = useState('');
@@ -100,7 +103,11 @@ export function WorkflowBoard({ actionId, onChanged }) {
     return (
         <div>
             {data.accessPath ? (
-                <a href={data.accessPath} target="_blank" rel="noopener noreferrer" className="mb-4 inline-flex text-sm font-semibold text-[#2563EB]">
+                <a
+                    href={data.accessPath}
+                    onClick={(event) => handleNavigateFromTaskSectionClick(event, router, data.accessPath)}
+                    className="mb-4 inline-flex text-sm font-semibold text-[#2563EB]"
+                >
                     Open this section
                 </a>
             ) : null}
@@ -132,7 +139,7 @@ export function WorkflowBoard({ actionId, onChanged }) {
                                 <PersonMark step={step} />
                                 <div className="min-w-0">
                                     {data.accessPath ? (
-                                        <a href={data.accessPath} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-[#2563EB] hover:underline">{step.title}</a>
+                                        <a href={data.accessPath} onClick={(event) => handleNavigateFromTaskSectionClick(event, router, data.accessPath)} className="text-sm font-semibold text-[#2563EB] hover:underline">{step.title}</a>
                                     ) : (
                                         <p className="text-sm font-semibold text-slate-800">{step.title}</p>
                                     )}

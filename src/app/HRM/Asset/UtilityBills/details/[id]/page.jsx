@@ -62,6 +62,7 @@ import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import EmployeeNameLink from '@/components/EmployeeNameLink';
 import { normalizeUtilityNotificationBillMonth } from '@/utils/assetNotificationRouting';
 import { formatZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
+import { replaceRouteWithoutStackPush } from '@/utils/listReturnNavigation';
 
 const MAX_INLINE_LEN = 48;
 
@@ -900,7 +901,7 @@ function UtilityBillDetailsPageContent() {
         next.delete('billMonth');
         const qs = next.toString();
         const base = `/HRM/Asset/UtilityBills/details/${encodeURIComponent(entryId)}`;
-        router.replace(qs ? `${base}?${qs}` : base, { scroll: false });
+        replaceRouteWithoutStackPush(router, qs ? `${base}?${qs}` : base);
     }, [
         addBillFromQuery,
         queryBillMonth,

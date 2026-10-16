@@ -1513,13 +1513,17 @@ export default function AddVendorPaymentModal({
                             : [];
                         let billIdsToPay = [];
                         if (links.length) {
-                            const hasAnyZohoLink = links.some((link) =>
-                                String(link?.zohoBillId || '').trim(),
-                            );
+                            const linkZohoIds = (link) =>
+                                [link?.zohoBillId, ...(Array.isArray(link?.zohoBillIds) ? link.zohoBillIds : [])]
+                                    .map((id) => String(id || '').trim())
+                                    .filter(Boolean);
+                            const hasAnyZohoLink = links.some((link) => linkZohoIds(link).length > 0);
                             billIdsToPay = links
                                 .filter((link) => {
-                                    const zohoId = String(link?.zohoBillId || '').trim();
-                                    if (zohoId) return appliedZohoIds.has(zohoId);
+                                    const zohoIds = linkZohoIds(link);
+                                    if (zohoIds.length) {
+                                        return zohoIds.some((zohoId) => appliedZohoIds.has(zohoId));
+                                    }
                                     return !hasAnyZohoLink;
                                 })
                                 .map((link) => String(link.utilityBillId || '').trim())
@@ -1544,17 +1548,23 @@ export default function AddVendorPaymentModal({
                                     },
                                 );
                             } catch (payErr) {
-                                console.error(
-                                    '[AddVendorPayment] Utility bill mark-paid failed:',
-                                    payErr,
+                                const payMessage = String(
+                                    payErr?.response?.data?.message || '',
                                 );
-                                toast({
-                                    variant: 'destructive',
-                                    title: 'Zoho payment saved',
-                                    description:
-                                        payErr?.response?.data?.message ||
-                                        'Could not mark utility bills as Paid. Update them from Utility Bills.',
-                                });
+                                const alreadyMarked = /no approved bills/i.test(payMessage);
+                                if (!alreadyMarked) {
+                                    console.error(
+                                        '[AddVendorPayment] Utility bill mark-paid failed:',
+                                        payErr,
+                                    );
+                                    toast({
+                                        variant: 'destructive',
+                                        title: 'Zoho payment saved',
+                                        description:
+                                            payMessage ||
+                                            'Could not mark utility bills as Paid. Update them from Utility Bills.',
+                                    });
+                                }
                             }
                         }
 

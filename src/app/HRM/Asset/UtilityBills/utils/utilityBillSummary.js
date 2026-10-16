@@ -1,10 +1,10 @@
 import {
     entryRequiresMonthlyBill,
-    getMonthlyRentalAmount,
     isEntryActive,
 } from './utilityBillsStorage';
 import { entryAvailableFromMonth, formatBillMoney, normalizeBillMonthKey, openUtilityBillMonthKey } from './utilityBillStats';
 import { ALL_MONTHS, MONTH_OPTIONS } from './utilityOverviewStats';
+import { entryAccountCandidates, summaryIdentityForMonth } from './utilityEntryMonthDetails';
 
 export const SUMMARY_STATUS = {
     NOT_UPDATED: 'not updated',
@@ -50,17 +50,6 @@ export function formatSummaryMoney(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return '—';
     return `${formatBillMoney(n)} AED`;
-}
-
-export function entryAccountNumber(entry, bill = null) {
-    return (
-        String(bill?.accountNo || '').trim() ||
-        String(entry?.values?.accountNumber || entry?.values?.accountNo || entry?.accountNo || '').trim()
-    );
-}
-
-export function entryAssigneeName(entry) {
-    return String(entry?.assignedTo || entry?.assignedToName || '').trim();
 }
 
 /** True when the ERP bill was created in Zoho Books. */
@@ -164,7 +153,7 @@ function resolveBillEntryId(bill, typeEntries) {
     }
     const account = String(bill?.accountNo || '').trim();
     if (account) {
-        const byAccount = typeEntries.find((entry) => entryAccountNumber(entry) === account);
+        const byAccount = typeEntries.find((entry) => entryAccountCandidates(entry).has(account));
         if (byAccount) return String(byAccount.id);
     }
     return direct;
@@ -176,17 +165,16 @@ function monthsForEntryInPeriod(entry, { year, month, capYm }) {
     return monthKeysFromTo(fromYm, capYm).filter((ym) => ymInPeriod(ym, period));
 }
 
-function buildSummaryRow(entry, ym, bill) {
-    const contractAmount = bill
-        ? Number(bill.monthlyRental) || getMonthlyRentalAmount(entry)
-        : getMonthlyRentalAmount(entry);
+function buildSummaryRow(entry, ym, bill, currentMonth) {
+    const identity = summaryIdentityForMonth(entry, ym, bill, currentMonth);
+    const contractAmount = identity.contractAmount;
     const billAmount = billDisplayAmount(bill);
     const difference =
         bill && billAmount != null && Number.isFinite(Number(contractAmount))
             ? Number(contractAmount) - Number(billAmount)
             : null;
     const status = summaryBillStatus(bill);
-    const assigneeName = entryAssigneeName(entry);
+    const assigneeName = identity.assigneeName;
 
     return {
         key: `${entry.id}::${ym}`,
@@ -195,10 +183,10 @@ function buildSummaryRow(entry, ym, bill) {
         batchId: bill?.batchId ? String(bill.batchId) : '',
         monthKey: ym,
         monthLabel: formatSummaryMonth(ym),
-        accountNo: entryAccountNumber(entry, bill),
+        accountNo: identity.accountNo,
         assigneeName,
-        assignedToType: String(entry?.assignedToType || ''),
-        assignedToId: String(entry?.assignedToId || ''),
+        assignedToType: identity.assignedToType,
+        assignedToId: identity.assignedToId,
         contractAmount,
         billAmount,
         difference,
@@ -210,9 +198,9 @@ function buildSummaryRow(entry, ym, bill) {
         searchText: [
             formatSummaryMonth(ym),
             ym,
-            entryAccountNumber(entry, bill),
+            identity.accountNo,
             assigneeName,
-            entry?.values?.provider,
+            identity.source?.values?.provider,
             status,
         ]
             .filter(Boolean)
@@ -277,7 +265,7 @@ export function buildUtilityTypeSummaryRows({
         monthSet.forEach((ym) => {
             const bill = billsByEntryMonth.get(`${entryId}::${ym}`) || null;
             if (!bill && (!active || !billable)) return;
-            rows.push(buildSummaryRow(entry, ym, bill));
+            rows.push(buildSummaryRow(entry, ym, bill, capYm));
         });
     });
 

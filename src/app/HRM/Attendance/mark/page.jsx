@@ -13,6 +13,7 @@ import MarkAttendanceTable from './components/MarkAttendanceTable';
 import useWorkLocations from '@/hooks/useWorkLocations';
 import { normalizeWorkLocationKey, workLocationLabel } from '@/utils/workLocations';
 import { markAttendanceHref } from '../utils/markAttendanceHref';
+import { replaceRouteWithoutStackPush } from '@/utils/listReturnNavigation';
 
 /** Company calendar day (Asia/Dubai) as yyyy-MM-dd — matches backend midnight routine. */
 function getDubaiDateKey(date = new Date()) {
@@ -22,6 +23,22 @@ function getDubaiDateKey(date = new Date()) {
         month: '2-digit',
         day: '2-digit',
     }).format(date);
+}
+
+function markHrefWithOpenRequest(date, staffType, searchParams, { keepRequest = false } = {}) {
+    const href = markAttendanceHref({
+        date,
+        staffType,
+        blinkEmployee: searchParams?.get('blinkEmployee') || '',
+    });
+    if (!keepRequest || !searchParams) return href;
+    const url = new URL(href, 'http://local');
+    ['otAttendanceId', 'hourAttendanceId', 'leaveAttendanceId', 'changeRequestId'].forEach((key) => {
+        const value = searchParams.get(key);
+        if (value) url.searchParams.set(key, value);
+    });
+    const query = url.searchParams.toString();
+    return query ? `${url.pathname}?${query}` : url.pathname;
 }
 
 function parseDateParam(value) {
@@ -74,9 +91,10 @@ function MarkAttendanceContent() {
             setFollowToday(follow || date === getDubaiDateKey());
             setDayRolledOver(false);
             if (group) setStaffTab(group);
-            router.replace(markAttendanceHref({ date, staffType: group }));
+            const keepRequest = date === dateKey;
+            router.replace(markHrefWithOpenRequest(date, group, searchParams, { keepRequest }));
         },
-        [router, staffTab],
+        [router, staffTab, dateKey, searchParams],
     );
 
     const goPrev = () => goToDate(addDays(selectedDate, -1), { follow: false });
@@ -91,10 +109,13 @@ function MarkAttendanceContent() {
     useEffect(() => {
         if (!dateParam) {
             const today = getDubaiDateKey();
-            router.replace(markAttendanceHref({ date: today, staffType: staffTab }));
+            replaceRouteWithoutStackPush(
+                router,
+                markHrefWithOpenRequest(today, staffTab, searchParams, { keepRequest: true }),
+            );
             setFollowToday(true);
         }
-    }, [dateParam, router, staffTab]);
+    }, [dateParam, router, staffTab, searchParams]);
 
     useEffect(() => {
         const checkRollover = () => {
@@ -107,7 +128,7 @@ function MarkAttendanceContent() {
             if (followToday) {
                 setDayRolledOver(true);
                 setFollowToday(true);
-                router.replace(markAttendanceHref({ date: dubaiToday, staffType: staffTab }));
+                replaceRouteWithoutStackPush(router, markAttendanceHref({ date: dubaiToday, staffType: staffTab }));
             }
         };
 

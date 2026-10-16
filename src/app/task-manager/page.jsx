@@ -134,9 +134,8 @@ function readTaskListFilters(params) {
         scope: oneOf(paramValue(params, 'scope', 'My Task'), SCOPES, 'My Task'),
         typeFilter: oneOf(paramValue(params, 'type', 'All Types'), TYPE_FILTERS, 'All Types'),
         query: paramValue(params, 'q'),
-        employeeFilter: paramValue(params, 'employee'),
-        requesterQuery: paramValue(params, 'requester'),
-        assigneeQuery: paramValue(params, 'assignee'),
+        requesterQuery: personKey(paramValue(params, 'requester')),
+        assigneeQuery: personKey(paramValue(params, 'assignee')),
         datePreset: oneOf(paramValue(params, 'date', 'all'), DATE_RANGES.map((item) => item.id), 'all'),
         fromDate: paramValue(params, 'from'),
         toDate: paramValue(params, 'to'),
@@ -155,26 +154,33 @@ function taskDetailsHref(task, tab) {
     return `/task-manager/${encodeURIComponent(task.actionId)}${suffix}`;
 }
 
-function taskEmployees(tasks) {
+function taskPeople(tasks, field) {
+    const fields = Array.isArray(field) ? field : [field];
     const titleKeys = new Set();
     tasks.forEach((task) => {
         titleKeys.add(personKey(task?.taskName));
         titleKeys.add(personKey(notificationTitle(task)));
     });
     const people = new Map();
-    const add = (name) => {
-        const label = String(name || '').trim().replace(/\s+/g, ' ');
-        const key = personKey(label);
-        if (!key || titleKeys.has(key) || isTaskTitleName(label) || people.has(key)) return;
-        people.set(key, label);
-    };
     tasks.forEach((task) => {
-        add(task.requesterName);
-        add(task.assigneeName);
+        fields.forEach((nameField) => {
+            const label = String(task?.[nameField] || '').trim().replace(/\s+/g, ' ');
+            const key = personKey(label);
+            if (!key || titleKeys.has(key) || isTaskTitleName(label) || people.has(key)) return;
+            people.set(key, label);
+        });
     });
     return [...people.entries()]
         .map(([key, name]) => ({ key, name }))
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+}
+
+function withSelectedPerson(rows, selectedKey) {
+    if (!selectedKey || isTaskTitleName(selectedKey) || rows.some((row) => row.key === selectedKey)) return rows;
+    const name = selectedKey.replace(/\b[a-z]/g, (char) => char.toUpperCase());
+    return [...rows, { key: selectedKey, name }].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    );
 }
 
 function taskIsMine(task, viewer) {
@@ -347,7 +353,6 @@ function taskMatchesListFilters(task, options) {
         scope,
         typeFilter,
         query,
-        employeeFilter,
         requesterQuery,
         assigneeQuery,
         activeRange,
@@ -356,7 +361,7 @@ function taskMatchesListFilters(task, options) {
         includeStatus,
     } = options;
     const shown = listStatus(task);
-    if (!employeeFilter && scope === 'My Task' && !taskIsMine(task, viewer)) return false;
+    if (scope === 'My Task' && !taskIsMine(task, viewer)) return false;
     if (typeFilter !== 'All Types' && displayTaskType(task.taskCategory) !== typeFilter) return false;
     if (includeStatus) {
         if (status === 'Pending' && !isOpenPending(shown)) return false;
@@ -367,17 +372,15 @@ function taskMatchesListFilters(task, options) {
     if ((activeRange.from || activeRange.to) && !key) return false;
     if (activeRange.from && key < activeRange.from) return false;
     if (activeRange.to && key > activeRange.to) return false;
-    if (employeeFilter) {
-        const requester = personKey(task.requesterName);
-        const assignee = personKey(task.assigneeName);
-        if (requester !== employeeFilter && assignee !== employeeFilter) return false;
+    const requesterNeedle = personKey(requesterQuery);
+    if (requesterNeedle) {
+        const names = [task.requesterName, task.requesterBaseName].map((value) => personKey(value));
+        if (!names.includes(requesterNeedle)) return false;
     }
-    const requesterNeedle = String(requesterQuery || '').trim().toLowerCase();
-    if (requesterNeedle && !String(task.requesterName || '').toLowerCase().includes(requesterNeedle)) return false;
-    const assigneeNeedle = String(assigneeQuery || '').trim().toLowerCase();
+    const assigneeNeedle = personKey(assigneeQuery);
     if (assigneeNeedle) {
-        const assigneeText = [task.assigneeName, task.assigneeEmpId].filter(Boolean).join(' ').toLowerCase();
-        if (!assigneeText.includes(assigneeNeedle)) return false;
+        const names = [task.assigneeName, task.assigneeEmpId, task.originalAssigneeName].map((value) => personKey(value));
+        if (!names.includes(assigneeNeedle)) return false;
     }
     const needle = String(query || '').trim().toLowerCase();
     if (!needle) return true;
@@ -474,18 +477,18 @@ function StatCard({ label, value, change, goodWhenUp, icon: Icon, wrap, bubble, 
     );
 }
 
-function EmployeeTaskFilter({ value, employees, onChange }) {
+function PersonFilter({ value, people, onChange, emptyLabel, searchPlaceholder, ariaLabel }) {
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState('');
     const [menuPos, setMenuPos] = useState(null);
     const rootRef = useRef(null);
     const menuRef = useRef(null);
     const searchRef = useRef(null);
-    const selected = employees.find((employee) => employee.key === value);
+    const selected = people.find((person) => person.key === value);
     const needle = search.trim().toLowerCase();
     const shown = needle
-        ? employees.filter((employee) => employee.name.toLowerCase().includes(needle))
-        : employees;
+        ? people.filter((person) => person.name.toLowerCase().includes(needle))
+        : people;
 
     const placeMenu = useCallback(() => {
         const rect = rootRef.current?.getBoundingClientRect();
@@ -526,12 +529,13 @@ function EmployeeTaskFilter({ value, employees, onChange }) {
     };
 
     return (
-        <div className="relative w-[220px] shrink-0" ref={rootRef}>
+        <div className="relative w-[190px] shrink-0" ref={rootRef}>
             <button
                 type="button"
                 aria-haspopup="listbox"
                 aria-expanded={open}
-                aria-label="Employee"
+                aria-label={ariaLabel}
+                title={selected?.name || emptyLabel}
                 onClick={() => {
                     if (open) {
                         setOpen(false);
@@ -543,7 +547,9 @@ function EmployeeTaskFilter({ value, employees, onChange }) {
                 }}
                 className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 text-left text-[13px] text-slate-700"
             >
-                <span className="truncate">{selected?.name || 'All Employees'}</span>
+                <span className={`truncate ${selected ? 'text-slate-700' : 'text-slate-400'}`}>
+                    {selected?.name || emptyLabel}
+                </span>
                 <ChevronDown size={14} className="shrink-0 text-slate-400" />
             </button>
             {open && menuPos && typeof document !== 'undefined' && createPortal(
@@ -559,8 +565,8 @@ function EmployeeTaskFilter({ value, employees, onChange }) {
                                 ref={searchRef}
                                 value={search}
                                 onChange={(event) => setSearch(event.target.value)}
-                                placeholder="Search employee"
-                                aria-label="Search employee"
+                                placeholder={searchPlaceholder}
+                                aria-label={searchPlaceholder}
                                 className="h-8 w-full rounded-md border border-slate-200 bg-white pl-8 pr-2 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
                             />
                         </div>
@@ -571,21 +577,21 @@ function EmployeeTaskFilter({ value, employees, onChange }) {
                             onClick={() => choose('')}
                             className={`block w-full px-3 py-1.5 text-left text-[13px] hover:bg-slate-50 ${value ? 'text-slate-600' : 'bg-slate-100 font-medium text-slate-800'}`}
                         >
-                            All Employees
+                            {emptyLabel}
                         </button>
-                        {shown.map((employee) => (
+                        {shown.map((person) => (
                             <button
-                                key={employee.key}
+                                key={person.key}
                                 type="button"
-                                onClick={() => choose(employee.key)}
-                                title={employee.name}
-                                className={`block w-full truncate px-3 py-1.5 text-left text-[13px] hover:bg-slate-50 ${employee.key === value ? 'bg-slate-100 font-medium text-slate-800' : 'text-slate-700'}`}
+                                onClick={() => choose(person.key)}
+                                title={person.name}
+                                className={`block w-full truncate px-3 py-1.5 text-left text-[13px] hover:bg-slate-50 ${person.key === value ? 'bg-slate-100 font-medium text-slate-800' : 'text-slate-700'}`}
                             >
-                                {employee.name}
+                                {person.name}
                             </button>
                         ))}
                         {!shown.length && (
-                            <p className="px-3 py-2 text-[13px] text-slate-400">No employees found</p>
+                            <p className="px-3 py-2 text-[13px] text-slate-400">No matches</p>
                         )}
                     </div>
                 </div>,
@@ -609,7 +615,6 @@ function TaskManagerContent() {
     const [scope, setScope] = useState(filtersFromUrl.scope);
     const [typeFilter, setTypeFilter] = useState(filtersFromUrl.typeFilter);
     const [query, setQuery] = useState(filtersFromUrl.query);
-    const [employeeFilter, setEmployeeFilter] = useState(filtersFromUrl.employeeFilter);
     const [requesterQuery, setRequesterQuery] = useState(filtersFromUrl.requesterQuery);
     const [assigneeQuery, setAssigneeQuery] = useState(filtersFromUrl.assigneeQuery);
     const [datePreset, setDatePreset] = useState(filtersFromUrl.datePreset);
@@ -634,7 +639,6 @@ function TaskManagerContent() {
         setScope(filtersFromUrl.scope);
         setTypeFilter(filtersFromUrl.typeFilter);
         setQuery(filtersFromUrl.query);
-        setEmployeeFilter(filtersFromUrl.employeeFilter);
         setRequesterQuery(filtersFromUrl.requesterQuery);
         setAssigneeQuery(filtersFromUrl.assigneeQuery);
         setDatePreset(filtersFromUrl.datePreset);
@@ -650,7 +654,7 @@ function TaskManagerContent() {
         ...(scope !== 'My Task' ? { scope } : {}),
         ...(typeFilter !== 'All Types' ? { type: typeFilter } : {}),
         ...(query ? { q: query } : {}),
-        ...(employeeFilter ? { employee: employeeFilter } : {}),
+        employee: '',
         ...(requesterQuery ? { requester: requesterQuery } : {}),
         ...(assigneeQuery ? { assignee: assigneeQuery } : {}),
         ...(datePreset !== 'all' ? { date: datePreset } : {}),
@@ -664,7 +668,6 @@ function TaskManagerContent() {
         scope,
         typeFilter,
         query,
-        employeeFilter,
         requesterQuery,
         assigneeQuery,
         datePreset,
@@ -684,7 +687,6 @@ function TaskManagerContent() {
             setScope(next.scope);
             setTypeFilter(next.typeFilter);
             setQuery(next.query);
-            setEmployeeFilter(next.employeeFilter);
             setRequesterQuery(next.requesterQuery);
             setAssigneeQuery(next.assigneeQuery);
             setDatePreset(next.datePreset);
@@ -747,15 +749,14 @@ function TaskManagerContent() {
         return map;
     }, [tasks]);
 
-    const employeesWithTasks = useMemo(() => {
-        const rows = taskEmployees(tasks);
-        if (employeeFilter && !isTaskTitleName(employeeFilter) && !rows.some((row) => row.key === employeeFilter)) {
-            const name = employeeFilter.replace(/\b[a-z]/g, (char) => char.toUpperCase());
-            rows.push({ key: employeeFilter, name });
-            rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-        }
-        return rows;
-    }, [tasks, employeeFilter]);
+    const requesters = useMemo(
+        () => withSelectedPerson(taskPeople(tasks, ['requesterName', 'requesterBaseName']), requesterQuery),
+        [tasks, requesterQuery],
+    );
+    const assignees = useMemo(
+        () => withSelectedPerson(taskPeople(tasks, ['assigneeName', 'originalAssigneeName']), assigneeQuery),
+        [tasks, assigneeQuery],
+    );
 
     useEffect(() => {
         if (loading) return;
@@ -774,7 +775,6 @@ function TaskManagerContent() {
         scope,
         typeFilter,
         query,
-        employeeFilter,
         requesterQuery,
         assigneeQuery,
         activeRange,
@@ -786,7 +786,6 @@ function TaskManagerContent() {
         scope,
         typeFilter,
         query,
-        employeeFilter,
         requesterQuery,
         assigneeQuery,
         activeRange,
@@ -829,7 +828,6 @@ function TaskManagerContent() {
         setTypeFilter('All Types');
         setPageSizeChoice('10');
         setQuery('');
-        setEmployeeFilter('');
         setRequesterQuery('');
         setAssigneeQuery('');
         setDatePreset('all');
@@ -956,40 +954,28 @@ function TaskManagerContent() {
                                     className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
                                 />
                             </div>
-                            <EmployeeTaskFilter
-                                value={employeeFilter}
-                                employees={employeesWithTasks}
+                            <PersonFilter
+                                value={requesterQuery}
+                                people={requesters}
+                                emptyLabel="Requester"
+                                searchPlaceholder="Search requester"
+                                ariaLabel="Requester"
                                 onChange={(next) => {
-                                    setEmployeeFilter(next);
+                                    setRequesterQuery(next);
                                     setPage(1);
                                 }}
                             />
-                            <div className="relative w-[180px] shrink-0">
-                                <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input
-                                    value={requesterQuery}
-                                    onChange={(event) => {
-                                        setRequesterQuery(event.target.value);
-                                        setPage(1);
-                                    }}
-                                    placeholder="Requester"
-                                    aria-label="Search requester"
-                                    className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
-                                />
-                            </div>
-                            <div className="relative w-[180px] shrink-0">
-                                <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input
-                                    value={assigneeQuery}
-                                    onChange={(event) => {
-                                        setAssigneeQuery(event.target.value);
-                                        setPage(1);
-                                    }}
-                                    placeholder="Assignee"
-                                    aria-label="Search assignee"
-                                    className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
-                                />
-                            </div>
+                            <PersonFilter
+                                value={assigneeQuery}
+                                people={assignees}
+                                emptyLabel="Assignee"
+                                searchPlaceholder="Search assignee"
+                                ariaLabel="Assignee"
+                                onChange={(next) => {
+                                    setAssigneeQuery(next);
+                                    setPage(1);
+                                }}
+                            />
                             <select
                                 value={scope}
                                 onChange={(event) => {
@@ -1298,7 +1284,6 @@ function TaskManagerContent() {
                         setScope('My Task');
                         setTypeFilter(displayTaskType(created?.taskType || created?.taskCategory) || 'All Types');
                         setQuery('');
-                        setEmployeeFilter('');
                         setRequesterQuery('');
                         setAssigneeQuery('');
                         setDatePreset('all');

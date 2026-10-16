@@ -11,6 +11,10 @@ import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/
 import { notifyLeavePendingInboxChanged } from '@/app/HRM/Leave/utils/leavePendingInboxCount';
 import { hasPermission } from '@/utils/permissions';
 import { isNextDayCheckout, NextDayCheckoutTime } from '@/app/HRM/Attendance/utils/nextDayCheckout';
+import {
+    markWithRequestableOt,
+    otActionState,
+} from '@/app/HRM/Attendance/mark/utils/otRequestButtons.logic.mjs';
 import { nonHrMarkableDateKeys } from '@/app/HRM/Attendance/utils/nonHrMarkWindow';
 import { weekForStaffType } from '@/utils/workLocations';
 import { handleNavigateFromListClick } from '@/utils/listReturnNavigation';
@@ -74,12 +78,6 @@ function currentEmployeeMongoId() {
     return '';
 }
 
-function wholeHourCount(value) {
-    const hours = Number(value);
-    if (!Number.isFinite(hours) || hours <= 0) return 0;
-    return Math.floor(hours + 1e-9);
-}
-
 function isOtPunch(value) {
     return String(value || '').trim() === 'OT';
 }
@@ -135,45 +133,6 @@ function adjustmentLines(mark) {
     const compOffAdjusted = String(mark?.key || '') === 'compoff_leave' && String(mark?.compOffState || '') === 'adjusted';
     if (!lines.length && compOffAdjusted) lines.push('(adjusted from overtime)');
     return lines;
-}
-
-function otCellLabel(mark) {
-    const status = String(mark?.flexibleOtStatus || '');
-    const approved = Number(mark?.flexibleOtApprovedHours) || 0;
-    const required = Number(mark?.flexibleRequiredHours) || 0;
-    const nextDay = String(mark?.flexibleOtNextDayDate || '').trim();
-    if (status === 'approved') {
-        if (nextDay || (!required && approved > 10)) return 'Next day';
-        return `OT: ${wholeHourCount(approved)} hr`;
-    }
-    // A rejection puts the request buttons back. It does not replace them.
-    if (status === 'pending') return 'Pending';
-    return '';
-}
-
-function overtimePastRequired(workedHours, requiredHours) {
-    const worked = Number(workedHours) || 0;
-    const required = Number(requiredHours) > 0 ? Number(requiredHours) : 10;
-    if (!(worked > 0)) return 0;
-    const past = Math.round((worked - required) * 100) / 100;
-    return past + 0.001 >= 1 ? past : 0;
-}
-
-/** Stored overtime, or the punch span when a rejection cleared the stored hours. */
-function requestableOvertimeHours(mark, durationHours, requiredHours, { syntheticOt = false } = {}) {
-    const status = String(mark?.flexibleOtStatus || '');
-    const stored = Number(mark?.flexibleOtHours) || 0;
-    if (status === 'approved' || status === 'pending') return stored;
-    if (stored > 0) return stored;
-    if (syntheticOt || String(mark?.punchMappedFromEmployeeMongoId || '').trim()) return 0;
-    if (!(Number(durationHours) > 19)) return 0;
-    const required = Number(requiredHours) || Number(mark?.flexibleRequiredHours) || 0;
-    return overtimePastRequired(durationHours, required);
-}
-
-function markWithRequestableOt(mark, otHours) {
-    if (!mark || Number(mark.flexibleOtHours) > 0 || !(Number(otHours) > 0)) return mark;
-    return { ...mark, flexibleOtHours: otHours };
 }
 
 function formatDisplayTime(value) {
@@ -850,16 +809,25 @@ function shiftSortText(mark) {
 function otSortText(mark, ctx) {
     const canReviewOt = ctx.isFlowchartHr && String(mark?.flexibleOtStatus || '') === 'pending';
     if (canReviewOt) return 'review';
-    const text = otCellLabel(mark);
-    if (text) return text;
     const span = punchSpanSeconds(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
     const durationHours = span != null ? span / 3600 : workedHoursValue(mark);
     const syntheticOt = isOtPunch(mark?.rawTimeIn) || isOtPunch(mark?.rawTimeOut);
-    const otHours = requestableOvertimeHours(mark, durationHours, mark?.flexibleRequiredHours, { syntheticOt });
-    if (!(otHours > 0)) return null;
-    if (ctx.isFlowchartHr) {
-        return durationHours > 19 ? 'next day present' : 'apply ot';
-    }
+    const checkoutNextDay = isNextDayCheckout({
+        date: mark?.date,
+        timeIn: mark?.rawTimeIn,
+        timeOut: mark?.rawTimeOut,
+        timeOutDate: mark?.timeOutDate,
+    });
+    const { otText, showOtRequest, showNextDayPresent } = otActionState({
+        mark,
+        durationHours,
+        requiredHours: mark?.flexibleRequiredHours,
+        syntheticOt,
+        checkoutNextDay,
+    });
+    if (otText) return otText;
+    if (!showOtRequest) return null;
+    if (ctx.isFlowchartHr) return showNextDayPresent ? 'next day present' : 'apply ot';
     return 'req ot';
 }
 
@@ -1378,7 +1346,6 @@ function EmployeeRow({
     const lockTitle = actionLocked ? actionTitle : undefined;
 
     const shift = shiftMarks(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
-    const otText = otCellLabel(mark);
     const adjustLines = adjustmentLines(mark);
     const adjustTitle = adjustLines.join(' ');
     const syntheticOtReason = /^Present \(On time\) from overtime$/i.test(String(shownMark?.reason || '').trim());
@@ -1386,9 +1353,13 @@ function EmployeeRow({
     const spanSeconds = syntheticOt ? null : punchSpanSeconds(rawIn, rawOut, mark?.timeOutDate, mark?.date);
     const durationHours = spanSeconds != null ? spanSeconds / 3600 : workedHoursValue(mark);
     const requiredHours = scheduleDayHours(scheduleWeek, dateKey) || Number(mark?.flexibleRequiredHours) || 0;
-    const otHours = requestableOvertimeHours(mark, durationHours, requiredHours, { syntheticOt });
-    const showOtRequest = otHours > 0 && !otText;
-    const showNextDayPresent = showOtRequest && !syntheticOt && durationHours > 19;
+    const { otText, otHours, showOtRequest, showNextDayPresent } = otActionState({
+        mark,
+        durationHours,
+        requiredHours,
+        syntheticOt,
+        checkoutNextDay,
+    });
     const requestMark = markWithRequestableOt(mark, otHours);
     const otButtonLabel = otDirect ? 'Apply OT' : 'Req OT';
 

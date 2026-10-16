@@ -251,7 +251,7 @@ export default function MarkAttendanceDetailsModal({
                     res.data?.message ||
                     (pending.length
                         ? 'Sent for approval. Attendance stays unchanged until it is approved.'
-                        : 'Check-in and check-out copied. Overtime stays with the other employee.'),
+                        : 'Check-in and check-out copied. Apply OT and next day present stay until overtime is added.'),
             });
             onClose?.();
         } catch (err) {
@@ -452,7 +452,7 @@ export default function MarkAttendanceDetailsModal({
                                 <h2 className="text-base font-semibold text-gray-900">Map with other user</h2>
                                 <p className="text-sm text-gray-500 mt-0.5">
                                     Copy the selected employee’s check-in and check-out for this day onto{' '}
-                                    {employee?.name || 'this employee'}. Overtime stays with the other employee.
+                                    {employee?.name || 'this employee'}. Apply OT and next day present stay until overtime is added.
                                 </p>
                             </div>
                             <button

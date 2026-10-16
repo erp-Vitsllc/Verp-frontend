@@ -24,6 +24,8 @@ import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import { useRegisterErpBackHandler } from '@/contexts/ErpBackHandlerContext';
+import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation';
 
 const TABS = [
     { id: 'overview', label: 'Overview' },
@@ -132,15 +134,6 @@ function EmailChips({ item }) {
     );
 }
 
-function openSectionPage(event, path) {
-    event.preventDefault();
-    const href = String(path || '').trim();
-    if (!href) return;
-    const url = href.startsWith('http')
-        ? href
-        : `${window.location.origin}${href.startsWith('/') ? href : `/${href}`}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-}
 
 function NoteModal({ title, hint, submitLabel, busy, onClose, onSubmit }) {
     const [text, setText] = useState('');
@@ -202,7 +195,9 @@ function TaskDetailsPage() {
     const params = useParams();
     const router = useRouter();
     const { toast } = useToast();
-    const handleBackToList = useListReturnBack(() => router.push('/task-manager'));
+    const backToTaskList = useCallback(() => router.push('/task-manager'), [router]);
+    const handleBackToList = useListReturnBack(backToTaskList);
+    useRegisterErpBackHandler(handleBackToList);
     const taskKey = decodeURIComponent(String(params?.taskKey || ''));
     const [taskNumber, setTaskNumber] = useState('');
     const [tab, setTab] = useState('overview');
@@ -526,7 +521,7 @@ function TaskDetailsPage() {
                                     <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
                                         {['In Progress', 'Completed', 'Cancelled'].map((status) => {
                                             const locked = (task.workflowLocked && !(status === 'Completed' && task.canComplete))
-                                                || (status === 'Completed' && (task.canSubmitCompletion || task.canConfirmComplete || task.canReturn || task.completionPending || task.closeScheduled));
+                                                || (status === 'Completed' && (task.reassigned || task.canSubmitCompletion || task.canConfirmComplete || task.canReturn || task.completionPending || task.closeScheduled));
                                             return (
                                                 <button key={status} type="button" disabled={busy || locked} onClick={() => setStatus(status)} className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40">
                                                     Mark as {status}
@@ -576,9 +571,7 @@ function TaskDetailsPage() {
                                 {task.accessPath && task.taskCategory !== 'General Task' ? (
                                     <a
                                         href={task.accessPath}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={(event) => openSectionPage(event, task.accessPath)}
+                                        onClick={(event) => handleNavigateFromTaskSectionClick(event, router, task.accessPath)}
                                         className="mt-3 inline-flex text-sm font-semibold text-[#2563EB]"
                                     >
                                         Open this section
@@ -649,7 +642,7 @@ function TaskDetailsPage() {
                                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                                     <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-800"><Mail size={16} /> Emails for this task</h3>
                                     {task.accessPath && task.taskCategory !== 'General Task' ? (
-                                        <a href={task.accessPath} target="_blank" rel="noopener noreferrer" onClick={(event) => openSectionPage(event, task.accessPath)} className="text-sm font-semibold text-[#2563EB]">Open the related page</a>
+                                        <a href={task.accessPath} onClick={(event) => handleNavigateFromTaskSectionClick(event, router, task.accessPath)} className="text-sm font-semibold text-[#2563EB]">Open the related page</a>
                                     ) : null}
                                 </div>
                                 <EmailInbox
@@ -705,7 +698,7 @@ function TaskDetailsPage() {
                         />
                         <h3 className="mb-2 mt-4 text-sm font-semibold text-slate-800">Notification Recipients</h3>
                         <Recipient
-                            name={String(task.requesterName || '').replace(/\s*\([^)]*\)\s*$/, '').trim()}
+                            name={task.requesterBaseName || String(task.requesterName || '').replace(/\s*\([^)]*\)\s*$/, '').trim()}
                             role="Requester"
                             email={task.requesterEmail}
                             photo={task.requesterPhoto}
@@ -756,8 +749,8 @@ function TaskDetailsPage() {
                     hint={noteAction === 'return'
                         ? 'This returns the task to the original assignee. They receive the description by email and on their notification.'
                         : noteAction === 'complete'
-                            ? 'The original assignee is emailed to confirm this close before the status becomes Completed.'
-                            : 'Confirming closes this task. The requester can reopen it for 2 days. After that the status becomes Completed and Reopen Request is disabled. The description is saved on Work Updates.'}
+                            ? 'The original assignee is emailed. The task stays open until they confirm close.'
+                            : 'Confirming closes this task for both of you. It leaves the open task list.'}
                     submitLabel={noteAction === 'return' ? 'Return' : noteAction === 'complete' ? 'Send for confirmation' : 'Confirm Close'}
                     busy={busy}
                     onClose={() => { if (!busy) setNoteAction(null); }}
