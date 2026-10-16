@@ -18,6 +18,7 @@ import {
 import { nonHrMarkableDateKeys } from '@/app/HRM/Attendance/utils/nonHrMarkWindow';
 import { weekForStaffType } from '@/utils/workLocations';
 import { handleNavigateFromListClick } from '@/utils/listReturnNavigation';
+import { RECORD_FOCUS_BLINK_MS } from '@/utils/notificationFocusNavigation';
 import MarkAttendanceDetailsModal, {
     getMarkFormConfig,
 } from './MarkAttendanceDetailsModal';
@@ -740,6 +741,14 @@ function mapActiveEmployee(emp) {
     };
 }
 
+function findAttendanceRow(employeeId) {
+    const id = String(employeeId || '').trim();
+    if (!id || typeof document === 'undefined') return null;
+    const byId = document.querySelector(`[data-attendance-employee="${CSS.escape(id)}"]`);
+    if (byId) return byId;
+    return document.querySelector(`[data-attendance-empno="${CSS.escape(id)}"]`);
+}
+
 function extractEmployeeRows(payload) {
     if (Array.isArray(payload?.employees)) return payload.employees;
     if (Array.isArray(payload?.data)) return payload.data;
@@ -1366,7 +1375,8 @@ function EmployeeRow({
     return (
         <tr
             data-attendance-employee={employee.id}
-            className={`border-b border-gray-100 hover:bg-slate-50/80 ${blink ? 'attendance-employee-blink' : ''}`}
+            data-attendance-empno={employee.empNo}
+            className={`border-b border-gray-100 hover:bg-slate-50/80 ${blink ? 'record-focus-blink' : ''}`}
         >
             <td className="px-3 py-3 align-middle">
                 <input
@@ -1641,6 +1651,8 @@ export default function MarkAttendanceTable({
     const [scheduleWeek, setScheduleWeek] = useState(null);
     const [compOffEmployee, setCompOffEmployee] = useState(null);
     const [decidingEmployeeId, setDecidingEmployeeId] = useState('');
+    const [activeBlinkId, setActiveBlinkId] = useState('');
+    const [focusRequest, setFocusRequest] = useState(null);
     const [canUseOtActions, setCanUseOtActions] = useState(false);
     const [flowchartHrName, setFlowchartHrName] = useState('');
     const [canApproveLeave, setCanApproveLeave] = useState(false);
@@ -1657,7 +1669,8 @@ export default function MarkAttendanceTable({
     const bulkButtonRef = useRef(null);
     const employeesRef = useRef([]);
     const dayRecordsRef = useRef([]);
-    const openedHourRequestRef = useRef('');
+    const focusStartedRef = useRef('');
+    const focusTimerRef = useRef(0);
 
     useEffect(() => {
         employeesRef.current = employees;
@@ -1765,6 +1778,9 @@ export default function MarkAttendanceTable({
         if (loading) return;
         let cancelled = false;
 
+        window.clearTimeout(focusTimerRef.current);
+        focusStartedRef.current = '';
+        setActiveBlinkId('');
         setSelectedIds(new Set());
         setFormState(null);
         setBulkMenuOpen(false);
@@ -1791,12 +1807,23 @@ export default function MarkAttendanceTable({
                 });
                 setEmployees(nextEmployees);
                 setMarks(mergedMarks);
+                let focusEmployeeId = String(blinkEmployeeId || '').trim();
+                let focusKind = '';
+                let focusEmployee = null;
+                let focusMark = null;
+                const takeFocus = (match, kind) => {
+                    if (!match) return;
+                    focusEmployeeId = String(match.id || focusEmployeeId || '');
+                    focusKind = kind;
+                    focusEmployee = match;
+                    focusMark = mergedMarks[match.id];
+                };
                 if (otAttendanceId) {
                     const match = nextEmployees.find(
                         (row) => mergedMarks[row.id]?.attendanceId === String(otAttendanceId),
                     );
                     if (match && mergedMarks[match.id]?.flexibleOtStatus === 'pending') {
-                        setOtModal({ employee: match, mark: mergedMarks[match.id], mode: 'review' });
+                        takeFocus(match, 'ot');
                     }
                 }
                 if (hourAttendanceId) {
@@ -1804,7 +1831,7 @@ export default function MarkAttendanceTable({
                         (row) => mergedMarks[row.id]?.attendanceId === String(hourAttendanceId),
                     );
                     if (match && mergedMarks[match.id]?.hourAdjustStatus === 'pending') {
-                        setHourModal({ employee: match, mark: mergedMarks[match.id], mode: 'review' });
+                        takeFocus(match, 'hour');
                     }
                 }
                 if (leaveAttendanceId) {
@@ -1816,23 +1843,39 @@ export default function MarkAttendanceTable({
                             mergedMarks[row.id]?.leaveRequestStatus === 'pending',
                     );
                     if (match && mergedMarks[match.id]?.leaveRequestStatus === 'pending') {
-                        setLeaveDecideError('');
-                        setLeaveDecide({ employee: match, mark: mergedMarks[match.id] });
+                        takeFocus(match, 'leave');
                     }
                 }
                 if (changeRequestId) {
                     const match = nextEmployees.find(
                         (row) => String(mergedMarks[row.id]?.pendingChange?.id || '') === String(changeRequestId),
                     );
-                    if (match && mergedMarks[match.id]?.pendingChange?.action === 'flexible_ot') {
-                        setOtModal({
-                            employee: match,
-                            mark: mergedMarks[match.id],
-                            mode: 'review',
-                        });
-                    } else if (match && mergedMarks[match.id]?.pendingChange?.action !== 'hour_adjust') {
-                        setChangeReview({ employee: match, mark: mergedMarks[match.id] });
-                    }
+                    const action = String(mergedMarks[match?.id]?.pendingChange?.action || '');
+                    if (match && action === 'flexible_ot') takeFocus(match, 'ot');
+                    else if (match && action === 'hour_adjust') takeFocus(match, 'hour');
+                    else if (match) takeFocus(match, 'change');
+                }
+                if (focusEmployeeId || focusKind) {
+                    setFocusRequest({
+                        token: [
+                            dateKey,
+                            staffType,
+                            otAttendanceId,
+                            hourAttendanceId,
+                            leaveAttendanceId,
+                            changeRequestId,
+                            focusKind,
+                            focusEmployeeId,
+                            dayReload,
+                        ].join('|'),
+                        dateKey,
+                        employeeId: focusEmployeeId,
+                        kind: focusKind,
+                        employee: focusEmployee,
+                        mark: focusMark,
+                    });
+                } else {
+                    setFocusRequest(null);
                 }
             } catch {
                 if (!cancelled) {
@@ -1850,22 +1893,67 @@ export default function MarkAttendanceTable({
         };
     }, [dateKey, loading, allEmployees, dayReload, otAttendanceId, hourAttendanceId, leaveAttendanceId, changeRequestId, blinkEmployeeId]);
 
+    useEffect(() => () => window.clearTimeout(focusTimerRef.current), []);
+
     useEffect(() => {
-        if (!hrReady || dayLoading) return;
-        const id = String(changeRequestId || '').trim();
-        const token = `${id}:${isFlowchartHr ? 1 : 0}`;
-        if (!id || openedHourRequestRef.current === token) return;
-        const match = employees.find(
-            (row) => String(marks[row.id]?.pendingChange?.id || '') === id,
-        );
-        if (!match) return;
-        openedHourRequestRef.current = token;
-        const mark = marks[match.id];
-        if (mark?.pendingChange?.action !== 'hour_adjust') return;
-        const decision = rowDecisionFor(mark, match, { isFlowchartHr, viewerId, canApproveLeave, flowchartHrName });
-        if (decision?.kind !== 'hour') return;
-        setHourModal({ employee: match, mark, mode: 'review' });
-    }, [hrReady, dayLoading, changeRequestId, employees, marks, isFlowchartHr, viewerId, canApproveLeave]);
+        if (!focusRequest || loading || dayLoading || focusRequest.dateKey !== dateKey) return undefined;
+        if (focusRequest.kind === 'hour' && !hrReady) return undefined;
+        if (focusStartedRef.current === focusRequest.token) return undefined;
+
+        const requestedId = String(focusRequest.employeeId || '').trim();
+        const node = findAttendanceRow(requestedId);
+        if (requestedId && !node && employees.length === 0) return undefined;
+
+        focusStartedRef.current = focusRequest.token;
+        const rowId = node?.getAttribute('data-attendance-employee') || requestedId;
+        if (node) {
+            node.scrollIntoView({ block: 'center', behavior: 'auto' });
+            setActiveBlinkId(rowId);
+        }
+
+        window.clearTimeout(focusTimerRef.current);
+        focusTimerRef.current = window.setTimeout(() => {
+            setActiveBlinkId('');
+            const { kind, employee, mark } = focusRequest;
+            if (!kind || !employee || !mark) return;
+            if (kind === 'ot') {
+                setOtModal({ employee, mark, mode: 'review' });
+                return;
+            }
+            if (kind === 'leave') {
+                setLeaveDecideError('');
+                setLeaveDecide({ employee, mark });
+                return;
+            }
+            if (kind === 'change') {
+                setChangeReview({ employee, mark });
+                return;
+            }
+            if (kind === 'hour') {
+                const decision = rowDecisionFor(mark, employee, {
+                    isFlowchartHr,
+                    viewerId,
+                    canApproveLeave,
+                    flowchartHrName,
+                });
+                if (decision?.kind !== 'hour') return;
+                setHourModal({ employee, mark, mode: 'review' });
+            }
+        }, node ? RECORD_FOCUS_BLINK_MS + 150 : 0);
+
+        return undefined;
+    }, [
+        focusRequest,
+        dateKey,
+        loading,
+        dayLoading,
+        hrReady,
+        employees.length,
+        isFlowchartHr,
+        viewerId,
+        canApproveLeave,
+        flowchartHrName,
+    ]);
 
     useEffect(() => {
         setSearchQuery('');
@@ -2276,14 +2364,6 @@ export default function MarkAttendanceTable({
         setBulkAnchorRect(null);
     };
 
-    useEffect(() => {
-        const id = String(blinkEmployeeId || '').trim();
-        if (!id || loading || dayLoading) return undefined;
-        const node = document.querySelector(`[data-attendance-employee="${CSS.escape(id)}"]`);
-        node?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        return undefined;
-    }, [blinkEmployeeId, loading, dayLoading, employees]);
-
     if (loading) {
         return <div className="py-12 text-center text-sm text-gray-400">Loading active employees…</div>;
     }
@@ -2302,15 +2382,6 @@ export default function MarkAttendanceTable({
 
     return (
         <>
-            <style>{`
-                @keyframes attendance-employee-blink {
-                    0%, 100% { background-color: transparent; }
-                    35%, 65% { background-color: #FDE68A; }
-                }
-                .attendance-employee-blink {
-                    animation: attendance-employee-blink 0.7s ease-in-out 2;
-                }
-            `}</style>
             {dayLoading ? (
                 <div className="px-1 pb-2 text-xs text-gray-400">Loading day attendance…</div>
             ) : null}
@@ -2555,7 +2626,7 @@ export default function MarkAttendanceTable({
                                 key={employee.id}
                                 index={index + 1}
                                 employee={employee}
-                                blink={String(blinkEmployeeId || '') === String(employee.id || '')}
+                                blink={String(activeBlinkId || '') === String(employee.id || '')}
                                 checked={selectedIds.has(employee.id)}
                                 onToggle={toggleOne}
                                 mark={marks[employee.id] || null}

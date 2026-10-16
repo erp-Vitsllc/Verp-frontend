@@ -45,6 +45,7 @@ import {
     deleteUtilityEntryApi,
     fetchUtilityConfigs,
     fetchUtilityEntries,
+    fetchUtilityEntry,
     fetchUtilityOverviewBills,
     saveUtilityConfig,
     updateUtilityEntryApi,
@@ -365,6 +366,7 @@ function UtilityBillsPageContent() {
     const [sortDirection, setSortDirection] = useState('asc');
     /** Bills across every utility type — powers the overview amounts. */
     const [allTypeBills, setAllTypeBills] = useState([]);
+    const [pageReady, setPageReady] = useState(false);
     const [overviewMonth, setOverviewMonth] = useState(() => currentPeriod().month);
     const [overviewYear, setOverviewYear] = useState(() => currentPeriod().year);
 
@@ -390,18 +392,17 @@ function UtilityBillsPageContent() {
     }, []);
 
     const reloadUtilitiesAndEntries = useCallback(async () => {
+        const billsPromise = loadOverviewBills();
         try {
             await migrateLocalUtilityDataIfNeeded();
-            const [configs, entryList, bills] = await Promise.all([
+            const [configs, entryList] = await Promise.all([
                 fetchUtilityConfigs(),
                 fetchUtilityEntries(),
-                fetchUtilityOverviewBills(),
             ]);
             const loaded = normalizeUtilities(configs);
             const loadedEntries = normalizeUtilityEntries(entryList);
             setUtilities(loaded);
             setEntries(loadedEntries);
-            setAllTypeBills(Array.isArray(bills) ? bills : []);
             if (loaded.length > 0) {
                 setActiveTypeTab((prev) =>
                     prev && loaded.some((u) => u.type === prev) ? prev : loaded[0].type,
@@ -415,9 +416,11 @@ function UtilityBillsPageContent() {
             });
             setUtilities([]);
             setEntries([]);
-            setAllTypeBills([]);
+        } finally {
+            setPageReady(true);
         }
-    }, [toast]);
+        await billsPromise;
+    }, [loadOverviewBills, toast]);
 
     useEffect(() => {
         reloadUtilitiesAndEntries();
@@ -1112,6 +1115,7 @@ function UtilityBillsPageContent() {
                     <div className="mb-3 grid w-full max-w-full grid-cols-1 items-stretch gap-2.5 sm:mb-3 lg:grid-cols-[minmax(0,1.85fr)_minmax(300px,1fr)] lg:gap-3">
                         <div className="relative z-10 flex h-auto min-h-[320px] w-full min-w-0 flex-col overflow-visible rounded-2xl border border-[#EEF0F4] bg-white p-2.5 shadow-[0_1px_3px_rgba(15,23,42,0.04)] sm:p-3 lg:h-[340px]">
                             <UtilityTypeOverviewCard
+                                loading={!pageReady}
                                 cards={typeOverviewCards}
                                 activeType={activeTypeTab}
                                 onSelectType={(type) => {
@@ -1138,7 +1142,11 @@ function UtilityBillsPageContent() {
                     </div>
 
                     <div className="mb-4 sm:mb-6">
-                        {typeTabs.length === 0 ? (
+                        {!pageReady ? (
+                            <div className="bg-white rounded-xl shadow-sm border border-dashed border-gray-200 px-4 py-5 text-center">
+                                <p className="text-sm text-gray-500">Loading utility bills…</p>
+                            </div>
+                        ) : typeTabs.length === 0 ? (
                             <div className="bg-white rounded-xl shadow-sm border border-dashed border-gray-200 px-4 py-5 text-center">
                                 <p className="text-sm text-gray-500">
                                     Created utility types will appear here as tabs. Click “Add Utility” to create one.
@@ -1455,23 +1463,48 @@ function UtilityBillsPageContent() {
                                                                                             </span>
                                                                                             <button
                                                                                                 type="button"
-                                                                                                onClick={() =>
-                                                                                                    openUtilityAttachment(
-                                                                                                        file,
-                                                                                                        {
-                                                                                                            onError: (
+                                                                                                onClick={async () => {
+                                                                                                    const onError = (
+                                                                                                        message,
+                                                                                                    ) =>
+                                                                                                        toast({
+                                                                                                            variant: 'destructive',
+                                                                                                            title: 'Attachment',
+                                                                                                            description:
                                                                                                                 message,
-                                                                                                            ) =>
-                                                                                                                toast({
-                                                                                                                    variant:
-                                                                                                                        'destructive',
-                                                                                                                    title: 'Attachment',
-                                                                                                                    description:
-                                                                                                                        message,
-                                                                                                                }),
-                                                                                                        },
-                                                                                                    )
-                                                                                                }
+                                                                                                        });
+                                                                                                    let target = file;
+                                                                                                    if (
+                                                                                                        !target?.dataUrl &&
+                                                                                                        entry?.id
+                                                                                                    ) {
+                                                                                                        try {
+                                                                                                            const loaded =
+                                                                                                                await fetchUtilityEntry(
+                                                                                                                    entry.id,
+                                                                                                                );
+                                                                                                            target =
+                                                                                                                loaded
+                                                                                                                    ?.entry
+                                                                                                                    ?.values
+                                                                                                                    ?.attachment ||
+                                                                                                                target;
+                                                                                                        } catch (err) {
+                                                                                                            onError(
+                                                                                                                err
+                                                                                                                    ?.response
+                                                                                                                    ?.data
+                                                                                                                    ?.message ||
+                                                                                                                    'Could not load attachment.',
+                                                                                                            );
+                                                                                                            return;
+                                                                                                        }
+                                                                                                    }
+                                                                                                    openUtilityAttachment(
+                                                                                                        target,
+                                                                                                        { onError },
+                                                                                                    );
+                                                                                                }}
                                                                                                 className="shrink-0 text-xs font-semibold text-teal-600 hover:text-teal-700"
                                                                                             >
                                                                                                 View

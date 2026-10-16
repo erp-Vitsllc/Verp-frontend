@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import {
     getRemainingIdleMs,
@@ -25,6 +25,11 @@ function throttle(fn, waitMs) {
         }
     };
 }
+
+/** Session ticks must not re-render the page under this provider. */
+const IdleSessionFrame = memo(function IdleSessionFrame({ children }) {
+    return children;
+});
 
 export function IdleSessionProvider({ children }) {
     const pathname = usePathname();
@@ -121,7 +126,7 @@ export function IdleSessionProvider({ children }) {
 
     return (
         <IdleSessionContext.Provider value={value}>
-            {children}
+            <IdleSessionFrame>{children}</IdleSessionFrame>
         </IdleSessionContext.Provider>
     );
 }

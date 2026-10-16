@@ -37,6 +37,7 @@ function TypeSelect({ value, onChange, ariaLabel, className, children }) {
 }
 
 export default function UtilityTypeOverviewCard({
+    loading = false,
     cards = [],
     activeType = '',
     onSelectType,
@@ -94,9 +95,11 @@ export default function UtilityTypeOverviewCard({
                 </div>
             </div>
 
-            {cards.length === 0 ? (
+            {loading || cards.length === 0 ? (
                 <div className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-[#E5EAF0] bg-[#F8FAFC] px-3">
-                    <p className="text-center text-xs text-[#94A3B8]">No utility types yet.</p>
+                    <p className="text-center text-xs text-[#94A3B8]">
+                        {loading ? 'Loading overview…' : 'No utility types yet.'}
+                    </p>
                 </div>
             ) : (
                 <>

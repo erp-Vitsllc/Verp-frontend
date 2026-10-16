@@ -204,12 +204,8 @@ export default function UtilityTypeMonthChart({
                                     radius={[4, 4, 0, 0]}
                                     maxBarSize={14}
                                     minPointSize={5}
-                                    isAnimationActive
-                                    animationBegin={index * 70}
-                                    animationDuration={900}
-                                    animationEasing="ease-out"
+                                    isAnimationActive={false}
                                     onMouseEnter={(data) => setHover(hoverFromBar(data, type, color))}
-                                    onMouseMove={(data) => setHover(hoverFromBar(data, type, color))}
                                     onMouseLeave={() => setHover(null)}
                                 />
                             );
@@ -223,12 +219,8 @@ export default function UtilityTypeMonthChart({
                             strokeWidth={2}
                             dot={{ r: 2.75, fill: '#1A2B48', strokeWidth: 0 }}
                             activeDot={{ r: 4 }}
-                            isAnimationActive
-                            animationBegin={180}
-                            animationDuration={1100}
-                            animationEasing="ease-out"
+                            isAnimationActive={false}
                             onMouseEnter={(data) => setHover(hoverFromLine(data))}
-                            onMouseMove={(data) => setHover(hoverFromLine(data))}
                             onMouseLeave={() => setHover(null)}
                         />
                     </ComposedChart>
