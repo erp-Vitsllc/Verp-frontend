@@ -146,9 +146,34 @@ function otCellLabel(mark) {
         if (nextDay || (!required && approved > 10)) return 'Next day';
         return `OT: ${wholeHourCount(approved)} hr`;
     }
-    if (status === 'rejected') return 'OT: 0 hr';
+    // A rejection puts the request buttons back. It does not replace them.
     if (status === 'pending') return 'Pending';
     return '';
+}
+
+function overtimePastRequired(workedHours, requiredHours) {
+    const worked = Number(workedHours) || 0;
+    const required = Number(requiredHours) > 0 ? Number(requiredHours) : 10;
+    if (!(worked > 0)) return 0;
+    const past = Math.round((worked - required) * 100) / 100;
+    return past + 0.001 >= 1 ? past : 0;
+}
+
+/** Stored overtime, or the punch span when a rejection cleared the stored hours. */
+function requestableOvertimeHours(mark, durationHours, requiredHours, { syntheticOt = false } = {}) {
+    const status = String(mark?.flexibleOtStatus || '');
+    const stored = Number(mark?.flexibleOtHours) || 0;
+    if (status === 'approved' || status === 'pending') return stored;
+    if (stored > 0) return stored;
+    if (syntheticOt || String(mark?.punchMappedFromEmployeeMongoId || '').trim()) return 0;
+    if (!(Number(durationHours) > 19)) return 0;
+    const required = Number(requiredHours) || Number(mark?.flexibleRequiredHours) || 0;
+    return overtimePastRequired(durationHours, required);
+}
+
+function markWithRequestableOt(mark, otHours) {
+    if (!mark || Number(mark.flexibleOtHours) > 0 || !(Number(otHours) > 0)) return mark;
+    return { ...mark, flexibleOtHours: otHours };
 }
 
 function formatDisplayTime(value) {
@@ -468,6 +493,7 @@ function applyDayRecordsToState(employees, records) {
             flexibleOtReason: rec.flexibleOtReason || '',
             flexibleOtNextDayDate: rec.flexibleOtNextDayDate || '',
             flexibleFromOtDate: rec.flexibleFromOtDate || '',
+            punchMappedFromEmployeeMongoId: rec.punchMappedFromEmployeeMongoId || '',
             compOffState: rec.compOff?.state || '',
         };
         return {
@@ -552,23 +578,85 @@ function pendingApproverName(change, { flowchartHrName = '', reporteeName = '' }
     return hod || 'HOD';
 }
 
-function waitingDecision(who, requestTitle) {
+function waitingDecision(who, requestTitle, viewKind) {
     const name = String(who || '').trim() || 'approver';
     return {
         kind: 'waiting',
+        viewKind: String(viewKind || '').trim(),
+        approverName: name,
         title: `Waiting for ${name}`,
         requestTitle: String(requestTitle || '').trim(),
     };
 }
 
+function approverFirstName(name) {
+    const text = String(name || '').trim();
+    const parts = text.split(/\s+/).filter(Boolean);
+    if (!parts.length) return 'Approver';
+    if (parts.length > 1 && /reportee|approver|requester/i.test(text)) return text;
+    return parts[0];
+}
+
+function shortPendingRequestType(decision, mark) {
+    const viewKind = String(decision?.viewKind || '').trim();
+    const title = String(decision?.requestTitle || '').trim();
+    const hourKind = String(mark?.pendingChange?.hourAdjustKind || mark?.hourAdjustKind || '').toLowerCase();
+    const leaveKind = String(mark?.leaveRequestKind || '').toLowerCase();
+
+    if (viewKind === 'ot' || /overtime/i.test(title)) return 'OT';
+    if (hourKind === 'early_go' || leaveKind.includes('early') || /early/i.test(title)) return 'Early Go';
+    if (hourKind === 'late_arrived' || leaveKind.includes('late') || /late/i.test(title)) return 'Late In';
+    if (hourKind === 'mispunch' || /mispunch/i.test(title)) return 'Mispunch';
+    if (hourKind === 'authorized_leave') return 'Auth Leave';
+    if (viewKind === 'hour') return 'Hours';
+    if (leaveKind === 'future_annual' || /annual/i.test(title)) return 'Annual';
+    if (leaveKind === 'yellow' || /^present$/i.test(title)) return 'Present';
+    if (/sick/i.test(title)) return 'Sick';
+    if (/comp/i.test(title)) return 'Comp Off';
+    if (viewKind === 'leave' || /leave/i.test(title)) return 'Leave';
+    if (title && title.length <= 18) return title;
+    return title ? title.split(/\s+/).slice(0, 2).join(' ') : 'Request';
+}
+
+function pendingApprovalLabel(decision, mark) {
+    return `Pending - ${shortPendingRequestType(decision, mark)} - ${approverFirstName(decision?.approverName)}`;
+}
+
+function viewKindFromMark(mark) {
+    const action = String(mark?.pendingChange?.action || '').trim();
+    if (action === 'flexible_ot') return 'ot';
+    if (action === 'hour_adjust') return 'hour';
+    if (mark?.pendingChange?.id) return 'change';
+    if (String(mark?.leaveRequestStatus || '') === 'pending') return 'leave';
+    if (String(mark?.flexibleOtStatus || '') === 'pending') return 'ot';
+    if (String(mark?.hourAdjustStatus || '') === 'pending') return 'hour';
+    return '';
+}
+
+function PendingApprovalLink({ decision, mark, onOpen, className = '' }) {
+    const label = pendingApprovalLabel(decision, mark);
+    const detail = [decision?.requestTitle, decision?.title].filter(Boolean).join(' · ');
+    return (
+        <button
+            type="button"
+            onClick={() => onOpen?.('view')}
+            title={detail || label}
+            className={`cursor-pointer font-semibold leading-snug text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900 ${className}`}
+        >
+            {label}
+        </button>
+    );
+}
+
 function waitingForApproval(change, mark, names) {
     const who = pendingApproverName(change, names);
-    const requestTitle = change?.action === 'hour_adjust'
-        ? pendingRequestTitle(mark, 'hour')
-        : change?.action === 'flexible_ot'
-            ? pendingRequestTitle(mark, 'ot')
-            : pendingRequestTitle(mark, 'change');
-    return waitingDecision(who, requestTitle);
+    if (change?.action === 'hour_adjust') {
+        return waitingDecision(who, pendingRequestTitle(mark, 'hour'), 'hour');
+    }
+    if (change?.action === 'flexible_ot') {
+        return waitingDecision(who, pendingRequestTitle(mark, 'ot'), 'ot');
+    }
+    return waitingDecision(who, pendingRequestTitle(mark, 'change'), 'change');
 }
 
 function leaveWaitingOnHr(mark) {
@@ -647,7 +735,7 @@ function rowDecisionFor(mark, employee, {
             };
         }
         const who = leaveWithHr ? (flowchartHrName || 'HR') : (names.reporteeName || 'primary reportee');
-        return waitingDecision(who, pendingRequestTitle(mark, 'leave'));
+        return waitingDecision(who, pendingRequestTitle(mark, 'leave'), 'leave');
     }
     if (String(mark.flexibleOtStatus || '') === 'pending' && mark.attendanceId) {
         if (isFlowchartHr) {
@@ -657,7 +745,7 @@ function rowDecisionFor(mark, employee, {
                 title: pendingRequestTitle(mark, 'ot'),
             };
         }
-        return waitingDecision(flowchartHrName || 'HR', pendingRequestTitle(mark, 'ot'));
+        return waitingDecision(flowchartHrName || 'HR', pendingRequestTitle(mark, 'ot'), 'ot');
     }
     if (String(mark.hourAdjustStatus || '') === 'pending' && mark.attendanceId) {
         if (isFlowchartHr) {
@@ -667,7 +755,7 @@ function rowDecisionFor(mark, employee, {
                 title: pendingRequestTitle(mark, 'hour'),
             };
         }
-        return waitingDecision(flowchartHrName || 'HR', pendingRequestTitle(mark, 'hour'));
+        return waitingDecision(flowchartHrName || 'HR', pendingRequestTitle(mark, 'hour'), 'hour');
     }
     return null;
 }
@@ -764,9 +852,13 @@ function otSortText(mark, ctx) {
     if (canReviewOt) return 'review';
     const text = otCellLabel(mark);
     if (text) return text;
-    if (!(Number(mark?.flexibleOtHours) > 0)) return null;
+    const span = punchSpanSeconds(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
+    const durationHours = span != null ? span / 3600 : workedHoursValue(mark);
+    const syntheticOt = isOtPunch(mark?.rawTimeIn) || isOtPunch(mark?.rawTimeOut);
+    const otHours = requestableOvertimeHours(mark, durationHours, mark?.flexibleRequiredHours, { syntheticOt });
+    if (!(otHours > 0)) return null;
     if (ctx.isFlowchartHr) {
-        return workedHoursValue(mark) > 19 ? 'next day present' : 'apply ot';
+        return durationHours > 19 ? 'next day present' : 'apply ot';
     }
     return 'req ot';
 }
@@ -1009,7 +1101,7 @@ function clockInputValue(value) {
     return `${match[1].padStart(2, '0')}:${match[2]}`;
 }
 
-function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFirst = false, onClose, onDecide }) {
+function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFirst = false, readOnly = false, onClose, onDecide }) {
     const change = mark?.pendingChange || {};
     const showHours = change.action === 'hour_adjust' || change.action === 'flexible_ot';
     const [editing, setEditing] = useState(false);
@@ -1088,15 +1180,16 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFir
                         <span className="text-slate-500">Requested: </span>
                         {change.statusLabel || 'Updated'}
                     </p>
-                    {editing ? (
+                    {editing || readOnly ? (
                         <div className="grid grid-cols-2 gap-2 pt-1">
                             <label className="text-xs text-slate-500">
                                 Time in
                                 <input
                                     type="time"
                                     value={timeIn}
+                                    disabled={readOnly}
                                     onChange={(event) => setTimeIn(event.target.value)}
-                                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                                 />
                             </label>
                             <label className="text-xs text-slate-500">
@@ -1104,8 +1197,9 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFir
                                 <input
                                     type="time"
                                     value={timeOut}
+                                    disabled={readOnly}
                                     onChange={(event) => setTimeOut(event.target.value)}
-                                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                                 />
                             </label>
                             {showHours ? (
@@ -1116,8 +1210,9 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFir
                                         min="0"
                                         step="0.25"
                                         value={hours}
+                                        disabled={readOnly}
                                         onChange={(event) => setHours(event.target.value)}
-                                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                                     />
                                 </label>
                             ) : null}
@@ -1145,9 +1240,10 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFir
                             Reject reason
                             <textarea
                                 value={rejectReason}
+                                disabled={readOnly}
                                 onChange={(event) => setRejectReason(event.target.value)}
                                 rows={3}
-                                className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm text-slate-800"
+                                className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                             />
                         </label>
                     ) : null}
@@ -1163,37 +1259,42 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFir
                     </button>
                     <button
                         type="button"
-                        disabled={deciding}
-                        onClick={() => setEditing((value) => !value)}
-                        className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700"
+                        disabled={deciding || readOnly}
+                        onClick={() => {
+                            if (readOnly) return;
+                            setEditing((value) => !value);
+                        }}
+                        className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         {editing ? 'Done' : 'Edit'}
                     </button>
                     <button
                         type="button"
-                        disabled={deciding || (rejecting && !String(rejectReason).trim())}
+                        disabled={readOnly || deciding || (rejecting && !String(rejectReason).trim())}
                         onClick={() => {
+                            if (readOnly) return;
                             if (!rejecting) {
                                 setRejecting(true);
                                 return;
                             }
                             onDecide?.('rejected', { rejectReason: String(rejectReason).trim() });
                         }}
-                        className="h-9 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-50"
+                        className="h-9 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         {rejecting ? 'Confirm reject' : 'Reject'}
                     </button>
                     <button
                         type="button"
-                        disabled={deciding}
-                        onClick={() =>
+                        disabled={deciding || readOnly}
+                        onClick={() => {
+                            if (readOnly) return;
                             onDecide?.('approved', {
                                 timeIn,
                                 timeOut,
                                 approvedHours: showHours && hours !== '' ? Number(hours) : undefined,
-                            })
-                        }
-                        className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white"
+                            });
+                        }}
+                        className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         Approve
                     </button>
@@ -1282,10 +1383,13 @@ function EmployeeRow({
     const adjustTitle = adjustLines.join(' ');
     const syntheticOtReason = /^Present \(On time\) from overtime$/i.test(String(shownMark?.reason || '').trim());
     const actionMenuOptions = rowMenuOptions(menuOptions, shownMark, { canReviewHour });
-    const showOtRequest = Number(mark?.flexibleOtHours) > 0 && !otText;
     const spanSeconds = syntheticOt ? null : punchSpanSeconds(rawIn, rawOut, mark?.timeOutDate, mark?.date);
     const durationHours = spanSeconds != null ? spanSeconds / 3600 : workedHoursValue(mark);
+    const requiredHours = scheduleDayHours(scheduleWeek, dateKey) || Number(mark?.flexibleRequiredHours) || 0;
+    const otHours = requestableOvertimeHours(mark, durationHours, requiredHours, { syntheticOt });
+    const showOtRequest = otHours > 0 && !otText;
     const showNextDayPresent = showOtRequest && !syntheticOt && durationHours > 19;
+    const requestMark = markWithRequestableOt(mark, otHours);
     const otButtonLabel = otDirect ? 'Apply OT' : 'Req OT';
 
     return (
@@ -1342,10 +1446,12 @@ function EmployeeRow({
                             {pendingLeaveLabel} pending
                         </span>
                     ) : rowDecision?.kind === 'waiting' ? (
-                        <span className="max-w-[240px] text-[10px] font-semibold leading-snug text-amber-700" title={rowDecision.title}>
-                            {rowDecision.requestTitle ? `${rowDecision.requestTitle} · ` : ''}
-                            {rowDecision.title}
-                        </span>
+                        <PendingApprovalLink
+                            decision={rowDecision}
+                            mark={mark}
+                            onOpen={onOpenRequest}
+                            className="max-w-[220px] text-left text-[10px]"
+                        />
                     ) : rowDecision ? (
                         <span className="text-[10px] font-semibold text-blue-700 whitespace-nowrap" title={rowDecision.title}>
                             {rowDecision.title} pending
@@ -1426,7 +1532,7 @@ function EmployeeRow({
                                         : 'Enable Apply OT and next day present on your permission group'
                                 }
                                 onClick={() => {
-                                    if (canRequestOt) onRequestOt?.(employee, mark, 'next-day');
+                                    if (canRequestOt) onRequestOt?.(employee, requestMark, 'next-day');
                                 }}
                                 className="rounded-lg border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                             >
@@ -1444,7 +1550,7 @@ function EmployeeRow({
                                     : 'Enable Apply OT and next day present on your permission group'
                             }
                             onClick={() => {
-                                if (canRequestOt) onRequestOt?.(employee, mark, 'apply');
+                                if (canRequestOt) onRequestOt?.(employee, requestMark, 'apply');
                             }}
                             className="rounded-lg border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                         >
@@ -1458,13 +1564,12 @@ function EmployeeRow({
             <td className="px-2 py-3 align-middle text-right">
                 <div className="relative inline-flex items-center justify-end gap-1 min-h-[32px]">
                     {rowDecision?.kind === 'waiting' ? (
-                        <span
-                            className="max-w-[220px] text-right text-[11px] font-semibold leading-snug text-amber-800"
-                            title={rowDecision.title}
-                        >
-                            {rowDecision.requestTitle ? `${rowDecision.requestTitle} · ` : ''}
-                            {rowDecision.title}
-                        </span>
+                        <PendingApprovalLink
+                            decision={rowDecision}
+                            mark={mark}
+                            onOpen={onOpenRequest}
+                            className="whitespace-nowrap text-right text-[11px]"
+                        />
                     ) : rowDecision ? (
                         <>
                             <button
@@ -2032,42 +2137,53 @@ export default function MarkAttendanceTable({
     const openRowRequest = (employee, decision, intent) => {
         if (!decision) return;
         const mark = marks[employee.id] || null;
-        if (decision.kind === 'hour') {
+        const readOnly = intent === 'view';
+        const kind = readOnly ? decision.viewKind || viewKindFromMark(mark) : decision.kind;
+        if (!kind || kind === 'waiting') return;
+        if (kind === 'hour') {
             setHourModal({
                 employee,
                 mark,
                 mode: 'review',
-                rejectFirst: intent === 'reject',
+                rejectFirst: !readOnly && intent === 'reject',
+                readOnly,
             });
             return;
         }
-        if (decision.kind === 'ot') {
+        if (kind === 'ot') {
             setOtModal({
                 employee,
                 mark,
                 intent: 'apply',
                 mode: 'review',
-                rejectFirst: intent === 'reject',
+                rejectFirst: !readOnly && intent === 'reject',
+                readOnly,
             });
             return;
         }
-        if (decision.kind === 'hour') {
-            setHourModal({ employee, mark, mode: 'review' });
-            return;
-        }
-        if (decision.kind === 'leave') {
+        if (kind === 'leave') {
             setLeaveDecideError('');
-            setLeaveDecide({ employee, mark, rejectFirst: intent === 'reject' });
+            setLeaveDecide({
+                employee,
+                mark,
+                rejectFirst: !readOnly && intent === 'reject',
+                readOnly,
+            });
             return;
         }
-        if (decision.kind === 'change') {
-            setChangeReview({ employee, mark, rejectFirst: intent === 'reject' });
+        if (kind === 'change') {
+            setChangeReview({
+                employee,
+                mark,
+                rejectFirst: !readOnly && intent === 'reject',
+                readOnly,
+            });
         }
     };
 
     const submitLeaveDecision = async (choice, approvedStatusKey, _pay, edits) => {
         const attendanceId = String(leaveDecide?.mark?.attendanceId || '').trim();
-        if (!attendanceId || leaveDeciding) return;
+        if (!attendanceId || leaveDeciding || leaveDecide?.readOnly) return;
         setLeaveDeciding(true);
         setLeaveDecideError('');
         try {
@@ -2581,6 +2697,7 @@ export default function MarkAttendanceTable({
                 open={Boolean(hourModal)}
                 mode={hourModal?.mode}
                 rejectFirst={hourModal?.rejectFirst === true}
+                readOnly={hourModal?.readOnly === true}
                 employee={hourModal?.employee}
                 mark={hourModal?.mark}
                 week={scheduleWeek}
@@ -2614,6 +2731,7 @@ export default function MarkAttendanceTable({
                 changedBy={leaveDecide?.employee?.name || ''}
                 hrReview={isFlowchartHr || canApproveLeave}
                 deciding={leaveDeciding}
+                readOnly={leaveDecide?.readOnly === true}
                 rejectFirst={leaveDecide?.rejectFirst === true}
                 error={leaveDecideError}
                 onClose={() => {
@@ -2629,11 +2747,13 @@ export default function MarkAttendanceTable({
                 mark={changeReview?.mark}
                 deciding={decidingEmployeeId === changeReview?.employee?.id}
                 rejectFirst={changeReview?.rejectFirst === true}
+                readOnly={changeReview?.readOnly === true}
                 onClose={() => {
                     if (decidingEmployeeId) return;
                     setChangeReview(null);
                 }}
                 onDecide={(choice, edits) => {
+                    if (changeReview?.readOnly) return;
                     const employee = changeReview?.employee;
                     const decision = employee
                         ? rowDecisionFor(changeReview?.mark, employee, { isFlowchartHr, viewerId, canApproveLeave, flowchartHrName })
@@ -2648,6 +2768,7 @@ export default function MarkAttendanceTable({
                 open={Boolean(otModal)}
                 mode={otModal?.mode || 'request'}
                 intent={otModal?.intent || 'apply'}
+                readOnly={otModal?.readOnly === true}
                 employee={otModal?.employee}
                 mark={otModal?.mark}
                 dayHours={

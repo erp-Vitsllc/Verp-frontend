@@ -146,6 +146,7 @@ export default function HourAdjustModal({
     employee,
     mark,
     week,
+    readOnly = false,
     onClose,
     onSaved,
 }) {
@@ -217,6 +218,7 @@ export default function HourAdjustModal({
     };
 
     const submit = async () => {
+        if (readOnly) return;
         const parsed = readHours();
         if (parsed.error) {
             toast({ variant: 'destructive', title: 'Check the request', description: parsed.error });
@@ -251,6 +253,7 @@ export default function HourAdjustModal({
     };
 
     const decide = async (decision) => {
+        if (readOnly) return;
         if (decision === 'rejected' && !rejecting) {
             setRejecting(true);
             return;
@@ -344,12 +347,13 @@ export default function HourAdjustModal({
                             max={maxHours}
                             step={flexible ? '1' : '0.5'}
                             value={approvedHours}
+                            disabled={readOnly}
                             onChange={(event) => {
                                 const next = event.target.value;
                                 if (flexible && next !== '' && !/^\d+$/.test(next)) return;
                                 setApprovedHours(next);
                             }}
-                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800"
+                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                         />
                     </label>
                     {flexible ? null : (
@@ -357,9 +361,10 @@ export default function HourAdjustModal({
                             Description
                             <textarea
                                 value={reason}
+                                disabled={readOnly}
                                 onChange={(event) => setReason(event.target.value)}
                                 rows={3}
-                                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800"
+                                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                             />
                         </label>
                     )}
@@ -368,10 +373,11 @@ export default function HourAdjustModal({
                             Reject reason
                             <textarea
                                 value={rejectReason}
+                                disabled={readOnly}
                                 onChange={(event) => setRejectReason(event.target.value)}
                                 rows={3}
                                 required
-                                className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm text-slate-800"
+                                className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                             />
                         </label>
                     ) : null}
@@ -383,18 +389,18 @@ export default function HourAdjustModal({
                             <>
                                 <button
                                     type="button"
-                                    disabled={saving || (rejecting && !String(rejectReason || '').trim())}
+                                    disabled={readOnly || saving || (rejecting && !String(rejectReason || '').trim())}
                                     onClick={() => decide('rejected')}
-                                    className="rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600 disabled:opacity-50"
+                                    className="rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                     {rejecting ? 'Confirm reject' : 'Reject'}
                                 </button>
                                 {rejecting ? null : (
                                     <button
                                         type="button"
-                                        disabled={saving}
+                                        disabled={readOnly || saving}
                                         onClick={() => decide('approved')}
-                                        className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
+                                        className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                         {approveLabel}
                                     </button>
@@ -403,9 +409,9 @@ export default function HourAdjustModal({
                         ) : (
                             <button
                                 type="button"
-                                disabled={saving}
+                                disabled={readOnly || saving}
                                 onClick={submit}
-                                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
+                                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 {mode === 'direct' ? 'Approve' : 'Send request'}
                             </button>

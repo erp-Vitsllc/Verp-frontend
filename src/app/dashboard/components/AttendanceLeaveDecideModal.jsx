@@ -61,6 +61,7 @@ export default function AttendanceLeaveDecideModal({
     changedBy = '',
     hrReview = false,
     deciding = false,
+    readOnly = false,
     rejectFirst = false,
     error = '',
     onClose,
@@ -141,6 +142,7 @@ export default function AttendanceLeaveDecideModal({
               : 'Approve applies the status you choose. Reject keeps the current status.';
 
     const handleReject = () => {
+        if (readOnly) return;
         if (!rejecting) {
             setRejecting(true);
             setLocalError('');
@@ -159,14 +161,16 @@ export default function AttendanceLeaveDecideModal({
             Reject reason
             <textarea
                 value={rejectReason}
+                disabled={readOnly}
                 onChange={(event) => setRejectReason(event.target.value)}
                 rows={3}
-                className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-slate-800"
+                className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
             />
         </label>
     ) : null;
 
     const handleApprove = () => {
+        if (readOnly) return;
         if (!skipStatusPicker && !chosenKey) {
             setLocalError('Choose Authorized, Sick, or Unauthorized leave before approving.');
             return;
@@ -229,15 +233,16 @@ export default function AttendanceLeaveDecideModal({
                             <span className="text-slate-500">Requested: </span>
                             {requestedText}
                         </p>
-                        {editingTimes ? (
+                        {editingTimes || readOnly ? (
                             <div className="grid grid-cols-2 gap-2 pt-1">
                                 <label className="text-xs text-slate-500">
                                     Check in
                                     <input
                                         type="time"
                                         value={editIn}
+                                        disabled={readOnly}
                                         onChange={(event) => setEditIn(event.target.value)}
-                                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                                     />
                                 </label>
                                 <label className="text-xs text-slate-500">
@@ -245,8 +250,9 @@ export default function AttendanceLeaveDecideModal({
                                     <input
                                         type="time"
                                         value={editOut}
+                                        disabled={readOnly}
                                         onChange={(event) => setEditOut(event.target.value)}
-                                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800"
+                                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                                     />
                                 </label>
                             </div>
@@ -282,25 +288,28 @@ export default function AttendanceLeaveDecideModal({
                         </button>
                         <button
                             type="button"
-                            disabled={deciding}
-                            onClick={() => setEditingTimes((value) => !value)}
-                            className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                            disabled={deciding || readOnly}
+                            onClick={() => {
+                                if (readOnly) return;
+                                setEditingTimes((value) => !value);
+                            }}
+                            className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             {editingTimes ? 'Done' : 'Edit'}
                         </button>
                         <button
                             type="button"
-                            disabled={deciding || (rejecting && !String(rejectReason).trim())}
+                            disabled={readOnly || deciding || (rejecting && !String(rejectReason).trim())}
                             onClick={handleReject}
-                            className="h-9 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-50"
+                            className="h-9 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             {rejecting ? 'Confirm reject' : 'Reject'}
                         </button>
                         <button
                             type="button"
-                            disabled={deciding}
+                            disabled={deciding || readOnly}
                             onClick={handleApprove}
-                            className="h-9 rounded-lg bg-[#EA3D2F] px-4 text-sm font-semibold text-white disabled:opacity-50"
+                            className="h-9 rounded-lg bg-[#EA3D2F] px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             {deciding ? 'Saving…' : 'Approve'}
                         </button>
@@ -402,8 +411,9 @@ export default function AttendanceLeaveDecideModal({
                                         <button
                                             key={opt.key}
                                             type="button"
-                                            disabled={deciding}
+                                            disabled={deciding || readOnly}
                                             onClick={() => {
+                                                if (readOnly) return;
                                                 setChosenKey(opt.key);
                                                 setLocalError('');
                                             }}
@@ -439,17 +449,17 @@ export default function AttendanceLeaveDecideModal({
                     <div className="flex items-center gap-2 pt-1">
                         <button
                             type="button"
-                            disabled={deciding || (rejecting && !String(rejectReason).trim())}
+                            disabled={readOnly || deciding || (rejecting && !String(rejectReason).trim())}
                             onClick={handleReject}
-                            className="flex-1 h-10 rounded-xl text-sm font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                            className="flex-1 h-10 rounded-xl text-sm font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             {rejecting ? 'Confirm reject' : 'Reject'}
                         </button>
                         <button
                             type="button"
-                            disabled={deciding}
+                            disabled={deciding || readOnly}
                             onClick={handleApprove}
-                            className={`flex-1 h-10 rounded-xl text-sm font-semibold disabled:opacity-50 ${
+                            className={`flex-1 h-10 rounded-xl text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                                 isYellow || kindKey === 'future_late' || kindKey === 'future_early'
                                     ? 'text-white bg-[#2ECC71] hover:bg-[#27ae60]'
                                     : 'text-white bg-[#EA3D2F] hover:bg-[#d43528]'
