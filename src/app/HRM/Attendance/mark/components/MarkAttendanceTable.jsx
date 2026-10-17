@@ -360,6 +360,7 @@ const DEDUCTION_DAY_KEYS = new Set([
 
 function canOfferDeductionWaive(mark, canWaiveDeduction) {
     if (!canWaiveDeduction || !mark?.attendanceId || mark.deductionWaived) return false;
+    if (!(Number(mark.deductionDays) > 0)) return false;
     return DEDUCTION_DAY_KEYS.has(String(mark.key || '').trim());
 }
 
@@ -439,13 +440,44 @@ function pendingRecordScore(record) {
     return score;
 }
 
+const MISSING_CHECKOUT_SKIP = new Set([
+    'holiday',
+    'weekly_off',
+    'on_leave',
+    'sick_leave',
+    'compoff_leave',
+    'authorized_leave',
+]);
+
+function punchTimePresent(value) {
+    const text = String(value || '').trim();
+    return Boolean(text && text !== '—' && text !== '-' && text !== 'OT');
+}
+
+/** A past day with check-in and no check-out is a mispunch on this table. */
+function recordWithMissingCheckout(record, todayKey) {
+    const date = String(record?.date || '').trim();
+    if (!record || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !todayKey || date >= todayKey) return record;
+    if (!punchTimePresent(record.timeIn) || punchTimePresent(record.timeOut)) return record;
+    const key = String(record.statusKey || '').trim();
+    if (MISSING_CHECKOUT_SKIP.has(key) || key === 'mispunch') return record;
+    return {
+        ...record,
+        statusKey: 'mispunch',
+        statusLabel: 'Mispunch',
+        reason: String(record.reason || '').trim() || 'Mispunched — forgot to check out',
+    };
+}
+
 function applyDayRecordsToState(employees, records) {
+    const todayKey = dubaiDateKey();
     const byId = new Map();
     for (const record of Array.isArray(records) ? records : []) {
         const id = String(record?.employeeMongoId || '');
         if (!id) continue;
+        const shown = recordWithMissingCheckout(record, todayKey);
         const current = byId.get(id);
-        if (!current || pendingRecordScore(record) >= pendingRecordScore(current)) byId.set(id, record);
+        if (!current || pendingRecordScore(shown) >= pendingRecordScore(current)) byId.set(id, shown);
     }
     const nextMarks = {};
     const nextEmployees = employees.map((e) => {
@@ -498,6 +530,7 @@ function applyDayRecordsToState(employees, records) {
             punchMappedFromEmployeeMongoId: rec.punchMappedFromEmployeeMongoId || '',
             deductionWaived: rec.deductionWaived === true,
             deductionWaiveReason: rec.deductionWaiveReason || '',
+            deductionDays: Number(rec.deductionDays) || 0,
             compOffState: rec.compOff?.state || '',
         };
         return {

@@ -99,13 +99,9 @@ function pushPendingLine(map, date, line) {
 export function employeePendingRequests({ records, pending, monthKey, employeeName } = {}) {
     const map = new Map();
     const name = String(employeeName || '').trim() || 'Employee';
-    const quietDates = new Set();
     (Array.isArray(pending) ? pending : []).forEach((row) => {
         const dates = datesInMonth(row?.fromDate, row?.toDate, monthKey);
-        if (row?.reassigned || row?.ownRequest === false) {
-            if (row?.reassigned) dates.forEach((date) => quietDates.add(date));
-            return;
-        }
+        if (row?.reassigned || row?.ownRequest === false) return;
         if (!isAttendancePendingItem(row)) return;
         const line = {
             label: String(row?.title || 'Request').trim() || 'Request',
@@ -117,7 +113,6 @@ export function employeePendingRequests({ records, pending, monthKey, employeeNa
     (Array.isArray(records) ? records : []).forEach((row) => {
         const date = String(row?.date || '').trim();
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || (monthKey && !date.startsWith(monthKey))) return;
-        if (quietDates.has(date)) return;
         if (String(row.leaveRequestStatus || '') === 'pending') {
             pushPendingLine(map, date, { label: recordPendingLabel(row), requestedBy: name, pendingWith: '' });
         }

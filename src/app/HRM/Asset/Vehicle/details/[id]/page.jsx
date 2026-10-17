@@ -1041,6 +1041,7 @@ function VehicleDetailsPageContent() {
 
     const refreshData = useCallback(() => {
         if (!assetId) return;
+        invalidateAssetPendingInbox('vehicle');
         setDocumentAttachmentsLoaded(false);
         lightUpgradeDoneRef.current = false;
         const includeDocuments = activeTab === 'document';
@@ -1413,6 +1414,7 @@ function VehicleDetailsPageContent() {
                           : `${docToNotRenew.type} and related attachments moved to Old Documents (Not Renewed).`,
                 });
                 setDocToNotRenew(null);
+                invalidateAssetPendingInbox('vehicle');
                 fetchAssetDetails();
                 return;
             }
@@ -1444,6 +1446,7 @@ function VehicleDetailsPageContent() {
                 return { ...prev, documents: nextDocs };
             });
             setDocToNotRenew(null);
+            invalidateAssetPendingInbox('vehicle');
             fetchAssetDetails();
         } catch (error) {
             toast({

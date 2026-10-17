@@ -281,7 +281,7 @@ function AnnualLeavePageContent() {
     }, []);
 
     useEffect(() => {
-        fetchPendingInboxCount();
+        fetchPendingInboxCount({ force: true });
         const refresh = () => fetchPendingInboxCount({ force: true });
         if (typeof window !== 'undefined') {
             window.addEventListener(LEAVE_PENDING_INBOX_CHANGED, refresh);
@@ -935,6 +935,7 @@ function AnnualLeavePageContent() {
                                                 ? `${approveRequest.startDate} → ${approveRequest.endDate}`
                                                 : ''
                                         }
+                                        requestedOnLabel={approveRequest?.requestedDate || ''}
                                         submitting={confirming}
                                         enableAnnualEligibilityGate
                                     />
@@ -1022,6 +1023,9 @@ function AnnualLeavePageContent() {
                     isExistingLeaveModal && approveRequest?.startDate && approveRequest?.endDate
                         ? `${approveRequest.startDate} → ${approveRequest.endDate}`
                         : ''
+                }
+                requestedOnLabel={
+                    isExistingLeaveModal ? approveRequest?.requestedDate || '' : ''
                 }
                 submitting={confirming}
                 enableAnnualEligibilityGate

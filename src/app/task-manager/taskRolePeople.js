@@ -1,0 +1,65 @@
+export function personKey(value) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** Workflow titles and system actors were stored in requester/assignee fields. They are not employees. */
+export function isTaskTitleName(value) {
+    const text = String(value || '').trim().replace(/\s+/g, ' ');
+    if (!text) return true;
+    const lower = text.toLowerCase();
+    if ([
+        'system',
+        'unassigned',
+        'task manager',
+        'system monitor',
+        'asset system',
+        'hr',
+        'accounts',
+        'locator',
+        'workflow task',
+        'employee',
+    ].includes(lower)) return true;
+    if (/\bsystem\b/i.test(text) || /\bpending with\b/i.test(text) || /[—–]/.test(text)) return true;
+    if (/\b(overdue|make payment|ready to service|on service|accounts approve|hr approval|complete service)\b/i.test(lower)) return true;
+    return /^(oil service|mechanical work|tire change|tyre change|body work|accident repair|car wash|vehicle service)\b/i.test(lower);
+}
+
+export function basePersonName(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').replace(/\s*\([^)]*\)\s*$/, '').trim();
+}
+
+export function requesterEmployeeName(task) {
+    const base = basePersonName(task?.requesterBaseName);
+    if (base) return base;
+    const raw = String(task?.requesterName || '').trim();
+    const inner = raw.match(/\(([^)]+)\)\s*$/);
+    if (inner) return basePersonName(inner[1]);
+    return basePersonName(raw);
+}
+
+/** Employees who have at least one task in this role. System labels and workflow titles stay out. */
+export function taskRolePeople(tasks, role, titleOf = () => '') {
+    const titleKeys = new Set();
+    tasks.forEach((task) => {
+        titleKeys.add(personKey(task?.taskName));
+        titleKeys.add(personKey(titleOf(task)));
+    });
+    const people = new Map();
+    const add = (raw) => {
+        const label = basePersonName(raw);
+        const key = personKey(label);
+        if (!key || titleKeys.has(key) || isTaskTitleName(label) || people.has(key)) return;
+        people.set(key, label);
+    };
+    tasks.forEach((task) => {
+        if (role === 'assignee') {
+            add(task.assigneeName);
+            add(task.originalAssigneeName);
+            return;
+        }
+        add(requesterEmployeeName(task));
+    });
+    return [...people.entries()]
+        .map(([key, name]) => ({ key, name }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+}

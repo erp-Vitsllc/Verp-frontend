@@ -104,6 +104,7 @@ export default function AnnualLeaveFilterModal({
     salaryVisibility: salaryVisibilityProp,
     requestedLeaveLabel = '',
     requestedDateLabel = '',
+    requestedOnLabel = '',
     showReject = false,
     onReject,
     rejectLabel = 'Reject',
@@ -345,13 +346,23 @@ export default function AnnualLeaveFilterModal({
                     <p className="mb-3 text-center text-[11px] leading-snug text-[#6B7280]">{note}</p>
                 ) : null}
                 {requestedLeaveLabel ? (
-                    <div className="mb-3 rounded-lg border border-[#DDE3EA] bg-[#F8FAFC] px-3 py-2 text-center text-xs text-[#475467]">
-                        Requested:{' '}
-                        <span className="font-semibold text-[#111827]">{requestedLeaveLabel}</span>
-                        {requestedDateLabel ? (
-                            <span className="mt-0.5 block text-[11px] text-[#667085]">
-                                {requestedDateLabel}
-                            </span>
+                    <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-[#DDE3EA] bg-[#F8FAFC] px-3 py-2">
+                        <div className="min-w-0 text-left text-xs text-[#475467]">
+                            <p>
+                                Requested:{' '}
+                                <span className="font-semibold text-[#111827]">{requestedLeaveLabel}</span>
+                            </p>
+                            {requestedDateLabel ? (
+                                <p className="mt-0.5 text-[11px] text-[#667085]">{requestedDateLabel}</p>
+                            ) : null}
+                        </div>
+                        {requestedOnLabel ? (
+                            <div className="shrink-0 border-l border-[#E5E7EB] pl-3 text-right">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-[#667085]">
+                                    Requested date
+                                </p>
+                                <p className="text-sm font-semibold text-[#111827]">{requestedOnLabel}</p>
+                            </div>
                         ) : null}
                     </div>
                 ) : null}

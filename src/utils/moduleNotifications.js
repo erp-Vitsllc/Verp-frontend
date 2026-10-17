@@ -1004,13 +1004,11 @@ export function getVehicleModuleInboxRows(bundle = null) {
     // Prefer live cache even if feeds TTL lapsed — sidebar still shows that count.
     const b = bundle || cachedBundle || getCachedModuleNotificationBundle();
     const rows = Array.isArray(b?.byModule?.['Vehicle Asset']) ? b.byModule['Vehicle Asset'] : [];
-    return rows.map(moduleNotificationToPendingInboxRow);
+    return rows.map(moduleNotificationToPendingInboxRow).filter(isVehicleAssetInboxRow);
 }
 
 export function getVehicleModuleInboxCount(bundle = null) {
-    const b = bundle || cachedBundle || getCachedModuleNotificationBundle();
-    if (typeof b?.counts?.vehicleAsset === 'number') return b.counts.vehicleAsset;
-    return getVehicleModuleInboxRows(b).length;
+    return getVehicleModuleInboxRows(bundle).length;
 }
 
 /**

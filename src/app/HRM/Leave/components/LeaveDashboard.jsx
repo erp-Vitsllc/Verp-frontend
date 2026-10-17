@@ -18,6 +18,7 @@ import RechartsBox from '@/components/charts/RechartsBox';
 import axiosInstance from '@/utils/axios';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { navigateFromList } from '@/utils/listReturnNavigation';
+import { markAttendanceHref } from '@/app/HRM/Attendance/utils/markAttendanceHref';
 import { notifyLeavePendingInboxChanged } from '../utils/leavePendingInboxCount';
 import {
     ALL_LEAVE_YEAR,
@@ -227,7 +228,7 @@ function LeaveApprovalTable({
                     event.preventDefault();
                     onRowDoubleClick?.(row);
                 }}
-                title="Double-click to open leave portal"
+                title="Double-click to open this day in Mark Attendance"
                 onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
@@ -826,16 +827,9 @@ export default function LeaveDashboard({
                 if (groupEmployeeIds && !groupEmployeeIds.has(String(row.employeeMongoId || ''))) {
                     return false;
                 }
-                if (
-                    statusFilter &&
-                    statusFilter !== ALL_LEAVE_STATUS &&
-                    String(row.requestedStatusKey || '') !== statusFilter
-                ) {
-                    return false;
-                }
                 return isLeaveRangeSalaryVisible(row, salaryVisibility);
             }),
-        [groupEmployeeIds, isAllYear, month, pendingItems, salaryVisibility, selectedYear, statusFilter],
+        [groupEmployeeIds, isAllYear, month, pendingItems, salaryVisibility, selectedYear],
     );
 
     const pendingCount = useMemo(
@@ -945,8 +939,14 @@ export default function LeaveDashboard({
                     (code && String(emp.employeeId || '').trim() === code),
             );
             const mongoId = fromRow || String(listed?._id || '').trim();
-            if (!mongoId) return;
-            navigateFromList(router, `/HRM/Leave/${encodeURIComponent(mongoId)}`);
+            const dateKey = String(row?.startDateKey || '').trim();
+            if (!mongoId || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return;
+            const staffType = String(listed?.staffType || row?.staffType || '').trim();
+            navigateFromList(router, markAttendanceHref({
+                date: dateKey,
+                staffType,
+                blinkEmployee: mongoId,
+            }));
         },
         [employees, router],
     );

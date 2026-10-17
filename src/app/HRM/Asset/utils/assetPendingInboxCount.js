@@ -1,5 +1,6 @@
 import { isPendingInboxRowVisible, isAcceptedAssignmentOutcomeInboxRow } from './assetRequestLabels';
 import { isDisplayableAssetPendingInboxRow } from '@/utils/assetNotificationRouting';
+import { taskInboxIdentity } from '@/utils/assetTaskInboxRules';
 import {
     ASSET_PENDING_INBOX_ENDPOINT,
     clearPendingInboxCache,
@@ -67,6 +68,8 @@ export function dedupeAssetPendingInboxItems(items) {
 
     const rowIdentity = (row) =>
         String(row?.dashboardActionId || row?.actionId || row?._id || '').trim();
+    const seenTaskIds = new Set();
+    const seenVehicleExpiry = new Set();
 
     const sorted = [...list].sort(
         (a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0),
@@ -78,6 +81,24 @@ export function dedupeAssetPendingInboxItems(items) {
         if (actionId) {
             if (seenActionIds.has(actionId)) return false;
             seenActionIds.add(actionId);
+        }
+
+        if (requestType === 'Task Manager') {
+            const taskId = taskInboxIdentity(row);
+            if (taskId) {
+                if (seenTaskIds.has(taskId)) return false;
+                seenTaskIds.add(taskId);
+            }
+        }
+
+        if (requestType === 'Vehicle Document Expiry Reminder') {
+            const assetId = String(row?.requestObjectId || row?.primaryAssetId || row?.requestId || '').trim();
+            const extra = String(row?.extra1 || '').trim().toLowerCase();
+            if (assetId && extra) {
+                const expiryKey = `${assetId}|${extra}`;
+                if (seenVehicleExpiry.has(expiryKey)) return false;
+                seenVehicleExpiry.add(expiryKey);
+            }
         }
 
         if (requestType === 'Vehicle Service Request') {

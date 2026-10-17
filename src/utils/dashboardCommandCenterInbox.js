@@ -18,6 +18,7 @@ import {
     isVehicleAssetInboxRow,
     parseAssetInboxExtra3,
 } from '@/utils/assetInboxScope';
+import { isExpiryFollowUpTaskInboxRow } from '@/utils/assetTaskInboxRules';
 import { isDashboardPendingItem } from '@/utils/activationNotificationFilters';
 import { sortNotificationsStackOrder } from '@/utils/notificationSortOrder';
 
@@ -84,6 +85,8 @@ export function isCommandCenterHiddenType(typeOrItem) {
             ? typeOrItem
             : String(typeOrItem?.type || typeOrItem?.requestType || '').trim();
     if (isCardDeletedNotificationHiddenType(type)) return true;
+    // The document reminder is the bell row. The Task Manager copy is a duplicate.
+    if (typeof typeOrItem !== 'string' && isExpiryFollowUpTaskInboxRow(typeOrItem)) return true;
     // Utility contract expiry bells are disabled — other expiry types stay.
     if (type === 'Utility Contract Expiry') return true;
     // Flowchart responsibility acceptance lives on Settings → FlowChart, not Command Center.

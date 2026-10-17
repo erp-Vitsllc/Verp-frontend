@@ -26,6 +26,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import { useRegisterErpBackHandler } from '@/contexts/ErpBackHandlerContext';
 import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation';
+import { taskNameLines } from '@/app/task-manager/taskNameLines';
 
 const TABS = [
     { id: 'overview', label: 'Overview' },
@@ -408,12 +409,12 @@ function TaskDetailsPage() {
     }
 
     const notes = task.notifications || { workUpdate: true, comment: true };
+    const nameLines = taskNameLines(task);
     const updates = Array.isArray(task.updates) ? task.updates : [];
     const comments = Array.isArray(task.comments) ? task.comments : [];
     const number = taskNumber || task.taskNumber || '';
     const sentEmails = Array.isArray(task.emails) ? task.emails : [];
-    const loggedTaskMail = sentEmails.some((item) => /task update|work update|task comment|task created|task reassigned|task returned|confirm completion|confirmed completed|confirm close|confirmed closed|task closed|task reopened/i.test(`${item.emailType || ''} ${item.subject || ''}`));
-    const updateMails = loggedTaskMail ? [] : [
+    const updateMails = sentEmails.length ? [] : [
         ...updates.filter((item) => item.emailSent).map((item) => ({ ...item, channel: 'Task updated' })),
         ...comments.filter((item) => item.emailSent).map((item) => ({ ...item, channel: 'New comment' })),
     ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -433,7 +434,10 @@ function TaskDetailsPage() {
                                     {task.displayStatus || task.status}
                                 </span>
                             </div>
-                            <h2 className="mt-1 text-2xl font-bold text-slate-900">{task.taskName}</h2>
+                            <h2 className="mt-1 text-2xl font-bold text-slate-900">{nameLines[0]}</h2>
+                            {nameLines.slice(1).map((line) => (
+                                <p key={line} className="text-sm text-slate-500">{line}</p>
+                            ))}
                             {task.closeMessage ? <p className="mt-1 text-sm text-slate-500">{task.closeMessage}</p> : null}
                         </div>
                         <div className="flex items-center gap-2">
@@ -571,6 +575,8 @@ function TaskDetailsPage() {
                                 {task.accessPath && task.taskCategory !== 'General Task' ? (
                                     <a
                                         href={task.accessPath}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
                                         onClick={(event) => handleNavigateFromTaskSectionClick(event, router, task.accessPath)}
                                         className="mt-3 inline-flex text-sm font-semibold text-[#2563EB]"
                                     >
@@ -642,7 +648,7 @@ function TaskDetailsPage() {
                                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                                     <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-800"><Mail size={16} /> Emails for this task</h3>
                                     {task.accessPath && task.taskCategory !== 'General Task' ? (
-                                        <a href={task.accessPath} onClick={(event) => handleNavigateFromTaskSectionClick(event, router, task.accessPath)} className="text-sm font-semibold text-[#2563EB]">Open the related page</a>
+                                        <a href={task.accessPath} target="_blank" rel="noopener noreferrer" onClick={(event) => handleNavigateFromTaskSectionClick(event, router, task.accessPath)} className="text-sm font-semibold text-[#2563EB]">Open the related page</a>
                                     ) : null}
                                 </div>
                                 <EmailInbox
@@ -1021,12 +1027,13 @@ function SentEmailBlock({ email }) {
 
 function EmailPreview({ mode, task, number, item }) {
     const to = [task.assigneeEmail, task.requesterEmail].filter(Boolean).join(', ') || 'No company email on file';
+    const nameLines = taskNameLines(task);
     const body = item?.text ? String(item.text).replace(/<[^>]+>/g, '') : 'No update has been posted yet.';
     return (
         <div className="overflow-hidden rounded-xl border border-slate-200">
             <div className="border-b border-slate-100 px-4 py-3">
                 <p className="text-sm font-semibold text-slate-800">{mode === 'update' ? `Task Updated: ${number || task.taskName}` : `New Comment: ${number || task.taskName}`}</p>
-                <p className="text-sm text-slate-500">{task.taskName}</p>
+                <p className="text-sm text-slate-500">{nameLines.join(' · ')}</p>
             </div>
             <div className="space-y-1 px-4 py-3 text-sm text-slate-600">
                 <p><span className="text-slate-400">From:</span> no-reply@vegadigital.ae</p>
@@ -1038,7 +1045,7 @@ function EmailPreview({ mode, task, number, item }) {
                 <p className="mt-2">{mode === 'update' ? 'The following task has been updated:' : 'A new comment was added:'}</p>
                 <dl className="mt-3 grid grid-cols-[140px_1fr] gap-y-1">
                     <dt className="text-slate-400">Task Number</dt><dd>{number || '—'}</dd>
-                    <dt className="text-slate-400">Task Name</dt><dd>{task.taskName}</dd>
+                    <dt className="text-slate-400">Task Name</dt><dd>{nameLines.map((line) => <span key={line} className="block">{line}</span>)}</dd>
                     <dt className="text-slate-400">{mode === 'update' ? 'Update By' : 'Comment By'}</dt><dd>{item?.authorName || '—'}</dd>
                     <dt className="text-slate-400">{mode === 'update' ? 'Update Details' : 'Comment'}</dt><dd>{body}</dd>
                     <dt className="text-slate-400">Current Status</dt><dd>{task.displayStatus || task.status}</dd>

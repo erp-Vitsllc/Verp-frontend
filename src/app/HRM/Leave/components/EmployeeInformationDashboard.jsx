@@ -3236,9 +3236,13 @@ export default function EmployeeInformationDashboard({
         : 0;
     const accumulatedPct = monthlySalary > 0 ? Math.round((accumulated / monthlySalary) * 10000) / 100 : 0;
 
+    const ownView = profile?.requests?.ownView !== false;
     const pendingRows = Array.isArray(profile?.requests?.pending) ? profile.requests.pending : [];
     const pending = pendingRows.filter((row) =>
-        row?.ownRequest !== false && (period === 'month' ? Boolean(row.spanAllMonths) || salaryPrepRowTouchesMonth(row, monthKey) : true),
+        ownView &&
+        row?.ownRequest !== false &&
+        !row?.reassigned &&
+        (period === 'month' ? Boolean(row.spanAllMonths) || salaryPrepRowTouchesMonth(row, monthKey) : true),
     );
     const workTasks = Array.isArray(profile?.requests?.workTasks) ? profile.requests.workTasks : [];
     const prepPageCount = Math.max(1, Math.ceil(pending.length / CARD_PAGE_SIZE));
@@ -3311,8 +3315,8 @@ export default function EmployeeInformationDashboard({
         adjustmentByDate,
         visibleFrom: '',
         pendingRequestsByDate: employeePendingRequests({
-            records: monthRecords,
-            pending: pendingRows,
+            records: ownView ? monthRecords : [],
+            pending: ownView ? pendingRows : [],
             monthKey,
             employeeName: employee.name,
         }),

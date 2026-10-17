@@ -3,6 +3,7 @@
  * Shared by module bells, Command Center, and pending-inbox consumers.
  */
 
+import { isExpiryFollowUpTaskInboxRow, isLegacyVehicleNameExpiryRow } from '@/utils/assetTaskInboxRules';
 import { isTaskManagerHubRequest } from '@/utils/employeeHubRequest';
 import { isReturnedTaskNotice } from '@/utils/notificationInboxPresentation';
 
@@ -86,10 +87,12 @@ export function isVehicleAssetInboxRow(row = {}) {
     if (isTaskManagerHubRequest(row)) return false;
     const type = requestTypeOf(row);
     if (type === 'Task Manager') {
-        if (isReturnedTaskNotice(row)) return false;
+        // Returned and expiry follow-ups stay on the task. The vehicle reminder already covers the document.
+        if (isReturnedTaskNotice(row) || isExpiryFollowUpTaskInboxRow(row)) return false;
         const meta = parseAssetInboxExtra3(row.extra3);
         return meta?.module === 'vehicle';
     }
+    if (isLegacyVehicleNameExpiryRow(row)) return false;
     if (type === 'Employee Vehicle Request') return true;
     if (type === 'Employee Asset Request') return hubAssetAreaOf(row) === 'Vehicle';
     if (isVehicleOnlyRequestType(type)) return true;
@@ -103,7 +106,7 @@ export function isToolsAssetInboxRow(row = {}) {
     const type = requestTypeOf(row);
     if (!type) return false;
     if (type === 'Task Manager') {
-        if (isReturnedTaskNotice(row)) return false;
+        if (isReturnedTaskNotice(row) || isExpiryFollowUpTaskInboxRow(row)) return false;
         return parseAssetInboxExtra3(row.extra3)?.module === 'tools';
     }
     if (type === 'Employee Asset Request') {
@@ -131,7 +134,7 @@ export function isUtilityBillInboxRow(row = {}) {
     if (isTaskManagerHubRequest(row)) return false;
     const type = requestTypeOf(row);
     if (type === 'Task Manager') {
-        if (isReturnedTaskNotice(row)) return false;
+        if (isReturnedTaskNotice(row) || isExpiryFollowUpTaskInboxRow(row)) return false;
         return parseAssetInboxExtra3(row.extra3)?.module === 'utility';
     }
     if (type === 'Employee Asset Request') return hubAssetAreaOf(row) === 'Utility Bill';

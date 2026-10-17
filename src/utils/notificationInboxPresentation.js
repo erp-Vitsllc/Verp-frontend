@@ -76,6 +76,15 @@ export function reassignedNoticeModule(item = {}) {
     return String(readNotificationMeta(item.extra3)?.module || '').trim();
 }
 
+function taskNoticeHref(meta = {}) {
+    const id = String(meta.taskManagerId || '').trim();
+    if (id) return `/task-manager/${encodeURIComponent(id)}`;
+    const key = String(meta.taskKey || '').trim();
+    if (key.startsWith('/task-manager/')) return key;
+    if (key) return `/task-manager/${encodeURIComponent(key)}`;
+    return String(meta.taskPath || meta.path || '').trim();
+}
+
 function applyReassignedTaskNotice(row, item = {}) {
     if (!isReassignedTaskNotice(item)) return row;
     const meta = readNotificationMeta(item.extra3);
@@ -83,7 +92,7 @@ function applyReassignedTaskNotice(row, item = {}) {
     const who = sanitizeNotificationText(meta.reassignedToName || '');
     if (taskName) row.title = taskName;
     row.category = who ? `Reassigned to: ${who}` : sanitizeNotificationText(item.extra2 || 'Reassigned');
-    row.href = String(meta.taskPath || meta.path || '').trim();
+    row.href = taskNoticeHref(meta);
     row.openTaskLabel = 'Open Task';
     row.highlight = '';
     return row;

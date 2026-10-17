@@ -90,7 +90,7 @@ describe('employeePendingRequests', () => {
         assert.equal(map.get('2026-10-04')[0].label, 'Sick leave request');
     });
 
-    it('does not link a day after that request was reassigned as a task', () => {
+    it('keeps the original requester day linked and ignores a reassigned task row', () => {
         const map = employeePendingRequests({
             monthKey: '2026-10',
             employeeName: 'Raseel Muhammad',
@@ -105,12 +105,12 @@ describe('employeePendingRequests', () => {
             ],
             records: [
                 { date: '2026-10-12', leaveRequestStatus: 'pending', leaveRequestKind: 'yellow', requestedStatusKey: 'mispunch' },
-                { date: '2026-10-16', leaveRequestStatus: 'pending', requestedStatusKey: 'authorized_leave' },
+                { date: '2026-10-21', leaveRequestStatus: 'pending', requestedStatusKey: 'authorized_leave' },
             ],
         });
 
-        assert.equal(map.has('2026-10-12'), false);
-        assert.equal(map.get('2026-10-16')[0].label, 'Authorized leave request');
+        assert.equal(map.get('2026-10-12')[0].label, 'Missed punch request');
+        assert.equal(map.get('2026-10-21')[0].label, 'Authorized leave request');
     });
 
     it('uses the attendance day when the profile list has not arrived yet', () => {

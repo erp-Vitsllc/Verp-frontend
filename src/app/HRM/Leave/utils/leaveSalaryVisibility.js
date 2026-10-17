@@ -220,6 +220,10 @@ export function isLeaveEntrySalaryVisible(entry, visibility) {
 
 export function isLeaveRangeSalaryVisible(entry, visibility) {
     if (isHistoricalLeaveEntry(entry)) return true;
+    // Live requests stay in Leave Approval even before salary processing starts.
+    if (String(entry?.statusKey || entry?.leaveRequestStatus || '').toLowerCase() === 'pending') {
+        return true;
+    }
     if (!visibility?.ready) return true;
     const mongoId = String(entry?.employeeMongoId || '').trim();
     const code = String(entry?.employeeId || '').trim();

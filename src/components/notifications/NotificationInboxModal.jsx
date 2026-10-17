@@ -231,7 +231,9 @@ export default function NotificationInboxModal({
     onItemClick,
     getItemHref,
     renderRowActions,
+    showHoverChevron = true,
     onDelete,
+    deleteTitle = 'Remove notification',
     hideItemTitle = false,
     listMaxHeight,
 }) {
@@ -633,11 +635,13 @@ export default function NotificationInboxModal({
                                                                 </div>
                                                             </div>
                                                         </div>
+                                                        {showHoverChevron ? (
                                                         <ChevronRight
                                                             size={16}
                                                             className="shrink-0 self-center mr-2 text-slate-300 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200"
                                                             aria-hidden
                                                         />
+                                                        ) : null}
                                                     </button>
                                                     {typeof renderRowActions === 'function'
                                                         ? renderRowActions(row.raw ?? row, row)
@@ -647,7 +651,7 @@ export default function NotificationInboxModal({
                                                             type="button"
                                                             onClick={() => onDelete(row.raw ?? row)}
                                                             className="self-center px-4 text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
-                                                            title="Remove notification"
+                                                            title={deleteTitle}
                                                         >
                                                             <Trash2 size={15} />
                                                         </button>

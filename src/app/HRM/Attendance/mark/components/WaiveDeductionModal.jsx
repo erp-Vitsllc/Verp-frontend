@@ -24,22 +24,25 @@ export default function WaiveDeductionModal({
     const year = yearOf(mark?.date || dateKey);
 
     useEffect(() => {
-        if (!open) return;
+        if (!open) return undefined;
         setReason('');
         setCount(null);
         setSaving(false);
-    }, [open, mark?.attendanceId]);
-
-    useEffect(() => {
-        if (!open || !employee?.id || !year) return undefined;
+        const employeeMongoId = String(employee?.id || '').trim();
+        if (!employeeMongoId || !year) return undefined;
         let cancelled = false;
         axiosInstance
             .get('/Attendance/deduction-waive', {
-                params: { employeeMongoId: employee.id, year },
+                params: {
+                    employeeMongoId,
+                    employeeId: employee?.empNo || '',
+                    year,
+                },
                 skipToast: true,
             })
             .then((response) => {
-                if (!cancelled) setCount(Number(response.data?.count) || 0);
+                const value = Number(response.data?.count);
+                if (!cancelled) setCount(Number.isFinite(value) ? value : 0);
             })
             .catch(() => {
                 if (!cancelled) setCount(null);
@@ -47,7 +50,7 @@ export default function WaiveDeductionModal({
         return () => {
             cancelled = true;
         };
-    }, [open, employee?.id, year]);
+    }, [open, employee?.id, employee?.empNo, mark?.attendanceId, year]);
 
     if (!open || !mark) return null;
 
@@ -89,12 +92,12 @@ export default function WaiveDeductionModal({
                     {year ? ` · ${mark?.date || dateKey}` : ''}
                 </p>
                 <p className="mt-3 text-sm font-semibold text-slate-800">
-                    Currently waived deduction:{' '}
+                    Waived this year:{' '}
                     <span className="tabular-nums">{count == null ? '…' : count}</span>
                     {year ? ` (${year})` : ''}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                    Count of deductions waived by HR for this employee in {year || 'this year'}.
+                    Deductions HR has already waived for this employee in {year || 'this year'}.
                 </p>
                 <label className="mt-4 block text-xs font-semibold text-slate-500">
                     Reason for waive of deduction

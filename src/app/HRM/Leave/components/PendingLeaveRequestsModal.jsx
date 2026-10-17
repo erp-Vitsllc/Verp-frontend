@@ -5,7 +5,8 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
-import { countVisibleLeavePendingInbox } from '../utils/leavePendingInboxCount';
+import { countVisibleLeavePendingInbox, notifyLeavePendingInboxChanged } from '../utils/leavePendingInboxCount';
+import { isAdmin } from '@/utils/permissions';
 import { buildLeaveDashboardNotificationPath } from '../utils/leaveNotificationRouting';
 import { shouldUseBlockingNotificationLoader } from '@/utils/notificationModalLoad';
 import {
@@ -27,8 +28,14 @@ export default function PendingLeaveRequestsModal({
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [items, setItems] = useState([]);
+    const [canDelete, setCanDelete] = useState(false);
+    const [deleting, setDeleting] = useState(false);
     const itemsRef = useRef(items);
     itemsRef.current = items;
+
+    useEffect(() => {
+        setCanDelete(isAdmin());
+    }, []);
 
     const notificationRows = useMemo(
         () => items.map((row, index) => mapPendingInboxToRow(row, index)),
@@ -83,46 +90,45 @@ export default function PendingLeaveRequestsModal({
 
     useEffect(() => {
         if (!isOpen) return;
-        load();
+        load({ force: true });
     }, [isOpen, load]);
 
-    const decideRequest = async (row, decision) => {
-        const raw = row?.raw || row;
-        let meta = {};
+    const handleDelete = async (raw) => {
+        if (!canDelete || deleting) return;
+        const name = String(raw?.subjectName || raw?.requestedByName || 'this request').trim();
+        const confirmed = window.confirm(
+            `Delete ${name}? The request, its task, and the bell notification are removed.`,
+        );
+        if (!confirmed) return;
+        setDeleting(true);
         try {
-            meta = typeof raw?.extra3 === 'string' ? JSON.parse(raw.extra3 || '{}') : raw?.extra3 || {};
-        } catch {
-            meta = {};
-        }
-        const attendanceId = String(meta.attendanceId || raw?.id || raw?.requestObjectId || '').trim();
-        if (!attendanceId) return;
-        let rejectReason = '';
-        if (decision === 'rejected') {
-            rejectReason = String(window.prompt('Reject reason') || '').trim();
-            if (!rejectReason) return;
-        }
-        try {
-            const response = await axiosInstance.post(
-                '/Leave/pending-requests/decide',
+            await axiosInstance.post(
+                '/Leave/dashboard/pending-inbox/delete',
                 {
-                    attendanceId,
-                    decision,
-                    ...(rejectReason ? { rejectReason } : {}),
+                    id: raw?.id,
+                    dashboardActionId: raw?.dashboardActionId,
+                    requestObjectId: raw?.requestObjectId,
+                    requestType: raw?.requestType || raw?.type,
+                    extra3: raw?.extra3,
+                    hubRequest: raw?.hubRequest,
                 },
                 { skipToast: true },
             );
             toast({
-                title: response.data?.advanced ? 'Sent to HR' : decision === 'approved' ? 'Accepted' : 'Rejected',
-                description: response.data?.message || 'The request was updated.',
+                title: 'Deleted',
+                description: 'The request, its task, and the notification were removed.',
             });
+            notifyLeavePendingInboxChanged();
             await load({ force: true });
             if (typeof onRefreshParent === 'function') onRefreshParent();
         } catch (e) {
             toast({
                 variant: 'destructive',
-                title: 'Could not update request',
-                description: e?.response?.data?.message || e.message || 'Failed to update this request.',
+                title: 'Could not delete',
+                description: e?.response?.data?.message || e.message || 'Failed to delete this request.',
             });
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -146,46 +152,16 @@ export default function PendingLeaveRequestsModal({
             isOpen={isOpen}
             onClose={onClose}
             title="Leave notifications"
-            subtitle="Accept or reject requests that are pending with you."
+            subtitle="Open a request to accept or reject it in Leave Approval."
             items={notificationRows}
             loading={loading && items.length === 0}
             refreshing={refreshing}
             emptyMessage="No pending leave notifications for you."
             onItemClick={handleRowActivate}
             getItemHref={(row) => buildLeaveDashboardNotificationPath(row?.raw || row) || ''}
-            renderRowActions={(raw) => {
-                let meta = {};
-                try {
-                    meta = typeof raw?.extra3 === 'string' ? JSON.parse(raw.extra3 || '{}') : raw?.extra3 || {};
-                } catch {
-                    meta = {};
-                }
-                if (meta.hubRequest || meta.canDecide === false || !meta.leaveDashboard) return null;
-                return (
-                    <div className="flex shrink-0 flex-col justify-center gap-1 pr-3">
-                        <button
-                            type="button"
-                            onClick={(event) => {
-                                event.stopPropagation();
-                                decideRequest(raw, 'approved');
-                            }}
-                            className="rounded-md bg-[#16A34A] px-2 py-1 text-[11px] font-semibold text-white"
-                        >
-                            Accept
-                        </button>
-                        <button
-                            type="button"
-                            onClick={(event) => {
-                                event.stopPropagation();
-                                decideRequest(raw, 'rejected');
-                            }}
-                            className="rounded-md bg-[#DC2626] px-2 py-1 text-[11px] font-semibold text-white"
-                        >
-                            Reject
-                        </button>
-                    </div>
-                );
-            }}
+            showHoverChevron={false}
+            onDelete={canDelete ? handleDelete : undefined}
+            deleteTitle="Delete request, task, and notification"
         />
     );
 }

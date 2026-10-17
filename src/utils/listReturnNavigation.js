@@ -1,4 +1,4 @@
-import { shouldSuppressInAppNavigation } from '@/utils/linkContextMenu';
+import { openLinkInNewTab, shouldSuppressInAppNavigation } from '@/utils/linkContextMenu';
 
 const LIST_RETURN_KEY = 'verp:list-return-href';
 const NAV_STACK_KEY = 'verp:nav-return-stack';
@@ -285,19 +285,11 @@ function skipSamePageEntriesAboveTask(taskHref) {
 }
 
 /**
- * Open the task's record in this tab and keep the task page as Back.
- * Ctrl/Cmd/middle-click still follow the real href in a new tab.
+ * Open the task's record in a new tab and switch to that tab.
+ * This task details page stays open in the current tab.
+ * Ctrl/Cmd/middle-click still follow the real href.
  */
-export function navigateFromTaskSection(router, targetHref, taskHref = getBrowserPathWithSearch()) {
-    const task = normalizeHref(taskHref);
-    const target = normalizeHref(targetHref);
-    if (!router || !target) return;
-    if (taskDetailPath(task)) armTaskSectionReturn(task);
-    navigateFromList(router, target, task);
-}
-
-export function handleNavigateFromTaskSectionClick(event, router, targetHref) {
-    if (!router) return;
+export function handleNavigateFromTaskSectionClick(event, _router, targetHref) {
     if (shouldSuppressInAppNavigation()) {
         event?.preventDefault?.();
         return;
@@ -313,7 +305,7 @@ export function handleNavigateFromTaskSectionClick(event, router, targetHref) {
         return;
     }
     event?.preventDefault?.();
-    navigateFromTaskSection(router, targetHref);
+    openLinkInNewTab(targetHref);
 }
 
 /**

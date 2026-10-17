@@ -26,8 +26,11 @@ import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { formatCommandCenterNotificationMessage } from '@/utils/dashboardCommandCenterInbox';
+import { taskNameLines } from '@/app/task-manager/taskNameLines';
+import { basePersonName, personKey, requesterEmployeeName, taskRolePeople } from '@/app/task-manager/taskRolePeople';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
+import { clearPendingInboxCache } from '@/utils/pendingInboxFetch';
 
 const PAGE_SIZE_OPTIONS = [
     { id: '10', label: '10' },
@@ -103,21 +106,6 @@ function isOpenPending(shown) {
     return shown === 'Pending' || shown === 'Overdue';
 }
 
-function personKey(value) {
-    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-/** Workflow titles were stored in requester/assignee fields. They are not employees. */
-function isTaskTitleName(value) {
-    const text = String(value || '').trim().replace(/\s+/g, ' ');
-    if (!text) return true;
-    const lower = text.toLowerCase();
-    if (['system', 'unassigned', 'task manager', 'system monitor'].includes(lower)) return true;
-    if (/\bpending with\b/i.test(text) || /[—–]/.test(text)) return true;
-    if (/\b(overdue|make payment|ready to service|on service|accounts approve|hr approval|complete service)\b/i.test(lower)) return true;
-    return /^(oil service|mechanical work|tire change|tyre change|body work|accident repair|car wash|vehicle service)\b/i.test(lower);
-}
-
 function paramValue(params, key, fallback = '') {
     const value = params.get(key);
     if (value == null || value === 'null' || value === 'undefined') return fallback;
@@ -153,35 +141,6 @@ function taskDetailsHref(task, tab) {
     if (tab) query.set('tab', tab);
     const suffix = query.toString() ? `?${query.toString()}` : '';
     return `/task-manager/${encodeURIComponent(task.actionId)}${suffix}`;
-}
-
-function taskPeople(tasks, field) {
-    const fields = Array.isArray(field) ? field : [field];
-    const titleKeys = new Set();
-    tasks.forEach((task) => {
-        titleKeys.add(personKey(task?.taskName));
-        titleKeys.add(personKey(notificationTitle(task)));
-    });
-    const people = new Map();
-    tasks.forEach((task) => {
-        fields.forEach((nameField) => {
-            const label = String(task?.[nameField] || '').trim().replace(/\s+/g, ' ');
-            const key = personKey(label);
-            if (!key || titleKeys.has(key) || isTaskTitleName(label) || people.has(key)) return;
-            people.set(key, label);
-        });
-    });
-    return [...people.entries()]
-        .map(([key, name]) => ({ key, name }))
-        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-}
-
-function withSelectedPerson(rows, selectedKey) {
-    if (!selectedKey || isTaskTitleName(selectedKey) || rows.some((row) => row.key === selectedKey)) return rows;
-    const name = selectedKey.replace(/\b[a-z]/g, (char) => char.toUpperCase());
-    return [...rows, { key: selectedKey, name }].sort((a, b) =>
-        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-    );
 }
 
 function taskIsMine(task, viewer) {
@@ -400,6 +359,18 @@ function notificationTitle(task) {
     return specific || type || 'Notification';
 }
 
+function TaskNameList({ task, title }) {
+    const lines = taskNameLines(task, title);
+    return (
+        <div title={lines.join('\n')}>
+            <p className="text-[13px] font-semibold leading-5 text-slate-800 break-words">{lines[0]}</p>
+            {lines.slice(1).map((line) => (
+                <p key={line} className="text-[12px] leading-4 text-slate-500 break-words">{line}</p>
+            ))}
+        </div>
+    );
+}
+
 function initials(name) {
     const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
     if (!parts.length) return '?';
@@ -492,13 +463,12 @@ function taskMatchesListFilters(task, options) {
     if (activeRange.from && key < activeRange.from) return false;
     if (activeRange.to && key > activeRange.to) return false;
     const requesterNeedle = personKey(requesterQuery);
-    if (requesterNeedle) {
-        const names = [task.requesterName, task.requesterBaseName].map((value) => personKey(value));
-        if (!names.includes(requesterNeedle)) return false;
-    }
+    if (requesterNeedle && personKey(requesterEmployeeName(task)) !== requesterNeedle) return false;
     const assigneeNeedle = personKey(assigneeQuery);
     if (assigneeNeedle) {
-        const names = [task.assigneeName, task.assigneeEmpId, task.originalAssigneeName].map((value) => personKey(value));
+        const names = [task.assigneeName, task.assigneeEmpId, task.originalAssigneeName]
+            .map((value) => personKey(basePersonName(value)))
+            .filter(Boolean);
         if (!names.includes(assigneeNeedle)) return false;
     }
     const needle = String(query || '').trim().toLowerCase();
@@ -508,6 +478,7 @@ function taskMatchesListFilters(task, options) {
         task.taskNumber,
         title,
         task.taskName,
+        task.taskSubject,
         task.requestType,
         displayTaskType(task.taskCategory),
         shown,
@@ -604,6 +575,7 @@ function PersonFilter({ value, people, onChange, emptyLabel, searchPlaceholder, 
     const menuRef = useRef(null);
     const searchRef = useRef(null);
     const selected = people.find((person) => person.key === value);
+    const selectedLabel = selected?.name || (value ? value.replace(/\b[a-z]/g, (char) => char.toUpperCase()) : '');
     const needle = search.trim().toLowerCase();
     const shown = needle
         ? people.filter((person) => person.name.toLowerCase().includes(needle))
@@ -654,7 +626,7 @@ function PersonFilter({ value, people, onChange, emptyLabel, searchPlaceholder, 
                 aria-haspopup="listbox"
                 aria-expanded={open}
                 aria-label={ariaLabel}
-                title={selected?.name || emptyLabel}
+                title={selectedLabel || emptyLabel}
                 onClick={() => {
                     if (open) {
                         setOpen(false);
@@ -666,8 +638,8 @@ function PersonFilter({ value, people, onChange, emptyLabel, searchPlaceholder, 
                 }}
                 className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 text-left text-[13px] text-slate-700"
             >
-                <span className={`truncate ${selected ? 'text-slate-700' : 'text-slate-400'}`}>
-                    {selected?.name || emptyLabel}
+                <span className={`truncate ${selectedLabel ? 'text-slate-700' : 'text-slate-400'}`}>
+                    {selectedLabel || emptyLabel}
                 </span>
                 <ChevronDown size={14} className="shrink-0 text-slate-400" />
             </button>
@@ -870,15 +842,6 @@ function TaskManagerContent() {
         return map;
     }, [tasks]);
 
-    const requesters = useMemo(
-        () => withSelectedPerson(taskPeople(tasks, ['requesterName', 'requesterBaseName']), requesterQuery),
-        [tasks, requesterQuery],
-    );
-    const assignees = useMemo(
-        () => withSelectedPerson(taskPeople(tasks, ['assigneeName', 'originalAssigneeName']), assigneeQuery),
-        [tasks, assigneeQuery],
-    );
-
     useEffect(() => {
         if (loading) return;
         const count = tasks.filter((task) => taskIsMine(task, viewer) && isOpenPending(listStatus(task))).length;
@@ -913,6 +876,23 @@ function TaskManagerContent() {
         status,
         priority,
     ]);
+
+    const requesters = useMemo(
+        () => taskRolePeople(
+            tasks.filter((task) => taskMatchesListFilters(task, { ...listFilter, requesterQuery: '', includeStatus: true })),
+            'requester',
+            notificationTitle,
+        ),
+        [tasks, listFilter],
+    );
+    const assignees = useMemo(
+        () => taskRolePeople(
+            tasks.filter((task) => taskMatchesListFilters(task, { ...listFilter, assigneeQuery: '', includeStatus: true })),
+            'assignee',
+            notificationTitle,
+        ),
+        [tasks, listFilter],
+    );
 
     const cardTasks = useMemo(
         () => tasks.filter((task) => taskMatchesListFilters(task, { ...listFilter, includeStatus: false })),
@@ -1306,10 +1286,8 @@ function TaskManagerContent() {
                                                             {displayTaskType(task.taskCategory)}
                                                         </span>
                                                     </td>
-                                                    <td className="max-w-[280px] px-3 py-3.5">
-                                                        <p className="line-clamp-2 text-[13px] font-medium text-slate-800" title={`${task.requestType}: ${title}`}>
-                                                            {title}
-                                                        </p>
+                                                    <td className="min-w-[200px] max-w-[280px] px-3 py-3.5">
+                                                        <TaskNameList task={task} title={title} />
                                                     </td>
                                                     <td className="px-3 py-3.5">
                                                         <PersonCell name={task.requesterName} photo={task.requesterPhoto} />
@@ -1503,6 +1481,23 @@ function TaskManagerContent() {
                                         );
                                         toast({ title: 'Task deleted', description: deleteTask.taskName });
                                         setDeleteTask(null);
+                                        clearPendingInboxCache();
+                                        if (typeof window !== 'undefined') {
+                                            [
+                                                'leave-pending-inbox-changed',
+                                                'attendance-pending-inbox-changed',
+                                                'asset-pending-inbox-changed',
+                                                'fine-pending-inbox-changed',
+                                                'salary-pending-inbox-changed',
+                                                'payment-pending-inbox-changed',
+                                                'reward-pending-inbox-changed',
+                                                'loan-pending-inbox-changed',
+                                            ].forEach((name) => {
+                                                const event = new CustomEvent(name);
+                                                window.dispatchEvent(event);
+                                                document.dispatchEvent(event);
+                                            });
+                                        }
                                         load();
                                     } catch (err) {
                                         toast({
