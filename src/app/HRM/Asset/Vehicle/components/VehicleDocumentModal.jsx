@@ -302,8 +302,8 @@ export default function VehicleDocumentModal({ isOpen, onClose, onSuccess, asset
                         <button
                             type="submit"
                             className={`px-6 py-2 rounded-xl text-white font-semibold text-sm transition-all flex items-center gap-2 shadow-lg disabled:opacity-50 ${isRenew
-                                    ? 'bg-teal-500 hover:bg-teal-600 shadow-teal-100'
-                                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'
+                                ? 'bg-teal-500 hover:bg-teal-600 shadow-teal-100'
+                                : 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'
                                 }`}
                             disabled={loading}
                         >

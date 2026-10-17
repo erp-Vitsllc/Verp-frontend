@@ -100,6 +100,7 @@ export function employeePendingRequests({ records, pending, monthKey, employeeNa
     const map = new Map();
     const name = String(employeeName || '').trim() || 'Employee';
     (Array.isArray(pending) ? pending : []).forEach((row) => {
+        if (row?.ownRequest === false) return;
         if (!isAttendancePendingItem(row)) return;
         const line = {
             label: String(row?.title || 'Request').trim() || 'Request',

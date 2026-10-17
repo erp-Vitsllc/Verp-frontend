@@ -426,6 +426,18 @@ function UtilityBillsPageContent() {
         reloadUtilitiesAndEntries();
     }, [reloadUtilitiesAndEntries]);
 
+    useEffect(() => {
+        const refreshBills = () => {
+            if (document.visibilityState === 'visible') loadOverviewBills();
+        };
+        window.addEventListener('focus', refreshBills);
+        document.addEventListener('visibilitychange', refreshBills);
+        return () => {
+            window.removeEventListener('focus', refreshBills);
+            document.removeEventListener('visibilitychange', refreshBills);
+        };
+    }, [loadOverviewBills]);
+
     const fetchPendingInboxCount = useCallback(async ({ force = false } = {}) => {
         try {
             const items = await fetchAssetPendingInbox(axiosInstance, {

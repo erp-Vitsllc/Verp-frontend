@@ -10,6 +10,7 @@ import {
     Calendar,
     CheckCircle2,
     ChevronDown,
+    ChevronUp,
     Clock,
     FileText,
     MoreHorizontal,
@@ -264,6 +265,124 @@ function formatDisplayDate(value) {
         year: 'numeric',
         timeZone: 'Asia/Dubai',
     }).format(date);
+}
+
+const PRIORITY_SORT_RANK = { Low: 0, Medium: 1, High: 2 };
+
+function taskSequence(task) {
+    const parts = String(task?.taskNumber || '').match(/\d+/g);
+    if (!parts?.length) return 0;
+    const year = Number(parts.length > 1 ? parts[parts.length - 2] : 0) || 0;
+    const sequence = Number(parts[parts.length - 1]) || 0;
+    return year * 1000000 + sequence;
+}
+
+function timeValue(value) {
+    const time = new Date(value || 0).getTime();
+    return Number.isNaN(time) ? 0 : time;
+}
+
+function taskSortValue(task, key, titles) {
+    if (key === 'taskNumber') {
+        const sequence = taskSequence(task);
+        return sequence || null;
+    }
+    if (key === 'requestDate') {
+        const time = timeValue(task?.requestDate);
+        return time || null;
+    }
+    if (key === 'completionDate') {
+        const time = timeValue(task?.completionDate);
+        return time || null;
+    }
+    if (key === 'priority') {
+        return Object.prototype.hasOwnProperty.call(PRIORITY_SORT_RANK, task?.priority)
+            ? PRIORITY_SORT_RANK[task.priority]
+            : null;
+    }
+    if (key === 'type') return displayTaskType(task?.taskCategory) || null;
+    if (key === 'name') return titles.get(task.actionId) || task?.taskName || null;
+    if (key === 'requester') return task?.requesterName || null;
+    if (key === 'assignee') return task?.assigneeName || null;
+    if (key === 'status') return listStatus(task) || null;
+    return null;
+}
+
+function compareSortValues(left, right) {
+    if (typeof left === 'number' && typeof right === 'number') return left - right;
+    return String(left).localeCompare(String(right), undefined, { sensitivity: 'base', numeric: true });
+}
+
+function latestTaskFirst(left, right) {
+    const timeGap = timeValue(right?.requestDate) - timeValue(left?.requestDate);
+    if (timeGap) return timeGap;
+    return taskSequence(right) - taskSequence(left);
+}
+
+function sortTaskRows(rows, sortKey, sortDirection, titles) {
+    const direction = sortDirection === 'asc' ? 1 : -1;
+    return [...rows].sort((left, right) => {
+        const leftValue = taskSortValue(left, sortKey, titles);
+        const rightValue = taskSortValue(right, sortKey, titles);
+        if (leftValue == null && rightValue == null) return latestTaskFirst(left, right);
+        if (leftValue == null) return 1;
+        if (rightValue == null) return -1;
+        const gap = compareSortValues(leftValue, rightValue);
+        if (gap) return gap * direction;
+        return latestTaskFirst(left, right);
+    });
+}
+
+function ColumnSortArrows({ label, columnKey, sortKey, sortDirection, onSort }) {
+    const upOn = sortKey === columnKey && sortDirection === 'asc';
+    const downOn = sortKey === columnKey && sortDirection === 'desc';
+    const buttonClass = (on) =>
+        `flex h-3.5 w-3.5 items-center justify-center rounded-sm leading-none ${on ? 'text-[#2563EB]' : 'text-slate-300 hover:text-slate-500'}`;
+    return (
+        <span className="inline-flex shrink-0 flex-col">
+            <button
+                type="button"
+                className={buttonClass(upOn)}
+                aria-label={`Sort ${label} ascending`}
+                aria-pressed={upOn}
+                title={`Sort ${label} ascending`}
+                onClick={() => onSort(columnKey, 'asc')}
+            >
+                <ChevronUp size={12} strokeWidth={2.75} />
+            </button>
+            <button
+                type="button"
+                className={buttonClass(downOn)}
+                aria-label={`Sort ${label} descending`}
+                aria-pressed={downOn}
+                title={`Sort ${label} descending`}
+                onClick={() => onSort(columnKey, 'desc')}
+            >
+                <ChevronDown size={12} strokeWidth={2.75} />
+            </button>
+        </span>
+    );
+}
+
+function SortableTh({ label, columnKey, sortKey, sortDirection, onSort, className = '' }) {
+    const active = sortKey === columnKey;
+    return (
+        <th
+            className={className}
+            aria-sort={active ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+        >
+            <div className="flex items-center gap-0.5 whitespace-nowrap">
+                <span>{label}</span>
+                <ColumnSortArrows
+                    label={label}
+                    columnKey={columnKey}
+                    sortKey={sortKey}
+                    sortDirection={sortDirection}
+                    onSort={onSort}
+                />
+            </div>
+        </th>
+    );
 }
 
 function notificationTitle(task) {
@@ -625,6 +744,8 @@ function TaskManagerContent() {
     const [priority, setPriority] = useState(filtersFromUrl.priority);
     const [pageSizeChoice, setPageSizeChoice] = useState(filtersFromUrl.pageSizeChoice);
     const [page, setPage] = useState(filtersFromUrl.page);
+    const [sortKey, setSortKey] = useState('requestDate');
+    const [sortDirection, setSortDirection] = useState('desc');
     const [selected, setSelected] = useState(() => new Set());
     const [openMenu, setOpenMenu] = useState(null);
     const [createOpen, setCreateOpen] = useState(false);
@@ -804,12 +925,16 @@ function TaskManagerContent() {
         () => tasks.filter((task) => taskMatchesListFilters(task, { ...listFilter, includeStatus: true })),
         [tasks, listFilter],
     );
+    const sorted = useMemo(
+        () => sortTaskRows(filtered, sortKey, sortDirection, titles),
+        [filtered, sortKey, sortDirection, titles],
+    );
 
-    const pageSize = pageSizeChoice === 'all' ? Math.max(filtered.length, 1) : Number(pageSizeChoice);
-    const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const pageSize = pageSizeChoice === 'all' ? Math.max(sorted.length, 1) : Number(pageSizeChoice);
+    const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
     const safePage = Math.min(page, pageCount);
-    const start = filtered.length === 0 ? 0 : (safePage - 1) * pageSize;
-    const pageRows = filtered.slice(start, start + pageSize);
+    const start = sorted.length === 0 ? 0 : (safePage - 1) * pageSize;
+    const pageRows = sorted.slice(start, start + pageSize);
 
     const listReturnHref = buildListReturnHref('/task-manager', listReturnParams);
 
@@ -836,6 +961,14 @@ function TaskManagerContent() {
         setCustomOpen(false);
         setStatus('Pending');
         setPriority('All Priority');
+        setSortKey('requestDate');
+        setSortDirection('desc');
+        setPage(1);
+    };
+
+    const sortBy = (columnKey, direction) => {
+        setSortKey(columnKey);
+        setSortDirection(direction === 'asc' ? 'asc' : 'desc');
         setPage(1);
     };
 
@@ -1116,15 +1249,15 @@ function TaskManagerContent() {
                                                 aria-label="Select tasks on this page"
                                             />
                                         </th>
-                                        <th className="px-3 py-3">Task #</th>
-                                        <th className="px-3 py-3">Request Date</th>
-                                        <th className="px-3 py-3">Task Type</th>
-                                        <th className="px-3 py-3">Task Name</th>
-                                        <th className="px-3 py-3">Requester</th>
-                                        <th className="px-3 py-3">Assignee</th>
-                                        <th className="px-3 py-3">Priority</th>
-                                        <th className="px-3 py-3">Completion Date</th>
-                                        <th className="px-3 py-3">Status</th>
+                                        <SortableTh label="Task #" columnKey="taskNumber" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        <SortableTh label="Request Date" columnKey="requestDate" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        <SortableTh label="Task Type" columnKey="type" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        <SortableTh label="Task Name" columnKey="name" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        <SortableTh label="Requester" columnKey="requester" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        <SortableTh label="Assignee" columnKey="assignee" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        <SortableTh label="Priority" columnKey="priority" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        <SortableTh label="Completion Date" columnKey="completionDate" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        <SortableTh label="Status" columnKey="status" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
                                         <th className="px-3 py-3 text-right">Actions</th>
                                     </tr>
                                 </thead>
@@ -1230,7 +1363,7 @@ function TaskManagerContent() {
                         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-[13px] text-slate-500">
                             <div className="flex flex-wrap items-center gap-3">
                                 <p>
-                                    Showing {filtered.length === 0 ? 0 : start + 1} to {Math.min(start + pageSize, filtered.length)} of {filtered.length} tasks
+                                    Showing {sorted.length === 0 ? 0 : start + 1} to {Math.min(start + pageSize, sorted.length)} of {sorted.length} tasks
                                 </p>
                                 <select
                                     value={pageSizeChoice}

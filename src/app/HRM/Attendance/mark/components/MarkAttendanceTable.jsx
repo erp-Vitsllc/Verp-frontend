@@ -30,8 +30,11 @@ import {
 } from './MarkAttendancePunchCells';
 import FlexibleOtModal from './FlexibleOtModal';
 import HourAdjustModal, { hourAdjustOffer } from './HourAdjustModal';
+import MispunchRequestModal from './MispunchRequestModal';
+import WaiveDeductionModal from './WaiveDeductionModal';
 import CompOffSettleModal from '../../components/CompOffSettleModal';
 import AttendanceLeaveDecideModal from '@/app/dashboard/components/AttendanceLeaveDecideModal';
+import StatusApprovalTip from './StatusApprovalTip';
 
 const MARK_OPTIONS = [
     { key: 'on_office', label: 'On work' },
@@ -339,9 +342,48 @@ function statusHoverTitle(statusText) {
     return text;
 }
 
-function rowMenuOptions(baseOptions, mark, { canReviewHour = false } = {}) {
+function isMispunchRequest(mark) {
+    const pendingKind = String(mark?.pendingChange?.hourAdjustKind || '').trim();
+    if (pendingKind) return pendingKind === 'mispunch';
+    const storedKind = String(mark?.hourAdjustKind || '').trim();
+    if (storedKind === 'mispunch' && String(mark?.hourAdjustStatus || '') === 'pending') return true;
+    return hourAdjustOffer(mark)?.kind === 'mispunch';
+}
+
+const DEDUCTION_DAY_KEYS = new Set([
+    'mispunch',
+    'early_go',
+    'late_arrived',
+    'unauthorized_leave',
+    'authorized_leave',
+]);
+
+function canOfferDeductionWaive(mark, canWaiveDeduction) {
+    if (!canWaiveDeduction || !mark?.attendanceId || mark.deductionWaived) return false;
+    return DEDUCTION_DAY_KEYS.has(String(mark.key || '').trim());
+}
+
+function withWaiveOption(options, mark, canWaiveDeduction) {
+    if (!canOfferDeductionWaive(mark, canWaiveDeduction)) return options;
+    const waiveItem = { key: 'waive_deduction', label: 'Waive of deduction' };
+    const next = [];
+    let placed = false;
+    for (const option of options) {
+        if (!placed && option.key === 'clear_attendance') {
+            next.push(waiveItem);
+            placed = true;
+        }
+        next.push(option);
+    }
+    if (!placed) next.push(waiveItem);
+    return next;
+}
+
+function rowMenuOptions(baseOptions, mark, { canReviewHour = false, canWaiveDeduction = false } = {}) {
     const offer = hourAdjustOffer(mark);
-    if (!offer || String(mark?.hourAdjustStatus || '') === 'approved') return baseOptions;
+    if (!offer || String(mark?.hourAdjustStatus || '') === 'approved') {
+        return withWaiveOption(baseOptions, mark, canWaiveDeduction);
+    }
     const pending = String(mark?.hourAdjustStatus || '') === 'pending';
     const hourItem = {
         key: 'hour_adjust',
@@ -359,7 +401,7 @@ function rowMenuOptions(baseOptions, mark, { canReviewHour = false } = {}) {
         next.push(option);
     }
     if (!placed) next.push(hourItem);
-    return next;
+    return withWaiveOption(next, mark, canWaiveDeduction);
 }
 
 function statusChipClass(mark, label) {
@@ -454,6 +496,8 @@ function applyDayRecordsToState(employees, records) {
             flexibleOtNextDayDate: rec.flexibleOtNextDayDate || '',
             flexibleFromOtDate: rec.flexibleFromOtDate || '',
             punchMappedFromEmployeeMongoId: rec.punchMappedFromEmployeeMongoId || '',
+            deductionWaived: rec.deductionWaived === true,
+            deductionWaiveReason: rec.deductionWaiveReason || '',
             compOffState: rec.compOff?.state || '',
         };
         return {
@@ -509,6 +553,40 @@ function mergePendingChanges(nextMarks, pendingChanges, { dateKey = '', employee
         };
     }
     return next;
+}
+
+function mergeApprovalHistory(nextMarks, approvalHistory, { employeeIds = null } = {}) {
+    const allowed = employeeIds instanceof Set ? employeeIds : null;
+    const byEmployee = new Map();
+    for (const row of approvalHistory || []) {
+        const id = String(row?.employeeMongoId || '').trim();
+        if (!id) continue;
+        if (allowed && !allowed.has(id)) continue;
+        const list = byEmployee.get(id) || [];
+        list.push({
+            id: String(row.id || ''),
+            type: String(row.type || '').trim() || 'Request',
+            approvedAt: row.approvedAt || '',
+            approvedBy: String(row.approvedBy || '').trim(),
+        });
+        byEmployee.set(id, list);
+    }
+    const next = { ...nextMarks };
+    for (const [id, approvals] of byEmployee) {
+        next[id] = {
+            ...(next[id] || {}),
+            approvals,
+        };
+    }
+    return next;
+}
+
+function withAttendanceOverlays(nextMarks, pendingChanges, approvalHistory, { dateKey, employeeIds }) {
+    return mergeApprovalHistory(
+        mergePendingChanges(nextMarks, pendingChanges, { dateKey, employeeIds }),
+        approvalHistory,
+        { employeeIds },
+    );
 }
 
 function pendingRequestTitle(mark, kind) {
@@ -1292,6 +1370,7 @@ function EmployeeRow({
     onSettleCompOff,
     onRequestHour,
     canReviewHour = false,
+    canWaiveDeduction = false,
     canRequestOt = false,
     otDirect = false,
     canReviewOt = false,
@@ -1358,7 +1437,7 @@ function EmployeeRow({
     const adjustLines = adjustmentLines(mark);
     const adjustTitle = adjustLines.join(' ');
     const syntheticOtReason = /^Present \(On time\) from overtime$/i.test(String(shownMark?.reason || '').trim());
-    const actionMenuOptions = rowMenuOptions(menuOptions, shownMark, { canReviewHour });
+    const actionMenuOptions = rowMenuOptions(menuOptions, shownMark, { canReviewHour, canWaiveDeduction });
     const spanSeconds = syntheticOt ? null : punchSpanSeconds(rawIn, rawOut, mark?.timeOutDate, mark?.date);
     const durationHours = spanSeconds != null ? spanSeconds / 3600 : workedHoursValue(mark);
     const requiredHours = scheduleDayHours(scheduleWeek, dateKey) || Number(mark?.flexibleRequiredHours) || 0;
@@ -1412,16 +1491,17 @@ function EmployeeRow({
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle whitespace-nowrap">{duration}</td>
             <td className="px-3 py-3 align-middle min-w-[220px]">
                 <div className="flex flex-col gap-0.5 min-w-0">
-                    <span
-                        className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${
-                            pendingLeaveLabel ? 'text-amber-800 bg-amber-50' : statusChipClass(shownMark, statusText)
-                        }`}
-                        title={[pendingLeaveLabel ? `${pendingLeaveLabel} pending` : statusFull, mark?.reason, adjustTitle, rowDecision ? `Pending: ${rowDecision.title}` : '']
+                    <StatusApprovalTip
+                        approvals={mark?.approvals}
+                        statusTitle={[pendingLeaveLabel ? `${pendingLeaveLabel} pending` : statusFull, mark?.reason, adjustTitle, rowDecision ? `Pending: ${rowDecision.title}` : '']
                             .filter(Boolean)
                             .join(' — ')}
+                        className={`inline-flex w-fit cursor-pointer border-0 text-left text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${
+                            pendingLeaveLabel ? 'text-amber-800 bg-amber-50' : statusChipClass(shownMark, statusText)
+                        }`}
                     >
                         {pendingLeaveLabel || statusText}
-                    </span>
+                    </StatusApprovalTip>
                     {pendingLeaveLabel ? (
                         <span className="text-[10px] font-semibold text-amber-700 whitespace-nowrap" title={pendingLeaveLabel}>
                             {pendingLeaveLabel} pending
@@ -1451,6 +1531,14 @@ function EmployeeRow({
                             {line}
                         </span>
                     ))}
+                    {mark?.deductionWaived ? (
+                        <span
+                            className="text-[10px] font-semibold text-emerald-700 whitespace-nowrap"
+                            title={mark.deductionWaiveReason || 'Deduction waived'}
+                        >
+                            Deduction waived
+                        </span>
+                    ) : null}
                     {shownMark?.reason && !(syntheticOtReason && adjustLines.length) ? (
                         <span className="text-[10px] text-gray-500 max-w-[180px] truncate" title={shownMark.reason}>
                             {shownMark.reason}
@@ -1644,6 +1732,8 @@ export default function MarkAttendanceTable({
     const [sortDirection, setSortDirection] = useState('asc');
     const [otModal, setOtModal] = useState(null);
     const [hourModal, setHourModal] = useState(null);
+    const [mispunchModal, setMispunchModal] = useState(null);
+    const [waiveModal, setWaiveModal] = useState(null);
     const [leaveDecide, setLeaveDecide] = useState(null);
     const [leaveDeciding, setLeaveDeciding] = useState(false);
     const [leaveDecideError, setLeaveDecideError] = useState('');
@@ -1798,10 +1888,13 @@ export default function MarkAttendanceTable({
                 const pendingChanges = Array.isArray(res.data?.pendingChanges)
                     ? res.data.pendingChanges
                     : [];
+                const approvalHistory = Array.isArray(res.data?.approvalHistory)
+                    ? res.data.approvalHistory
+                    : [];
                 dayRecordsRef.current = records;
                 // Roster is already filtered by staffType from API
                 const { nextEmployees, nextMarks } = applyDayRecordsToState(allEmployees, records);
-                const mergedMarks = mergePendingChanges(nextMarks, pendingChanges, {
+                const mergedMarks = withAttendanceOverlays(nextMarks, pendingChanges, approvalHistory, {
                     dateKey,
                     employeeIds: new Set(nextEmployees.map((row) => row.id)),
                 });
@@ -1937,7 +2030,9 @@ export default function MarkAttendanceTable({
                     flowchartHrName,
                 });
                 if (decision?.kind !== 'hour') return;
-                setHourModal({ employee, mark, mode: 'review' });
+                const next = { employee, mark, mode: 'review' };
+                if (isMispunchRequest(mark)) setMispunchModal(next);
+                else setHourModal(next);
             }
         }, node ? RECORD_FOCUS_BLINK_MS + 150 : 0);
 
@@ -2124,13 +2219,16 @@ export default function MarkAttendanceTable({
             const pendingChanges = Array.isArray(dayRes.data?.pendingChanges)
                 ? dayRes.data.pendingChanges
                 : [];
+            const approvalHistory = Array.isArray(dayRes.data?.approvalHistory)
+                ? dayRes.data.approvalHistory
+                : [];
             dayRecordsRef.current = dayRecords;
             const { nextEmployees, nextMarks } = applyDayRecordsToState(
                 employeesRef.current,
                 dayRecords,
             );
             setEmployees(nextEmployees);
-            setMarks(mergePendingChanges(nextMarks, pendingChanges, {
+            setMarks(withAttendanceOverlays(nextMarks, pendingChanges, approvalHistory, {
                     dateKey,
                     employeeIds: new Set(nextEmployees.map((row) => row.id)),
                 }));
@@ -2151,13 +2249,16 @@ export default function MarkAttendanceTable({
                 const pendingChanges = Array.isArray(res.data?.pendingChanges)
                     ? res.data.pendingChanges
                     : [];
+                const approvalHistory = Array.isArray(res.data?.approvalHistory)
+                    ? res.data.approvalHistory
+                    : [];
                 dayRecordsRef.current = records;
                 const { nextEmployees, nextMarks } = applyDayRecordsToState(
                     employeesRef.current,
                     records,
                 );
                 setEmployees(nextEmployees);
-                setMarks(mergePendingChanges(nextMarks, pendingChanges, {
+                setMarks(withAttendanceOverlays(nextMarks, pendingChanges, approvalHistory, {
                     dateKey,
                     employeeIds: new Set(nextEmployees.map((row) => row.id)),
                 }));
@@ -2171,6 +2272,11 @@ export default function MarkAttendanceTable({
 
     const handleRequestMark = (employee, key, label) => {
         if (saving || rowIsActionLocked(employee)) return;
+        if (key === 'waive_deduction') {
+            if (!isFlowchartHr) return;
+            setWaiveModal({ employee, mark: marks[employee.id] || null });
+            return;
+        }
         if (key === 'clear_attendance' && !isFlowchartHr) return;
         const config = getMarkFormConfig(key);
         if (!config) {
@@ -2200,13 +2306,15 @@ export default function MarkAttendanceTable({
         const kind = readOnly ? decision.viewKind || viewKindFromMark(mark) : decision.kind;
         if (!kind || kind === 'waiting') return;
         if (kind === 'hour') {
-            setHourModal({
+            const next = {
                 employee,
                 mark,
                 mode: 'review',
                 rejectFirst: !readOnly && intent === 'reject',
                 readOnly,
-            });
+            };
+            if (isMispunchRequest(mark)) setMispunchModal(next);
+            else setHourModal(next);
             return;
         }
         if (kind === 'ot') {
@@ -2696,8 +2804,9 @@ export default function MarkAttendanceTable({
                                     isFlowchartHr &&
                                     String(marks[employee.id]?.hourAdjustStatus || '') === 'pending'
                                 }
-                                onRequestHour={(row, mark) =>
-                                    setHourModal({
+                                canWaiveDeduction={isFlowchartHr}
+                                onRequestHour={(row, mark) => {
+                                    const next = {
                                         employee: row,
                                         mark,
                                         mode:
@@ -2706,8 +2815,10 @@ export default function MarkAttendanceTable({
                                                 : isFlowchartHr
                                                     ? 'direct'
                                                     : 'request',
-                                    })
-                                }
+                                    };
+                                    if (isMispunchRequest(mark)) setMispunchModal(next);
+                                    else setHourModal(next);
+                                }}
                             />
                         ))}
                     </tbody>
@@ -2744,6 +2855,25 @@ export default function MarkAttendanceTable({
                 mark={hourModal?.mark}
                 week={scheduleWeek}
                 onClose={() => setHourModal(null)}
+                onSaved={() => setDayReload((value) => value + 1)}
+            />
+            <WaiveDeductionModal
+                open={Boolean(waiveModal)}
+                employee={waiveModal?.employee}
+                mark={waiveModal?.mark}
+                dateKey={dateKey}
+                onClose={() => setWaiveModal(null)}
+                onSaved={() => setDayReload((value) => value + 1)}
+            />
+            <MispunchRequestModal
+                open={Boolean(mispunchModal)}
+                mode={mispunchModal?.mode}
+                rejectFirst={mispunchModal?.rejectFirst === true}
+                readOnly={mispunchModal?.readOnly === true}
+                employee={mispunchModal?.employee}
+                mark={mispunchModal?.mark}
+                dateKey={dateKey}
+                onClose={() => setMispunchModal(null)}
                 onSaved={() => setDayReload((value) => value + 1)}
             />
             <CompOffSettleModal

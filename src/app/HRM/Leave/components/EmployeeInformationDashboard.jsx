@@ -3237,7 +3237,7 @@ export default function EmployeeInformationDashboard({
     const accumulatedPct = monthlySalary > 0 ? Math.round((accumulated / monthlySalary) * 10000) / 100 : 0;
 
     const pending = (Array.isArray(profile?.requests?.pending) ? profile.requests.pending : []).filter((row) =>
-        period === 'month' ? Boolean(row.spanAllMonths) || salaryPrepRowTouchesMonth(row, monthKey) : true,
+        row?.ownRequest !== false && (period === 'month' ? Boolean(row.spanAllMonths) || salaryPrepRowTouchesMonth(row, monthKey) : true),
     );
     const workTasks = Array.isArray(profile?.requests?.workTasks) ? profile.requests.workTasks : [];
     const prepPageCount = Math.max(1, Math.ceil(pending.length / CARD_PAGE_SIZE));

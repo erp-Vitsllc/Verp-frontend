@@ -60,6 +60,9 @@ export default function LeaveRequestDecisionCard({
                 {dateLabel ? (
                     <p className="mt-0.5 text-[11px] text-[#667085]">{dateLabel}</p>
                 ) : null}
+                {row.requestedDate ? (
+                    <p className="mt-0.5 text-[11px] text-[#667085]">Requested date: {row.requestedDate}</p>
+                ) : null}
                 {row.name ? (
                     <p className="mt-1 text-sm font-semibold text-[#111827]">
                         {row.name}

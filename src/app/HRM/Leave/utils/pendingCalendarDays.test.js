@@ -67,6 +67,29 @@ describe('employeePendingRequests', () => {
         assert.deepEqual([...map.keys()], ['2026-10-01', '2026-10-02']);
     });
 
+    it('does not blink a leave that was only assigned or reassigned to this employee', () => {
+        const map = employeePendingRequests({
+            monthKey: '2026-10',
+            employeeName: 'Vishnu Prasad',
+            pending: [
+                {
+                    title: 'Authorized leave request',
+                    appliedKey: 'authorized_leave',
+                    owner: 'Vishnu Prasad',
+                    fromDate: '2026-10-21',
+                    toDate: '2026-10-21',
+                    ownRequest: false,
+                },
+            ],
+            records: [
+                { date: '2026-10-04', leaveRequestStatus: 'pending', requestedStatusKey: 'sick_leave' },
+            ],
+        });
+
+        assert.equal(map.has('2026-10-21'), false);
+        assert.equal(map.get('2026-10-04')[0].label, 'Sick leave request');
+    });
+
     it('uses the attendance day when the profile list has not arrived yet', () => {
         const map = employeePendingRequests({
             monthKey: '2026-10',

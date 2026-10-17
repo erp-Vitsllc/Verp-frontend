@@ -56,6 +56,7 @@ export function formatSummaryMoney(value) {
 export function utilityBillEnteredInZoho(bill) {
     if (!bill) return false;
     if (String(bill.zohoBillId || '').trim()) return true;
+    if (String(bill.zohoBillNumber || '').trim()) return true;
     if (Array.isArray(bill.zohoBillIds) && bill.zohoBillIds.some((id) => String(id || '').trim())) {
         return true;
     }
@@ -72,9 +73,8 @@ export function utilityBillEnteredInZoho(bill) {
  */
 export function summaryBillStatus(bill) {
     if (!bill) return SUMMARY_STATUS.NOT_UPDATED;
-    // Created in ERP but not entered in Zoho → not paid
-    if (!utilityBillEnteredInZoho(bill)) return SUMMARY_STATUS.NOT_PAID;
     if (String(bill.status || '') === 'Paid') return SUMMARY_STATUS.PAID;
+    if (!utilityBillEnteredInZoho(bill)) return SUMMARY_STATUS.NOT_PAID;
     return SUMMARY_STATUS.NOT_PAID;
 }
 

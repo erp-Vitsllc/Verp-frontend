@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
     Building2,
@@ -967,6 +967,32 @@ function EmailInbox({ sentEmails, updateMails, task, number }) {
     );
 }
 
+function emailSrcDoc(html) {
+    const body = String(html || '');
+    if (/<html[\s>]/i.test(body)) return body;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"></head><body style="margin:16px;font-family:Segoe UI,Tahoma,sans-serif;font-size:14px;line-height:1.5;color:#1e293b;">${body}</body></html>`;
+}
+
+function SentEmailFrame({ title, html }) {
+    const frameRef = useRef(null);
+    const fit = () => {
+        const frame = frameRef.current;
+        const height = frame?.contentDocument?.documentElement?.scrollHeight;
+        if (height) frame.style.height = `${height}px`;
+    };
+    return (
+        <iframe
+            ref={frameRef}
+            title={title || 'Sent email'}
+            sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+            srcDoc={emailSrcDoc(html)}
+            onLoad={fit}
+            className="w-full border-0 bg-white"
+            style={{ height: '8rem' }}
+        />
+    );
+}
+
 function SentEmailBlock({ email }) {
     const to = (email.to || []).filter(Boolean).join(', ') || '—';
     const cc = (email.cc || []).filter(Boolean).join(', ');
@@ -984,12 +1010,7 @@ function SentEmailBlock({ email }) {
             </div>
             {email.html ? (
                 <div className="border-t border-slate-100 bg-white">
-                    <iframe
-                        title={email.subject || "Sent email"}
-                        sandbox=""
-                        srcDoc={email.html}
-                        className="h-[36rem] w-full border-0 bg-white"
-                    />
+                    <SentEmailFrame title={email.subject || 'Sent email'} html={email.html} />
                 </div>
             ) : (
                 <p className="px-4 pb-4 text-sm text-slate-500">This email was sent before the message copy was saved. The subject and recipients above are the record of it.</p>

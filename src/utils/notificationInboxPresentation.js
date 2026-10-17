@@ -64,6 +64,14 @@ export function isReassignedTaskNotice(item = {}) {
     return Boolean(readNotificationMeta(item.extra3)?.reassignedNotice);
 }
 
+/** A returned task stays on the task. It does not belong in a module bell. */
+export function isReturnedTaskNotice(item = {}) {
+    const type = String(item?.type || item?.requestType || '').trim();
+    if (type !== 'Task Manager') return false;
+    const text = [item?.extra2, item?.category, item?.description].filter(Boolean).join(' ');
+    return /returned this task/i.test(text);
+}
+
 export function reassignedNoticeModule(item = {}) {
     return String(readNotificationMeta(item.extra3)?.module || '').trim();
 }

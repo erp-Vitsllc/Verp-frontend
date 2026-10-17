@@ -198,7 +198,7 @@ function LeaveApprovalTable({
     if (!rows.length) {
         return (
             <tr>
-                <td colSpan={6} className="px-2 py-8 text-center text-[#6B7280]">
+                <td colSpan={7} className="px-2 py-8 text-center text-[#6B7280]">
                     {emptyLabel}
                 </td>
             </tr>
@@ -253,6 +253,7 @@ function LeaveApprovalTable({
                     ) : null}
                 </td>
                 <td className="px-2 py-3">{row.leaveType}</td>
+                <td className="px-2 py-3 whitespace-nowrap">{row.requestedDate || '—'}</td>
                 <td className="px-2 py-3">{row.startDate}</td>
                 <td className="px-2 py-3">{row.endDate}</td>
                 <td className="px-2 py-3">
@@ -1202,11 +1203,12 @@ export default function LeaveDashboard({
                         </div>
                     ) : null}
                     <div className="min-h-0 flex-1 overflow-auto">
-                        <table className="w-full min-w-[620px] text-left text-sm">
+                        <table className="w-full min-w-[760px] text-left text-sm">
                             <thead className="sticky top-0 z-[1] bg-white">
                                 <tr className="border-b border-[#E5E7EB] text-[11px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
                                     <th className="px-2 py-2">Name</th>
                                     <th className="px-2 py-2">Leave Type</th>
+                                    <th className="px-2 py-2">Requested Date</th>
                                     <th className="px-2 py-2">Start Date</th>
                                     <th className="px-2 py-2">End Date</th>
                                     <th className="px-2 py-2">Status</th>
@@ -1216,7 +1218,7 @@ export default function LeaveDashboard({
                             <tbody>
                                 {pendingLoading ? (
                                     <tr>
-                                        <td colSpan={6} className="px-2 py-8 text-center text-[#6B7280]">
+                                        <td colSpan={7} className="px-2 py-8 text-center text-[#6B7280]">
                                             Loading leave requests...
                                         </td>
                                     </tr>
@@ -1448,9 +1450,12 @@ export default function LeaveDashboard({
                                     {focusedRow?.leaveType ? ` · ${focusedRow.leaveType}` : ''}
                                 </span>
                                 <span className="mt-0.5 block text-[11px] font-medium text-[#6B7280]">
-                                    {focusedPendingWith
-                                        ? `Pending with ${focusedPendingWith}`
-                                        : 'Open this request'}
+                                    {[
+                                        focusedRow?.requestedDate ? `Requested ${focusedRow.requestedDate}` : '',
+                                        focusedPendingWith ? `Pending with ${focusedPendingWith}` : 'Open this request',
+                                    ]
+                                        .filter(Boolean)
+                                        .join(' · ')}
                                 </span>
                             </span>
                             <ChevronDown size={16} className="shrink-0 text-[#6B7280]" />

@@ -19,7 +19,7 @@ import {
     filterItemsByNotificationPermission,
     getHiddenNotificationTypesSet,
 } from '@/utils/notificationChannelPermissionUi';
-import { isReassignedTaskNotice, reassignedNoticeModule } from '@/utils/notificationInboxPresentation';
+import { isReassignedTaskNotice, isReturnedTaskNotice, reassignedNoticeModule } from '@/utils/notificationInboxPresentation';
 
 export const EMPLOYEE_NOTIFICATION_TYPES = new Set([
     'Profile Activation',
@@ -50,6 +50,7 @@ export function buildEmployeePageNotifications(
             if (isCardDeletedNotificationHiddenType(type)) return false;
             if (hidden.has(type)) return false;
             if (!mandatoryCardsHrLive && isMandatoryCardsProfileIncompleteItem(item)) return false;
+            if (isReturnedTaskNotice(item)) return false;
             if (isReassignedTaskNotice(item) && reassignedNoticeModule(item) === 'employees') return true;
             return EMPLOYEE_NOTIFICATION_TYPES.has(type);
         }),

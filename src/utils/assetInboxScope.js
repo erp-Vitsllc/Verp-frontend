@@ -4,6 +4,7 @@
  */
 
 import { isTaskManagerHubRequest } from '@/utils/employeeHubRequest';
+import { isReturnedTaskNotice } from '@/utils/notificationInboxPresentation';
 
 const VEHICLE_ONLY_TYPES = new Set([
     'Vehicle Service Request',
@@ -85,6 +86,7 @@ export function isVehicleAssetInboxRow(row = {}) {
     if (isTaskManagerHubRequest(row)) return false;
     const type = requestTypeOf(row);
     if (type === 'Task Manager') {
+        if (isReturnedTaskNotice(row)) return false;
         const meta = parseAssetInboxExtra3(row.extra3);
         return meta?.module === 'vehicle';
     }
@@ -100,7 +102,10 @@ export function isToolsAssetInboxRow(row = {}) {
     if (isTaskManagerHubRequest(row)) return false;
     const type = requestTypeOf(row);
     if (!type) return false;
-    if (type === 'Task Manager') return parseAssetInboxExtra3(row.extra3)?.module === 'tools';
+    if (type === 'Task Manager') {
+        if (isReturnedTaskNotice(row)) return false;
+        return parseAssetInboxExtra3(row.extra3)?.module === 'tools';
+    }
     if (type === 'Employee Asset Request') {
         const area = hubAssetAreaOf(row);
         return area !== 'Vehicle' && area !== 'Utility Bill';
@@ -125,7 +130,10 @@ export function isToolsAssetInboxRow(row = {}) {
 export function isUtilityBillInboxRow(row = {}) {
     if (isTaskManagerHubRequest(row)) return false;
     const type = requestTypeOf(row);
-    if (type === 'Task Manager') return parseAssetInboxExtra3(row.extra3)?.module === 'utility';
+    if (type === 'Task Manager') {
+        if (isReturnedTaskNotice(row)) return false;
+        return parseAssetInboxExtra3(row.extra3)?.module === 'utility';
+    }
     if (type === 'Employee Asset Request') return hubAssetAreaOf(row) === 'Utility Bill';
     return (
         type === 'Utility Bill Payment' ||
