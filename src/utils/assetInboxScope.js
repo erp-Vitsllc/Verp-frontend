@@ -5,7 +5,7 @@
 
 import { isExpiryFollowUpTaskInboxRow, isLegacyVehicleNameExpiryRow } from '@/utils/assetTaskInboxRules';
 import { isTaskManagerHubRequest } from '@/utils/employeeHubRequest';
-import { isReturnedTaskNotice } from '@/utils/notificationInboxPresentation';
+import { isReassignedTaskNotice, isReturnedTaskNotice } from '@/utils/notificationInboxPresentation';
 
 const VEHICLE_ONLY_TYPES = new Set([
     'Vehicle Service Request',
@@ -88,7 +88,7 @@ export function isVehicleAssetInboxRow(row = {}) {
     const type = requestTypeOf(row);
     if (type === 'Task Manager') {
         // Returned and expiry follow-ups stay on the task. The vehicle reminder already covers the document.
-        if (isReturnedTaskNotice(row) || isExpiryFollowUpTaskInboxRow(row)) return false;
+        if (isReturnedTaskNotice(row) || isReassignedTaskNotice(row) || isExpiryFollowUpTaskInboxRow(row)) return false;
         const meta = parseAssetInboxExtra3(row.extra3);
         return meta?.module === 'vehicle';
     }
@@ -106,7 +106,7 @@ export function isToolsAssetInboxRow(row = {}) {
     const type = requestTypeOf(row);
     if (!type) return false;
     if (type === 'Task Manager') {
-        if (isReturnedTaskNotice(row) || isExpiryFollowUpTaskInboxRow(row)) return false;
+        if (isReturnedTaskNotice(row) || isReassignedTaskNotice(row) || isExpiryFollowUpTaskInboxRow(row)) return false;
         return parseAssetInboxExtra3(row.extra3)?.module === 'tools';
     }
     if (type === 'Employee Asset Request') {
@@ -134,7 +134,7 @@ export function isUtilityBillInboxRow(row = {}) {
     if (isTaskManagerHubRequest(row)) return false;
     const type = requestTypeOf(row);
     if (type === 'Task Manager') {
-        if (isReturnedTaskNotice(row) || isExpiryFollowUpTaskInboxRow(row)) return false;
+        if (isReturnedTaskNotice(row) || isReassignedTaskNotice(row) || isExpiryFollowUpTaskInboxRow(row)) return false;
         return parseAssetInboxExtra3(row.extra3)?.module === 'utility';
     }
     if (type === 'Employee Asset Request') return hubAssetAreaOf(row) === 'Utility Bill';

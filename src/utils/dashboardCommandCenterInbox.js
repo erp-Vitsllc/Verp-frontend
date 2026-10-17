@@ -11,7 +11,7 @@ import {
 import { isCardDeletedNotificationHiddenType } from '@/utils/cardDeletedNotifications';
 import { COMPANY_ACTIVATION_INCOMPLETE_TYPE } from '@/utils/companyActivationIncompleteNotifications';
 import { EMPLOYEE_NOTIFICATION_TYPES } from '@/utils/employeePageNotifications';
-import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
+import { isReassignedTaskNotice, mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import {
     isUtilityBillInboxRow,
@@ -87,6 +87,8 @@ export function isCommandCenterHiddenType(typeOrItem) {
     if (isCardDeletedNotificationHiddenType(type)) return true;
     // The document reminder is the bell row. The Task Manager copy is a duplicate.
     if (typeof typeOrItem !== 'string' && isExpiryFollowUpTaskInboxRow(typeOrItem)) return true;
+    // A reassignment notice copies the module request. It does not belong on a module bell.
+    if (typeof typeOrItem !== 'string' && isReassignedTaskNotice(typeOrItem)) return true;
     // Utility contract expiry bells are disabled — other expiry types stay.
     if (type === 'Utility Contract Expiry') return true;
     // Flowchart responsibility acceptance lives on Settings → FlowChart, not Command Center.
