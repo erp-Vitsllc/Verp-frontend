@@ -655,6 +655,26 @@ export default function SalaryPolicyFields({
                         </select>
                         <span className="text-xs text-slate-500">day</span>
                     </label>
+                    <label className="flex items-center gap-1.5">
+                        <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={form.missedPunchRule?.maxRequests ?? ''}
+                            onChange={(e) =>
+                                setForm((p) => ({
+                                    ...p,
+                                    missedPunchRule: {
+                                        ...(p.missedPunchRule || {}),
+                                        maxRequests: e.target.value,
+                                    },
+                                }))
+                            }
+                            className={compactInputClass}
+                            placeholder="0"
+                        />
+                        <span className="text-xs text-slate-500">times maximum request</span>
+                    </label>
                 </NumberedFieldRow>
                 <LateRuleRow
                     number={13}

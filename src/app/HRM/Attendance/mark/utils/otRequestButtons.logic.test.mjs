@@ -59,7 +59,24 @@ test('a same-day hour of overtime shows Apply OT only', () => {
         mark: { flexibleOtHours: 0, flexibleOtStatus: '', flexibleRequiredHours: 10 },
         durationHours: 11.05,
         requiredHours: 10,
-        checkoutNextDay: false,
+    });
+    assert.equal(state.showOtRequest, true);
+    assert.equal(state.showNextDayPresent, false);
+});
+
+test('an 11 hour night shift shows overtime only', () => {
+    const state = otActionState({
+        mark: {
+            flexibleOtHours: 0,
+            flexibleOtStatus: '',
+            flexibleRequiredHours: 10,
+            rawTimeIn: '20:47:19',
+            rawTimeOut: '08:38:45',
+            timeOutDate: '2026-10-07',
+            date: '2026-10-06',
+        },
+        durationHours: 11 + 51 / 60,
+        requiredHours: 10,
     });
     assert.equal(state.showOtRequest, true);
     assert.equal(state.showNextDayPresent, false);

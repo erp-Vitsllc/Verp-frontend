@@ -899,18 +899,11 @@ function otSortText(mark, ctx) {
     const span = punchSpanSeconds(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
     const durationHours = span != null ? span / 3600 : workedHoursValue(mark);
     const syntheticOt = isOtPunch(mark?.rawTimeIn) || isOtPunch(mark?.rawTimeOut);
-    const checkoutNextDay = isNextDayCheckout({
-        date: mark?.date,
-        timeIn: mark?.rawTimeIn,
-        timeOut: mark?.rawTimeOut,
-        timeOutDate: mark?.timeOutDate,
-    });
     const { otText, showOtRequest, showNextDayPresent } = otActionState({
         mark,
         durationHours,
         requiredHours: mark?.flexibleRequiredHours,
         syntheticOt,
-        checkoutNextDay,
     });
     if (otText) return otText;
     if (!showOtRequest) return null;
@@ -1446,7 +1439,6 @@ function EmployeeRow({
         durationHours,
         requiredHours,
         syntheticOt,
-        checkoutNextDay,
     });
     const requestMark = markWithRequestableOt(mark, otHours);
     const otButtonLabel = otDirect ? 'Apply OT' : 'Req OT';

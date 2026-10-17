@@ -241,10 +241,10 @@ export default function MispunchRequestModal({
                             {allowanceLabel(allowance)}
                         </span>
                     </div>
-                    <p className="text-xs text-slate-500">Count of mispunch / salary count, for this month.</p>
+                    <p className="text-xs text-slate-500">Count of mispunch / maximum request, for this month.</p>
                     {blocked ? (
                         <p className="text-sm text-rose-700">
-                            This month is already at the salary count, so this request cannot be sent.
+                            This month is already at the maximum request count, so this request cannot be sent.
                         </p>
                     ) : null}
                     {review && rejecting ? (

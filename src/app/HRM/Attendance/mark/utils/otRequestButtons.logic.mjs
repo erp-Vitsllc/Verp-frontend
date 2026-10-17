@@ -59,14 +59,11 @@ export function otActionState({
     durationHours,
     requiredHours,
     syntheticOt = false,
-    checkoutNextDay = false,
 } = {}) {
     const otText = otCellLabel(mark);
     const otHours = requestableOvertimeHours(mark, durationHours, requiredHours, { syntheticOt });
     const showOtRequest = otHours > 0 && !otText;
-    const showNextDayPresent =
-        showOtRequest &&
-        !syntheticOt &&
-        (checkoutNextDay || Number(durationHours) > 19);
+    // A midnight checkout is still one shift. Next day present needs a second working day of hours.
+    const showNextDayPresent = showOtRequest && !syntheticOt && Number(durationHours) > 19;
     return { otText, otHours, showOtRequest, showNextDayPresent };
 }
