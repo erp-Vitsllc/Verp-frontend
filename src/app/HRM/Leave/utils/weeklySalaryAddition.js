@@ -238,15 +238,19 @@ function grantedOtHours(row) {
     return roundHours(row?.flexibleOtApprovedHours);
 }
 
-function isSyntheticOtDay(row) {
+function isOtPunchPlaceholder(row) {
     const inn = String(row?.timeIn || '').trim();
     const out = String(row?.timeOut || '').trim();
-    return inn === 'OT' || out === 'OT' || Boolean(String(row?.flexibleFromOtDate || '').trim());
+    return inn === 'OT' || out === 'OT';
+}
+
+function isSyntheticOtDay(row) {
+    return isOtPunchPlaceholder(row) || Boolean(String(row?.flexibleFromOtDate || '').trim());
 }
 
 /** Check-in to check-out. A next-day row has no punches, so it adds nothing. */
 function measuredHours(row) {
-    if (!row || isSyntheticOtDay(row)) return 0;
+    if (!row || isOtPunchPlaceholder(row)) return 0;
     const start = clockToMinutes(row.timeIn);
     const end = clockToMinutes(row.timeOut);
     if (start != null && end != null) {
@@ -401,7 +405,7 @@ export function buildWeeklySalaryAddition({
         const requiredField = Number(row?.flexibleRequiredHours) || 0;
         const nextDay = String(row?.flexibleOtNextDayDate || '').trim();
         const fromDay = String(row?.flexibleFromOtDate || '').trim();
-        const synthetic = isSyntheticOtDay(row);
+        const synthetic = isOtPunchPlaceholder(row);
         const legacyDay = granted > 10 && !requiredField;
         const punchKind = punchAttendanceKind(row);
         day.statusKey = punchKind || status;
@@ -577,6 +581,7 @@ export function buildWeeklySalaryAddition({
         if (!(hours > 0)) return;
         workedHours = roundHours(workedHours + hours);
         day.holidayWorkedHours = hours;
+        if (flexible) workedDays += 1;
     });
 
     const dayRate = Number(daily) || 0;
