@@ -573,15 +573,17 @@ export function buildWeeklySalaryAddition({
     });
     weekSet.forEach((date) => {
         const info = infoOf(date);
-        if (!info.holiday) return;
+        if (!flexible || (!info.holiday && !info.weeklyOff)) return;
         const day = ledger.get(date);
-        if (!day || isCompOffRemainder(day) || !(day.workedHours > 0)) return;
+        if (!day || day.synthetic) return;
+        if (!countsAsWorked(day) && !(day.workedHours > 0)) return;
         const alreadyPaid = roundHours(Math.max(0, day.payable - day.consumed));
         const hours = roundHours(Math.max(0, Math.min(day.workedHours, DAY_HOUR_CAP) - alreadyPaid));
-        if (!(hours > 0)) return;
-        workedHours = roundHours(workedHours + hours);
-        day.holidayWorkedHours = hours;
-        if (flexible) workedDays += 1;
+        if (hours > 0) {
+            workedHours = roundHours(workedHours + hours);
+            day.holidayWorkedHours = hours;
+        }
+        workedDays += 1;
     });
 
     const dayRate = Number(daily) || 0;
