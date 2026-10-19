@@ -572,6 +572,7 @@ function ProfileHero({ employee, year, presentDays, nextBirthday }) {
     const initials = getEmployeeInitials(nameParts[0], nameParts.slice(1).join(' '));
     const staffLabel = `${workLocationLabel(employee?.staffType)} staff`;
     const isActive = employee?.isActive !== false;
+    const attendanceSuspending = Boolean(employee?.attendanceSuspending);
 
     return (
         <div
@@ -637,13 +638,15 @@ function ProfileHero({ employee, year, presentDays, nextBirthday }) {
                 <div className="shrink-0 xl:text-right space-y-1.5">
                     <span
                         className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                            isActive
+                            attendanceSuspending
+                                ? 'bg-slate-200 text-slate-800'
+                                : isActive
                                 ? 'bg-[#2F9E6B] text-white'
                                 : 'bg-white/15 text-white/80'
                         }`}
                     >
                         <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                        {isActive ? 'Active' : employee?.status || 'Inactive'}
+                        {attendanceSuspending ? 'Suspending' : isActive ? 'Active' : employee?.status || 'Inactive'}
                     </span>
                     {nextBirthday?.name ? (
                         <p className="text-[10px] font-semibold uppercase tracking-wide text-white/45">

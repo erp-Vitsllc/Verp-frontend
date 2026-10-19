@@ -15,7 +15,7 @@ import {
     markWithRequestableOt,
     otActionState,
 } from '@/app/HRM/Attendance/mark/utils/otRequestButtons.logic.mjs';
-import { nonHrMarkableDateKeys } from '@/app/HRM/Attendance/utils/nonHrMarkWindow';
+import { nextCalendarDateKey, nonHrMarkableDateKeys } from '@/app/HRM/Attendance/utils/nonHrMarkWindow';
 import { weekForStaffType } from '@/utils/workLocations';
 import { handleNavigateFromListClick } from '@/utils/listReturnNavigation';
 import { RECORD_FOCUS_BLINK_MS } from '@/utils/notificationFocusNavigation';
@@ -44,7 +44,6 @@ const MARK_OPTIONS = [
         children: [
             { key: 'sick_leave', label: 'Sick leave' },
             { key: 'authorized_leave', label: 'Authorized leave' },
-            { key: 'compoff_leave', label: 'Comp off leave' },
         ],
     },
     { key: 'clear_attendance', label: 'Clear attendance' },
@@ -208,10 +207,12 @@ function shiftDateKey(dateKey, deltaDays) {
 }
 
 const HR_ONLY_MARK_TITLE =
-    'Only the flowchart HR assignee can mark attendance outside today and the seven previous days, including future days. Holidays are included.';
+    'Only the flowchart HR assignee can mark attendance outside today and the seven previous days. The next day can be marked Present (comp off) only. Holidays are included.';
 const HR_ONLY_CLEAR_TITLE = 'Only the flowchart HR assignee can clear attendance.';
 const RECENT_MARK_NOTE =
-    'Attendance and leave can be marked for today and the seven previous days, including holidays. The day updates immediately. HR and the primary reportee are emailed.';
+    'Present, and early go, late arrival, or mispunch with no hours, save immediately. The primary reportee and HR are emailed. Sick leave, authorized leave, other leave, overtime, and any deduction hours wait for the primary reportee, then HR.';
+const NEXT_DAY_MARK_NOTE =
+    'The next day can be marked Present (comp off) only. It saves immediately. The primary reportee and HR are emailed.';
 
 function storedViewerUser() {
     if (typeof window === 'undefined') return null;
@@ -293,6 +294,7 @@ function formatStatusLabel(mark, timeIn, pastDay = false) {
     const punchedIn = Boolean(timeIn && timeIn !== '—');
     const missedDay = pastDay ? 'Unauth' : 'Absent';
 
+    if (key === 'suspended') return 'Suspended';
     // "Unauthorized Leave" contains "authorized leave", so this must run first.
     if (key === 'unauthorized_leave' || /^unauth/i.test(raw)) {
         const session = String(mark?.leaveRequestSession || '');
@@ -407,6 +409,7 @@ function rowMenuOptions(baseOptions, mark, { canReviewHour = false, canWaiveDedu
 
 function statusChipClass(mark, label) {
     const key = String(mark?.key || '').trim();
+    if (key === 'suspended' || label === 'Suspended') return 'text-slate-700 bg-slate-100';
     if (/\(Approved\)/i.test(label) || label === 'Present (Early Go)' || label === 'Present (Late Arrival)') {
         return 'text-amber-800 bg-amber-50';
     }
@@ -447,6 +450,7 @@ const MISSING_CHECKOUT_SKIP = new Set([
     'sick_leave',
     'compoff_leave',
     'authorized_leave',
+    'suspended',
 ]);
 
 function punchTimePresent(value) {
@@ -481,6 +485,16 @@ function applyDayRecordsToState(employees, records) {
     }
     const nextMarks = {};
     const nextEmployees = employees.map((e) => {
+        if (e.attendanceSuspended) {
+            const note = String(e.attendanceSuspensionNote || e.attendanceSuspension?.description || 'Attendance suspended');
+            nextMarks[e.id] = {
+                key: 'suspended',
+                label: 'Suspended',
+                reason: note,
+                date: '',
+            };
+            return { ...e, timeIn: '—', timeOut: '—' };
+        }
         const rec = byId.get(e.id);
         if (!rec) {
             return { ...e, timeIn: '—', timeOut: '—' };
@@ -849,6 +863,10 @@ function mapActiveEmployee(emp) {
         primaryReporteeName: String(emp?.primaryReporteeName || ''),
         timeIn: '—',
         timeOut: '—',
+        attendanceSuspended: Boolean(emp?.attendanceSuspended),
+        attendanceSuspensionNote: String(
+            emp?.attendanceSuspension?.description || emp?.attendanceSuspensionNote || '',
+        ),
     };
 }
 
@@ -1604,7 +1622,7 @@ function EmployeeRow({
                 {!shift.sun && !shift.moon ? <span className="text-gray-300">—</span> : null}
             </td>
             <td className="px-3 py-3 align-middle">
-                {canReviewOt && rowDecision?.kind !== 'ot' ? (
+                {canReviewOt && rowDecision?.kind !== 'ot' && !rowLocked ? (
                     <button
                         type="button"
                         onClick={() => onRequestOt?.(employee, mark)}
@@ -1619,7 +1637,7 @@ function EmployeeRow({
                         {showNextDayPresent ? (
                             <button
                                 type="button"
-                                disabled={!canRequestOt}
+                                disabled={rowLocked || !canRequestOt}
                                 title={
                                     canRequestOt
                                         ? 'Choose an authorized leave day in this month. That day becomes Present now. HR and the primary reportee are emailed.'
@@ -1635,7 +1653,7 @@ function EmployeeRow({
                         ) : null}
                         <button
                             type="button"
-                            disabled={!canRequestOt}
+                            disabled={rowLocked || !canRequestOt}
                             title={
                                 canRequestOt
                                     ? otDirect
@@ -2088,6 +2106,7 @@ export default function MarkAttendanceTable({
 
     const todayKey = dubaiDateKey();
     const earliestMarkKey = shiftDateKey(todayKey, -7);
+    const tomorrowKey = nextCalendarDateKey(todayKey);
     const allowedMarkDates = useMemo(
         () => nonHrMarkableDateKeys(todayKey, holidayDates),
         [todayKey, holidayDates],
@@ -2102,10 +2121,17 @@ export default function MarkAttendanceTable({
     const recentDayOpen = windowReady
         ? allowedMarkDates.has(dateKey)
         : Boolean(dateKey) && dateKey <= todayKey && dateKey >= earliestMarkKey;
-    const dayMode = isFlowchartHr || dateKey === todayKey || recentDayOpen ? 'full' : 'locked';
-    const baseMenuOptions = MARK_OPTIONS;
+    const nextDayPresent = !isFlowchartHr && dateKey === tomorrowKey;
+    const dayMode = isFlowchartHr || dateKey === todayKey || recentDayOpen
+        ? 'full'
+        : nextDayPresent
+            ? 'next'
+            : 'locked';
+    const baseMenuOptions = nextDayPresent
+        ? [{ key: 'on_office', label: 'Present (Comp off)' }]
+        : MARK_OPTIONS;
     const menuOptions = (
-        baseMenuOptions.some((option) => option.key === 'clear_attendance')
+        nextDayPresent || baseMenuOptions.some((option) => option.key === 'clear_attendance')
             ? baseMenuOptions
             : [...baseMenuOptions, MARK_OPTIONS.find((option) => option.key === 'clear_attendance')]
     ).map((option) =>
@@ -2117,7 +2143,7 @@ export default function MarkAttendanceTable({
             }
             : option,
     );
-    const rowIsActionLocked = () => dayMode === 'locked';
+    const rowIsActionLocked = (employee) => dayMode === 'locked' || Boolean(employee?.attendanceSuspended);
     const filteredEmployees = useMemo(
         () => employees.filter((employee) => employeeMatchesSearch(employee, searchQuery)),
         [employees, searchQuery],
@@ -2208,7 +2234,7 @@ export default function MarkAttendanceTable({
         const { markKey, markLabel, timeIn, timeOut, reason, attachmentName, leavePayType } = payload;
 
         const marksPayload = employeesRef.current
-            .filter((e) => idSet.has(e.id))
+            .filter((e) => idSet.has(e.id) && !e.attendanceSuspended)
             .map((e) => ({
                 employeeMongoId: e.id,
                 employeeId: e.empNo,
@@ -2524,8 +2550,11 @@ export default function MarkAttendanceTable({
             {dayMode === 'locked' ? (
                 <div className="px-1 pb-2 text-xs text-amber-700">{HR_ONLY_MARK_TITLE}</div>
             ) : null}
-            {!isFlowchartHr && dayMode === 'full' && dateKey && dateKey < todayKey ? (
+            {!isFlowchartHr && dayMode === 'full' ? (
                 <div className="px-1 pb-2 text-xs text-slate-500">{RECENT_MARK_NOTE}</div>
+            ) : null}
+            {!isFlowchartHr && dayMode === 'next' ? (
+                <div className="px-1 pb-2 text-xs text-slate-500">{NEXT_DAY_MARK_NOTE}</div>
             ) : null}
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1 pb-3">
@@ -2768,7 +2797,13 @@ export default function MarkAttendanceTable({
                                 scheduleWeek={scheduleWeek}
                                 dayBaseline={dayBaseline}
                                 actionLocked={rowIsActionLocked(employee)}
-                                actionTitle={dayMode === 'locked' ? HR_ONLY_MARK_TITLE : ''}
+                                actionTitle={
+                                    employee.attendanceSuspended
+                                        ? 'Suspended account. Attendance cannot be marked.'
+                                        : dayMode === 'locked'
+                                            ? HR_ONLY_MARK_TITLE
+                                            : ''
+                                }
                                 menuOptions={menuOptions}
                                 onRequestMark={handleRequestMark}
                                 canRequestOt={

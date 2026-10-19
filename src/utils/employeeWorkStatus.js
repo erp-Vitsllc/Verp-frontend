@@ -41,8 +41,6 @@ export function applyLeftUserReadOnlySectionPermissions(permissions) {
 export const DISABLED_WORK_STATUS_EXIT_OPTIONS = ['Termination', 'Resignation'];
 
 export function buildWorkStatusExitDropdownOptions({
-    leftUserEligible = false,
-    leftUserLoading = false,
     isAlreadyLeftUser = false,
     isAdmin = false,
 } = {}) {
@@ -63,17 +61,7 @@ export function buildWorkStatusExitDropdownOptions({
             return { value, label: `${value} (disabled)`, disabled: true };
         }
         if (value === 'Left User') {
-            if (isAlreadyLeftUser) {
-                return { value, label: 'Left User', disabled: false };
-            }
-            if (leftUserLoading) {
-                return { value, label: 'Left User (checking...)', disabled: true };
-            }
-            return {
-                value,
-                label: leftUserEligible ? 'Left User' : 'Left User (not eligible)',
-                disabled: !leftUserEligible,
-            };
+            return { value, label: 'Left User', disabled: false };
         }
         return { value, label: value, disabled: false };
     });

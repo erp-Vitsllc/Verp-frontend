@@ -74,7 +74,7 @@ const validateWorkDetailsForm = (form, setErrors, employee) => {
 };
 
 import { useRouter } from 'next/navigation';
-import { isAdmin } from '@/utils/permissions';
+import { isAdmin, isPortalSuperUser } from '@/utils/permissions';
 import {
     invalidateWorkLocationsCache,
     normalizeWorkLocationKey,
@@ -132,8 +132,19 @@ export default function WorkDetailsModal({
         if (isOpen && initialForm) {
             setForm(initialForm);
             setErrors({});
+            setSuspendOpen(false);
+        }
+        if (!isOpen) {
+            setShowLeftUserChecklist(false);
+            setLeftUserChecked({});
+            setSuspendOpen(false);
         }
     }, [isOpen, initialForm]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        setCanSuspendAttendance(isPortalSuperUser());
+    }, [isOpen]);
 
     const [isAddDeptModalOpen, setIsAddDeptModalOpen] = useState(false);
     const [isAddDesigModalOpen, setIsAddDesigModalOpen] = useState(false);
@@ -141,16 +152,21 @@ export default function WorkDetailsModal({
     const [deptModalInitialName, setDeptModalInitialName] = useState('');
     const [desigModalInitialName, setDesigModalInitialName] = useState('');
     const [workLocationModalInitialName, setWorkLocationModalInitialName] = useState('');
-    const [leftUserEligibility, setLeftUserEligibility] = useState(null);
-    const [leftUserEligibilityLoading, setLeftUserEligibilityLoading] = useState(false);
+    const [leftUserChecks, setLeftUserChecks] = useState([]);
+    const [leftUserChecksLoading, setLeftUserChecksLoading] = useState(false);
+    const [leftUserChecked, setLeftUserChecked] = useState({});
     const [markingLeftUser, setMarkingLeftUser] = useState(false);
-    const [showLeftUserConfirm, setShowLeftUserConfirm] = useState(false);
+    const [showLeftUserChecklist, setShowLeftUserChecklist] = useState(false);
     const [departments, setDepartments] = useState([]);
     const [designations, setDesignations] = useState([]);
     const [workLocations, setWorkLocations] = useState([]);
     const [assignedEmployees, setAssignedEmployees] = useState([]);
     const [isEmployeesListModalOpen, setIsEmployeesListModalOpen] = useState(false);
     const [companies, setCompanies] = useState([]);
+    const [canSuspendAttendance, setCanSuspendAttendance] = useState(false);
+    const [suspendOpen, setSuspendOpen] = useState(false);
+    const [suspendSaving, setSuspendSaving] = useState(false);
+    const [suspendForm, setSuspendForm] = useState({ fromDate: '', untilDate: '', description: '' });
 
     // State for delete confirmation
     const [deleteConfig, setDeleteConfig] = useState({
@@ -163,52 +179,64 @@ export default function WorkDetailsModal({
     const canDeleteCatalogItems = !submitting;
     const canManageWorkLocations = isAdmin() && !submitting;
 
-    useEffect(() => {
-        if (!isOpen || !employee) return undefined;
-
-        const employeeKey = employee?._id || employee?.id || employee?.employeeId;
-        if (!employeeKey) return undefined;
-
-        let cancelled = false;
-        setLeftUserEligibilityLoading(true);
-
-        axiosInstance
-            .get(`/Employee/${employeeKey}/left-user-eligibility`)
-            .then((res) => {
-                if (!cancelled) setLeftUserEligibility(res.data || null);
-            })
-            .catch(() => {
-                if (!cancelled) setLeftUserEligibility(null);
-            })
-            .finally(() => {
-                if (!cancelled) setLeftUserEligibilityLoading(false);
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [
-        isOpen,
-        employee?._id,
-        employee?.id,
-        employee?.employeeId,
-        employee?.status,
-        employee?.noticeRequest?.status,
-        employee?.noticeRequest?.exitDate,
-    ]);
-
     const canEditWorkStatus = isAdmin() || Boolean(viewerIsDesignatedFlowchartHr);
     const canEditContractJoiningDate = Boolean(viewerIsDesignatedFlowchartHr);
     const willApplyLeftUserImmediately = Boolean(viewerIsDesignatedFlowchartHr);
 
+    const closeLeftUserChecklist = () => {
+        if (markingLeftUser) return;
+        setShowLeftUserChecklist(false);
+        setLeftUserChecked({});
+    };
+
+    const openLeftUserChecklist = async () => {
+        const employeeKey = employee?._id || employee?.id || employee?.employeeId;
+        if (!employeeKey || employee?.status === 'Left User') return;
+
+        setShowLeftUserChecklist(true);
+        setLeftUserChecked({});
+        setLeftUserChecksLoading(true);
+        try {
+            const res = await axiosInstance.get(`/Employee/${employeeKey}/left-user-eligibility`);
+            setLeftUserChecks(Array.isArray(res.data?.checks) ? res.data.checks : []);
+        } catch (error) {
+            setLeftUserChecks([]);
+            toast({
+                variant: 'destructive',
+                title: 'Could not load Left User checks',
+                description: error.response?.data?.message || 'Try again.',
+            });
+        } finally {
+            setLeftUserChecksLoading(false);
+        }
+    };
+
+    const leftUserReadyToConfirm =
+        !leftUserChecksLoading &&
+        leftUserChecks.length > 0 &&
+        leftUserChecks.every((check) => {
+            if (!check?.manual && !check?.passed) return false;
+            return Boolean(leftUserChecked[check.code]);
+        });
+
+    const toggleLeftUserCheck = (check) => {
+        if (markingLeftUser || leftUserChecksLoading) return;
+        if (!check?.manual && !check?.passed) return;
+        setLeftUserChecked((prev) => ({
+            ...prev,
+            [check.code]: !prev[check.code],
+        }));
+    };
+
     const handleMarkLeftUser = async () => {
         const employeeKey = employee?._id || employee?.id || employee?.employeeId;
-        if (!employeeKey) return;
+        if (!employeeKey || !leftUserReadyToConfirm) return;
 
         setMarkingLeftUser(true);
-        setShowLeftUserConfirm(false);
         try {
-            const res = await axiosInstance.post(`/Employee/${employeeKey}/mark-left-user`);
+            const res = await axiosInstance.post(`/Employee/${employeeKey}/mark-left-user`, {
+                gratuityPaidConfirmed: true,
+            });
             const isQueued =
                 res.data?.queuedForHrApproval === true ||
                 String(res.data?.message || '').toLowerCase().includes('queued for hr');
@@ -245,12 +273,12 @@ export default function WorkDetailsModal({
                 title: 'Cannot mark as Left User',
                 description: error.response?.data?.message || 'Failed to update work status.',
             });
+            if (Array.isArray(error.response?.data?.checks)) {
+                setLeftUserChecks(error.response.data.checks);
+                setLeftUserChecked({});
+            }
             if (Array.isArray(blockers) && blockers.length > 0) {
-                setLeftUserEligibility((prev) => ({
-                    ...(prev || {}),
-                    eligible: false,
-                    blockers,
-                }));
+                setShowLeftUserChecklist(true);
             }
         } finally {
             setMarkingLeftUser(false);
@@ -259,15 +287,7 @@ export default function WorkDetailsModal({
 
     const handleWorkStatusChange = async (value) => {
         if (value === 'Left User') {
-            if (!leftUserEligibility?.eligible) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Cannot mark as Left User',
-                    description: 'Clear vehicle/tools/utility assets, open loans/advances, fines to pay, and flowchart assignment first.',
-                });
-                return;
-            }
-            setShowLeftUserConfirm(true);
+            void openLeftUserChecklist();
             return;
         }
         if (value === 'Termination' || value === 'Resignation') {
@@ -285,12 +305,10 @@ export default function WorkDetailsModal({
 
     const workStatusExitOptions = useMemo(
         () => buildWorkStatusExitDropdownOptions({
-            leftUserEligible: Boolean(leftUserEligibility?.eligible),
-            leftUserLoading: leftUserEligibilityLoading,
             isAlreadyLeftUser: employee?.status === 'Left User',
             isAdmin: canEditWorkStatus,
         }),
-        [leftUserEligibility?.eligible, leftUserEligibilityLoading, employee?.status, canEditWorkStatus],
+        [employee?.status, canEditWorkStatus],
     );
 
     const workStatusDropdownValue = resolveWorkStatusDropdownValue(employee, form.status);
@@ -691,6 +709,70 @@ export default function WorkDetailsModal({
         validateWorkDetailsField(field, processedValue, updatedForm, { ...errors }, setErrors, employee);
     };
 
+    const attendanceSuspended = String(employee?.attendanceAccountStatus || 'active') === 'suspended';
+    const attendanceWindow = employee?.attendanceSuspension || {};
+
+    const activateAttendance = async () => {
+        if (!canSuspendAttendance || suspendSaving) return;
+        const employeeId = employee?._id || employee?.id;
+        if (!employeeId) return;
+        setSuspendSaving(true);
+        try {
+            await axiosInstance.post(`/Employee/${employeeId}/attendance-suspension`, { action: 'activate' });
+            toast({ title: 'Attendance is active' });
+            if (onEmployeeRefresh) await onEmployeeRefresh();
+        } catch (err) {
+            toast({
+                title: 'Could not activate attendance',
+                description: err?.response?.data?.message || 'Try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setSuspendSaving(false);
+        }
+    };
+
+    const submitAttendanceSuspension = async () => {
+        if (!canSuspendAttendance || suspendSaving) return;
+        const employeeId = employee?._id || employee?.id;
+        if (!employeeId) return;
+        const fromDate = String(suspendForm.fromDate || '').trim();
+        const untilDate = String(suspendForm.untilDate || '').trim();
+        const description = String(suspendForm.description || '').trim();
+        if (!fromDate || !untilDate || untilDate < fromDate || description.length < 3) {
+            return;
+        }
+        setSuspendSaving(true);
+        try {
+            await axiosInstance.post(`/Employee/${employeeId}/attendance-suspension`, {
+                fromDate,
+                untilDate,
+                description,
+            });
+            toast({ title: 'Attendance suspended' });
+            setSuspendOpen(false);
+            if (onEmployeeRefresh) await onEmployeeRefresh();
+        } catch (err) {
+            toast({
+                title: 'Could not suspend attendance',
+                description: err?.response?.data?.message || 'Try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setSuspendSaving(false);
+        }
+    };
+
+    const suspendFromDate = String(suspendForm.fromDate || '').trim();
+    const suspendToDate = String(suspendForm.untilDate || '').trim();
+    const suspendReason = String(suspendForm.description || '').trim();
+    const suspendFormReady = Boolean(
+        suspendFromDate &&
+        suspendToDate &&
+        suspendToDate >= suspendFromDate &&
+        suspendReason.length >= 3,
+    );
+
     const handleSubmit = async () => {
         if (!validateWorkDetailsForm(form, setErrors, employee)) {
             toast({
@@ -894,23 +976,56 @@ export default function WorkDetailsModal({
                                         Exit date: {formatNoticeExitDate(employee)}
                                     </p>
                                 )}
-                                {employee?.status !== 'Left User' &&
-                                    !leftUserEligibilityLoading &&
-                                    !leftUserEligibility?.eligible &&
-                                    Array.isArray(leftUserEligibility?.blockers) &&
-                                    leftUserEligibility.blockers.length > 0 && (
-                                    <ul className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 space-y-1 list-disc list-inside">
-                                        {leftUserEligibility.blockers.map((blocker) => (
-                                            <li key={blocker.code || blocker.message}>{blocker.message}</li>
-                                        ))}
-                                    </ul>
-                                )}
                                 {errors.status && (
                                     <span className="text-xs text-red-500">{errors.status}</span>
                                 )}
                             </div>
                         </div>
 
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
+                                Attendance
+                            </label>
+                            <div className="w-full md:flex-1 flex flex-col gap-2">
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (!canSuspendAttendance || suspendSaving) return;
+                                            if (attendanceSuspended) {
+                                                activateAttendance();
+                                                return;
+                                            }
+                                            setSuspendForm({
+                                                fromDate: attendanceWindow.fromDate || '',
+                                                untilDate: attendanceWindow.untilDate || '',
+                                                description: attendanceWindow.description || '',
+                                            });
+                                            setSuspendOpen(true);
+                                        }}
+                                        disabled={!canSuspendAttendance || suspendSaving}
+                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${attendanceSuspended ? 'bg-slate-700' : 'bg-gray-300'} ${!canSuspendAttendance ? 'cursor-not-allowed opacity-70' : ''}`}
+                                        title={canSuspendAttendance ? 'Suspend attendance' : 'Only the portal super user can change this'}
+                                    >
+                                        <span
+                                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${attendanceSuspended ? 'translate-x-6' : 'translate-x-1'}`}
+                                        />
+                                    </button>
+                                    <span className="text-sm text-gray-700">
+                                        {attendanceSuspended ? 'Suspended' : 'Active'}
+                                    </span>
+                                </div>
+                                {attendanceSuspended && (attendanceWindow.fromDate || attendanceWindow.untilDate) ? (
+                                    <p className="text-xs text-slate-600">
+                                        {attendanceWindow.fromDate || '—'} to {attendanceWindow.untilDate || '—'}
+                                        {attendanceWindow.description ? ` · ${attendanceWindow.description}` : ''}
+                                    </p>
+                                ) : null}
+                                {!canSuspendAttendance ? (
+                                    <p className="text-xs text-gray-400">Only the portal super user can suspend attendance.</p>
+                                ) : null}
+                            </div>
+                        </div>
 
                         {form.status === 'Probation' && employee?.status === 'Left User' && (
                             <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
@@ -1066,6 +1181,82 @@ export default function WorkDetailsModal({
                 </div>
             </div>
 
+            {suspendOpen && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+                    <button
+                        type="button"
+                        aria-label="Close suspend attendance"
+                        className="absolute inset-0 bg-black/45"
+                        onClick={() => !suspendSaving && setSuspendOpen(false)}
+                    />
+                    <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col">
+                        <div className="px-5 py-4 border-b border-gray-100">
+                            <h3 className="text-lg font-semibold text-gray-800">Set as Suspended</h3>
+                            <p className="mt-1 text-sm text-gray-500">
+                                Punch in, punch out, and mark attendance stay blocked for this date range. Saved attendance is not changed.
+                            </p>
+                        </div>
+                        <div className="px-5 py-4 overflow-y-auto space-y-3">
+                            <div>
+                                <label className="mb-1 block text-sm font-medium text-gray-700">
+                                    From date <span className="text-red-500">*</span>
+                                </label>
+                                <DatePicker
+                                    value={suspendForm.fromDate}
+                                    onChange={(value) => setSuspendForm((prev) => ({ ...prev, fromDate: value || '' }))}
+                                    placeholder="Select from date"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-sm font-medium text-gray-700">
+                                    To date <span className="text-red-500">*</span>
+                                </label>
+                                <DatePicker
+                                    value={suspendForm.untilDate}
+                                    onChange={(value) => setSuspendForm((prev) => ({ ...prev, untilDate: value || '' }))}
+                                    placeholder="Select to date"
+                                />
+                                {suspendForm.fromDate && suspendForm.untilDate && suspendForm.untilDate < suspendForm.fromDate ? (
+                                    <p className="mt-1 text-xs text-red-500">To date must be on or after the from date.</p>
+                                ) : null}
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-sm font-medium text-gray-700">
+                                    Reason <span className="text-red-500">*</span>
+                                </label>
+                                <textarea
+                                    value={suspendForm.description}
+                                    onChange={(event) => setSuspendForm((prev) => ({ ...prev, description: event.target.value }))}
+                                    rows={3}
+                                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                                    placeholder="Why this employee is suspended"
+                                />
+                                {suspendReason.length > 0 && suspendReason.length < 3 ? (
+                                    <p className="mt-1 text-xs text-red-500">Enter a reason of at least 3 characters.</p>
+                                ) : null}
+                            </div>
+                        </div>
+                        <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => !suspendSaving && setSuspendOpen(false)}
+                                disabled={suspendSaving}
+                                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 disabled:opacity-60"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={submitAttendanceSuspension}
+                                disabled={suspendSaving || !suspendFormReady}
+                                className="px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {suspendSaving ? 'Updating…' : 'Set as suspended'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <AddDepartmentModal
                 isOpen={isAddDeptModalOpen}
@@ -1189,47 +1380,84 @@ export default function WorkDetailsModal({
                 </AlertDialogContent>
             </AlertDialog>
 
-            <AlertDialog
-                open={showLeftUserConfirm}
-                onOpenChange={(open) => {
-                    if (!open && !markingLeftUser) setShowLeftUserConfirm(false);
-                }}
-            >
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Set as Left User?</AlertDialogTitle>
-                        <AlertDialogDescription asChild>
-                            <div className="space-y-2 text-sm text-muted-foreground">
-                                <p>
-                                    This employee has no blocking assets, fines, loans, or flowchart
-                                    assignment.
-                                </p>
-                                <p>
-                                    Are you sure you want to set this user as Left User?
-                                </p>
-                                <p className="text-xs">
-                                    {willApplyLeftUserImmediately
-                                        ? 'As HR, this applies immediately and the page will reload.'
-                                        : 'HR will be notified by email and a dashboard task for approval.'}
-                                </p>
-                            </div>
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={markingLeftUser}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                            disabled={markingLeftUser}
-                            onClick={(e) => {
-                                e.preventDefault();
-                                void handleMarkLeftUser();
-                            }}
-                            className="bg-emerald-600 hover:bg-emerald-700"
-                        >
-                            {markingLeftUser ? 'Updating…' : 'Yes, set Left User'}
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+            {showLeftUserChecklist && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <button
+                        type="button"
+                        aria-label="Close Left User checklist"
+                        className="absolute inset-0 bg-black/45"
+                        onClick={closeLeftUserChecklist}
+                    />
+                    <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col">
+                        <div className="px-5 py-4 border-b border-gray-100">
+                            <h3 className="text-lg font-semibold text-gray-800">Set as Left User</h3>
+                            <p className="mt-1 text-sm text-gray-500">
+                                Tick every condition. A condition that is not clear stays locked until it is resolved.
+                            </p>
+                        </div>
+                        <div className="px-5 py-4 overflow-y-auto space-y-2">
+                            {leftUserChecksLoading ? (
+                                <p className="text-sm text-gray-500">Checking this employee…</p>
+                            ) : leftUserChecks.length === 0 ? (
+                                <p className="text-sm text-red-600">Clearance checks could not be loaded.</p>
+                            ) : (
+                                leftUserChecks.map((check) => {
+                                    const locked = !check.manual && !check.passed;
+                                    const checked = Boolean(leftUserChecked[check.code]);
+                                    return (
+                                        <label
+                                            key={check.code}
+                                            className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 ${locked ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-white'} ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                className="mt-0.5 h-4 w-4"
+                                                checked={checked}
+                                                disabled={locked || markingLeftUser}
+                                                onChange={() => toggleLeftUserCheck(check)}
+                                            />
+                                            <span className="min-w-0">
+                                                <span className="block text-sm text-gray-800">{check.label}</span>
+                                                {locked && check.message ? (
+                                                    <span className="mt-1 block text-xs text-amber-800">{check.message}</span>
+                                                ) : null}
+                                                {check.manual ? (
+                                                    <span className="mt-1 block text-xs text-gray-500">
+                                                        Tick this after gratuity is paid. This is confirmed manually.
+                                                    </span>
+                                                ) : null}
+                                            </span>
+                                        </label>
+                                    );
+                                })
+                            )}
+                            <p className="text-xs text-gray-500 pt-1">
+                                {willApplyLeftUserImmediately
+                                    ? 'As HR, this applies immediately. After that, this employee stays off salary, task, and employee lists unless the employee list filter is Left User.'
+                                    : 'HR will be notified by email and a dashboard task. After approval, this employee stays off salary, task, and employee lists unless the employee list filter is Left User.'}
+                            </p>
+                        </div>
+                        <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={closeLeftUserChecklist}
+                                disabled={markingLeftUser}
+                                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 disabled:opacity-60"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void handleMarkLeftUser()}
+                                disabled={!leftUserReadyToConfirm || markingLeftUser}
+                                className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {markingLeftUser ? 'Updating…' : 'Set Left User'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>,
         document.body,
     );

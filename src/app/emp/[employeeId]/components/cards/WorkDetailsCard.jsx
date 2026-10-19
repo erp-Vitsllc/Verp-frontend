@@ -239,6 +239,13 @@ export default function WorkDetailsCard({
                         value: probationDisplay,
                         show: !isCompanyProfile && displayWorkStatus === 'Probation' && !!probationDisplay
                     },
+                    {
+                        label: 'Attendance',
+                        value: String(employee.attendanceAccountStatus || 'active') === 'suspended'
+                            ? `Suspended${employee.attendanceSuspension?.fromDate ? ` (${employee.attendanceSuspension.fromDate} to ${employee.attendanceSuspension.untilDate || '—'}${employee.attendanceSuspension.description ? ` · ${employee.attendanceSuspension.description}` : ''})` : ''}`
+                            : 'Active',
+                        show: !isCompanyProfile,
+                    },
                     { label: 'Company Email ID', value: employee.companyEmail || '—', show: !!employee.companyEmail },
                     { label: 'Work Email', value: employee.workEmail || '—', show: !!employee.workEmail },
                     {

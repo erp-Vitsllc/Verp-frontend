@@ -14,6 +14,8 @@ import {
     buildBasicProposedRows,
     buildVehicleProfileEditSnapshots,
 } from '../lib/vehicleProfileEditSnapshots';
+import { isSystemSuperUser } from '@/utils/permissions';
+import SellVehicleModal from './SellVehicleModal';
 
 const emptyForm = () => ({
     manufacture: '',
@@ -51,6 +53,9 @@ export default function AddVehicleModal({
 
     const [formData, setFormData] = useState(emptyForm);
     const [errors, setErrors] = useState({});
+    const [dispositionStatus, setDispositionStatus] = useState('active');
+    const [canOfferSold, setCanOfferSold] = useState(false);
+    const [sellOpen, setSellOpen] = useState(false);
     const [nextFleetAssetId, setNextFleetAssetId] = useState('');
     const yearOptions = Array.from({ length: 41 }, (_, i) => String(new Date().getFullYear() - i));
 
@@ -99,6 +104,7 @@ export default function AddVehicleModal({
                 invoiceAttachment: '',
             });
             setNextFleetAssetId(a.assetId || '');
+            setDispositionStatus(String(a.vehicleDispositionStatus || 'active').toLowerCase());
         },
         [isLocatorSetup],
     );
@@ -146,8 +152,10 @@ export default function AddVehicleModal({
         if (!isOpen) {
             setDataLoading(false);
             setLoadEdit(false);
+            setSellOpen(false);
             return;
         }
+        setCanOfferSold(isSystemSuperUser());
         if (editAssetId) {
             setNextFleetAssetId('');
             if (asset) {
@@ -278,7 +286,17 @@ export default function AddVehicleModal({
         }
     };
 
+    const vehicleIsSold = dispositionStatus === 'sold';
+
     const submitUpdate = async () => {
+        if (vehicleIsSold) {
+            toast({
+                variant: 'destructive',
+                title: 'Vehicle sold',
+                description: 'A sold vehicle cannot be changed.',
+            });
+            return;
+        }
         if (!validate()) return;
         try {
             setLoading(true);
@@ -532,6 +550,28 @@ export default function AddVehicleModal({
                                     />
                                     {errors.purchaseYearMonth && <p className="text-xs text-red-500">{errors.purchaseYearMonth}</p>}
                                 </div>
+                                {isEditMode && canOfferSold ? (
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                            Vehicle status
+                                        </label>
+                                        {vehicleIsSold ? (
+                                            <div className="flex h-[42px] items-center rounded-xl border border-gray-200 bg-gray-100 px-3 text-sm font-semibold text-gray-500">
+                                                Sold
+                                            </div>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={() => setSellOpen(true)}
+                                                className="h-[42px] w-full rounded-xl bg-gray-900 px-3 text-sm font-semibold text-white hover:bg-gray-800"
+                                            >
+                                                Sold
+                                            </button>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div />
+                                )}
                             </div>
 
                             {showInvoiceUpload ? (
@@ -595,7 +635,7 @@ export default function AddVehicleModal({
                             {isEditMode ? (
                                 <button
                                     type="button"
-                                    disabled={loading}
+                                    disabled={loading || vehicleIsSold}
                                     onClick={() => submitUpdate()}
                                     className="px-5 py-2.5 rounded-xl bg-gray-900 text-white font-medium text-sm hover:bg-gray-800 shadow-lg disabled:opacity-50 flex items-center gap-2"
                                 >
@@ -629,6 +669,15 @@ export default function AddVehicleModal({
                     </>
                 )}
             </div>
+            <SellVehicleModal
+                isOpen={sellOpen}
+                assetId={editAssetId}
+                onClose={() => setSellOpen(false)}
+                onSold={() => {
+                    setDispositionStatus('sold');
+                    onSuccess?.();
+                }}
+            />
         </div>
     );
 }

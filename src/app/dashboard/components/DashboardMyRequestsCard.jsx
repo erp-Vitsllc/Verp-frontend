@@ -1,16 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
-import { ArrowRight, CheckCircle2, ClipboardList } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { ArrowRight, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { cn } from '@/lib/utils';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
 import { dashboardItem } from './dashboardMotion';
-import { DashboardCard, EmptyState, SectionHeader, StatusBadge } from './ui';
+import { DashboardCard, EmptyState, SectionHeader } from './ui';
 
 export const MY_REQUESTS_CHANGED = 'dashboard-my-requests-changed';
 export const OPEN_MY_REQUESTS = 'dashboard-open-my-requests';
+
+const PAGE_SIZE = 5;
 
 function formatDate(value) {
     if (!value) return '';
@@ -27,40 +29,23 @@ function isPendingStatus(raw) {
     return s.includes('pending');
 }
 
-function statusClass(status) {
-    const s = String(status || '').toLowerCase();
-    if (s.includes('reject')) return 'bg-rose-50 text-rose-700';
-    if (s.includes('cancel') || s.includes('draft')) return 'bg-slate-100 text-slate-600';
-    if (s.includes('pending')) return 'bg-amber-50 text-amber-700';
-    if (s.includes('approved')) return 'bg-emerald-50 text-emerald-700';
-    return 'bg-blue-50 text-blue-700';
-}
-
-function RequestRow({ item }) {
-    const body = (
-        <>
-            <div className="min-w-0">
-                <p className="text-[13px] font-semibold text-[#111827] truncate">{item.label}</p>
-                {item.detail ? (
-                    <p className="text-[11px] text-[#8792A6] truncate mt-0.5">{item.detail}</p>
-                ) : null}
-            </div>
-            <div className="text-right shrink-0">
-                <StatusBadge className={statusClass(item.status)}>{item.status}</StatusBadge>
-                {item.date ? (
-                    <p className="text-[10px] text-[#8792A6] mt-1">{formatDate(item.date)}</p>
-                ) : null}
-            </div>
-        </>
-    );
-    const className =
-        'flex items-start justify-between gap-3 px-1 py-2 rounded-lg hover:bg-slate-50 transition-colors duration-200';
-    return item.href ? (
-        <Link href={item.href} className={className}>
-            {body}
-        </Link>
-    ) : (
-        <div className={className}>{body}</div>
+function RequestRow({ item, onOpen }) {
+    const reason = item.reason || item.label || '—';
+    return (
+        <tr
+            onClick={() => item.href && onOpen(item.href)}
+            className="cursor-pointer border-b border-[#F1F5F9] last:border-0 hover:bg-sky-50 transition-colors duration-200"
+        >
+            <td className="px-2 py-2 text-[12px] font-semibold whitespace-nowrap text-[#2563EB]">
+                {item.taskNo || '—'}
+            </td>
+            <td className="px-2 py-2 text-[12px] text-[#64748B] whitespace-nowrap">
+                {formatDate(item.date) || '—'}
+            </td>
+            <td className="px-2 py-2 text-[12px] text-[#334155]">
+                <p className="truncate" title={reason}>{reason}</p>
+            </td>
+        </tr>
     );
 }
 
@@ -73,20 +58,22 @@ function openMyRequestsLog() {
 }
 
 export default function DashboardMyRequestsCard() {
+    const router = useRouter();
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [page, setPage] = useState(0);
     const loadRequests = useCallback(async () => {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/my-requests', { skipToast: true });
             const rows = Array.isArray(res.data?.requests) ? res.data.requests : [];
-            setRequests(
-                rows
-                    .filter((item) => isPendingStatus(item.status))
-                    .sort(
-                        (a, b) =>
-                            new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
-                    ),
-            );
+            const next = rows
+                .filter((item) => isPendingStatus(item.status))
+                .sort(
+                    (a, b) =>
+                        new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
+                );
+            setRequests(next);
+            setPage(0);
         } catch {
             setRequests([]);
         } finally {
@@ -107,6 +94,12 @@ export default function DashboardMyRequestsCard() {
         };
     }, [loadRequests]);
 
+    const pageCount = Math.max(1, Math.ceil(requests.length / PAGE_SIZE));
+    const safePage = Math.min(page, pageCount - 1);
+    const visible = useMemo(
+        () => requests.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE),
+        [requests, safePage],
+    );
     const isEmpty = !loading && requests.length === 0;
 
     return (
@@ -130,7 +123,7 @@ export default function DashboardMyRequestsCard() {
                     </button>
                 }
             />
-            <div className={cn('mt-2', isEmpty ? '' : 'max-h-[168px] overflow-y-auto')}>
+            <div className="mt-2">
                 {loading ? (
                     <p className="text-[12px] text-[#8792A6] py-3 text-center">Loading requests…</p>
                 ) : isEmpty ? (
@@ -141,11 +134,69 @@ export default function DashboardMyRequestsCard() {
                         className="py-1 gap-0.5"
                     />
                 ) : (
-                    <div className="divide-y divide-[#E7EBF1]">
-                        {requests.map((item) => (
-                            <RequestRow key={`${item.source}-${item.id}`} item={item} />
-                        ))}
-                    </div>
+                    <>
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[28rem] table-fixed">
+                                <thead>
+                                    <tr className="border-b border-[#E7EBF1] text-left text-[10px] font-bold uppercase tracking-wider text-[#94A3B8]">
+                                        <th className="w-[7.5rem] px-2 py-2 font-bold">Task no</th>
+                                        <th className="w-[7.5rem] px-2 py-2 font-bold">Date</th>
+                                        <th className="px-2 py-2 font-bold">Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {visible.map((item) => (
+                                        <RequestRow
+                                            key={`${item.source}-${item.id}`}
+                                            item={item}
+                                            onOpen={(href) => router.push(href)}
+                                        />
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        {requests.length > PAGE_SIZE ? (
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                                <p className="text-[11px] text-[#8792A6]">
+                                    {safePage * PAGE_SIZE + 1}–{Math.min(requests.length, (safePage + 1) * PAGE_SIZE)} of {requests.length}
+                                </p>
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setPage((value) => Math.max(0, value - 1))}
+                                        disabled={safePage === 0}
+                                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-[#E7EBF1] text-[#64748B] disabled:opacity-40"
+                                        aria-label="Previous page"
+                                    >
+                                        <ChevronLeft size={14} />
+                                    </button>
+                                    {Array.from({ length: pageCount }, (_, index) => (
+                                        <button
+                                            key={index}
+                                            type="button"
+                                            onClick={() => setPage(index)}
+                                            className={`h-7 min-w-7 rounded-lg px-1.5 text-[11px] font-semibold ${
+                                                index === safePage
+                                                    ? 'bg-slate-900 text-white'
+                                                    : 'border border-[#E7EBF1] text-[#64748B]'
+                                            }`}
+                                        >
+                                            {index + 1}
+                                        </button>
+                                    ))}
+                                    <button
+                                        type="button"
+                                        onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}
+                                        disabled={safePage >= pageCount - 1}
+                                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-[#E7EBF1] text-[#64748B] disabled:opacity-40"
+                                        aria-label="Next page"
+                                    >
+                                        <ChevronRight size={14} />
+                                    </button>
+                                </div>
+                            </div>
+                        ) : null}
+                    </>
                 )}
             </div>
         </DashboardCard>

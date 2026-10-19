@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { CalendarDays, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { markAttendanceHref } from '@/app/HRM/Attendance/utils/markAttendanceHref';
 import { cn } from '@/lib/utils';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
 import { dashboardItem } from './dashboardMotion';
@@ -11,7 +13,6 @@ import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
     salaryLockFromAttendancePayload,
 } from './DashboardSalaryEnrollLock';
-import { employeeDataMetrics } from '@/app/HRM/Leave/utils/employeeDataMetrics';
 import CompOffRequestModal from './CompOffRequestModal';
 
 const EMPTY_COUNTS = {
@@ -41,6 +42,7 @@ const EMPTY_SUMMARY = {
     holidayCount: 0,
     weeklyOffCount: 0,
     lastAnnualLeaveDate: '',
+    periodOpen: false,
 };
 
 const DETAIL_BOXES = [
@@ -55,6 +57,9 @@ const DETAIL_BOXES = [
 ];
 
 const BOX_STATUS_KEYS = {
+    present: ['on_office', 'work_from_home', 'late_arrived', 'early_go', 'mispunch'],
+    absent: ['authorized_leave', 'sick_leave', 'compoff_leave', 'unauthorized_leave'],
+    holiday: ['holiday'],
     on_leave: ['on_leave'],
     authorized_leave: ['authorized_leave'],
     unauthorized_leave: ['unauthorized_leave'],
@@ -65,115 +70,11 @@ const BOX_STATUS_KEYS = {
     attendance: ['on_office', 'work_from_home', 'unauthorized_leave', 'authorized_leave', 'sick_leave', 'on_leave', 'compoff_leave'],
 };
 
-function shiftDateKey(dateKey, days) {
-    const raw = String(dateKey || '').trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return '';
-    const [year, month, day] = raw.split('-').map(Number);
-    const next = new Date(Date.UTC(year, month - 1, day + Number(days || 0)));
-    return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(
-        next.getUTCDate(),
-    ).padStart(2, '0')}`;
-}
-
-function leaveSpansForBox(entries, boxKey) {
-    const keys = new Set(BOX_STATUS_KEYS[boxKey] || []);
-    const rows = (Array.isArray(entries) ? entries : []).filter((row) => keys.has(row?.statusKey));
-    const grouped = new Map();
-    const daily = [];
-    const countOnly = [];
-
-    for (const row of rows) {
-        const groupId = String(row?.leaveRequestGroupId || '').trim();
-        const date = String(row?.date || '').trim();
-        const storedDays = Math.max(0, Number(row?.days) || 0);
-        if (row?.countOnly || (!date && storedDays > 0)) {
-            countOnly.push({
-                type: row.statusKey === 'on_leave' ? 'Annual leave' : row.statusLabel || row.statusKey,
-                statusKey: row.statusKey,
-                startDate: '',
-                endDate: '',
-                days: storedDays || 1,
-                source: row.source || 'Salary enrollment',
-                leavePayType: row.leavePayType || '',
-                reason: row.reason || '',
-            });
-            continue;
-        }
-        if (groupId) {
-            const mapKey = `${groupId}|${row.statusKey}`;
-            const existing = grouped.get(mapKey);
-            if (!existing) {
-                grouped.set(mapKey, {
-                    type: row.statusKey === 'on_leave' ? 'Annual leave' : row.statusLabel || row.statusKey,
-                    statusKey: row.statusKey,
-                    startDate: date,
-                    endDate: date,
-                    fromDate: String(row.fromDate || date).trim(),
-                    toDate: String(row.toDate || date).trim(),
-                    days: storedDays || 1,
-                    source: row.source || 'Attendance',
-                    leavePayType: row.leavePayType || '',
-                    reason: row.reason || '',
-                });
-            } else {
-                if (date && (!existing.startDate || date < existing.startDate)) existing.startDate = date;
-                if (date && date > existing.endDate) existing.endDate = date;
-                if (!storedDays) existing.days += 1;
-                if (row.fromDate && row.fromDate < existing.fromDate) existing.fromDate = row.fromDate;
-                if (row.toDate && row.toDate > existing.toDate) existing.toDate = row.toDate;
-                if (row.reason && !existing.reason) existing.reason = row.reason;
-            }
-            continue;
-        }
-        daily.push(row);
-    }
-
-    const spans = [...grouped.values()].map((row) => ({
-        type: row.type,
-        statusKey: row.statusKey,
-        startDate: /^\d{4}-\d{2}-\d{2}$/.test(row.fromDate) ? row.fromDate : row.startDate,
-        endDate: /^\d{4}-\d{2}-\d{2}$/.test(row.toDate) ? row.toDate : row.endDate,
-        days: row.days,
-        source: row.source,
-        leavePayType: row.leavePayType,
-        reason: row.reason,
-    }));
-
-    const mergedDaily = [];
-    const sortedDaily = [...daily].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
-    for (const row of sortedDaily) {
-        const date = String(row.date || '').trim();
-        const source = row.source || 'Attendance';
-        const pay = row.leavePayType || '';
-        const last = mergedDaily[mergedDaily.length - 1];
-        if (
-            last &&
-            last.statusKey === row.statusKey &&
-            last.leavePayType === pay &&
-            last.source === source &&
-            shiftDateKey(last.endDate, 1) === date
-        ) {
-            last.endDate = date;
-            last.days += 1;
-            if (row.reason && !last.reason) last.reason = row.reason;
-            continue;
-        }
-        mergedDaily.push({
-            type: row.statusKey === 'on_leave' ? 'Annual leave' : row.statusLabel || row.statusKey,
-            statusKey: row.statusKey,
-            startDate: date,
-            endDate: date,
-            days: 1,
-            source,
-            leavePayType: pay,
-            reason: row.reason || '',
-        });
-    }
-
-    return [...countOnly, ...spans, ...mergedDaily].sort((a, b) =>
-        String(a.startDate).localeCompare(String(b.startDate)),
-    );
-}
+const LIST_TITLES = {
+    present: 'Present days',
+    absent: 'Absent days',
+    holiday: 'Holidays',
+};
 
 const PERIOD_FILTERS = [
     { key: 'current_month', label: 'Current month' },
@@ -238,6 +139,51 @@ function n(value) {
     return Number(value) || 0;
 }
 
+function pendingDays(entries, keys) {
+    const wanted = new Set(keys);
+    return (Array.isArray(entries) ? entries : []).reduce((sum, row) => {
+        if (!wanted.has(row?.statusKey)) return sum;
+        if (String(row?.leaveRequestStatus || '').toLowerCase() !== 'pending') return sum;
+        const stored = Number(row?.days) || 0;
+        return sum + (!row?.date && stored > 0 ? stored : 1);
+    }, 0);
+}
+
+function periodMetrics(boxKey, { counts, summary, entries, leaveBalances }) {
+    const used = (key) => n(counts?.[key]);
+    const remainingOf = (key) => {
+        const value = leaveBalances?.[key]?.remaining;
+        return value == null || value === '' ? 0 : n(value);
+    };
+    const pendingUsedRemaining = (pending, taken, remaining) => [
+        { label: 'Pending', value: n(pending) },
+        { label: 'Used', value: n(taken) },
+        { label: 'Remaining', value: n(remaining) },
+    ];
+
+    if (boxKey === 'on_leave' || boxKey === 'sick_leave' || boxKey === 'compoff_leave') {
+        return pendingUsedRemaining(pendingDays(entries, [boxKey]), used(boxKey), remainingOf(boxKey));
+    }
+    if (boxKey === 'authorized_leave' || boxKey === 'unauthorized_leave') {
+        return pendingUsedRemaining(pendingDays(entries, [boxKey]), used(boxKey), 0);
+    }
+    if (boxKey === 'late_early') {
+        return pendingUsedRemaining(
+            pendingDays(entries, ['late_arrived', 'early_go']),
+            used('late_arrived') + used('early_go'),
+            0,
+        );
+    }
+    if (boxKey === 'mispunch') {
+        return pendingUsedRemaining(pendingDays(entries, ['mispunch']), used('mispunch'), 0);
+    }
+    return [
+        { label: 'Office', value: used('on_office') + used('late_arrived') + used('early_go') + used('mispunch') },
+        { label: 'WFH', value: used('work_from_home') },
+        { label: 'Absent', value: n(summary?.absentDays) },
+    ];
+}
+
 function formatLeaveDate(value) {
     const key = String(value || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return '—';
@@ -254,15 +200,46 @@ function formatLeaveDate(value) {
     }
 }
 
-function MiniStat({ value, label, hint, valueClass }) {
-    return (
-        <div className="min-h-[84px] rounded-xl border border-[#E7EBF1] bg-white px-3.5 py-3 flex flex-col justify-center">
+function dayRowsForList(entries, holidayDates, boxKey) {
+    if (boxKey === 'holiday') {
+        return (Array.isArray(holidayDates) ? holidayDates : [])
+            .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')))
+            .map((date) => ({
+                date,
+                type: 'Holiday',
+                reason: '',
+                source: 'Holiday',
+            }))
+            .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    }
+    const keys = new Set(BOX_STATUS_KEYS[boxKey] || []);
+    return (Array.isArray(entries) ? entries : [])
+        .filter((row) => keys.has(row?.statusKey) && /^\d{4}-\d{2}-\d{2}$/.test(String(row?.date || '')))
+        .map((row) => ({
+            date: String(row.date),
+            type: row.statusLabel || row.statusKey,
+            reason: row.reason || '',
+            source: row.source || 'Attendance',
+        }))
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+function MiniStat({ value, label, hint, valueClass, onClick }) {
+    const className = 'min-h-[84px] w-full rounded-xl border border-[#E7EBF1] bg-white px-3.5 py-3 flex flex-col justify-center text-left';
+    const body = (
+        <>
             <p className={cn('text-[26px] font-bold tabular-nums leading-none text-[#111827]', valueClass)}>
                 {value}
             </p>
             <p className="text-[11px] font-medium text-[#8792A6] mt-1.5 leading-tight">{label}</p>
             {hint ? <p className="text-[10px] text-[#8792A6] mt-0.5 leading-tight">{hint}</p> : null}
-        </div>
+        </>
+    );
+    if (!onClick) return <div className={className}>{body}</div>;
+    return (
+        <button type="button" onClick={onClick} className={`${className} hover:border-[#D8DEE8]`}>
+            {body}
+        </button>
     );
 }
 
@@ -276,10 +253,8 @@ function SplitMetric({ label, value, hint, wrap }) {
     );
 }
 
-function LeaveDetailModal({ open, title, period, rows, onClose }) {
+function LeaveDetailModal({ open, title, period, rows, onClose, onOpenDay }) {
     if (!open) return null;
-    const showPay = rows.some((row) => row.leavePayType);
-    const showReason = rows.some((row) => row.reason);
     return (
         <div
             className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
@@ -295,7 +270,7 @@ function LeaveDetailModal({ open, title, period, rows, onClose }) {
                         <h3 className="text-base font-bold text-[#111827]">{title}</h3>
                         <p className="text-xs text-[#8792A6] mt-0.5">
                             {period ? `${period} · ` : ''}
-                            {rows.length} record{rows.length === 1 ? '' : 's'}
+                            {rows.length} day{rows.length === 1 ? '' : 's'} · open a row to see that day in Mark Attendance
                         </p>
                     </div>
                     <button
@@ -311,40 +286,24 @@ function LeaveDetailModal({ open, title, period, rows, onClose }) {
                     {rows.length === 0 ? (
                         <p className="text-sm text-[#8792A6] py-10 text-center">No records for this category.</p>
                     ) : (
-                        <table className="w-full min-w-[640px] text-left">
+                        <table className="w-full text-left">
                             <thead className="sticky top-0 bg-white">
                                 <tr className="border-b border-[#EEF2F6] text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
-                                    <th className="px-4 py-2.5 font-semibold">SL</th>
+                                    <th className="px-4 py-2.5 font-semibold">Date</th>
                                     <th className="px-4 py-2.5 font-semibold">Type</th>
-                                    <th className="px-4 py-2.5 font-semibold">Start date</th>
-                                    <th className="px-4 py-2.5 font-semibold">End date</th>
-                                    <th className="px-4 py-2.5 font-semibold">Days</th>
-                                    <th className="px-4 py-2.5 font-semibold">Source</th>
-                                    {showPay ? <th className="px-4 py-2.5 font-semibold">Pay</th> : null}
-                                    {showReason ? <th className="px-4 py-2.5 font-semibold">Reason</th> : null}
+                                    <th className="px-4 py-2.5 font-semibold">Reason</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {rows.map((row, index) => (
-                                    <tr key={`${row.statusKey}-${row.startDate}-${index}`} className="border-b border-[#F1F5F9] last:border-0">
-                                        <td className="px-4 py-2.5 text-[13px] tabular-nums text-[#64748B]">{index + 1}</td>
-                                        <td className="px-4 py-2.5 text-[13px] font-semibold text-[#0F172A]">{row.type}</td>
-                                        <td className="px-4 py-2.5 text-[13px] text-[#334155]">{formatLeaveDate(row.startDate)}</td>
-                                        <td className="px-4 py-2.5 text-[13px] text-[#334155]">{formatLeaveDate(row.endDate)}</td>
-                                        <td className="px-4 py-2.5 text-[13px] tabular-nums text-[#334155]">{row.days}</td>
-                                        <td className="px-4 py-2.5">
-                                            <span className="inline-flex rounded-full bg-[#F1F5F9] px-2 py-0.5 text-[11px] font-semibold text-[#475569]">
-                                                {row.source}
-                                            </span>
-                                        </td>
-                                        {showPay ? (
-                                            <td className="px-4 py-2.5 text-[13px] capitalize text-[#64748B]">
-                                                {row.leavePayType || '—'}
-                                            </td>
-                                        ) : null}
-                                        {showReason ? (
-                                            <td className="px-4 py-2.5 text-[13px] text-[#64748B]">{row.reason || '—'}</td>
-                                        ) : null}
+                                    <tr
+                                        key={`${row.date}-${row.type}-${index}`}
+                                        onClick={() => onOpenDay?.(row.date)}
+                                        className="cursor-pointer border-b border-[#F1F5F9] last:border-0 hover:bg-sky-50"
+                                    >
+                                        <td className="px-4 py-2.5 text-[13px] font-semibold text-[#2563EB]">{formatLeaveDate(row.date)}</td>
+                                        <td className="px-4 py-2.5 text-[13px] text-[#0F172A]">{row.type}</td>
+                                        <td className="px-4 py-2.5 text-[13px] text-[#64748B]">{row.reason || '—'}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -357,16 +316,15 @@ function LeaveDetailModal({ open, title, period, rows, onClose }) {
 }
 
 export default function DashboardMyLeaveCard() {
+    const router = useRouter();
     const [filterKey, setFilterKey] = useState('current_month');
     const [customMonth, setCustomMonth] = useState(currentMonthKey);
     const [counts, setCounts] = useState(EMPTY_COUNTS);
     const [summary, setSummary] = useState(EMPTY_SUMMARY);
     const [leaveBalances, setLeaveBalances] = useState({});
     const [leavePolicy, setLeavePolicy] = useState(null);
-    const [enrollAttendance, setEnrollAttendance] = useState({});
-    const [requestStats, setRequestStats] = useState({});
-    const [annualLeave, setAnnualLeave] = useState({});
     const [entries, setEntries] = useState([]);
+    const [holidayDates, setHolidayDates] = useState([]);
     const [detailKey, setDetailKey] = useState('');
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
     const [compOffOpen, setCompOffOpen] = useState(false);
@@ -391,10 +349,8 @@ export default function DashboardMyLeaveCard() {
                     setSummary(EMPTY_SUMMARY);
                     setLeaveBalances({});
                     setLeavePolicy(null);
-                    setEnrollAttendance({});
-                    setRequestStats({});
-                    setAnnualLeave({});
                     setEntries([]);
+                    setHolidayDates([]);
                     return;
                 }
                 if (lock.locked && lock.enrolledWaiting) {
@@ -402,10 +358,8 @@ export default function DashboardMyLeaveCard() {
                     setCounts(EMPTY_COUNTS);
                     setLeaveBalances({});
                     setLeavePolicy(res.data.leavePolicy || null);
-                    setEnrollAttendance(res.data.enrollAttendance || {});
-                    setRequestStats(res.data.requestStats || {});
-                    setAnnualLeave(res.data.annualLeave || {});
                     setEntries([]);
+                    setHolidayDates([]);
                     setSummary({
                         ...EMPTY_SUMMARY,
                         workingDays: n(res.data.workingDays),
@@ -416,10 +370,8 @@ export default function DashboardMyLeaveCard() {
                 setCounts({ ...EMPTY_COUNTS, ...(res.data.counts || {}) });
                 setLeaveBalances(res.data.leaveBalances || {});
                 setLeavePolicy(res.data.leavePolicy || null);
-                setEnrollAttendance(res.data.enrollAttendance || {});
-                setRequestStats(res.data.requestStats || {});
-                setAnnualLeave(res.data.annualLeave || {});
                 setEntries(Array.isArray(res.data.entries) ? res.data.entries : []);
+                setHolidayDates(Array.isArray(res.data.holidayDates) ? res.data.holidayDates : []);
                 setSummary({
                     presentDays: n(res.data.presentDays),
                     absentDays: n(res.data.absentDays),
@@ -430,6 +382,7 @@ export default function DashboardMyLeaveCard() {
                     holidayCount: n(res.data.holidayCount),
                     weeklyOffCount: n(res.data.weeklyOffCount),
                     lastAnnualLeaveDate: String(res.data.lastAnnualLeaveDate || ''),
+                    periodOpen: Boolean(res.data.periodOpen),
                 });
             } catch (err) {
                 if (!cancelled) {
@@ -451,10 +404,8 @@ export default function DashboardMyLeaveCard() {
                     setCounts(EMPTY_COUNTS);
                     setLeaveBalances({});
                     setLeavePolicy(payload?.leavePolicy || null);
-                    setEnrollAttendance(payload?.enrollAttendance || {});
-                    setRequestStats(payload?.requestStats || {});
-                    setAnnualLeave(payload?.annualLeave || {});
                     setEntries([]);
+                    setHolidayDates([]);
                 }
             }
         };
@@ -468,19 +419,10 @@ export default function DashboardMyLeaveCard() {
         };
     }, [query.month, query.year, reloadTick]);
 
-    const metricsCtx = useMemo(
-        () => ({
-            counts,
-            leaveBalances,
-            leavePolicy,
-            requestStats,
-            enrollAttendance,
-            annualLeave,
-            presentDays: n(enrollAttendance.office ?? summary.presentDays),
-            absentDays: n(enrollAttendance.absent ?? summary.absentDays),
-        }),
-        [counts, leaveBalances, leavePolicy, requestStats, enrollAttendance, annualLeave, summary.presentDays, summary.absentDays],
-    );
+    const metricsByBox = useMemo(() => {
+        const ctx = { counts, summary, entries, leaveBalances };
+        return Object.fromEntries(DETAIL_BOXES.map((box) => [box.key, periodMetrics(box.key, ctx)]));
+    }, [counts, summary, entries, leaveBalances]);
 
     const detailHint = (key) => {
         if (key === 'authorized_leave') {
@@ -507,9 +449,10 @@ export default function DashboardMyLeaveCard() {
     };
 
     const activeBox = DETAIL_BOXES.find((box) => box.key === detailKey) || null;
+    const activeTitle = LIST_TITLES[detailKey] || activeBox?.label || '';
     const detailRows = useMemo(
-        () => (detailKey ? leaveSpansForBox(entries, detailKey) : []),
-        [detailKey, entries],
+        () => (detailKey ? dayRowsForList(entries, holidayDates, detailKey) : []),
+        [detailKey, entries, holidayDates],
     );
 
     return (
@@ -567,24 +510,34 @@ export default function DashboardMyLeaveCard() {
             </div>
 
             <div className="mt-3 grid grid-cols-2 min-[1200px]:grid-cols-4 gap-3">
-                <MiniStat value={summary.presentDays} label="Present days" valueClass="text-emerald-700" />
+                <MiniStat
+                    value={summary.presentDays}
+                    label="Present days"
+                    valueClass="text-emerald-700"
+                    onClick={() => setDetailKey('present')}
+                />
                 <MiniStat
                     value={summary.absentDays}
                     label="Absent days"
                     valueClass="text-rose-700"
                     hint={`Auth ${summary.absentAuth} · Sick ${summary.absentSick} · Unauth ${summary.absentUnauthorized}`}
+                    onClick={() => setDetailKey('absent')}
                 />
                 <MiniStat
                     value={summary.workingDays}
                     label="Total Working Days"
-                    hint="Same as salary enroll"
+                    hint={summary.periodOpen ? 'Through today' : 'In this period'}
                 />
-                <MiniStat value={summary.holidayCount} label="Holidays" />
+                <MiniStat
+                    value={summary.holidayCount}
+                    label="Holidays"
+                    onClick={() => setDetailKey('holiday')}
+                />
             </div>
 
             <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
                 {DETAIL_BOXES.map((box) => {
-                    const metrics = employeeDataMetrics(box, metricsCtx);
+                    const metrics = metricsByBox[box.key] || [];
                     const hint = detailHint(box.key);
                     return (
                         <button
@@ -613,11 +566,12 @@ export default function DashboardMyLeaveCard() {
             </div>
             <DashboardSalaryEnrollLock {...salaryLock} />
             <LeaveDetailModal
-                open={Boolean(activeBox)}
-                title={activeBox?.label || 'Leave details'}
+                open={Boolean(activeTitle)}
+                title={activeTitle}
                 period={periodLabel(filterKey, customMonth)}
                 rows={detailRows}
                 onClose={() => setDetailKey('')}
+                onOpenDay={(date) => router.push(markAttendanceHref({ date }))}
             />
             <CompOffRequestModal
                 open={compOffOpen}

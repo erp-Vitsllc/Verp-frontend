@@ -52,6 +52,7 @@ import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
     salaryLockFromAttendancePayload,
 } from '@/app/dashboard/components/DashboardSalaryEnrollLock';
+import { ATTENDANCE_CHECK_CHANGED } from '@/app/dashboard/components/DashboardCheckInOutCard';
 import {
     approvalPlacedAsNextDay,
     buildMonthAdditionChoices,
@@ -82,6 +83,7 @@ const DAY_STYLE = {
     empty: 'bg-[#F8FAFC] text-[#CBD5E1]',
     future: 'bg-[#F8FAFC] text-[#94A3B8]',
     outside: 'bg-[#F1F5F9] text-[#94A3B8]',
+    suspended: 'bg-[#64748B] text-white',
 };
 
 const LEGEND = [
@@ -94,6 +96,7 @@ const LEGEND = [
     { key: 'compoff', label: 'Comp Off', swatch: 'bg-[#2DD4BF]' },
     { key: 'holiday', label: 'Holiday', swatch: 'bg-[#FDBA74]' },
     { key: 'weekend', label: 'Weekly Off', swatch: 'bg-[#CBD5E1]' },
+    { key: 'suspended', label: 'Suspended', swatch: 'bg-[#64748B]' },
 ];
 
 const TIP_TONE = {
@@ -108,6 +111,7 @@ const TIP_TONE = {
     weekend: { dot: 'bg-[#CBD5E1]', text: 'text-[#64748B]' },
     future: { dot: 'bg-[#CBD5E1]', text: 'text-[#64748B]' },
     empty: { dot: 'bg-[#CBD5E1]', text: 'text-[#64748B]' },
+    suspended: { dot: 'bg-[#64748B]', text: 'text-[#334155]' },
 };
 
 function n(value) {
@@ -1379,6 +1383,7 @@ function requestApproved(record) {
 
 function dayKind(record, { isFuture, isToday, isHoliday, isWeeklyOff }) {
     const key = String(record?.statusKey || '');
+    if (key === 'suspended' || record?.attendanceSuspended) return 'suspended';
     // A future day stays blank until leave is approved. Unauthorized leave is only a past day.
     const unapprovedFuture = Boolean(isFuture) && !requestApproved(record);
     if (shownEventKind(record) && !unapprovedFuture) return 'attention';
@@ -1637,7 +1642,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         || String(record?.timeOut || '').trim() === 'OT'
         || Boolean(String(record?.flexibleFromOtDate || '').trim());
     const deductedLeave = kind === 'authorized' || kind === 'absent';
-    const earnsDayRate = counted && !deductedLeave && !syntheticOt && !isHoliday && !isWeeklyOff && kind !== 'future';
+    const earnsDayRate = counted && !deductedLeave && !syntheticOt && !isHoliday && !isWeeklyOff && kind !== 'future' && kind !== 'suspended';
     const dayRate = Number(ctx.salaryDaily) || 0;
     const payment = !counted && !(extraPay > 0)
         ? null
@@ -3291,6 +3296,8 @@ export default function EmployeeInformationDashboard({
     const nameParts = String(employee.name || '').trim().split(/\s+/);
     const initials = getEmployeeInitials(nameParts[0], nameParts.slice(1).join(' '));
     const isActive = employee.isActive !== false;
+    const attendanceSuspending = Boolean(employee.attendanceSuspending);
+    const profileBadge = attendanceSuspending ? 'Suspending' : (isActive ? 'Active' : 'Inactive');
     const adjustmentByDate = useMemo(() => buildAdjustmentIndex(monthRecords), [monthRecords]);
     const calendarDays = eachDayOfInterval({
         start: startOfWeek(startOfMonth(monthAnchor), { weekStartsOn: 1 }),
@@ -3415,6 +3422,7 @@ export default function EmployeeInformationDashboard({
     }, [todayLocation.label, todayLocation.hasMap, todayLocation.latitude, todayLocation.longitude]);
     const locationText = todayLocation.label || pinnedPlace || '—';
     const todayIn = todayRecord?.timeIn;
+    const todaySuspended = String(todayRecord?.statusKey || '') === 'suspended' || Boolean(todayRecord?.attendanceSuspended) || attendanceSuspending;
     const todayOut = todayRecord?.timeOut;
     const openMinutes = !todayOut && clockToMinutes(todayIn) != null
         ? Math.max(0, (dubaiNowMinutes() ?? 0) - clockToMinutes(todayIn))
@@ -3436,8 +3444,8 @@ export default function EmployeeInformationDashboard({
                         <div className="min-w-0">
                             <div className="flex items-center gap-2">
                                 <EmployeeProfileSwitcher employeeMongoId={employeeMongoId} name={employee.name} />
-                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold leading-none ${isActive ? 'bg-[#DCFCE7] text-[#16A34A]' : 'bg-slate-100 text-slate-500'}`}>
-                                    {isActive ? 'Active' : 'Inactive'}
+                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold leading-none ${attendanceSuspending ? 'bg-slate-200 text-slate-700' : isActive ? 'bg-[#DCFCE7] text-[#16A34A]' : 'bg-slate-100 text-slate-500'}`}>
+                                    {profileBadge}
                                 </span>
                             </div>
                             <p className="mt-0.5 truncate text-[12px] font-medium leading-tight text-[#64748B]">
@@ -3699,7 +3707,7 @@ export default function EmployeeInformationDashboard({
                                     <span className="min-w-0 flex-1">
                                         <span className="block text-[12px] font-semibold leading-tight text-[#1B2A4A]">Current Attendance (Today)</span>
                                         <span className="mt-0.5 block text-[13px] font-bold leading-tight text-[#1B2A4A]">
-                                            {todayIn ? `Checked In – ${formatClock12(todayIn)}` : 'No punch yet'}
+                                            {todaySuspended ? 'Suspended account' : todayIn ? `Checked In – ${formatClock12(todayIn)}` : 'No punch yet'}
                                         </span>
                                         <span className="mt-0.5 block truncate text-[11px] font-medium leading-tight text-[#64748B]">
                                             Working Duration: {todayIn ? formatDuration(todayWorked) : '—'} | Location: {locationText}
@@ -3715,7 +3723,7 @@ export default function EmployeeInformationDashboard({
                                     <div className="min-w-0 flex-1">
                                         <p className="text-[12px] font-semibold leading-tight text-[#1B2A4A]">Current Attendance (Today)</p>
                                         <p className="mt-0.5 text-[13px] font-bold leading-tight text-[#1B2A4A]">
-                                            {todayIn ? `Checked In – ${formatClock12(todayIn)}` : 'No punch yet'}
+                                            {todaySuspended ? 'Suspended account' : todayIn ? `Checked In – ${formatClock12(todayIn)}` : 'No punch yet'}
                                         </p>
                                         <p className="mt-0.5 truncate text-[11px] font-medium leading-tight text-[#64748B]">
                                             Working Duration: {todayIn ? formatDuration(todayWorked) : '—'} | Location: {locationText}
@@ -4437,5 +4445,206 @@ export default function EmployeeInformationDashboard({
                 onClose={() => setAdditionModal('')}
             />
         </div>
+    );
+}
+
+/** Same month calendar as the attendance profile, for the logged-in employee or one team member. */
+export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }) {
+    const todayKey = dubaiTodayKey();
+    const currentMonth = todayKey.slice(0, 7);
+    const [monthKey, setMonthKey] = useState(currentMonth);
+    const [records, setRecords] = useState([]);
+    const [scheduleWeek, setScheduleWeek] = useState(null);
+    const [offWeekdays, setOffWeekdays] = useState(() => new Set(['saturday', 'sunday']));
+    const [staffType, setStaffType] = useState('');
+    const [holidayRows, setHolidayRows] = useState([]);
+    const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
+    const [employeeId, setEmployeeId] = useState('');
+    const [employeeName, setEmployeeName] = useState('');
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [hoveredDate, setHoveredDate] = useState('');
+
+    const loadMonth = useCallback(async () => {
+        if (!/^\d{4}-\d{2}$/.test(monthKey)) return;
+        setLoading(true);
+        setError('');
+        try {
+            const params = { month: monthKey };
+            const requestedId = String(forEmployeeId || '').trim();
+            if (requestedId) params.forEmployeeId = requestedId;
+            const response = await axiosInstance.get('/Attendance/me', { params, skipToast: true });
+            const rows = Array.isArray(response.data?.records) ? response.data.records : [];
+            setRecords(rows);
+            const nextStaff = normalizeWorkLocationKey(response.data?.employee?.staffType);
+            setStaffType(nextStaff);
+            setScheduleWeek(weekForStaffType(response.data?.workingTime, nextStaff));
+            setOffWeekdays(new Set(
+                Array.isArray(response.data?.offWeekdays) && response.data.offWeekdays.length
+                    ? response.data.offWeekdays
+                    : ['saturday', 'sunday'],
+            ));
+            setEmployeeId(String(response.data?.employee?.id || requestedId || ''));
+            setEmployeeName(String(response.data?.employee?.name || '').trim());
+            setSalaryLock(salaryLockFromAttendancePayload(response.data));
+        } catch (err) {
+            setRecords([]);
+            if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
+                setSalaryLock(salaryLockFromAttendancePayload(err.response.data));
+                setError('');
+            } else {
+                setSalaryLock(EMPTY_SALARY_LOCK);
+                setError(err?.response?.data?.message || 'Could not load attendance.');
+            }
+        } finally {
+            setLoading(false);
+        }
+    }, [forEmployeeId, monthKey]);
+
+    useEffect(() => {
+        loadMonth();
+    }, [loadMonth]);
+
+    useEffect(() => {
+        const year = Number(monthKey.slice(0, 4));
+        if (!year) return undefined;
+        let cancelled = false;
+        axiosInstance.get('/Holiday', { params: { year }, skipToast: true })
+            .then((response) => {
+                if (!cancelled) setHolidayRows(Array.isArray(response.data?.holidays) ? response.data.holidays : []);
+            })
+            .catch(() => {
+                if (!cancelled) setHolidayRows([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [monthKey]);
+
+    useEffect(() => {
+        const refresh = () => loadMonth();
+        window.addEventListener(ATTENDANCE_CHECK_CHANGED, refresh);
+        window.addEventListener('verp:holidays-changed', refresh);
+        window.addEventListener('verp:working-time-changed', refresh);
+        return () => {
+            window.removeEventListener(ATTENDANCE_CHECK_CHANGED, refresh);
+            window.removeEventListener('verp:holidays-changed', refresh);
+            window.removeEventListener('verp:working-time-changed', refresh);
+        };
+    }, [loadMonth]);
+
+    const anchor = useMemo(() => new Date(`${monthKey}-01T12:00:00`), [monthKey]);
+    const calendarDays = useMemo(() => eachDayOfInterval({
+        start: startOfWeek(startOfMonth(anchor), { weekStartsOn: 1 }),
+        end: endOfWeek(endOfMonth(anchor), { weekStartsOn: 1 }),
+    }), [anchor]);
+    const calendarCtx = useMemo(() => {
+        const built = buildMonthCalendarContext({
+            monthKey,
+            todayKey,
+            records,
+            scheduleWeek,
+            offWeekdays,
+            staffType,
+            holidayRows,
+            leavePolicy: {},
+            monthlySalary: 0,
+            joinKey: '',
+            visibleFrom: '',
+            pendingRequests: [],
+        });
+        return {
+            ...built,
+            salaryLock,
+            pendingRequestsByDate: employeePendingRequests({
+                records,
+                pending: [],
+                monthKey,
+                employeeName,
+            }),
+        };
+    }, [employeeName, holidayRows, monthKey, offWeekdays, records, salaryLock, scheduleWeek, staffType, todayKey]);
+
+    function shiftMonth(delta) {
+        const next = format(addMonths(anchor, delta), 'yyyy-MM');
+        if (next > currentMonth) return;
+        setMonthKey(next);
+    }
+
+    return (
+        <section className={`relative col-span-12 overflow-visible rounded-2xl border border-[#E6EDF5] bg-white px-4 py-[14px] shadow-sm lg:col-span-6 ${hoveredDate ? 'z-30' : 'z-0'} ${className}`.trim()}>
+            <style>{`
+                @keyframes attendance-request-blink {
+                    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+                    45% { opacity: 0.35; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.45); }
+                    70% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+                }
+                .attendance-request-blink {
+                    animation: attendance-request-blink 2.4s ease-in-out infinite;
+                }
+                @media (prefers-reduced-motion: reduce) {
+                    .attendance-request-blink {
+                        animation: none;
+                        box-shadow: inset 0 0 0 2px rgba(220, 38, 38, 0.75);
+                    }
+                }
+            `}</style>
+            <div className="mb-2.5 flex items-center gap-2">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#EEF2FF] text-[#2563EB]">
+                    <CalendarDays size={16} strokeWidth={2.25} />
+                </span>
+                <h2 className="text-[15px] font-bold text-[#1B2A4A]">Attendance Calendar</h2>
+            </div>
+            {error ? (
+                <button type="button" onClick={loadMonth} className="py-6 text-[12px] text-red-500">{error} · Retry</button>
+            ) : loading ? (
+                <p className="py-6 text-center text-[12px] text-[#94A3B8]">Loading calendar…</p>
+            ) : (
+                <>
+                    <div className="relative mb-2.5 flex h-9 items-center justify-center">
+                        <div className="inline-flex h-9 items-center rounded-lg border border-[#E6EDF5] bg-white">
+                            <button type="button" onClick={() => shiftMonth(-1)} className="inline-flex h-9 w-9 items-center justify-center text-[#64748B]" aria-label="Previous month"><ChevronLeft size={16} /></button>
+                            <span className="min-w-[8rem] text-center text-[14px] font-semibold text-[#1B2A4A]">{formatMonthLabel(monthKey)}</span>
+                            <button type="button" onClick={() => shiftMonth(1)} disabled={monthKey >= currentMonth} className="inline-flex h-9 w-9 items-center justify-center text-[#64748B] disabled:opacity-30" aria-label="Next month"><ChevronRight size={16} /></button>
+                        </div>
+                        <button type="button" onClick={() => setMonthKey(currentMonth)} className="absolute right-0 h-9 rounded-lg border border-[#E6EDF5] bg-white px-3 text-[13px] font-semibold text-[#2563EB]">Today</button>
+                    </div>
+                    <div className="flex flex-col items-start gap-3 sm:flex-row sm:gap-4">
+                        <div className="min-w-0 flex-1">
+                            <div className="mb-1.5 grid grid-cols-7 gap-x-[7px]">
+                                {WEEKDAYS.map((day) => (
+                                    <div key={day} className="text-center text-[11px] font-medium text-[#94A3B8]">{day}</div>
+                                ))}
+                            </div>
+                            <div className="grid grid-cols-7 gap-x-[7px] gap-y-[7px]">
+                                {calendarDays.map((day) => (
+                                    <AttendanceDayCell
+                                        key={format(day, 'yyyy-MM-dd')}
+                                        day={day}
+                                        ctx={calendarCtx}
+                                        hoveredDate={hoveredDate}
+                                        setHoveredDate={setHoveredDate}
+                                        markTarget={{
+                                            employeeId,
+                                            staffType,
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                        <div className="w-full shrink-0 space-y-1.5 pt-1 sm:w-[9.5rem]">
+                            <p className="text-[13px] font-semibold text-[#64748B]">Legend</p>
+                            {LEGEND.map((item) => (
+                                <span key={item.key} className="flex items-center gap-1.5 text-[11px] leading-tight text-[#64748B]">
+                                    <span className={`h-2 w-2 shrink-0 rounded-full ${item.swatch}`} />
+                                    {item.label}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                </>
+            )}
+            <DashboardSalaryEnrollLock {...salaryLock} />
+        </section>
     );
 }

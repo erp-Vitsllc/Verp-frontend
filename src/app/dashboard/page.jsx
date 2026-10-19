@@ -43,7 +43,7 @@ import { LOAN_PENDING_INBOX_CHANGED } from '@/app/HRM/LoanAndAdvance/utils/loanP
 import { ATTENDANCE_PENDING_INBOX_CHANGED } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import { LEAVE_PENDING_INBOX_CHANGED } from '@/app/HRM/Leave/utils/leavePendingInboxCount';
 import { SALARY_PENDING_INBOX_CHANGED } from '@/app/HRM/Salary/utils/salaryPendingInboxCount';
-import DashboardAttendanceCalendar from '@/app/dashboard/components/DashboardAttendanceCalendar';
+import { AttendanceProfileCalendar } from '@/app/HRM/Leave/components/EmployeeInformationDashboard';
 import DashboardCheckInOutCard from '@/app/dashboard/components/DashboardCheckInOutCard';
 import DashboardEmployeeHrCards from '@/app/dashboard/components/DashboardEmployeeHrCards';
 import DashboardMyLeaveCard from '@/app/dashboard/components/DashboardMyLeaveCard';
@@ -1656,8 +1656,8 @@ function DashboardContent() {
 
 
 
-                                    {/* Card 3: My Attendance calendar (logged-in user) */}
-                                    <DashboardAttendanceCalendar />
+                                    {/* Card 3: same attendance calendar as the employee profile */}
+                                    <AttendanceProfileCalendar />
 
                                 </>
 

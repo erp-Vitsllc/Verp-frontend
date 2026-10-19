@@ -19,3 +19,7 @@ export function nonHrMarkableDateKeys(todayKey, _holidayDates, extraDays = 7) {
     }
     return allowed;
 }
+
+export function nextCalendarDateKey(todayKey) {
+    return shiftDateKey(todayKey, 1);
+}

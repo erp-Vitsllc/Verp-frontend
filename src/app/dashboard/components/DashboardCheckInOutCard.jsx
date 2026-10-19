@@ -176,6 +176,7 @@ export default function DashboardCheckInOutCard() {
     const [siteHours, setSiteHours] = useState({ isOffDay: false, range: '' });
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
     const [contactLock, setContactLock] = useState('');
+    const [attendanceSuspended, setAttendanceSuspended] = useState(false);
     const [locationModalOpen, setLocationModalOpen] = useState(false);
     const [locationBusy, setLocationBusy] = useState(false);
     const [locationError, setLocationError] = useState('');
@@ -205,6 +206,7 @@ export default function DashboardCheckInOutCard() {
                 setTimeOutDate('');
                 setPriorSeconds(0);
                 setContactLock(contactLockFromPayload(res.data));
+                setAttendanceSuspended(Boolean(res.data?.employee?.attendanceSuspended || res.data?.todayRecord?.attendanceSuspended));
                 setError('');
                 return;
             }
@@ -221,6 +223,7 @@ export default function DashboardCheckInOutCard() {
             setOfficeHours(resolveTodayHours(res.data?.workingTime?.office, today));
             setSiteHours(resolveTodayHours(res.data?.workingTime?.site, today));
             setContactLock(contactLockFromPayload(res.data));
+            setAttendanceSuspended(Boolean(res.data?.employee?.attendanceSuspended || res.data?.todayRecord?.attendanceSuspended));
             setError('');
         } catch (err) {
             if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
@@ -347,7 +350,7 @@ export default function DashboardCheckInOutCard() {
     };
 
     const handleCheckIn = async (coords = null) => {
-        if (salaryLock.locked || contactLock || running || saving || loading) return;
+        if (attendanceSuspended || salaryLock.locked || contactLock || running || saving || loading) return;
         pendingPunchRef.current = 'in';
         setSaving(true);
         setError('');
@@ -375,7 +378,7 @@ export default function DashboardCheckInOutCard() {
     };
 
     const handleCheckOut = async (coords = null) => {
-        if (salaryLock.locked || contactLock || !checkedIn || checkedOut || saving || loading) return;
+        if (attendanceSuspended || salaryLock.locked || contactLock || !checkedIn || checkedOut || saving || loading) return;
         pendingPunchRef.current = 'out';
         setSaving(true);
         setError('');
@@ -424,10 +427,11 @@ export default function DashboardCheckInOutCard() {
 
     const statusLabel = useMemo(() => {
         if (loading) return 'Loading…';
+        if (attendanceSuspended) return 'Suspended account';
         if (checkedOut) return 'Present';
         if (checkedIn) return 'Checked in';
         return 'Not checked in';
-    }, [loading, checkedIn, checkedOut]);
+    }, [loading, attendanceSuspended, checkedIn, checkedOut]);
 
     const checkInButtonLabel = useMemo(() => {
         if (saving && !running) return 'Saving…';
@@ -512,6 +516,8 @@ export default function DashboardCheckInOutCard() {
                                 </span>
                             )}
                         </p>
+                    ) : attendanceSuspended ? (
+                        <p className="text-xs font-semibold text-slate-600">Suspended account</p>
                     ) : (
                         <p className="text-xs text-slate-300">No check-in yet today</p>
                     )}
@@ -535,10 +541,10 @@ export default function DashboardCheckInOutCard() {
             <div className="flex items-center gap-3 shrink-0">
                 <button
                     type="button"
-                    disabled={salaryLock.locked || Boolean(contactLock) || saving || loading || running}
+                    disabled={attendanceSuspended || salaryLock.locked || Boolean(contactLock) || saving || loading || running}
                     onClick={() => setConfirmAction('in')}
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0B7A3E] hover:bg-[#086433] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#0B7A3E] disabled:hover:translate-y-0 disabled:!text-white"
-                    title={running ? `Checked in at ${formatClock(timeIn)}` : 'Check in'}
+                    title={attendanceSuspended ? 'Suspended account' : running ? `Checked in at ${formatClock(timeIn)}` : 'Check in'}
                 >
                     {running ? (
                         <Check className="w-4 h-4 shrink-0 !text-white" strokeWidth={2.5} />
@@ -549,11 +555,13 @@ export default function DashboardCheckInOutCard() {
                 </button>
                 <button
                     type="button"
-                    disabled={salaryLock.locked || Boolean(contactLock) || saving || loading || !checkedIn || checkedOut}
+                    disabled={attendanceSuspended || salaryLock.locked || Boolean(contactLock) || saving || loading || !checkedIn || checkedOut}
                     onClick={() => setConfirmAction('out')}
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#B71C1C] hover:bg-[#9A1616] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#B71C1C] disabled:hover:translate-y-0 disabled:!text-white"
                     title={
-                        checkedOut
+                        attendanceSuspended
+                            ? 'Suspended account'
+                            : checkedOut
                             ? `Checked out at ${formatClock(timeOut)}${checkoutNextDay ? ' (next day)' : ''}`
                             : checkedIn
                                 ? 'Check out'

@@ -46,6 +46,7 @@ const AVAILABILITY_CARDS = [
 const GROUP_BAR_COLORS = ['#2563EB', '#14B8A6', '#8B5CF6', '#F59E0B', '#EC4899', '#0EA5E9'];
 
 const RING_SCALE = 8;
+const APPROVAL_PAGE_SIZE = 5;
 
 const ARC_RATIO = 0.75;
 const GAUGE_SIZE = 76;
@@ -606,6 +607,7 @@ export default function LeaveDashboard({
     const [pendingError, setPendingError] = useState('');
     const [decidingId, setDecidingId] = useState('');
     const [approvalCategory, setApprovalCategory] = useState(APPROVAL_CATEGORY_PENDING);
+    const [approvalPage, setApprovalPage] = useState(0);
     const [blinkRowId, setBlinkRowId] = useState('');
 
     const [trackYear, setTrackYear] = useState(isAllYear ? ALL_LEAVE_YEAR : selectedYear);
@@ -870,6 +872,13 @@ export default function LeaveDashboard({
         return list;
     }, [approvalCategory, employeeId, yearPendingItems]);
 
+    const approvalPageCount = Math.max(1, Math.ceil(categoryApprovalItems.length / APPROVAL_PAGE_SIZE));
+    const approvalSafePage = Math.min(approvalPage, Math.max(0, approvalPageCount - 1));
+    const approvalPageRows = categoryApprovalItems.slice(
+        approvalSafePage * APPROVAL_PAGE_SIZE,
+        approvalSafePage * APPROVAL_PAGE_SIZE + APPROVAL_PAGE_SIZE,
+    );
+
     const periodLabel = monthLabel || (isAllYear ? '' : String(selectedYear));
     const approvalEmptyLabel =
         approvalCategory === APPROVAL_CATEGORY_PENDING
@@ -1005,11 +1014,19 @@ export default function LeaveDashboard({
     }, [onSelectRequest, pendingItems, selectedApprovalId]);
 
     useEffect(() => {
+        setApprovalPage(0);
+    }, [approvalCategory, employeeId]);
+
+    useEffect(() => {
         if (!blinkRowId) return undefined;
-        const node = document.querySelector(`[data-approval-id="${blinkRowId}"]`);
-        node?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        return undefined;
-    }, [blinkRowId]);
+        const index = categoryApprovalItems.findIndex((row) => String(row.id) === String(blinkRowId));
+        if (index >= 0) setApprovalPage(Math.floor(index / APPROVAL_PAGE_SIZE));
+        const timer = window.setTimeout(() => {
+            const node = document.querySelector(`[data-approval-id="${blinkRowId}"]`);
+            node?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 0);
+        return () => window.clearTimeout(timer);
+    }, [blinkRowId, categoryApprovalItems]);
 
     const handleReturnToSource = useCallback(() => {
         if (!sourceEmployeeId || !sourceFrom || !sourceTo) return;
@@ -1150,7 +1167,7 @@ export default function LeaveDashboard({
             </section>
 
             <div className={`grid min-h-0 grid-cols-1 gap-3 ${fillViewport ? 'min-h-0 flex-1' : ''} xl:grid-cols-2`}>
-                <section className="flex min-h-[280px] flex-col overflow-hidden rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5 xl:h-full xl:min-h-0">
+                <section className="flex min-h-[280px] flex-col rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
                     <div className="mb-4 flex shrink-0 items-start justify-between gap-3">
                         <div className="min-w-0">
                             <h3 className="text-[15px] font-semibold text-[#111827]">Leave Approval</h3>
@@ -1183,7 +1200,10 @@ export default function LeaveDashboard({
                                 value={approvalCategory}
                                 pendingCount={pendingCount}
                                 approvedCount={approvedCount}
-                                onChange={setApprovalCategory}
+                                onChange={(next) => {
+                                    setApprovalPage(0);
+                                    setApprovalCategory(next);
+                                }}
                             />
                             {canReturnToSource ? (
                                 <button
@@ -1202,7 +1222,7 @@ export default function LeaveDashboard({
                             <ErpErrorBanner message={pendingError} onRetry={fetchPendingRequests} />
                         </div>
                     ) : null}
-                    <div className="min-h-0 flex-1 overflow-auto">
+                    <div className="overflow-x-auto">
                         <table className="w-full min-w-[760px] text-left text-sm">
                             <thead className="sticky top-0 z-[1] bg-white">
                                 <tr className="border-b border-[#E5E7EB] text-[11px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
@@ -1224,7 +1244,7 @@ export default function LeaveDashboard({
                                     </tr>
                                 ) : (
                                     <LeaveApprovalTable
-                                        rows={categoryApprovalItems}
+                                        rows={approvalPageRows}
                                         decidingId={decidingId}
                                         isRowSelected={isRowSelected}
                                         isEmployeeHighlighted={isEmployeeHighlighted}
@@ -1242,6 +1262,50 @@ export default function LeaveDashboard({
                             </tbody>
                         </table>
                     </div>
+                    {categoryApprovalItems.length > APPROVAL_PAGE_SIZE ? (
+                        <div className="mt-3 flex shrink-0 items-center justify-between gap-2">
+                            <p className="text-[11px] text-[#6B7280]">
+                                {approvalSafePage * APPROVAL_PAGE_SIZE + 1}
+                                –
+                                {Math.min(categoryApprovalItems.length, (approvalSafePage + 1) * APPROVAL_PAGE_SIZE)}
+                                {' '}of {categoryApprovalItems.length}
+                            </p>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setApprovalPage((value) => Math.max(0, value - 1))}
+                                    disabled={approvalSafePage === 0}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-[#E5E7EB] text-[#6B7280] disabled:opacity-40"
+                                    aria-label="Previous page"
+                                >
+                                    <ChevronLeft size={14} />
+                                </button>
+                                {Array.from({ length: approvalPageCount }, (_, index) => (
+                                    <button
+                                        key={index}
+                                        type="button"
+                                        onClick={() => setApprovalPage(index)}
+                                        className={`h-7 min-w-7 rounded-lg px-1.5 text-[11px] font-semibold ${
+                                            index === approvalSafePage
+                                                ? 'bg-slate-900 text-white'
+                                                : 'border border-[#E5E7EB] text-[#6B7280]'
+                                        }`}
+                                    >
+                                        {index + 1}
+                                    </button>
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() => setApprovalPage((value) => Math.min(approvalPageCount - 1, value + 1))}
+                                    disabled={approvalSafePage >= approvalPageCount - 1}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-[#E5E7EB] text-[#6B7280] disabled:opacity-40"
+                                    aria-label="Next page"
+                                >
+                                    <ChevronRight size={14} />
+                                </button>
+                            </div>
+                        </div>
+                    ) : null}
                 </section>
 
                 <div

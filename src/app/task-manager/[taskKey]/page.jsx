@@ -517,24 +517,27 @@ function TaskDetailsPage() {
                             >
                                 <Pencil size={14} /> Edit
                             </button>
-                            <div className="relative">
-                                <button type="button" aria-label="More actions" onClick={() => setMenuOpen((open) => !open)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600">
-                                    <MoreHorizontal size={16} />
-                                </button>
-                                {menuOpen && (
-                                    <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-                                        {['In Progress', 'Completed', 'Cancelled'].map((status) => {
-                                            const locked = (task.workflowLocked && !(status === 'Completed' && task.canComplete))
-                                                || (status === 'Completed' && (task.reassigned || task.canSubmitCompletion || task.canConfirmComplete || task.canReturn || task.completionPending || task.closeScheduled));
-                                            return (
-                                                <button key={status} type="button" disabled={busy || locked} onClick={() => setStatus(status)} className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40">
-                                                    Mark as {status}
+                            {(task.canMarkRejected || task.canMarkCompleted) && (
+                                <div className="relative">
+                                    <button type="button" aria-label="More actions" onClick={() => setMenuOpen((open) => !open)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600">
+                                        <MoreHorizontal size={16} />
+                                    </button>
+                                    {menuOpen && (
+                                        <div className="absolute right-0 z-20 mt-1 w-48 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                                            {task.canMarkRejected && (
+                                                <button type="button" disabled={busy} onClick={() => setStatus('Rejected')} className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40">
+                                                    Mark as Rejected
                                                 </button>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                            </div>
+                                            )}
+                                            {task.canMarkCompleted && (
+                                                <button type="button" disabled={busy} onClick={() => { setMenuOpen(false); setNoteAction('complete'); }} className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40">
+                                                    Mark as Completed
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -751,7 +754,7 @@ function TaskDetailsPage() {
             )}
             {noteAction && (
                 <NoteModal
-                    title={noteAction === 'return' ? 'Return Task' : noteAction === 'complete' ? 'Close Task' : 'Confirm Close'}
+                    title={noteAction === 'return' ? 'Return Task' : noteAction === 'complete' ? 'Mark as Completed' : 'Confirm Close'}
                     hint={noteAction === 'return'
                         ? 'This returns the task to the original assignee. They receive the description by email and on their notification.'
                         : noteAction === 'complete'

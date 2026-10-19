@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
     Building2,
     Calendar,
@@ -10,11 +11,13 @@ import {
     Clock,
     Fingerprint,
     HardHat,
+    Timer,
     Users,
     UserX,
     X,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { markAttendanceHref } from '../utils/markAttendanceHref';
 
 const PERIODS = [
     { id: 'today', label: 'Today' },
@@ -112,17 +115,39 @@ function dayHasActivity(raw) {
     );
 }
 
-const EMPTY_PEOPLE = { present: [], absent: [], late: [], leave: [], missed: [], total: [] };
+const EMPTY_PEOPLE = { present: [], absent: [], late: [], leave: [], missed: [], ot: [], absence: [], total: [] };
+
+function addAbsenceDay(map, person, bucket) {
+    const id = String(person?.employeeMongoId || person?.employeeId || person?.name || '').trim();
+    if (!id || (bucket !== 'auth' && bucket !== 'sick' && bucket !== 'unauth')) return;
+    let row = map.get(id);
+    if (!row) {
+        row = {
+            employeeMongoId: person.employeeMongoId || '',
+            employeeId: person.employeeId || '',
+            name: person.name || 'Employee',
+            auth: 0,
+            unauth: 0,
+            sick: 0,
+            viewDate: person.date || '',
+        };
+        map.set(id, row);
+    }
+    row[bucket] += 1;
+    if (person.date && String(person.date) > String(row.viewDate || '')) row.viewDate = person.date;
+}
 
 function summarizeDays(payload, from, to, today) {
     const days = payload?.days && typeof payload.days === 'object' ? payload.days : {};
-    const totals = { present: 0, absent: 0, late: 0, leave: 0, missed: 0, total: 0 };
+    const totals = { present: 0, absent: 0, late: 0, leave: 0, missed: 0, ot: 0, total: 0 };
     const people = {
         present: [],
         absent: [],
         late: [],
         leave: [],
         missed: [],
+        ot: [],
+        absence: [],
         total: [],
     };
     let roster = Number(payload?.totalStaff) || 0;
@@ -136,35 +161,59 @@ function summarizeDays(payload, from, to, today) {
             rosterDate = date;
             people.total = Array.isArray(dayPeople.total) ? dayPeople.total : [];
         }
-        // Present is on-time only. Late stays in its own row so the header matches the calendar.
-        totals.present += Number(raw?.present) || 0;
-        totals.late += Number(raw?.lateArrived) || 0;
-        totals.leave +=
+        // Counts follow the named people for this date, so the number matches the list.
+        const listed = (key) => (Array.isArray(dayPeople[key]) ? dayPeople[key].length : null);
+        totals.present += listed('present') ?? (Number(raw?.present) || 0);
+        totals.late += listed('late') ?? (Number(raw?.lateArrived) || 0);
+        totals.leave += listed('leave') ?? (
             (Number(raw?.onLeave) || 0) +
             (Number(raw?.sickLeave) || 0) +
-            (Number(raw?.compOffLeave) || 0);
-        totals.missed += Number(raw?.missedPunch) || 0;
-        const unmarked = Number(raw?.notMarked) || 0;
-        if (!dayHasActivity(raw) && !raw?.isWeeklyOff && active > 0 && date <= today) {
-            totals.absent += active;
-        } else {
-            totals.absent += unmarked;
+            (Number(raw?.compOffLeave) || 0)
+        );
+        totals.missed += listed('missed') ?? (Number(raw?.missedPunch) || 0);
+        if (date <= today && !raw?.isWeeklyOff) {
+            const unmarked = Number(raw?.notMarked) || 0;
+            const absentListed = listed('absent');
+            if (absentListed != null) totals.absent += absentListed;
+            else if (!dayHasActivity(raw) && active > 0) totals.absent += active;
+            else totals.absent += unmarked;
         }
-        if (date > today) continue;
-        for (const key of ['present', 'absent', 'late', 'leave', 'missed']) {
-            if (key === 'absent' && raw?.isWeeklyOff) continue;
+        for (const key of ['present', 'late', 'leave', 'missed']) {
             const list = dayPeople[key];
             if (Array.isArray(list) && list.length) people[key].push(...list);
         }
+        if (date <= today && !raw?.isWeeklyOff && Array.isArray(dayPeople.absent) && dayPeople.absent.length) {
+            people.absent.push(...dayPeople.absent);
+        }
+        if (Array.isArray(dayPeople.ot) && dayPeople.ot.length) {
+            people.ot.push(...dayPeople.ot);
+            totals.ot += dayPeople.ot.reduce((sum, row) => sum + (Number(row.hours) || 0), 0);
+        } else {
+            totals.ot += Number(raw?.otHours) || 0;
+        }
     }
-    for (const key of ['present', 'absent', 'late', 'leave', 'missed']) {
+    for (const key of ['present', 'absent', 'late', 'leave', 'missed', 'ot']) {
         people[key].sort(
             (a, b) => String(a.date).localeCompare(String(b.date)) || String(a.name).localeCompare(String(b.name)),
         );
     }
+    const absence = new Map();
+    for (const person of people.leave) addAbsenceDay(absence, person, person.bucket || 'auth');
+    for (const person of people.absent) addAbsenceDay(absence, person, 'unauth');
+    people.absence = [...absence.values()]
+        .map((row) => ({ ...row, total: row.auth + row.unauth + row.sick }))
+        .filter((row) => row.total > 0)
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    totals.ot = Math.round(totals.ot * 100) / 100;
     totals.total = roster;
     totals.people = people;
     return totals;
+}
+
+function formatOtHours(value) {
+    const hours = Math.round((Number(value) || 0) * 100) / 100;
+    const text = Number.isInteger(hours) ? String(hours) : hours.toFixed(2).replace(/0$/, '').replace(/\.0$/, '');
+    return `${text} hr`;
 }
 
 const EMPTY_TOTALS = {
@@ -173,6 +222,7 @@ const EMPTY_TOTALS = {
     late: 0,
     leave: 0,
     missed: 0,
+    ot: 0,
     total: 0,
     people: EMPTY_PEOPLE,
 };
@@ -192,7 +242,23 @@ function formatRangeLabel(from, to) {
     return `${start} to ${end}`;
 }
 
-function HeaderPeopleModal({ open, title, hint, rows, onClose }) {
+function AttendanceViewLink({ date, staffType, employeeId }) {
+    const day = String(date || '').trim();
+    const person = String(employeeId || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !person) {
+        return <span className="text-xs text-slate-300">—</span>;
+    }
+    return (
+        <Link
+            href={markAttendanceHref({ date: day, staffType, blinkEmployee: person })}
+            className="inline-flex h-7 items-center rounded-md bg-blue-600 px-2.5 text-xs font-semibold text-white hover:bg-blue-700"
+        >
+            View
+        </Link>
+    );
+}
+
+function HeaderPeopleModal({ open, title, hint, rows, mode, staffType, onClose }) {
     useEffect(() => {
         if (!open) return undefined;
         const onKey = (event) => {
@@ -205,7 +271,8 @@ function HeaderPeopleModal({ open, title, hint, rows, onClose }) {
     if (!open) return null;
     const list = Array.isArray(rows) ? rows : [];
     const dates = new Set(list.map((row) => row.date).filter(Boolean));
-    const showDate = dates.size > 1;
+    const showDate = mode === 'ot' || dates.size > 1;
+    const wide = mode === 'absence' || mode === 'ot';
 
     return (
         <div
@@ -214,7 +281,7 @@ function HeaderPeopleModal({ open, title, hint, rows, onClose }) {
             role="presentation"
         >
             <div
-                className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+                className={`flex max-h-[80vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl ${wide ? 'max-w-3xl' : 'max-w-2xl'}`}
                 onClick={(event) => event.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
@@ -241,7 +308,75 @@ function HeaderPeopleModal({ open, title, hint, rows, onClose }) {
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto">
                     {list.length === 0 ? (
-                        <p className="px-5 py-10 text-center text-sm text-slate-400">No employees in this list.</p>
+                        <p className="px-5 py-10 text-center text-sm text-slate-400">No records in this list.</p>
+                    ) : mode === 'ot' ? (
+                        <table className="w-full text-left">
+                            <thead className="sticky top-0 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                <tr>
+                                    <th className="px-5 py-2 font-semibold">Date</th>
+                                    <th className="px-2 py-2 font-semibold">Employee name</th>
+                                    <th className="px-2 py-2 font-semibold">Hour</th>
+                                    <th className="px-5 py-2 font-semibold">View</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {list.map((row, index) => (
+                                    <tr key={`${row.employeeMongoId}-${row.date}-${index}`} className="border-t border-slate-100 text-sm text-slate-800">
+                                        <td className="px-5 py-2.5 text-slate-500">{formatListDate(row.date)}</td>
+                                        <td className="px-2 py-2.5 font-medium">{row.name || 'Employee'}</td>
+                                        <td className="px-2 py-2.5 tabular-nums">{formatOtHours(row.hours)}</td>
+                                        <td className="px-5 py-2.5">
+                                            <AttendanceViewLink
+                                                date={row.date}
+                                                staffType={staffType}
+                                                employeeId={row.employeeMongoId || row.employeeId}
+                                            />
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    ) : mode === 'absence' ? (
+                        <table className="w-full text-left">
+                            <thead className="sticky top-0 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                <tr>
+                                    <th className="px-5 py-2 font-semibold">Name</th>
+                                    <th className="px-2 py-2 font-semibold">Auth leave</th>
+                                    <th className="px-2 py-2 font-semibold">Unauth leave</th>
+                                    <th className="px-2 py-2 font-semibold">Sick</th>
+                                    <th className="px-2 py-2 font-semibold">Total</th>
+                                    <th className="px-5 py-2 font-semibold">View</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {list.map((row, index) => (
+                                    <tr key={`${row.employeeMongoId}-${index}`} className="border-t border-slate-100 text-sm text-slate-800">
+                                        <td className="px-5 py-2.5 font-medium">{row.name || 'Employee'}</td>
+                                        <td className="px-2 py-2.5 tabular-nums">{row.auth || 0}</td>
+                                        <td className="px-2 py-2.5 tabular-nums">{row.unauth || 0}</td>
+                                        <td className="px-2 py-2.5 tabular-nums">{row.sick || 0}</td>
+                                        <td className="px-2 py-2.5 font-semibold tabular-nums">{row.total || 0}</td>
+                                        <td className="px-5 py-2.5">
+                                            <AttendanceViewLink
+                                                date={row.viewDate}
+                                                staffType={staffType}
+                                                employeeId={row.employeeMongoId || row.employeeId}
+                                            />
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot className="sticky bottom-0 bg-slate-50 text-sm font-semibold text-slate-800">
+                                <tr>
+                                    <td className="px-5 py-2.5">Total</td>
+                                    <td className="px-2 py-2.5 tabular-nums">{list.reduce((sum, row) => sum + (Number(row.auth) || 0), 0)}</td>
+                                    <td className="px-2 py-2.5 tabular-nums">{list.reduce((sum, row) => sum + (Number(row.unauth) || 0), 0)}</td>
+                                    <td className="px-2 py-2.5 tabular-nums">{list.reduce((sum, row) => sum + (Number(row.sick) || 0), 0)}</td>
+                                    <td className="px-2 py-2.5 tabular-nums">{list.reduce((sum, row) => sum + (Number(row.total) || 0), 0)}</td>
+                                    <td className="px-5 py-2.5" />
+                                </tr>
+                            </tfoot>
+                        </table>
                     ) : (
                         <table className="w-full text-left">
                             <thead className="sticky top-0 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
@@ -249,7 +384,8 @@ function HeaderPeopleModal({ open, title, hint, rows, onClose }) {
                                     <th className="px-5 py-2 font-semibold">#</th>
                                     <th className="px-2 py-2 font-semibold">Employee</th>
                                     <th className="px-2 py-2 font-semibold">Emp No</th>
-                                    {showDate ? <th className="px-5 py-2 font-semibold">Date</th> : null}
+                                    {showDate ? <th className="px-2 py-2 font-semibold">Date</th> : null}
+                                    <th className="px-5 py-2 font-semibold">View</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -259,8 +395,15 @@ function HeaderPeopleModal({ open, title, hint, rows, onClose }) {
                                         <td className="px-2 py-2.5 font-medium">{row.name || 'Employee'}</td>
                                         <td className="px-2 py-2.5 tabular-nums text-slate-500">{row.employeeId || '—'}</td>
                                         {showDate ? (
-                                            <td className="px-5 py-2.5 text-slate-500">{formatListDate(row.date)}</td>
+                                            <td className="px-2 py-2.5 text-slate-500">{formatListDate(row.date)}</td>
                                         ) : null}
+                                        <td className="px-5 py-2.5">
+                                            <AttendanceViewLink
+                                                date={row.date}
+                                                staffType={staffType}
+                                                employeeId={row.employeeMongoId || row.employeeId}
+                                            />
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -292,7 +435,26 @@ function SummaryRow({ icon: Icon, iconClass, rowClass, label, hint, value, value
     );
 }
 
-function PeopleCard({ title, hint, icon: Icon, totals, phrase, rangeLabel, onOpen }) {
+function PeopleCard({ title, hint, icon: Icon, totals, phrase, rangeLabel, onOpen, showAbsent }) {
+    const absenceRow = showAbsent
+        ? {
+            key: 'absent',
+            icon: UserX,
+            iconClass: 'bg-rose-100 text-rose-600',
+            rowClass: 'bg-rose-50/80 hover:bg-rose-50',
+            label: countLabel(phrase, 'Absent'),
+            value: totals.absent,
+            valueClass: 'text-rose-600',
+        }
+        : {
+            key: 'leave',
+            icon: CalendarDays,
+            iconClass: 'bg-blue-100 text-blue-600',
+            rowClass: 'bg-blue-50/80 hover:bg-blue-50',
+            label: countLabel(phrase, 'Leave'),
+            value: totals.leave,
+            valueClass: 'text-blue-600',
+        };
     const rows = [
         {
             key: 'present',
@@ -303,15 +465,7 @@ function PeopleCard({ title, hint, icon: Icon, totals, phrase, rangeLabel, onOpe
             value: totals.present,
             valueClass: 'text-emerald-600',
         },
-        {
-            key: 'absent',
-            icon: UserX,
-            iconClass: 'bg-rose-100 text-rose-600',
-            rowClass: 'bg-rose-50/80 hover:bg-rose-50',
-            label: countLabel(phrase, 'Absent'),
-            value: totals.absent,
-            valueClass: 'text-rose-600',
-        },
+        absenceRow,
         {
             key: 'late',
             icon: Clock,
@@ -322,15 +476,6 @@ function PeopleCard({ title, hint, icon: Icon, totals, phrase, rangeLabel, onOpe
             valueClass: 'text-amber-500',
         },
         {
-            key: 'leave',
-            icon: CalendarDays,
-            iconClass: 'bg-blue-100 text-blue-600',
-            rowClass: 'bg-blue-50/80 hover:bg-blue-50',
-            label: countLabel(phrase, 'Leave'),
-            value: totals.leave,
-            valueClass: 'text-blue-600',
-        },
-        {
             key: 'missed',
             icon: Fingerprint,
             iconClass: 'bg-orange-100 text-orange-600',
@@ -338,6 +483,15 @@ function PeopleCard({ title, hint, icon: Icon, totals, phrase, rangeLabel, onOpe
             label: countLabel(phrase, 'Missed Punch'),
             value: totals.missed,
             valueClass: 'text-orange-600',
+        },
+        {
+            key: 'ot',
+            icon: Timer,
+            iconClass: 'bg-violet-100 text-violet-600',
+            rowClass: 'bg-violet-50/80 hover:bg-violet-50',
+            label: countLabel(phrase, 'OT'),
+            value: formatOtHours(totals.ot),
+            valueClass: 'text-violet-700',
         },
     ];
 
@@ -403,6 +557,7 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
         [period, today, customFrom, customTo],
     );
     const phrase = periodPhrase(period);
+    const showAbsent = range.from === today && range.to === today;
     const officeLabel = staffTabs.find((tab) => tab.key === 'office')?.label || 'Office Staff';
     const siteLabel = staffTabs.find((tab) => tab.key === 'site')?.label || 'Site Staff';
 
@@ -450,13 +605,18 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
             late: 'Late-Arrival',
             leave: 'Leave',
             missed: 'Missed Punch',
+            ot: 'OT',
         }[key];
+        const mode = key === 'ot' ? 'ot' : key === 'absent' || key === 'leave' ? 'absence' : 'people';
+        const rows = mode === 'absence' ? totals.people?.absence || [] : totals.people?.[key] || [];
         setListModal({
+            mode,
+            staffType,
             title: key === 'total'
                 ? `Total ${staffType === 'site' ? 'Site' : 'Office'} Employees`
                 : countLabel(phrase, noun || 'Employees'),
-            hint: label,
-            rows: totals.people?.[key] || [],
+            hint: `${label} · ${formatRangeLabel(range.from, range.to)}`,
+            rows,
         });
     };
 
@@ -540,6 +700,7 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
                     totals={office}
                     phrase={phrase}
                     rangeLabel={formatRangeLabel(range.from, range.to)}
+                    showAbsent={showAbsent}
                     onOpen={(key) => openPeopleList('office', key)}
                 />
                 <PeopleCard
@@ -549,6 +710,7 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
                     totals={site}
                     phrase={phrase}
                     rangeLabel={formatRangeLabel(range.from, range.to)}
+                    showAbsent={showAbsent}
                     onOpen={(key) => openPeopleList('site', key)}
                 />
             </div>
@@ -557,6 +719,8 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
                 title={listModal?.title || ''}
                 hint={listModal?.hint || ''}
                 rows={listModal?.rows || []}
+                mode={listModal?.mode || 'people'}
+                staffType={listModal?.staffType || ''}
                 onClose={() => setListModal(null)}
             />
         </section>

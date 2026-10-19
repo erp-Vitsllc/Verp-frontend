@@ -1795,11 +1795,19 @@ function VehicleDetailsPageContent() {
                 router.push(detailPath);
                 return;
             }
+            if (String(asset?.vehicleDispositionStatus || '').toLowerCase() === 'sold') {
+                toast({
+                    variant: 'destructive',
+                    title: 'Vehicle sold',
+                    description: 'A sold vehicle cannot be serviced.',
+                });
+                return;
+            }
             setVehicleServicePresetType(serviceInnerTab);
             setVehicleServiceEditingRecord(row.serviceRecord || null);
             setVehicleServiceModalOpen(true);
         },
-        [asset?._id, router, serviceInnerTab],
+        [asset?._id, asset?.vehicleDispositionStatus, router, serviceInnerTab, toast],
     );
 
     const requestDeleteVehicleService = useCallback((row) => {
@@ -2702,6 +2710,14 @@ function VehicleDetailsPageContent() {
     };
 
     const openHandoverForAssignment = () => {
+        if (String(asset?.vehicleDispositionStatus || '').toLowerCase() === 'sold') {
+            toast({
+                variant: 'destructive',
+                title: 'Vehicle sold',
+                description: 'A sold vehicle cannot be assigned.',
+            });
+            return;
+        }
         if (!guardFleetAssignmentProfileActive()) return;
         if (!hasPositiveAssetValue(asset)) {
             toast({
@@ -5270,6 +5286,14 @@ function VehicleDetailsPageContent() {
                                                     <button
                                                         type="button"
                                                         onClick={() => {
+                                                            if (String(asset?.vehicleDispositionStatus || '').toLowerCase() === 'sold') {
+                                                                toast({
+                                                                    variant: 'destructive',
+                                                                    title: 'Vehicle sold',
+                                                                    description: 'A sold vehicle cannot be serviced.',
+                                                                });
+                                                                return;
+                                                            }
                                                             setVehicleServicePresetType('');
                                                             setVehicleServiceEditingRecord(null);
                                                             setVehicleServiceModalOpen(true);
@@ -6142,6 +6166,14 @@ function VehicleDetailsPageContent() {
                                                                 openFilePreview(url, label || 'Attachment')
                                                             }
                                                             onAddService={(serviceType) => {
+                                                                if (String(asset?.vehicleDispositionStatus || '').toLowerCase() === 'sold') {
+                                                                    toast({
+                                                                        variant: 'destructive',
+                                                                        title: 'Vehicle sold',
+                                                                        description: 'A sold vehicle cannot be serviced.',
+                                                                    });
+                                                                    return;
+                                                                }
                                                                 setVehicleServicePresetType(serviceType);
                                                                 setVehicleServiceEditingRecord(null);
                                                                 setVehicleServiceModalOpen(true);

@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUpRight, Gift, HandCoins, ShieldAlert, Wallet } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Gift, HandCoins, ShieldAlert, Wallet, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { cn } from '@/lib/utils';
 import { dashboardItem } from './dashboardMotion';
@@ -30,8 +29,6 @@ function isSettledHrItem(item) {
 function settledList(list) {
     return (Array.isArray(list) ? list : []).filter(isSettledHrItem);
 }
-
-const SPRING = { type: 'spring', stiffness: 380, damping: 36, mass: 0.75 };
 
 const CARD_META = [
     {
@@ -132,14 +129,14 @@ function statusClass(status) {
     return 'bg-slate-50 text-slate-600';
 }
 
-function RecordRow({ item, allowNavigate }) {
+function RecordRow({ item, onOpen }) {
     const detail = itemDetail(item);
     const className =
-        'flex items-start justify-between gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 transition-colors duration-200';
+        'flex w-full items-start justify-between gap-2 px-2.5 py-1.5 rounded-lg text-left hover:bg-slate-50 transition-colors duration-200';
     const content = (
         <>
             <div className="min-w-0">
-                <p className="text-[11px] sm:text-xs font-semibold text-[#111827] truncate">{item.code}</p>
+                <p className="text-[11px] sm:text-xs font-semibold text-[#2563EB] truncate">{item.code}</p>
                 {detail ? <p className="text-[10px] text-[#8792A6] truncate">{detail}</p> : null}
                 <p className="text-[10px] sm:text-[11px] font-semibold text-slate-700">{formatAed(item.amount)}</p>
             </div>
@@ -149,19 +146,15 @@ function RecordRow({ item, allowNavigate }) {
             </div>
         </>
     );
-
-    if (!allowNavigate) {
-        return <div className={className}>{content}</div>;
-    }
-
+    if (!onOpen || !item.href) return <div className={className}>{content}</div>;
     return (
-        <Link href={item.href || '#'} onClick={(e) => e.stopPropagation()} className={className}>
+        <button type="button" onClick={() => onOpen(item)} className={className}>
             {content}
-        </Link>
+        </button>
     );
 }
 
-function ExpandedHeader({ card, count }) {
+function ExpandedHeader({ card, count, onClose }) {
     const Icon = card.Icon;
     return (
         <div className="shrink-0 px-4 pt-3.5 pb-2 flex items-center justify-between gap-3">
@@ -171,12 +164,14 @@ function ExpandedHeader({ card, count }) {
                 </div>
                 <div className="min-w-0">
                     <h3 className="text-sm font-semibold text-[#111827] truncate">{card.title}</h3>
-                    <p className="text-[11px] text-[#8792A6] truncate">{card.label(count)}</p>
+                    <p className="text-[11px] text-[#8792A6] truncate">{card.label(count)} · open a row for details</p>
                 </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
                 <p className="text-[26px] font-bold text-[#111827] tabular-nums leading-none">{count}</p>
-                <ArrowUpRight size={16} className={cn('text-[#8792A6] transition-colors duration-200', card.arrowHover)} />
+                <button type="button" onClick={onClose} className="rounded-lg p-2 text-[#94A3B8] hover:bg-slate-100" aria-label="Close">
+                    <X size={16} />
+                </button>
             </div>
         </div>
     );
@@ -260,7 +255,7 @@ const LOAN_ADVANCE_COLUMNS = [
 
 const REWARD_COLUMNS = ['Date', 'Month', 'Description', 'Amount', 'Status'];
 
-function FineTable({ items, allowNavigate, emptyText }) {
+function FineTable({ items, onOpen, emptyText }) {
     const tdClass = 'px-2.5 py-2 text-[11px] text-slate-700 whitespace-nowrap align-middle';
 
     return (
@@ -269,17 +264,15 @@ function FineTable({ items, allowNavigate, emptyText }) {
             minWidth="min-w-[46rem]"
             items={items}
             emptyText={emptyText}
-            allowNavigate={allowNavigate}
-            renderRow={(item, canNavigate) => (
-                <tr key={item.id} className="border-b border-[#E7EBF1] last:border-0 hover:bg-slate-50/80 transition-colors">
-                    <td className={cn(tdClass, 'font-semibold text-[#111827]')}>
-                        {canNavigate ? (
-                            <Link href={item.href || '#'} className="hover:text-blue-600 hover:underline">
-                                {item.code || '—'}
-                            </Link>
-                        ) : (
-                            item.code || '—'
-                        )}
+            allowNavigate={Boolean(onOpen)}
+            renderRow={(item) => (
+                <tr
+                    key={item.id}
+                    onClick={() => item.href && onOpen?.(item)}
+                    className="cursor-pointer border-b border-[#E7EBF1] last:border-0 hover:bg-sky-50 transition-colors"
+                >
+                    <td className={cn(tdClass, 'font-semibold text-[#2563EB]')}>
+                        {item.code || '—'}
                     </td>
                     <td className={tdClass}>{item.type || '—'}</td>
                     <td className={cn(tdClass, 'font-semibold')}>{formatAed(item.amount)}</td>
@@ -297,7 +290,7 @@ function FineTable({ items, allowNavigate, emptyText }) {
     );
 }
 
-function LoanAdvanceTable({ items, allowNavigate, emptyText }) {
+function LoanAdvanceTable({ items, onOpen, emptyText }) {
     const tdClass = 'px-2.5 py-2 text-[11px] text-slate-700 whitespace-nowrap align-middle';
 
     return (
@@ -306,17 +299,15 @@ function LoanAdvanceTable({ items, allowNavigate, emptyText }) {
             minWidth="min-w-[40rem]"
             items={items}
             emptyText={emptyText}
-            allowNavigate={allowNavigate}
-            renderRow={(item, canNavigate) => (
-                <tr key={item.id} className="border-b border-[#E7EBF1] last:border-0 hover:bg-slate-50/80 transition-colors">
-                    <td className={cn(tdClass, 'font-semibold text-[#111827]')}>
-                        {canNavigate ? (
-                            <Link href={item.href || '#'} className="hover:text-blue-600 hover:underline">
-                                {item.code || item.type || '—'}
-                            </Link>
-                        ) : (
-                            item.code || item.type || '—'
-                        )}
+            allowNavigate={Boolean(onOpen)}
+            renderRow={(item) => (
+                <tr
+                    key={item.id}
+                    onClick={() => item.href && onOpen?.(item)}
+                    className="cursor-pointer border-b border-[#E7EBF1] last:border-0 hover:bg-sky-50 transition-colors"
+                >
+                    <td className={cn(tdClass, 'font-semibold text-[#2563EB]')}>
+                        {item.code || item.type || '—'}
                     </td>
                     <td className={tdClass}>{formatDate(item.date) || '—'}</td>
                     <td className={cn(tdClass, 'font-semibold')}>{formatAed(item.amount)}</td>
@@ -340,7 +331,7 @@ function formatMonthName(value) {
     return d.toLocaleString('default', { month: 'long' });
 }
 
-function RewardTable({ items, allowNavigate, emptyText }) {
+function RewardTable({ items, onOpen, emptyText }) {
     const tdClass = 'px-2.5 py-2 text-[11px] text-slate-700 whitespace-nowrap align-middle';
 
     return (
@@ -349,17 +340,15 @@ function RewardTable({ items, allowNavigate, emptyText }) {
             minWidth="min-w-[32rem]"
             items={items}
             emptyText={emptyText}
-            allowNavigate={allowNavigate}
-            renderRow={(item, canNavigate) => (
-                <tr key={item.id} className="border-b border-[#E7EBF1] last:border-0 hover:bg-slate-50/80 transition-colors">
-                    <td className={tdClass}>
-                        {canNavigate ? (
-                            <Link href={item.href || '#'} className="font-semibold text-[#111827] hover:text-blue-600 hover:underline">
-                                {formatDate(item.date) || '—'}
-                            </Link>
-                        ) : (
-                            formatDate(item.date) || '—'
-                        )}
+            allowNavigate={Boolean(onOpen)}
+            renderRow={(item) => (
+                <tr
+                    key={item.id}
+                    onClick={() => item.href && onOpen?.(item)}
+                    className="cursor-pointer border-b border-[#E7EBF1] last:border-0 hover:bg-sky-50 transition-colors"
+                >
+                    <td className={cn(tdClass, 'font-semibold text-[#2563EB]')}>
+                        {formatDate(item.date) || '—'}
                     </td>
                     <td className={tdClass}>{formatMonthName(item.date)}</td>
                     <td className={cn(tdClass, 'whitespace-normal max-w-[14rem]')}>
@@ -375,15 +364,15 @@ function RewardTable({ items, allowNavigate, emptyText }) {
     );
 }
 
-function CardBody({ card, items, allowNavigate }) {
+function CardBody({ card, items, onOpen }) {
     if (card.key === 'fines') {
-        return <FineTable items={items} allowNavigate={allowNavigate} emptyText={card.emptyText} />;
+        return <FineTable items={items} onOpen={onOpen} emptyText={card.emptyText} />;
     }
     if (card.key === 'loans' || card.key === 'advances') {
-        return <LoanAdvanceTable items={items} allowNavigate={allowNavigate} emptyText={card.emptyText} />;
+        return <LoanAdvanceTable items={items} onOpen={onOpen} emptyText={card.emptyText} />;
     }
     if (card.key === 'rewards') {
-        return <RewardTable items={items} allowNavigate={allowNavigate} emptyText={card.emptyText} />;
+        return <RewardTable items={items} onOpen={onOpen} emptyText={card.emptyText} />;
     }
 
     return (
@@ -393,7 +382,7 @@ function CardBody({ card, items, allowNavigate }) {
             ) : (
                 <div className="py-0.5">
                     {items.map((item) => (
-                        <RecordRow key={item.id} item={item} allowNavigate={allowNavigate} />
+                        <RecordRow key={item.id} item={item} onOpen={onOpen} />
                     ))}
                 </div>
             )}
@@ -402,6 +391,7 @@ function CardBody({ card, items, allowNavigate }) {
 }
 
 export default function DashboardEmployeeHrCards() {
+    const router = useRouter();
     const [data, setData] = useState(EMPTY);
     const [expandedKey, setExpandedKey] = useState(null);
 
@@ -480,21 +470,29 @@ export default function DashboardEmployeeHrCards() {
                 })}
             </div>
 
-            <AnimatePresence initial={false}>
-                {expandedCard ? (
-                    <motion.div
-                        key={expandedCard.key}
-                        className="mt-3 min-h-[220px] rounded-xl border border-[#E7EBF1] bg-white overflow-hidden flex flex-col"
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={SPRING}
+            {expandedCard ? (
+                <div
+                    className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+                    onClick={() => setExpandedKey(null)}
+                    role="presentation"
+                >
+                    <div
+                        className="flex max-h-[80vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-[#E7EBF1] bg-white shadow-2xl"
+                        onClick={(event) => event.stopPropagation()}
                     >
-                        <ExpandedHeader card={expandedCard} count={expandedItems.length} />
-                        <CardBody card={expandedCard} items={expandedItems} allowNavigate />
-                    </motion.div>
-                ) : null}
-            </AnimatePresence>
+                        <ExpandedHeader
+                            card={expandedCard}
+                            count={expandedItems.length}
+                            onClose={() => setExpandedKey(null)}
+                        />
+                        <CardBody
+                            card={expandedCard}
+                            items={expandedItems}
+                            onOpen={(item) => item?.href && router.push(item.href)}
+                        />
+                    </div>
+                </div>
+            ) : null}
 
             <div className="mt-3">
                 <DashboardEmployeeAssetCards embedded />
