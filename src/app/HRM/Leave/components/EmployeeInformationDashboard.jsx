@@ -1109,6 +1109,21 @@ function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
     return money2((hours / dayHours) * daily);
 }
 
+function deductionTimes(record, policy) {
+    const key = deductionKind(record);
+    const authTimes = policy?.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
+    const unauthTimes = policy?.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
+    const approvedHours = String(record?.hourAdjustStatus || '') === 'approved';
+    if (key === 'early_go' || key === 'late_arrived' || key === 'mispunch') {
+        return approvedHours ? 1 : unauthTimes;
+    }
+    if (key === 'unauthorized_leave') return approvedHours ? 1 : unauthTimes;
+    if (key === 'authorized_leave') {
+        return Number(record?.leaveDeductionTimes) === 2 ? 2 : authTimes;
+    }
+    return 1;
+}
+
 function attendanceDeductionAmount(record, week, daily, policy, mispunchAmounts) {
     const key = deductionKind(record);
     const authTimes = policy?.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
@@ -1427,7 +1442,7 @@ function dayEarlyText(record, week) {
 function dayApprovalLabel(record) {
     if (!record) return '';
     const key = String(record.statusKey || '');
-    if (key === 'on_office' || key === 'work_from_home') return '';
+    if (key === 'on_office' || key === 'work_from_home' || key === 'authorized_leave' || key === 'unauthorized_leave') return '';
     const marks = [
         record.hourAdjustStatus,
         record.leaveRequestStatus,
@@ -1650,6 +1665,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     const deduct = counted
         ? money2(attendanceDeductionAmount(record, ctx.scheduleWeek, ctx.salaryDaily, ctx.leavePolicy || {}, ctx.mispunchAmounts))
         : null;
+    const doubleDeduction = deduct > 0 && deductionTimes(record, ctx.leavePolicy || {}) === 2;
     const lateText = flexibleDay ? '' : dayLateText(record, ctx.scheduleWeek);
     const typeLabel = yellowLabel || kindLabel(kind);
     const moreLines = [];
@@ -1725,7 +1741,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                         compOffLines={compOffLines}
                         paymentText={payment == null ? '—' : formatAed(payment, 2)}
                         balanceText={flexibleShort != null ? formatHourlyGap(Math.max(0, flexibleShort)) : formatHourlyGap(balance)}
-                        deductText={deduct == null ? '—' : formatAed(deduct, 2)}
+                        deductText={deduct == null ? '—' : `${formatAed(deduct, 2)}${doubleDeduction ? ' (double deduction)' : ''}`}
                         moreLines={moreLines}
                         requestLines={requestLines}
                         alignRight={column >= 4}

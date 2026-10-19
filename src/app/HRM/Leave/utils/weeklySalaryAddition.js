@@ -278,11 +278,11 @@ function emptyInfo() {
     return { required: false, scheduledHours: 0, weeklyOff: false, holiday: false };
 }
 
-/** Present, late arrival, early go, and work from home. Leave, OT, and comp off stay out. */
+/** Present, late arrival, early go, and work from home. A real attendance day still counts when it is also a comp-off adjustment. */
 function countsAsWorked(day) {
-    if (!day || isCompOffRemainder(day)) return false;
+    if (!day || day.synthetic) return false;
     const key = String(day.statusKey || '');
-    if (key === 'authorized_leave' || key === 'unauthorized_leave' || key === 'on_leave' || key === 'sick_leave') return false;
+    if (key === 'authorized_leave' || key === 'unauthorized_leave' || key === 'on_leave' || key === 'sick_leave' || key === 'compoff_leave') return false;
     return WORKED_STATUS_KEYS.has(key);
 }
 
@@ -556,31 +556,28 @@ export function buildWeeklySalaryAddition({
         const dayCap = info.scheduledHours > DAY_HOUR_CAP ? DAY_HOUR_CAP : roundHours(info.scheduledHours);
         requiredHours = roundHours(requiredHours + dayCap);
         const day = ledger.get(date);
-        if (countsAsWorked(day)) workedDays += 1;
-        else if (isCompOffRemainder(day)) {
+        if (countsAsWorked(day)) {
+            workedDays += 1;
+            workedHours = roundHours(workedHours + creditedDayHours(day?.workedHours, info.scheduledHours));
+        } else if (isCompOffRemainder(day)) {
             compOffRemaining += 1;
             adjustedHours = roundHours(adjustedHours + dayCap);
             const lines = [...(day.compOffLinks || []), ...(day.coverLinks || [])];
             if (lines.length) lines.forEach((line) => addLink(compOffLines, line));
             else addLink(compOffLines, `${formatAdditionDay(date)} is comp off`);
         }
-        if (!isCompOffRemainder(day)) {
-            workedHours = roundHours(workedHours + creditedDayHours(day?.workedHours, info.scheduledHours));
-        }
     });
-    if (flexible) {
-        weekSet.forEach((date) => {
-            const info = infoOf(date);
-            if (!info.holiday) return;
-            const day = ledger.get(date);
-            if (!day || isCompOffRemainder(day) || !(day.workedHours > 0)) return;
-            const alreadyPaid = roundHours(Math.max(0, day.payable - day.consumed));
-            const hours = roundHours(Math.max(0, Math.min(day.workedHours, DAY_HOUR_CAP) - alreadyPaid));
-            if (!(hours > 0)) return;
-            workedHours = roundHours(workedHours + hours);
-            day.holidayWorkedHours = hours;
-        });
-    }
+    weekSet.forEach((date) => {
+        const info = infoOf(date);
+        if (!info.holiday) return;
+        const day = ledger.get(date);
+        if (!day || isCompOffRemainder(day) || !(day.workedHours > 0)) return;
+        const alreadyPaid = roundHours(Math.max(0, day.payable - day.consumed));
+        const hours = roundHours(Math.max(0, Math.min(day.workedHours, DAY_HOUR_CAP) - alreadyPaid));
+        if (!(hours > 0)) return;
+        workedHours = roundHours(workedHours + hours);
+        day.holidayWorkedHours = hours;
+    });
 
     const dayRate = Number(daily) || 0;
     const hourRate = dayRate / 10;

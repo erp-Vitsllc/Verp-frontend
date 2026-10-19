@@ -65,7 +65,7 @@ function rangeForPeriod(period, today, customFrom, customTo) {
     }
     if (period === 'week') {
         const from = mondayOf(today);
-        return { from, to: today };
+        return { from, to: shiftDateKey(from, 6) };
     }
     if (period === 'lastWeek') {
         const thisMonday = mondayOf(today);
@@ -467,6 +467,10 @@ function SummaryRow({ icon: Icon, iconClass, rowClass, label, hint, value, value
 }
 
 function PeopleCard({ title, hint, icon: Icon, totals, phrase, rangeLabel, onOpen, showAbsent }) {
+    const leaveCount = (totals.people?.absence || []).reduce(
+        (sum, row) => sum + (Number(row.total) || 0),
+        0,
+    );
     const absenceRow = showAbsent
         ? {
             key: 'absent',
@@ -483,7 +487,7 @@ function PeopleCard({ title, hint, icon: Icon, totals, phrase, rangeLabel, onOpe
             iconClass: 'bg-blue-100 text-blue-600',
             rowClass: 'bg-blue-50/80 hover:bg-blue-50',
             label: countLabel(phrase, 'Leave'),
-            value: totals.leave,
+            value: leaveCount,
             valueClass: 'text-blue-600',
         };
     const rows = [

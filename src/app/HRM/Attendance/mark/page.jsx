@@ -12,7 +12,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import MarkAttendanceTable from './components/MarkAttendanceTable';
 import useWorkLocations from '@/hooks/useWorkLocations';
 import { normalizeWorkLocationKey, workLocationLabel } from '@/utils/workLocations';
-import { markAttendanceHref } from '../utils/markAttendanceHref';
+import axiosInstance from '@/utils/axios';
+import { markAttendanceHref, attendanceRequestMarkHref } from '../utils/markAttendanceHref';
 import { replaceRouteWithoutStackPush } from '@/utils/listReturnNavigation';
 
 /** Company calendar day (Asia/Dubai) as yyyy-MM-dd — matches backend midnight routine. */
@@ -106,8 +107,70 @@ function MarkAttendanceContent() {
         setCalendarOpen(false);
     };
 
+    const openRequestId =
+        searchParams.get('changeRequestId') ||
+        searchParams.get('hourAttendanceId') ||
+        searchParams.get('leaveAttendanceId') ||
+        searchParams.get('otAttendanceId') ||
+        '';
+
     useEffect(() => {
-        if (!dateParam) {
+        if (!openRequestId) return undefined;
+        let cancelled = false;
+        axiosInstance
+            .get('/Attendance/open-target', {
+                params: {
+                    changeRequestId: searchParams.get('changeRequestId') || '',
+                    hourAttendanceId: searchParams.get('hourAttendanceId') || '',
+                    leaveAttendanceId: searchParams.get('leaveAttendanceId') || '',
+                    otAttendanceId: searchParams.get('otAttendanceId') || '',
+                },
+                skipToast: true,
+            })
+            .then((res) => {
+                if (cancelled) return;
+                const date = String(res.data?.date || '').trim();
+                const staffType = String(res.data?.staffType || '').trim();
+                const employeeMongoId = String(res.data?.employeeMongoId || '').trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !employeeMongoId) return;
+                const sameDay = searchParams.get('date') === date;
+                const sameGroup = normalizeWorkLocationKey(searchParams.get('staffType')) === normalizeWorkLocationKey(staffType);
+                const samePerson = searchParams.get('blinkEmployee') === employeeMongoId;
+                if (sameDay && sameGroup && samePerson) return;
+                setFollowToday(false);
+                setStaffTab(normalizeWorkLocationKey(staffType) || staffType || 'office');
+                replaceRouteWithoutStackPush(
+                    router,
+                    attendanceRequestMarkHref({
+                        date,
+                        staffType,
+                        attendanceId: openRequestId,
+                        employeeId: employeeMongoId,
+                        kind: searchParams.get('changeRequestId')
+                            ? 'attendance_change'
+                            : searchParams.get('hourAttendanceId')
+                              ? 'hour_adjust'
+                              : searchParams.get('otAttendanceId')
+                                ? 'flexible_ot'
+                                : 'leave',
+                        type: searchParams.get('changeRequestId')
+                            ? 'Attendance Change Request'
+                            : searchParams.get('hourAttendanceId')
+                              ? 'Hour Approval Request'
+                              : searchParams.get('otAttendanceId')
+                                ? 'Flexible OT Request'
+                                : 'Attendance Leave Request',
+                    }),
+                );
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [openRequestId, router, searchParams]);
+
+    useEffect(() => {
+        if (!dateParam && !openRequestId) {
             const today = getDubaiDateKey();
             replaceRouteWithoutStackPush(
                 router,
@@ -115,7 +178,7 @@ function MarkAttendanceContent() {
             );
             setFollowToday(true);
         }
-    }, [dateParam, router, staffTab, searchParams]);
+    }, [dateParam, openRequestId, router, staffTab, searchParams]);
 
     useEffect(() => {
         const checkRollover = () => {
