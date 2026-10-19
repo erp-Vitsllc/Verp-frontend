@@ -23,12 +23,6 @@ function isFlexibleWeek(week) {
     return String(week?.timingMode || '').toLowerCase() === 'flexible';
 }
 
-function wholeHours(value) {
-    const hours = Number(value);
-    if (!Number.isFinite(hours) || hours <= 0) return 0;
-    return Math.floor(hours + 1e-9);
-}
-
 function requiredHoursForDate(week, dateKey) {
     if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return 0;
     const day = week[WEEKDAY_KEYS[new Date(`${dateKey}T12:00:00Z`).getUTCDay()]];
@@ -60,9 +54,9 @@ function workedHoursOf(mark) {
 }
 
 function flexibleLossHours(mark, week) {
-    const required = wholeHours(requiredHoursForDate(week, mark?.date));
-    const worked = wholeHours(workedHoursOf(mark));
-    return Math.max(0, required - worked);
+    const required = requiredHoursForDate(week, mark?.date);
+    const worked = workedHoursOf(mark);
+    return roundHours(Math.max(0, required - worked));
 }
 
 function shiftMinutes(week, dateKey) {
@@ -182,7 +176,7 @@ export default function HourAdjustModal({
                     ? preview?.taken
                     : mark?.hoursApproved || preview?.taken || '';
         setApprovedHours(source || source === 0 ? String(source) : '');
-        setReason(preview?.flexible ? '' : String(queued?.reason || mark?.hourAdjustReason || ''));
+        setReason(String(queued?.reason || mark?.hourAdjustReason || ''));
         setRejectReason('');
         setRejecting(Boolean(rejectFirst));
     }, [
@@ -202,16 +196,18 @@ export default function HourAdjustModal({
 
     const readHours = () => {
         const typed = String(approvedHours ?? '').trim();
-        const hours = flexible ? wholeHours(approvedHours) : roundHours(approvedHours);
+        const hours = roundHours(approvedHours);
         const limit = Number(maxHours);
+        if (flexible && hours === 0 && !String(reason || '').trim()) {
+            return { error: 'A reason is required when approved hours are 0' };
+        }
         if (!flexible && !String(reason || '').trim()) {
             return { error: 'Description is required' };
         }
-        if (flexible) {
-            if (!/^\d+$/.test(typed) || hours > limit) {
-                return { error: `Enter a whole number from 0 up to ${limit}.` };
-            }
-        } else if (hours > limit + 0.001) {
+        if (flexible && typed !== '' && !/^\d+(\.\d{1,2})?$/.test(typed)) {
+            return { error: `Enter hours from 0 up to ${limit}.` };
+        }
+        if (hours > limit + 0.001) {
             return { error: `Enter hours from 0 up to ${limit}.` };
         }
         return { hours };
@@ -229,7 +225,7 @@ export default function HourAdjustModal({
             const response = await axiosInstance.post('/Attendance/hour-adjust/request', {
                 attendanceId: mark.attendanceId,
                 approvedHours: parsed.hours,
-                reason: flexible ? '' : reason,
+                reason: flexible && parsed.hours > 0 ? '' : reason,
             });
             toast({
                 title: mode === 'direct' ? 'Hours approved' : 'Request sent',
@@ -277,7 +273,7 @@ export default function HourAdjustModal({
             const payload = {
                 decision,
                 approvedHours: decision === 'approved' ? hours : undefined,
-                hourReason: decision === 'approved' ? (flexible ? '' : reason) : undefined,
+                hourReason: decision === 'approved' ? (flexible && hours > 0 ? '' : reason) : undefined,
                 rejectReason: decision === 'rejected' ? String(rejectReason || '').trim() : '',
             };
             const response = changeId
@@ -306,7 +302,8 @@ export default function HourAdjustModal({
         }
     };
 
-    const shownLoss = flexible ? wholeHours(lossHours) : lossHours;
+    const shownLoss = flexible ? roundHours(lossHours) : lossHours;
+    const zeroApproval = flexible && roundHours(approvedHours) === 0;
     const approveLabel = priorReject || requesterTurn ? 'Reapply' : 'Approve';
 
     return (
@@ -342,23 +339,23 @@ export default function HourAdjustModal({
                         {flexible ? 'Approved hours' : 'Approved to (hrs)'}
                         <input
                             type="number"
-                            inputMode={flexible ? 'numeric' : 'decimal'}
+                            inputMode="decimal"
                             min="0"
                             max={maxHours}
-                            step={flexible ? '1' : '0.5'}
+                            step="0.01"
                             value={approvedHours}
                             disabled={readOnly}
                             onChange={(event) => {
                                 const next = event.target.value;
-                                if (flexible && next !== '' && !/^\d+$/.test(next)) return;
+                                if (flexible && next !== '' && !/^\d*\.?\d{0,2}$/.test(next)) return;
                                 setApprovedHours(next);
                             }}
                             className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                         />
                     </label>
-                    {flexible ? null : (
+                    {flexible && !zeroApproval ? null : (
                         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                            Description
+                            {flexible ? 'Reason' : 'Description'}
                             <textarea
                                 value={reason}
                                 disabled={readOnly}

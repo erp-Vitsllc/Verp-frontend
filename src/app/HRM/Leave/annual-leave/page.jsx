@@ -936,6 +936,8 @@ function AnnualLeavePageContent() {
                                                 : ''
                                         }
                                         requestedOnLabel={approveRequest?.requestedDate || ''}
+                                        requestReason={approveRequest?.reason || ''}
+                                        requestAttachmentName={approveRequest?.attachmentName || ''}
                                         submitting={confirming}
                                         enableAnnualEligibilityGate
                                     />
@@ -1027,6 +1029,8 @@ function AnnualLeavePageContent() {
                 requestedOnLabel={
                     isExistingLeaveModal ? approveRequest?.requestedDate || '' : ''
                 }
+                requestReason={isExistingLeaveModal ? approveRequest?.reason || '' : ''}
+                requestAttachmentName={isExistingLeaveModal ? approveRequest?.attachmentName || '' : ''}
                 submitting={confirming}
                 enableAnnualEligibilityGate
             />

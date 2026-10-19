@@ -381,6 +381,12 @@ export default function PendingAttendanceRequestsModal({
                                     {review.reason}
                                 </p>
                             ) : null}
+                            {review.attachmentName ? (
+                                <p>
+                                    <span className="text-slate-500">Attachment: </span>
+                                    {review.attachmentName}
+                                </p>
+                            ) : null}
                             {rejecting ? (
                                 <label className="block text-xs font-semibold text-slate-500">
                                     Reject reason

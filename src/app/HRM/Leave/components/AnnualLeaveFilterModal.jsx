@@ -105,6 +105,8 @@ export default function AnnualLeaveFilterModal({
     requestedLeaveLabel = '',
     requestedDateLabel = '',
     requestedOnLabel = '',
+    requestReason = '',
+    requestAttachmentName = '',
     showReject = false,
     onReject,
     rejectLabel = 'Reject',
@@ -354,6 +356,16 @@ export default function AnnualLeaveFilterModal({
                             </p>
                             {requestedDateLabel ? (
                                 <p className="mt-0.5 text-[11px] text-[#667085]">{requestedDateLabel}</p>
+                            ) : null}
+                            {requestReason ? (
+                                <p className="mt-1 text-[11px] text-[#344054]">
+                                    Reason: <span className="font-semibold">{requestReason}</span>
+                                </p>
+                            ) : null}
+                            {requestAttachmentName ? (
+                                <p className="mt-0.5 text-[11px] text-[#344054]">
+                                    Attachment: <span className="font-semibold">{requestAttachmentName}</span>
+                                </p>
                             ) : null}
                         </div>
                         {requestedOnLabel ? (

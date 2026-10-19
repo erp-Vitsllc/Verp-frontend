@@ -1104,7 +1104,7 @@ function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
     const missedHours = flexiblePunch
         ? (approved ? n(row.hoursApproved) : flexibleExactLossHoursOf(row, week))
         : (approved ? n(row.hoursApproved) : (n(row?.hoursTaken) || takenHoursOf(row, week, kind)));
-    const hours = flexiblePunch || approved ? missedHours : missedHours * unauthTimes;
+    const hours = approved ? missedHours : missedHours * unauthTimes;
     if (!(hours > 0) || !(daily > 0) || !(dayHours > 0)) return 0;
     return money2((hours / dayHours) * daily);
 }

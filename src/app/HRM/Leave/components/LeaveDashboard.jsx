@@ -200,7 +200,7 @@ function LeaveApprovalTable({
     if (!rows.length) {
         return (
             <tr>
-                <td colSpan={7} className="px-2 py-8 text-center text-[#6B7280]">
+                <td colSpan={9} className="px-2 py-8 text-center text-[#6B7280]">
                     {emptyLabel}
                 </td>
             </tr>
@@ -258,6 +258,16 @@ function LeaveApprovalTable({
                 <td className="px-2 py-3 whitespace-nowrap">{row.requestedDate || '—'}</td>
                 <td className="px-2 py-3">{row.startDate}</td>
                 <td className="px-2 py-3">{row.endDate}</td>
+                <td className="px-2 py-3 max-w-[180px]">
+                    <span className="block truncate" title={row.reason || ''}>
+                        {row.reason || '—'}
+                    </span>
+                </td>
+                <td className="px-2 py-3 max-w-[160px]">
+                    <span className="block truncate" title={row.attachmentName || ''}>
+                        {row.attachmentName || '—'}
+                    </span>
+                </td>
                 <td className="px-2 py-3">
                     <span
                         className={`rounded-full px-2.5 py-1 text-xs font-semibold ${approvalStatusBadgeClass(statusKey)}`}
@@ -1231,6 +1241,8 @@ export default function LeaveDashboard({
                                     <th className="px-2 py-2">Requested Date</th>
                                     <th className="px-2 py-2">Start Date</th>
                                     <th className="px-2 py-2">End Date</th>
+                                    <th className="px-2 py-2">Reason</th>
+                                    <th className="px-2 py-2">Attachment</th>
                                     <th className="px-2 py-2">Status</th>
                                     <th className="px-2 py-2 text-center">Action</th>
                                 </tr>
@@ -1238,7 +1250,7 @@ export default function LeaveDashboard({
                             <tbody>
                                 {pendingLoading ? (
                                     <tr>
-                                        <td colSpan={7} className="px-2 py-8 text-center text-[#6B7280]">
+                                        <td colSpan={9} className="px-2 py-8 text-center text-[#6B7280]">
                                             Loading leave requests...
                                         </td>
                                     </tr>

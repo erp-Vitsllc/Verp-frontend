@@ -573,6 +573,7 @@ function mergePendingChanges(nextMarks, pendingChanges, { dateKey = '', employee
                 id: String(change.id || ''),
                 stage: change.stage || '',
                 action: change.action || 'mark',
+                statusKey: change.statusKey || '',
                 statusLabel: change.statusLabel || '',
                 requestedById: String(change.requestedById || ''),
                 requestedByName: change.requestedByName || '',
@@ -580,6 +581,7 @@ function mergePendingChanges(nextMarks, pendingChanges, { dateKey = '', employee
                 reporteeName: change.reporteeName || '',
                 hrName: change.hrName || '',
                 reason: change.reason || '',
+                attachmentName: change.attachmentName || '',
                 rejectReason: change.rejectReason || '',
                 rejectedByName: change.rejectedByName || '',
                 hoursApproved: change.hoursApproved,
@@ -1334,6 +1336,12 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFir
                             {change.reason}
                         </p>
                     ) : null}
+                    {change.attachmentName ? (
+                        <p>
+                            <span className="text-slate-500">Attachment: </span>
+                            {change.attachmentName}
+                        </p>
+                    ) : null}
                     {rejecting ? (
                         <label className="block text-xs font-semibold text-slate-500">
                             Reject reason
@@ -1587,6 +1595,35 @@ function EmployeeRow({
                             {shownMark.reason}
                         </span>
                     ) : null}
+                    {(() => {
+                        const sick =
+                            mark?.key === 'sick_leave' ||
+                            mark?.requestedStatusKey === 'sick_leave' ||
+                            mark?.pendingChange?.statusKey === 'sick_leave';
+                        if (!sick) return null;
+                        const requestReason = String(
+                            mark?.leaveRequestReason || mark?.pendingChange?.reason || '',
+                        ).trim();
+                        const attachment = String(
+                            mark?.attachmentName || mark?.pendingChange?.attachmentName || '',
+                        ).trim();
+                        const reasonAlreadyShown =
+                            requestReason && requestReason === String(shownMark?.reason || '').trim();
+                        return (
+                            <>
+                                {requestReason && !reasonAlreadyShown ? (
+                                    <span className="text-[10px] text-gray-500 max-w-[180px] truncate" title={requestReason}>
+                                        {requestReason}
+                                    </span>
+                                ) : null}
+                                {attachment ? (
+                                    <span className="text-[10px] font-medium text-slate-600 max-w-[180px] truncate" title={attachment}>
+                                        Attachment: {attachment}
+                                    </span>
+                                ) : null}
+                            </>
+                        );
+                    })()}
                     {mark?.key === 'compoff_leave' ? (
                         <button
                             type="button"

@@ -74,6 +74,16 @@ export default function LeaveRequestDecisionCard({
                 {pendingWith ? (
                     <p className="mt-2 text-xs font-semibold text-[#B45309]">Pending with {pendingWith}</p>
                 ) : null}
+                {row.reason ? (
+                    <p className="mt-2 text-xs text-[#344054]">
+                        Reason: <span className="font-semibold">{row.reason}</span>
+                    </p>
+                ) : null}
+                {row.attachmentName ? (
+                    <p className="mt-1 text-xs text-[#344054]">
+                        Attachment: <span className="font-semibold">{row.attachmentName}</span>
+                    </p>
+                ) : null}
                 {clarification && (row.timeIn || row.timeOut) && !editing ? (
                     <p className="mt-2 text-xs text-[#475467]">
                         Time: {row.timeIn || '—'} – {row.timeOut || '—'}

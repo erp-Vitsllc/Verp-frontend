@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
     Building2,
     Calendar,
@@ -17,7 +18,6 @@ import {
     X,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
-import { markAttendanceHref } from '../utils/markAttendanceHref';
 
 const PERIODS = [
     { id: 'today', label: 'Today' },
@@ -137,6 +137,25 @@ function addAbsenceDay(map, person, bucket) {
     if (person.date && String(person.date) > String(row.viewDate || '')) row.viewDate = person.date;
 }
 
+function collapsePeople(list, { sumHours = false } = {}) {
+    const map = new Map();
+    for (const person of list || []) {
+        const id = String(person?.employeeMongoId || person?.employeeId || person?.name || '').trim();
+        if (!id) continue;
+        let row = map.get(id);
+        if (!row) {
+            row = { ...person, count: 0, hours: 0 };
+            map.set(id, row);
+        }
+        row.count += 1;
+        if (person.companyName) row.companyName = person.companyName;
+        if (person.name) row.name = person.name;
+        if (person.date && String(person.date) >= String(row.date || '')) row.date = person.date;
+        if (sumHours) row.hours += Number(person.hours) || 0;
+    }
+    return [...map.values()].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+}
+
 function summarizeDays(payload, from, to, today) {
     const days = payload?.days && typeof payload.days === 'object' ? payload.days : {};
     const totals = { present: 0, absent: 0, late: 0, leave: 0, missed: 0, ot: 0, total: 0 };
@@ -192,11 +211,10 @@ function summarizeDays(payload, from, to, today) {
             totals.ot += Number(raw?.otHours) || 0;
         }
     }
-    for (const key of ['present', 'absent', 'late', 'leave', 'missed', 'ot']) {
-        people[key].sort(
-            (a, b) => String(a.date).localeCompare(String(b.date)) || String(a.name).localeCompare(String(b.name)),
-        );
+    for (const key of ['present', 'absent', 'late', 'leave', 'missed', 'total']) {
+        people[key] = collapsePeople(people[key]);
     }
+    people.ot = collapsePeople(people.ot, { sumHours: true });
     const absence = new Map();
     for (const person of people.leave) addAbsenceDay(absence, person, person.bucket || 'auth');
     for (const person of people.absent) addAbsenceDay(absence, person, 'unauth');
@@ -242,15 +260,18 @@ function formatRangeLabel(from, to) {
     return `${start} to ${end}`;
 }
 
-function AttendanceViewLink({ date, staffType, employeeId }) {
-    const day = String(date || '').trim();
-    const person = String(employeeId || '').trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !person) {
-        return <span className="text-xs text-slate-300">—</span>;
-    }
+function employeeAttendanceHref(employeeMongoId) {
+    const id = String(employeeMongoId || '').trim();
+    if (!/^[a-f0-9]{24}$/i.test(id)) return '';
+    return `/HRM/Leave/${encodeURIComponent(id)}`;
+}
+
+function AttendanceViewLink({ employeeMongoId }) {
+    const href = employeeAttendanceHref(employeeMongoId);
+    if (!href) return <span className="text-xs text-slate-300">—</span>;
     return (
         <Link
-            href={markAttendanceHref({ date: day, staffType, blinkEmployee: person })}
+            href={href}
             className="inline-flex h-7 items-center rounded-md bg-blue-600 px-2.5 text-xs font-semibold text-white hover:bg-blue-700"
         >
             View
@@ -258,7 +279,8 @@ function AttendanceViewLink({ date, staffType, employeeId }) {
     );
 }
 
-function HeaderPeopleModal({ open, title, hint, rows, mode, staffType, onClose }) {
+function HeaderPeopleModal({ open, title, hint, rows, mode, onClose }) {
+    const router = useRouter();
     useEffect(() => {
         if (!open) return undefined;
         const onKey = (event) => {
@@ -313,24 +335,27 @@ function HeaderPeopleModal({ open, title, hint, rows, mode, staffType, onClose }
                         <table className="w-full text-left">
                             <thead className="sticky top-0 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 <tr>
-                                    <th className="px-5 py-2 font-semibold">Date</th>
-                                    <th className="px-2 py-2 font-semibold">Employee name</th>
-                                    <th className="px-2 py-2 font-semibold">Hour</th>
+                                    <th className="px-5 py-2 font-semibold">Employee name</th>
+                                    <th className="px-2 py-2 font-semibold">Total hr</th>
+                                    <th className="px-2 py-2 font-semibold">Company</th>
                                     <th className="px-5 py-2 font-semibold">View</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {list.map((row, index) => (
-                                    <tr key={`${row.employeeMongoId}-${row.date}-${index}`} className="border-t border-slate-100 text-sm text-slate-800">
-                                        <td className="px-5 py-2.5 text-slate-500">{formatListDate(row.date)}</td>
-                                        <td className="px-2 py-2.5 font-medium">{row.name || 'Employee'}</td>
+                                    <tr
+                                        key={`${row.employeeMongoId}-${row.date}-${index}`}
+                                        className="cursor-pointer border-t border-slate-100 text-sm text-slate-800 hover:bg-slate-50"
+                                        onClick={() => {
+                                            const href = employeeAttendanceHref(row.employeeMongoId);
+                                            if (href) router.push(href);
+                                        }}
+                                    >
+                                        <td className="px-5 py-2.5 font-medium">{row.name || 'Employee'}</td>
                                         <td className="px-2 py-2.5 tabular-nums">{formatOtHours(row.hours)}</td>
+                                        <td className="px-2 py-2.5 text-slate-600">{row.companyName || '—'}</td>
                                         <td className="px-5 py-2.5">
-                                            <AttendanceViewLink
-                                                date={row.date}
-                                                staffType={staffType}
-                                                employeeId={row.employeeMongoId || row.employeeId}
-                                            />
+                                            <AttendanceViewLink employeeMongoId={row.employeeMongoId} />
                                         </td>
                                     </tr>
                                 ))}
@@ -350,18 +375,21 @@ function HeaderPeopleModal({ open, title, hint, rows, mode, staffType, onClose }
                             </thead>
                             <tbody>
                                 {list.map((row, index) => (
-                                    <tr key={`${row.employeeMongoId}-${index}`} className="border-t border-slate-100 text-sm text-slate-800">
+                                    <tr
+                                        key={`${row.employeeMongoId}-${index}`}
+                                        className="cursor-pointer border-t border-slate-100 text-sm text-slate-800 hover:bg-slate-50"
+                                        onClick={() => {
+                                            const href = employeeAttendanceHref(row.employeeMongoId);
+                                            if (href) router.push(href);
+                                        }}
+                                    >
                                         <td className="px-5 py-2.5 font-medium">{row.name || 'Employee'}</td>
                                         <td className="px-2 py-2.5 tabular-nums">{row.auth || 0}</td>
                                         <td className="px-2 py-2.5 tabular-nums">{row.unauth || 0}</td>
                                         <td className="px-2 py-2.5 tabular-nums">{row.sick || 0}</td>
                                         <td className="px-2 py-2.5 font-semibold tabular-nums">{row.total || 0}</td>
                                         <td className="px-5 py-2.5">
-                                            <AttendanceViewLink
-                                                date={row.viewDate}
-                                                staffType={staffType}
-                                                employeeId={row.employeeMongoId || row.employeeId}
-                                            />
+                                            <AttendanceViewLink employeeMongoId={row.employeeMongoId} />
                                         </td>
                                     </tr>
                                 ))}
@@ -381,28 +409,31 @@ function HeaderPeopleModal({ open, title, hint, rows, mode, staffType, onClose }
                         <table className="w-full text-left">
                             <thead className="sticky top-0 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 <tr>
-                                    <th className="px-5 py-2 font-semibold">#</th>
-                                    <th className="px-2 py-2 font-semibold">Employee</th>
-                                    <th className="px-2 py-2 font-semibold">Emp No</th>
+                                    <th className="px-5 py-2 font-semibold">Employee name</th>
+                                    <th className="px-2 py-2 font-semibold">Count</th>
+                                    <th className="px-2 py-2 font-semibold">Company name</th>
                                     {showDate ? <th className="px-2 py-2 font-semibold">Date</th> : null}
                                     <th className="px-5 py-2 font-semibold">View</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {list.map((row, index) => (
-                                    <tr key={`${row.employeeMongoId}-${row.date}-${index}`} className="border-t border-slate-100 text-sm text-slate-800">
-                                        <td className="px-5 py-2.5 text-slate-400 tabular-nums">{index + 1}</td>
-                                        <td className="px-2 py-2.5 font-medium">{row.name || 'Employee'}</td>
-                                        <td className="px-2 py-2.5 tabular-nums text-slate-500">{row.employeeId || '—'}</td>
+                                    <tr
+                                        key={`${row.employeeMongoId}-${row.date}-${index}`}
+                                        className="cursor-pointer border-t border-slate-100 text-sm text-slate-800 hover:bg-slate-50"
+                                        onClick={() => {
+                                            const href = employeeAttendanceHref(row.employeeMongoId);
+                                            if (href) router.push(href);
+                                        }}
+                                    >
+                                        <td className="px-5 py-2.5 font-medium">{row.name || 'Employee'}</td>
+                                        <td className="px-2 py-2.5 tabular-nums text-slate-500">{row.count || 1}</td>
+                                        <td className="px-2 py-2.5 text-slate-600">{row.companyName || '—'}</td>
                                         {showDate ? (
                                             <td className="px-2 py-2.5 text-slate-500">{formatListDate(row.date)}</td>
                                         ) : null}
                                         <td className="px-5 py-2.5">
-                                            <AttendanceViewLink
-                                                date={row.date}
-                                                staffType={staffType}
-                                                employeeId={row.employeeMongoId || row.employeeId}
-                                            />
+                                            <AttendanceViewLink employeeMongoId={row.employeeMongoId} />
                                         </td>
                                     </tr>
                                 ))}
@@ -720,7 +751,6 @@ export default function AttendanceHeaderSummary({ staffTabs = [], onSelectGroup,
                 hint={listModal?.hint || ''}
                 rows={listModal?.rows || []}
                 mode={listModal?.mode || 'people'}
-                staffType={listModal?.staffType || ''}
                 onClose={() => setListModal(null)}
             />
         </section>

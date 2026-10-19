@@ -568,6 +568,19 @@ export function buildWeeklySalaryAddition({
             workedHours = roundHours(workedHours + creditedDayHours(day?.workedHours, info.scheduledHours));
         }
     });
+    if (flexible) {
+        weekSet.forEach((date) => {
+            const info = infoOf(date);
+            if (!info.holiday) return;
+            const day = ledger.get(date);
+            if (!day || isCompOffRemainder(day) || !(day.workedHours > 0)) return;
+            const alreadyPaid = roundHours(Math.max(0, day.payable - day.consumed));
+            const hours = roundHours(Math.max(0, Math.min(day.workedHours, DAY_HOUR_CAP) - alreadyPaid));
+            if (!(hours > 0)) return;
+            workedHours = roundHours(workedHours + hours);
+            day.holidayWorkedHours = hours;
+        });
+    }
 
     const dayRate = Number(daily) || 0;
     const hourRate = dayRate / 10;
@@ -788,6 +801,17 @@ function buildBalancePay({
             date,
             label: formatAdditionDay(date),
             hours: creditedDayHours(day?.workedHours, info.scheduledHours),
+            attendanceId: day?.attendanceId || '',
+        });
+    });
+    [...weekSet].sort().forEach((date) => {
+        const day = ledger.get(date);
+        const hours = roundHours(day?.holidayWorkedHours);
+        if (!(hours > 0)) return;
+        workedRows.push({
+            date,
+            label: formatAdditionDay(date),
+            hours,
             attendanceId: day?.attendanceId || '',
         });
     });
