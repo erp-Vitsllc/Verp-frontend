@@ -177,6 +177,7 @@ export default function FineMyJournalModal({ isOpen, fine, onClose, onSuccess })
             journalDate,
             reverseJournalDate: reverseDate,
             publishReverseOnly,
+            journalNumber,
             referenceNumber,
             notes: notes.trim(),
             reportingMethod,
