@@ -138,6 +138,12 @@ function LoanPageContent() {
     }, [selectedStatus, activeTab]);
 
     useEffect(() => {
+        if (activeTab === 'Advance' && recoveredFilter === 'Partially Paid') {
+            setRecoveredFilter('All');
+        }
+    }, [activeTab, recoveredFilter]);
+
+    useEffect(() => {
         setMounted(true);
         fetchEmployees();
         fetchLoans();
@@ -645,7 +651,9 @@ function LoanPageContent() {
                                                         <option value="All">Recovered Status</option>
                                                         <option value="Paid">Paid</option>
                                                         <option value="Not Paid">Not Paid</option>
-                                                        <option value="Partially Paid">Partially Paid</option>
+                                                        {activeTab !== 'Advance' ? (
+                                                            <option value="Partially Paid">Partially Paid</option>
+                                                        ) : null}
                                                     </select>
                                                 </th>
                                                 <SortableTh
