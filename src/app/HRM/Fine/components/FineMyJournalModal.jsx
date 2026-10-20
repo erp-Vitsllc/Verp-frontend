@@ -24,6 +24,15 @@ function formatAmount(value) {
     return money(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function fineJournalAmount(fine) {
+    const total = Number(fine?.totalFineAmount || fine?.fineAmount || 0);
+    const paid = Number(fine?.paidAmount || 0);
+    const remaining = total - paid;
+    const amount = remaining > 0 ? remaining : total;
+    if (!(amount > 0)) return '';
+    return amount.toFixed(2);
+}
+
 function todayIso() {
     const d = new Date();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -115,7 +124,14 @@ export default function FineMyJournalModal({ isOpen, fine, onClose, onSuccess })
         setReferenceNumber(String(fine?.fineId || ''));
         setNotes(String(fine?.notes || fine?.reason || '').slice(0, 500));
         setReportingMethod('both');
-        setLines([emptyLine(), emptyLine()]);
+        const amount = fineJournalAmount(fine);
+        const creditLine = emptyLine();
+        const debitLine = emptyLine();
+        if (amount) {
+            creditLine.credit = amount;
+            debitLine.debit = amount;
+        }
+        setLines([creditLine, debitLine]);
         setFiles([]);
         loadSupport();
     }, [isOpen, fine?.fineId, fine?.notes, fine?.reason, loadSupport]);
