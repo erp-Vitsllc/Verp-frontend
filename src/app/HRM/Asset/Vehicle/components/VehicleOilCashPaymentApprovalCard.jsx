@@ -672,7 +672,9 @@ export default function VehicleOilCashPaymentApprovalCard({
                         subtitle={
                             isWarrantyPayment
                                 ? 'Warranty — no Zoho bill / payment step'
-                                : paymentLocked
+                                : paymentGate.readOnly
+                                  ? 'Payment done — values stay visible and cannot be edited'
+                                  : paymentLocked
                                   ? 'Visible preview — unlocks after Complete Service for cash billing'
                                   : 'Submit billing — Zoho bill create sets status to Billed'
                         }
@@ -706,7 +708,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                 succeeds.
                             </p>
 
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div className={`grid grid-cols-1 gap-3 ${String(remark.zohoBillNumber || remark.zohoBillId || '').trim() ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
                                 <label className="block text-xs font-semibold text-gray-500">
                                     Garage vendor
                                     <div className="mt-1">
@@ -784,6 +786,17 @@ export default function VehicleOilCashPaymentApprovalCard({
                                         </div>
                                     )}
                                 </div>
+                                {String(remark.zohoBillNumber || remark.zohoBillId || '').trim() ? (
+                                    <label className="block text-xs font-semibold text-gray-500">
+                                        Zoho bill
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            value={String(remark.zohoBillNumber || remark.zohoBillId || '').trim()}
+                                            className="mt-1 min-h-[44px] w-full rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-sm font-semibold text-emerald-800"
+                                        />
+                                    </label>
+                                ) : null}
                             </div>
 
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

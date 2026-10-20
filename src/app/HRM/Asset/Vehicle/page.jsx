@@ -268,7 +268,9 @@ function vehicleDispositionKey(v) {
 
 function isSoldOrTotalLossDisposition(v) {
     const d = vehicleDispositionKey(v);
-    return d === 'sold' || d === 'total loss';
+    if (d === 'sold' || d === 'total loss' || d === 'total_loss') return true;
+    const status = String(v?.status || '').trim().toLowerCase();
+    return status === 'sold' || status === 'total loss' || status === 'total_loss';
 }
 
 /** Tools assets (VEGA-ASSET-*) must not appear on the Vehicle fleet list. */
@@ -914,8 +916,9 @@ function VehicleAssetPageContent() {
             if (!matchesSearch) return false;
             if (fleetListTab === 'sold_total_loss') {
                 if (!isSoldOrTotalLossDisposition(v)) return false;
-            } else if (!matchesVehicleStatusFilter(v, statusFilter, ctx)) {
-                return false;
+            } else {
+                if (isSoldOrTotalLossDisposition(v)) return false;
+                if (!matchesVehicleStatusFilter(v, statusFilter, ctx)) return false;
             }
             return vehicleMatchesModelYearFilter(v, modelYearFilter);
         });

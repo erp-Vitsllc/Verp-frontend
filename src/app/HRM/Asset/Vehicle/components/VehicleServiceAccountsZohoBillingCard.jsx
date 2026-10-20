@@ -948,7 +948,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
             </div>
             {zohoBillNumber ? (
                 <label className="block text-xs font-semibold text-gray-500">
-                    Bill No
+                    Zoho bill
                     <input
                         type="text"
                         readOnly
@@ -1155,9 +1155,9 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                                                 : ''
                                                         }`,
                                                         canEdit: canAct,
-                                                        zohoBillNumber: isBilled
-                                                            ? String(bill.zohoBillNumber || bill.billNumber || '').trim()
-                                                            : '',
+                                                        zohoBillNumber: String(
+                                                            bill.zohoBillNumber || bill.zohoBillId || '',
+                                                        ).trim(),
                                                     })}
 
                                                     {renderBillNoAndDate({
@@ -1269,9 +1269,9 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                                 : ''
                                         }`,
                                         canEdit: canAct,
-                                        zohoBillNumber: isBilled
-                                            ? String(remark.zohoBillNumber || billing.billNumber || '').trim()
-                                            : '',
+                                        zohoBillNumber: String(
+                                            remark.zohoBillNumber || remark.zohoBillId || '',
+                                        ).trim(),
                                     })}
 
                                     {renderBillNoAndDate({

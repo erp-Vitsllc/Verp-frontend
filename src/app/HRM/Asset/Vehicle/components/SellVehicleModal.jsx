@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 export default function SellVehicleModal({ isOpen, assetId, onClose, onSold }) {
     const { toast } = useToast();
     const [description, setDescription] = useState('');
+    const [attachment, setAttachment] = useState(null);
     const [checks, setChecks] = useState([]);
     const [canSell, setCanSell] = useState(false);
     const [loadingChecks, setLoadingChecks] = useState(false);
@@ -17,6 +18,7 @@ export default function SellVehicleModal({ isOpen, assetId, onClose, onSold }) {
         if (!isOpen || !assetId) return undefined;
         let cancelled = false;
         setDescription('');
+        setAttachment(null);
         setChecks([]);
         setCanSell(false);
         setLoadingChecks(true);
@@ -56,6 +58,9 @@ export default function SellVehicleModal({ isOpen, assetId, onClose, onSold }) {
             setSaving(true);
             const { data } = await axiosInstance.post(`/AssetItem/${assetId}/sell`, {
                 description: description.trim(),
+                ...(attachment?.data
+                    ? { attachment: { name: attachment.name, data: attachment.data } }
+                    : {}),
             });
             toast({ title: 'Vehicle sold', description: data?.message || 'Status changed to sold.' });
             onSold?.();
@@ -100,6 +105,34 @@ export default function SellVehicleModal({ isOpen, assetId, onClose, onSold }) {
                             placeholder="Why this vehicle is being sold"
                             className="w-full rounded-xl border border-gray-200 bg-gray-50 p-2.5 text-sm"
                         />
+                    </div>
+                    <div className="space-y-1.5">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            Attachment <span className="font-medium normal-case text-gray-400">(optional)</span>
+                        </label>
+                        <input
+                            type="file"
+                            accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*"
+                            className="block w-full text-sm text-gray-600"
+                            onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) {
+                                    setAttachment(null);
+                                    return;
+                                }
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                    setAttachment({
+                                        name: file.name,
+                                        data: String(reader.result || ''),
+                                    });
+                                };
+                                reader.readAsDataURL(file);
+                            }}
+                        />
+                        {attachment?.name ? (
+                            <p className="text-xs text-gray-500">{attachment.name}</p>
+                        ) : null}
                     </div>
                     <ul className="space-y-2">
                         {loadingChecks ? (

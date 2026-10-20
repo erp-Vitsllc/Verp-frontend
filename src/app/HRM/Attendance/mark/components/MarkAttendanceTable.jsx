@@ -504,6 +504,7 @@ function applyDayRecordsToState(employees, records) {
             label: rec.statusLabel,
             reason: rec.reason || '',
             attachmentName: rec.attachmentName || '',
+            attachmentUrl: rec.attachmentUrl || '',
             punchSource: rec.punchSource || '',
             checkOutSource: rec.checkOutSource || '',
             checkInLocation: rec.checkInLocation || null,
@@ -1617,9 +1618,21 @@ function EmployeeRow({
                                     </span>
                                 ) : null}
                                 {attachment ? (
-                                    <span className="text-[10px] font-medium text-slate-600 max-w-[180px] truncate" title={attachment}>
-                                        Attachment: {attachment}
-                                    </span>
+                                    mark?.attachmentUrl ? (
+                                        <a
+                                            href={mark.attachmentUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-[10px] font-semibold text-blue-600 max-w-[180px] truncate hover:underline"
+                                            title={attachment}
+                                        >
+                                            Attachment: {attachment}
+                                        </a>
+                                    ) : (
+                                        <span className="text-[10px] font-medium text-slate-600 max-w-[180px] truncate" title={attachment}>
+                                            Attachment: {attachment}
+                                        </span>
+                                    )
                                 ) : null}
                             </>
                         );
@@ -2268,7 +2281,17 @@ export default function MarkAttendanceTable({
         if (payload?.markKey === 'clear_attendance' && !isFlowchartHr) return;
         const idSet = new Set(ids);
         if (idSet.size === 0) return;
-        const { markKey, markLabel, timeIn, timeOut, reason, attachmentName, leavePayType } = payload;
+        const { markKey, markLabel, timeIn, timeOut, reason, attachmentName, attachmentFile, leavePayType } = payload;
+        const attachmentData = await new Promise((resolve) => {
+            if (!attachmentFile) {
+                resolve('');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => resolve('');
+            reader.readAsDataURL(attachmentFile);
+        });
 
         const marksPayload = employeesRef.current
             .filter((e) => idSet.has(e.id) && !e.attendanceSuspended)
@@ -2282,6 +2305,7 @@ export default function MarkAttendanceTable({
                 timeOut: timeOut != null ? timeOut : '',
                 reason: reason || '',
                 attachmentName: attachmentName || '',
+                attachmentData: attachmentData || '',
                 leavePayType: leavePayType || '',
             }));
 

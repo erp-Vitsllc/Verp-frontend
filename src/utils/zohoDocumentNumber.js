@@ -8,6 +8,9 @@ export function resolveZohoDocumentNumber(record = {}) {
     const billNo = String(record.zohoBillNumber || '').trim();
     if (billNo) return billNo;
 
+    const journalNo = String(record.zohoJournalNumber || '').trim();
+    if (journalNo) return journalNo;
+
     return '';
 }
 

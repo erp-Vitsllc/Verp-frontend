@@ -367,10 +367,15 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
             if (!initiated) {
                 return { locked: true, message: 'Complete Initiate Service and click Send first' };
             }
-            if (workComplete || isBilled || stage === 'rejected') {
+            if (stage === 'rejected') {
+                return { locked: true, message: 'Schedule locked — request rejected' };
+            }
+            if (workComplete || isBilled) {
                 return {
-                    locked: true,
-                    message: 'Schedule locked — this service is complete or billed',
+                    locked: false,
+                    readOnly: true,
+                    done: true,
+                    message: 'Schedule saved — fields are read only',
                 };
             }
             // Admin Officer can edit anytime after initiate until Complete Service.
@@ -445,7 +450,12 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
         case OIL_SERVICE_CARD.PAYMENT: {
             if (!isCash) return { locked: true, message: CASH_ONLY_MESSAGE };
             if (isBilled) {
-                return { locked: true, message: 'Zoho bill already created — payment done' };
+                return {
+                    locked: false,
+                    readOnly: true,
+                    done: true,
+                    message: 'Zoho bill already created — payment done',
+                };
             }
             if (stage !== 'pending_accounts') {
                 return {

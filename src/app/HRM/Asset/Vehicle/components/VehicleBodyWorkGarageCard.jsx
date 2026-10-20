@@ -73,7 +73,7 @@ export default function VehicleBodyWorkGarageCard({
         service,
         cardKey: SHOP_SERVICE_CARD.SCHEDULE,
     });
-    const fieldsDisabled = !canEditGarage || saving || isComplete || assignmentPending || scheduleGate.locked;
+    const fieldsDisabled = !canEditGarage || saving || isComplete || assignmentPending || scheduleGate.locked || scheduleGate.readOnly;
 
     const { fieldMinHeightPx, gapClass } = BODY_WORK_DETAIL_GRID_LAYOUT;
     const accent = bodyAccent;

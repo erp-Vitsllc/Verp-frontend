@@ -26,6 +26,7 @@ function isSelectableFleetVehicle(vehicle) {
     const id = normalizeMongoId(vehicle._id);
     if (!id || id.startsWith('locator-')) return false;
     if (vehicle.isLocatorOnly || vehicle.needsLocatorSetup) return false;
+    if (String(vehicle.vehicleDispositionStatus || '').trim().toLowerCase() === 'sold') return false;
     return true;
 }
 

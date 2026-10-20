@@ -78,7 +78,7 @@ export default function VehicleAccidentRepairGarageCard({
     });
     const garageFormComplete = isAccidentRepairGarageFormComplete(formData);
     const fieldsDisabled =
-        !canEditGarage || saving || isComplete || assignmentPending || scheduleGate.locked;
+        !canEditGarage || saving || isComplete || assignmentPending || scheduleGate.locked || scheduleGate.readOnly;
 
     const { fieldMinHeightPx, gapClass } = ACCIDENT_REPAIR_DETAIL_GRID_LAYOUT;
 

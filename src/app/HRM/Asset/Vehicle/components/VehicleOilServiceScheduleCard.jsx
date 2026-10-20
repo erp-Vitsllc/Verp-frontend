@@ -80,8 +80,9 @@ export default function VehicleOilServiceScheduleCard({
     const scheduleStatusLabel = getScheduleSubmitStatusLabel(scheduleSubmitStatus);
     const awaitingSchedule = isOilServiceAwaitingSchedule(remark);
     const stepLocked = scheduleGate.locked;
+    const scheduleReadOnly = Boolean(scheduleGate.readOnly);
     // Admin Officer: edit anytime once unlocked, until service complete.
-    const canEdit = Boolean(canManage) && initiated && !stepLocked;
+    const canEdit = Boolean(canManage) && initiated && !stepLocked && !scheduleReadOnly;
     const fieldsDisabled = !canEdit || saving;
 
     const set = useCallback((key, value) => {
@@ -167,10 +168,10 @@ export default function VehicleOilServiceScheduleCard({
     const { fieldMinHeightPx, gapClass } = OIL_SERVICE_DETAIL_GRID_LAYOUT;
     const accent = (index) => OIL_SERVICE_DETAIL_GRID_ACCENTS[index % OIL_SERVICE_DETAIL_GRID_ACCENTS.length];
 
-    const subtitle = stepLocked
-        ? scheduleGate.done || submitted
-          ? 'Locked — service is complete'
-          : 'Available once Initiate Service is sent'
+    const subtitle = scheduleReadOnly
+        ? 'Saved — values stay visible and cannot be edited'
+        : stepLocked
+        ? 'Available once Initiate Service is sent'
         : !canManage
           ? 'Waiting for Admin / Admin Officer to schedule / reschedule'
           : awaitingSchedule

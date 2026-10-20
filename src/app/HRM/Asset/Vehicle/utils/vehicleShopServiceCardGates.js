@@ -118,8 +118,10 @@ export function resolveShopServiceCardGate({
             }
             if (returnDone || stage === 'pending_billing' || stage === 'billed' || stage === 'complete') {
                 return {
-                    locked: true,
-                    message: 'Schedule locked — Complete Service is done (or billed)',
+                    locked: false,
+                    readOnly: true,
+                    done: true,
+                    message: 'Schedule saved — fields are read only',
                 };
             }
             if (stage === 'rejected') {
@@ -229,7 +231,12 @@ export function resolveShopServiceCardGate({
                 };
             }
             if (stage === 'billed') {
-                return { locked: true, message: 'Zoho bill already created — payment done' };
+                return {
+                    locked: false,
+                    readOnly: true,
+                    done: true,
+                    message: 'Zoho bill already created — payment done',
+                };
             }
             if (stage === 'pending_billing') {
                 return { locked: false, message: '', active: true, done: false };

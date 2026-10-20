@@ -4,8 +4,6 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react'; // Import useRouter
-import Sidebar from '@/components/Sidebar';
-import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { Trash2, Bell } from 'lucide-react';
@@ -36,6 +34,33 @@ import {
 } from './utils/loanPendingInboxCount';
 import { fetchLoanPendingInbox } from '@/utils/pendingInboxFetch';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
+
+const RECOVERED_SORT_RANK = {
+    'Not Paid': 0,
+    'Partially Paid': 1,
+    Paid: 2,
+};
+
+function listApplicationBucket(item) {
+    const status = String(item?.applicationStatus || item?.status || '').trim().toLowerCase();
+    if (status === 'rejected') return 'Rejected';
+    if (status === 'approved' || status === 'paid' || status === 'pending payment to employee') {
+        return 'Completed';
+    }
+    return 'Pending';
+}
+
+function recoveredStatusLabel(item) {
+    const amount = Number(item?.amount) || 0;
+    const repaid = Number(item?.repaidAmount) || 0;
+    if (repaid <= 0.01) return 'Not Paid';
+    if (amount > 0 && repaid + 0.01 >= amount) return 'Paid';
+    return 'Partially Paid';
+}
+
+function recoveredSortRank(item) {
+    return RECOVERED_SORT_RANK[recoveredStatusLabel(item)] ?? 0;
+}
 
 // Animated Counter Component
 const AnimatedCounter = ({ value, duration = 600 }) => {
@@ -84,8 +109,9 @@ function LoanPageContent() {
     const [isDeleting, setIsDeleting] = useState(false);
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
-    const [sortKey, setSortKey] = useState('slNo');
+    const [sortKey, setSortKey] = useState('recoveredStatus');
     const [sortDirection, setSortDirection] = useState('asc');
+    const [recoveredFilter, setRecoveredFilter] = useState('All');
 
     const showLoanTab = mounted && canViewLoanList();
     const showAdvanceTab = mounted && canViewAdvanceList();
@@ -105,6 +131,11 @@ function LoanPageContent() {
         const tab = searchParams.get('tab');
         if (tab) setActiveTab(tab);
     }, [searchParams]);
+
+    useEffect(() => {
+        setSortKey('recoveredStatus');
+        setSortDirection('asc');
+    }, [selectedStatus, activeTab]);
 
     useEffect(() => {
         setMounted(true);
@@ -209,31 +240,37 @@ function LoanPageContent() {
         () =>
             loans.filter((item) => {
                 if (item.type !== activeTab) return false;
-                if (selectedStatus === 'All') return true;
+                if (recoveredFilter !== 'All' && recoveredStatusLabel(item) !== recoveredFilter) return false;
+                if (selectedStatus === 'All') return listApplicationBucket(item) !== 'Rejected';
 
                 const status = (item.applicationStatus || item.status || '').toLowerCase();
                 const selected = String(selectedStatus || '').toLowerCase();
 
                 if (selectedStatus === 'Outstanding') {
+                    return status === 'paid' || (
+                        (status === 'approved' || status === 'pending payment to employee') &&
+                        item.activeStatus === 'Closed'
+                    );
+                }
+                if (selectedStatus === 'Recovered') {
                     return (
                         (status === 'approved' || status === 'pending payment to employee') &&
                         item.activeStatus !== 'Closed'
                     );
                 }
-                if (selectedStatus === 'Recovered') {
-                    return status === 'paid' || (status === 'approved' && item.activeStatus === 'Closed');
-                }
                 if (selectedStatus === 'Pending') {
-                    if (status === 'pending payment to employee') return false;
-                    return status.includes('pending') || status === 'draft';
+                    return listApplicationBucket(item) === 'Pending';
                 }
-                if (selectedStatus === 'Approved') {
-                    return status === 'approved' || status === 'pending payment to employee';
+                if (selectedStatus === 'Rejected') {
+                    return listApplicationBucket(item) === 'Rejected';
+                }
+                if (selectedStatus === 'Completed' || selectedStatus === 'Approved') {
+                    return listApplicationBucket(item) === 'Completed';
                 }
 
                 return status === selected;
             }),
-        [loans, activeTab, selectedStatus],
+        [loans, activeTab, selectedStatus, recoveredFilter],
     );
 
     const sortedData = useMemo(() => {
@@ -249,10 +286,10 @@ function LoanPageContent() {
                     return item.employeeName || '';
                 case 'amount':
                     return Number(item.amount) || 0;
-                case 'activeStatus':
-                    return item.activeStatus || '';
+                case 'recoveredStatus':
+                    return recoveredSortRank(item);
                 case 'applicationStatus':
-                    return item.applicationStatus || item.status || '';
+                    return listApplicationBucket(item);
                 default:
                     return null;
             }
@@ -311,24 +348,20 @@ function LoanPageContent() {
         } else if (status === 'approved' || status === 'pending payment to employee') {
             s.approved++;
 
-            // Logic for Outstanding vs Recovered
+            // Outstanding = still owed. Recovered = amount the employee has paid back.
             if (item.activeStatus === 'Closed' || status === 'paid') {
-                s.recovered += (item.amount || 0);
-            } else {
                 s.outstanding += (item.amount || 0);
+            } else {
+                s.recovered += (item.amount || 0);
             }
         } else if (status === 'paid') {
             s.approved++;
-            s.recovered += (item.amount || 0);
+            s.outstanding += (item.amount || 0);
         }
     });
 
     return (
         <PermissionGuard moduleId="hrm_loan" permissionType="view">
-            <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
-                <Sidebar />
-                <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
-                    <Navbar />
                     <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
 
                         {/* Header and Actions */}
@@ -355,15 +388,15 @@ function LoanPageContent() {
                                     ) : null}
                                 </button>
                                 {canAdd ? (
-                                <button
-                                    onClick={handleAddLoan}
-                                    className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
-                                >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M12 5v14M5 12h14"></path>
-                                    </svg>
-                                    Add Loan/Advance
-                                </button>
+                                    <button
+                                        onClick={handleAddLoan}
+                                        className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
+                                    >
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M12 5v14M5 12h14"></path>
+                                        </svg>
+                                        Add Loan/Advance
+                                    </button>
                                 ) : null}
                             </div>
                         </div>
@@ -372,142 +405,142 @@ function LoanPageContent() {
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6 mb-4 sm:mb-6 lg:mb-8 items-stretch">
                             {/* Loan Stats */}
                             {showLoanTab ? (
-                            <div className={`bg-white rounded-xl p-3 sm:p-4 lg:p-6 border ${activeTab === 'Loan' && selectedStatus !== 'All' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-100'} shadow-sm transition-all overflow-hidden h-auto min-h-[220px] sm:min-h-[280px] lg:h-[320px]`}>
-                                <h3 className="text-sm sm:text-base lg:text-lg font-bold text-gray-800 mb-2 sm:mb-4 flex justify-between items-center gap-2">
-                                    Loan Statistics
-                                    {activeTab === 'Loan' && selectedStatus !== 'All' && (
-                                        <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">Filtered: {selectedStatus}</span>
-                                    )}
-                                </h3>
-                                <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
-                                    {/* Row 1 */}
-                                    <div
-                                        onClick={() => { setActiveTab('Loan'); setSelectedStatus('All'); }}
-                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'All' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
-                                    >
-                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Total Loans</span>
-                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
-                                            <AnimatedCounter value={stats.loan.count} />
-                                        </span>
-                                    </div>
-                                    <div
-                                        onClick={() => { setActiveTab('Loan'); setSelectedStatus('Approved'); }}
-                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Approved' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
-                                    >
-                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Loan Amount</span>
-                                        <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
-                                            <AnimatedCounter value={stats.loan.amount} /> AED
-                                        </span>
-                                    </div>
-                                    <div
-                                        onClick={() => { setActiveTab('Loan'); setSelectedStatus('Pending'); }}
-                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Pending' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
-                                    >
-                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Loan Pending</span>
-                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
-                                            <AnimatedCounter value={stats.loan.pending} />
-                                        </span>
-                                    </div>
-                                    {/* Row 2 */}
-                                    <div
-                                        onClick={() => { setActiveTab('Loan'); setSelectedStatus('Outstanding'); }}
-                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Outstanding' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
-                                    >
-                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Loan Outstanding</span>
-                                        <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
-                                            <AnimatedCounter value={stats.loan.outstanding} /> AED
-                                        </span>
-                                    </div>
-                                    <div
-                                        onClick={() => { setActiveTab('Loan'); setSelectedStatus('Recovered'); }}
-                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Recovered' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
-                                    >
-                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Loan Recovered</span>
-                                        <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
-                                            <AnimatedCounter value={stats.loan.recovered} /> AED
-                                        </span>
-                                    </div>
-                                    <div
-                                        onClick={() => { setActiveTab('Loan'); setSelectedStatus('Approved'); }}
-                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Approved' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
-                                    >
-                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Approved Loan</span>
-                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
-                                            <AnimatedCounter value={stats.loan.approved} />
-                                        </span>
+                                <div className={`bg-white rounded-xl p-3 sm:p-4 lg:p-6 border ${activeTab === 'Loan' && selectedStatus !== 'All' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-100'} shadow-sm transition-all overflow-hidden h-auto min-h-[220px] sm:min-h-[280px] lg:h-[320px]`}>
+                                    <h3 className="text-sm sm:text-base lg:text-lg font-bold text-gray-800 mb-2 sm:mb-4 flex justify-between items-center gap-2">
+                                        Loan Statistics
+                                        {activeTab === 'Loan' && selectedStatus !== 'All' && (
+                                            <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">Filtered: {selectedStatus}</span>
+                                        )}
+                                    </h3>
+                                    <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
+                                        {/* Row 1 */}
+                                        <div
+                                            onClick={() => { setActiveTab('Loan'); setSelectedStatus('All'); }}
+                                            className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'All' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        >
+                                            <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Total Loans</span>
+                                            <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={stats.loan.count} />
+                                            </span>
+                                        </div>
+                                        <div
+                                            onClick={() => { setActiveTab('Loan'); setSelectedStatus('Approved'); }}
+                                            className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Approved' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        >
+                                            <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Loan Amount</span>
+                                            <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={stats.loan.amount} /> AED
+                                            </span>
+                                        </div>
+                                        <div
+                                            onClick={() => { setActiveTab('Loan'); setSelectedStatus('Pending'); }}
+                                            className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Pending' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        >
+                                            <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Loan Pending</span>
+                                            <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={stats.loan.pending} />
+                                            </span>
+                                        </div>
+                                        {/* Row 2 */}
+                                        <div
+                                            onClick={() => { setActiveTab('Loan'); setSelectedStatus('Outstanding'); }}
+                                            className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Outstanding' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        >
+                                            <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Loan Outstanding</span>
+                                            <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={stats.loan.outstanding} /> AED
+                                            </span>
+                                        </div>
+                                        <div
+                                            onClick={() => { setActiveTab('Loan'); setSelectedStatus('Recovered'); }}
+                                            className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Recovered' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        >
+                                            <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Loan Recovered</span>
+                                            <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={stats.loan.recovered} /> AED
+                                            </span>
+                                        </div>
+                                        <div
+                                            onClick={() => { setActiveTab('Loan'); setSelectedStatus('Approved'); }}
+                                            className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Approved' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        >
+                                            <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Approved Loan</span>
+                                            <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={stats.loan.approved} />
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
                             ) : null}
 
                             {/* Advance Stats */}
                             {showAdvanceTab ? (
-                            <div className={`bg-white rounded-xl p-3 sm:p-4 lg:p-6 border ${activeTab === 'Advance' && selectedStatus !== 'All' ? 'border-teal-500 ring-1 ring-teal-500' : 'border-gray-100'} shadow-sm transition-all overflow-hidden h-auto min-h-[220px] sm:min-h-[280px] lg:h-[320px]`}>
-                                <h3 className="text-sm sm:text-base lg:text-lg font-bold text-gray-800 mb-2 sm:mb-4 flex justify-between items-center gap-2">
-                                    Advance Statistics
-                                    {activeTab === 'Advance' && selectedStatus !== 'All' && (
-                                        <span className="text-xs font-medium text-teal-600 bg-teal-50 px-2 py-1 rounded">Filtered: {selectedStatus}</span>
-                                    )}
-                                </h3>
-                                <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
-                                    {/* Row 1 */}
-                                    <div
-                                        onClick={() => { setActiveTab('Advance'); setSelectedStatus('All'); }}
-                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'All' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
-                                    >
-                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Total Advances</span>
-                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
-                                            <AnimatedCounter value={stats.advance.count} />
-                                        </span>
-                                    </div>
-                                    <div
-                                        onClick={() => { setActiveTab('Advance'); setSelectedStatus('Approved'); }}
-                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Approved' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
-                                    >
-                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">ADV Amount</span>
-                                        <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
-                                            <AnimatedCounter value={stats.advance.amount} /> AED
-                                        </span>
-                                    </div>
-                                    <div
-                                        onClick={() => { setActiveTab('Advance'); setSelectedStatus('Pending'); }}
-                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Pending' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
-                                    >
-                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">ADV Pending</span>
-                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
-                                            <AnimatedCounter value={stats.advance.pending} />
-                                        </span>
-                                    </div>
-                                    {/* Row 2 */}
-                                    <div
-                                        onClick={() => { setActiveTab('Advance'); setSelectedStatus('Outstanding'); }}
-                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Outstanding' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
-                                    >
-                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">ADV Outstanding</span>
-                                        <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
-                                            <AnimatedCounter value={stats.advance.outstanding} /> AED
-                                        </span>
-                                    </div>
-                                    <div
-                                        onClick={() => { setActiveTab('Advance'); setSelectedStatus('Recovered'); }}
-                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Recovered' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
-                                    >
-                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">ADV Recovered</span>
-                                        <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
-                                            <AnimatedCounter value={stats.advance.recovered} /> AED
-                                        </span>
-                                    </div>
-                                    <div
-                                        onClick={() => { setActiveTab('Advance'); setSelectedStatus('Approved'); }}
-                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Approved' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
-                                    >
-                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Approved Advance</span>
-                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
-                                            <AnimatedCounter value={stats.advance.approved} />
-                                        </span>
+                                <div className={`bg-white rounded-xl p-3 sm:p-4 lg:p-6 border ${activeTab === 'Advance' && selectedStatus !== 'All' ? 'border-teal-500 ring-1 ring-teal-500' : 'border-gray-100'} shadow-sm transition-all overflow-hidden h-auto min-h-[220px] sm:min-h-[280px] lg:h-[320px]`}>
+                                    <h3 className="text-sm sm:text-base lg:text-lg font-bold text-gray-800 mb-2 sm:mb-4 flex justify-between items-center gap-2">
+                                        Advance Statistics
+                                        {activeTab === 'Advance' && selectedStatus !== 'All' && (
+                                            <span className="text-xs font-medium text-teal-600 bg-teal-50 px-2 py-1 rounded">Filtered: {selectedStatus}</span>
+                                        )}
+                                    </h3>
+                                    <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
+                                        {/* Row 1 */}
+                                        <div
+                                            onClick={() => { setActiveTab('Advance'); setSelectedStatus('All'); }}
+                                            className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'All' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
+                                        >
+                                            <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Total Advances</span>
+                                            <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={stats.advance.count} />
+                                            </span>
+                                        </div>
+                                        <div
+                                            onClick={() => { setActiveTab('Advance'); setSelectedStatus('Approved'); }}
+                                            className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Approved' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
+                                        >
+                                            <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">ADV Amount</span>
+                                            <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={stats.advance.amount} /> AED
+                                            </span>
+                                        </div>
+                                        <div
+                                            onClick={() => { setActiveTab('Advance'); setSelectedStatus('Pending'); }}
+                                            className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Pending' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
+                                        >
+                                            <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">ADV Pending</span>
+                                            <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={stats.advance.pending} />
+                                            </span>
+                                        </div>
+                                        {/* Row 2 */}
+                                        <div
+                                            onClick={() => { setActiveTab('Advance'); setSelectedStatus('Outstanding'); }}
+                                            className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Outstanding' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
+                                        >
+                                            <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">ADV Outstanding</span>
+                                            <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={stats.advance.outstanding} /> AED
+                                            </span>
+                                        </div>
+                                        <div
+                                            onClick={() => { setActiveTab('Advance'); setSelectedStatus('Recovered'); }}
+                                            className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Recovered' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
+                                        >
+                                            <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">ADV Recovered</span>
+                                            <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={stats.advance.recovered} /> AED
+                                            </span>
+                                        </div>
+                                        <div
+                                            onClick={() => { setActiveTab('Advance'); setSelectedStatus('Approved'); }}
+                                            className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Approved' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
+                                        >
+                                            <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Approved Advance</span>
+                                            <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={stats.advance.approved} />
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
                             ) : null}
                         </div>
 
@@ -515,26 +548,26 @@ function LoanPageContent() {
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
                             <div className="flex flex-wrap gap-2 sm:gap-4">
                                 {showLoanTab ? (
-                                <button
-                                    onClick={() => { setActiveTab('Loan'); setSelectedStatus('All'); }}
-                                    className={`px-3 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${activeTab === 'Loan'
-                                        ? 'bg-blue-600 text-white shadow-md'
-                                        : 'bg-white text-gray-500 hover:bg-gray-50 border border-gray-100'
-                                        }`}
-                                >
-                                    Loan List
-                                </button>
+                                    <button
+                                        onClick={() => { setActiveTab('Loan'); setSelectedStatus('All'); }}
+                                        className={`px-3 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${activeTab === 'Loan'
+                                            ? 'bg-blue-600 text-white shadow-md'
+                                            : 'bg-white text-gray-500 hover:bg-gray-50 border border-gray-100'
+                                            }`}
+                                    >
+                                        Loan List
+                                    </button>
                                 ) : null}
                                 {showAdvanceTab ? (
-                                <button
-                                    onClick={() => { setActiveTab('Advance'); setSelectedStatus('All'); }}
-                                    className={`px-3 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${activeTab === 'Advance'
-                                        ? 'bg-teal-600 text-white shadow-md'
-                                        : 'bg-white text-gray-500 hover:bg-gray-50 border border-gray-100'
-                                        }`}
-                                >
-                                    Salary Advance List
-                                </button>
+                                    <button
+                                        onClick={() => { setActiveTab('Advance'); setSelectedStatus('All'); }}
+                                        className={`px-3 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${activeTab === 'Advance'
+                                            ? 'bg-teal-600 text-white shadow-md'
+                                            : 'bg-white text-gray-500 hover:bg-gray-50 border border-gray-100'
+                                            }`}
+                                    >
+                                        Salary Advance List
+                                    </button>
                                 ) : null}
                                 {mounted && !hasAnyListTab ? (
                                     <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
@@ -552,186 +585,182 @@ function LoanPageContent() {
                                     aria-label="Filter by status"
                                 >
                                     <option value="All">All Statuses</option>
-                                    <option value="Draft">Draft</option>
                                     <option value="Pending">Pending</option>
-                                    <option value="Pending HR">Pending HR</option>
-                                    <option value="Pending Accounts">Pending Accounts</option>
-                                    <option value="Pending Authorization">Pending Authorization</option>
-                                    <option value="Pending Payment to Employee">Pending Payment to Employee</option>
-                                    <option value="Approved">Approved</option>
-                                    <option value="Outstanding">Outstanding</option>
-                                    <option value="Recovered">Recovered</option>
-                                    <option value="Paid">Paid</option>
                                     <option value="Rejected">Rejected</option>
-                                    <option value="Cancelled">Cancelled</option>
+                                    <option value="Completed">Completed</option>
                                 </select>
                             </div>
                         </div>
 
                         {/* Table */}
                         {hasAnyListTab ? (
-                        <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full border border-gray-200">
-                            <div className="overflow-x-auto w-full max-w-full">
-                                <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 table-auto text-xs sm:text-sm">
-                                    <thead className="bg-gray-50 border-b border-gray-200">
-                                        <tr>
-                                            <SortableTh
-                                                label="SL No"
-                                                sortKey="slNo"
-                                                activeKey={sortKey}
-                                                direction={sortDirection}
-                                                onSort={handleSort}
-                                                className="w-14 sm:w-16"
-                                            />
-                                            <SortableTh
-                                                label={activeTab === 'Advance' ? 'Salary Advance ID' : `${activeTab} ID`}
-                                                sortKey="id"
-                                                activeKey={sortKey}
-                                                direction={sortDirection}
-                                                onSort={handleSort}
-                                            />
-                                            <SortableTh
-                                                label="Emp ID"
-                                                sortKey="employeeId"
-                                                activeKey={sortKey}
-                                                direction={sortDirection}
-                                                onSort={handleSort}
-                                            />
-                                            <SortableTh
-                                                label="User Name"
-                                                sortKey="employeeName"
-                                                activeKey={sortKey}
-                                                direction={sortDirection}
-                                                onSort={handleSort}
-                                            />
-                                            <SortableTh
-                                                label={activeTab === 'Advance' ? 'Salary Advance Amount' : `${activeTab} Amount`}
-                                                sortKey="amount"
-                                                activeKey={sortKey}
-                                                direction={sortDirection}
-                                                onSort={handleSort}
-                                            />
-                                            <SortableTh
-                                                label={activeTab === 'Advance' ? 'Salary Advance Status' : `${activeTab} Status`}
-                                                sortKey="activeStatus"
-                                                activeKey={sortKey}
-                                                direction={sortDirection}
-                                                onSort={handleSort}
-                                            />
-                                            <SortableTh
-                                                label="Application Status"
-                                                sortKey="applicationStatus"
-                                                activeKey={sortKey}
-                                                direction={sortDirection}
-                                                onSort={handleSort}
-                                            />
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                Actions
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
-                                        {loading ? (
+                            <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full border border-gray-200">
+                                <div className="overflow-x-auto w-full max-w-full">
+                                    <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 table-auto text-xs sm:text-sm">
+                                        <thead className="bg-gray-50 border-b border-gray-200">
                                             <tr>
-                                                <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
-                                                    Loading...
-                                                </td>
+                                                <SortableTh
+                                                    label="SL No"
+                                                    sortKey="slNo"
+                                                    activeKey={sortKey}
+                                                    direction={sortDirection}
+                                                    onSort={handleSort}
+                                                    className="w-14 sm:w-16"
+                                                />
+                                                <SortableTh
+                                                    label={activeTab === 'Advance' ? 'Salary Advance ID' : `${activeTab} ID`}
+                                                    sortKey="id"
+                                                    activeKey={sortKey}
+                                                    direction={sortDirection}
+                                                    onSort={handleSort}
+                                                />
+                                                <SortableTh
+                                                    label="Emp ID"
+                                                    sortKey="employeeId"
+                                                    activeKey={sortKey}
+                                                    direction={sortDirection}
+                                                    onSort={handleSort}
+                                                />
+                                                <SortableTh
+                                                    label="User Name"
+                                                    sortKey="employeeName"
+                                                    activeKey={sortKey}
+                                                    direction={sortDirection}
+                                                    onSort={handleSort}
+                                                />
+                                                <SortableTh
+                                                    label={activeTab === 'Advance' ? 'Salary Advance Amount' : `${activeTab} Amount`}
+                                                    sortKey="amount"
+                                                    activeKey={sortKey}
+                                                    direction={sortDirection}
+                                                    onSort={handleSort}
+                                                />
+                                                <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                                    <select
+                                                        value={recoveredFilter}
+                                                        onChange={(e) => setRecoveredFilter(e.target.value)}
+                                                        className="max-w-[150px] bg-transparent border border-gray-200 rounded-md px-2 py-1 text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                        aria-label="Filter by recovered status"
+                                                    >
+                                                        <option value="All">Recovered Status</option>
+                                                        <option value="Paid">Paid</option>
+                                                        <option value="Not Paid">Not Paid</option>
+                                                        <option value="Partially Paid">Partially Paid</option>
+                                                    </select>
+                                                </th>
+                                                <SortableTh
+                                                    label="Application Status"
+                                                    sortKey="applicationStatus"
+                                                    activeKey={sortKey}
+                                                    direction={sortDirection}
+                                                    onSort={handleSort}
+                                                />
+                                                <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                                    Actions
+                                                </th>
                                             </tr>
-                                        ) : sortedData.length === 0 ? (
-                                            <tr>
-                                                <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
-                                                    No {activeTab === 'Advance' ? 'salary advance' : activeTab.toLowerCase()}s found.
-                                                </td>
-                                            </tr>
-                                        ) : (
-                                            sortedData.map((item, index) => {
-                                                const loanHref = `/HRM/LoanAndAdvance/${(item.type ? item.type.replace(/\s+/g, '-') : 'Loan')}-${item.id}`;
-                                                return (
-                                                <ListTableRowLink
-                                                    key={item.id}
-                                                    href={loanHref}
-                                                    router={router}
-                                                >
-                                                <tr
-                                                    className="relative hover:bg-gray-50 transition-colors group cursor-pointer"
-                                                >
-                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-500 tabular-nums">
-                                                        <div className="relative z-10 pointer-events-none">{index + 1}</div>
-                                                    </td>
-                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm font-medium text-gray-900">
-                                                        <div className="relative z-10 pointer-events-none">
-                                                            {item.loanId ? item.loanId.toUpperCase() : item.id.substring(item.id.length - 6).toUpperCase()}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700">
-                                                        <div className="relative z-10 pointer-events-none">{item.employeeId}</div>
-                                                    </td>
-                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-900 font-medium">
-                                                        <div className="relative z-10 pointer-events-none">{item.employeeName}</div>
-                                                    </td>
-                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700 font-semibold">
-                                                        AED {Number(item.amount).toLocaleString()}
-                                                    </td>
-                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
-                                                        <span
-                                                            className={`px-3 py-1 rounded-full text-xs font-medium ${item.activeStatus === 'Open'
-                                                                ? 'bg-green-100 text-green-800'
-                                                                : 'bg-gray-100 text-gray-700'
-                                                                }`}
-                                                        >
-                                                            {item.activeStatus || 'Open'}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
-                                                        <span
-                                                            className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                                                item.applicationStatus === 'Approved' ||
-                                                                item.applicationStatus === 'Pending Payment to Employee' ||
-                                                                item.applicationStatus === 'Paid'
-                                                                    ? 'bg-blue-100 text-blue-800'
-                                                                    : String(item.applicationStatus || '').includes('Pending') ||
-                                                                        item.applicationStatus === 'Draft'
-                                                                      ? 'bg-yellow-100 text-yellow-800'
-                                                                      : 'bg-red-100 text-red-800'
-                                                            }`}
-                                                        >
-                                                            {item.applicationStatus === 'Paid' ||
-                                                            item.applicationStatus === 'Pending Payment to Employee'
-                                                                ? item.applicationStatus === 'Pending Payment to Employee'
-                                                                    ? 'Pending Payment to Employee'
-                                                                    : 'Approved'
-                                                                : item.applicationStatus || 'Pending'}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-right">
-                                                        <div className="relative z-20 flex items-center justify-end gap-2">
-                                                            {isAdmin() && (
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        handleDeleteClick(item);
-                                                                    }}
-                                                                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                                                    title="Delete Request"
-                                                                >
-                                                                    <Trash2 size={18} />
-                                                                </button>
-                                                            )}
-                                                        </div>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                            {loading ? (
+                                                <tr>
+                                                    <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                        Loading...
                                                     </td>
                                                 </tr>
-                                                </ListTableRowLink>
-                                                );
-                                            })
-                                        )}
-                                    </tbody>
-                                </table>
+                                            ) : sortedData.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                        No {activeTab === 'Advance' ? 'salary advance' : activeTab.toLowerCase()}s found.
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                sortedData.map((item, index) => {
+                                                    const loanHref = `/HRM/LoanAndAdvance/${(item.type ? item.type.replace(/\s+/g, '-') : 'Loan')}-${item.id}`;
+                                                    return (
+                                                        <ListTableRowLink
+                                                            key={item.id}
+                                                            href={loanHref}
+                                                            router={router}
+                                                        >
+                                                            <tr
+                                                                className="relative hover:bg-gray-50 transition-colors group cursor-pointer"
+                                                            >
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-500 tabular-nums">
+                                                                    <div className="relative z-10 pointer-events-none">{index + 1}</div>
+                                                                </td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm font-medium text-gray-900">
+                                                                    <div className="relative z-10 pointer-events-none">
+                                                                        {item.loanId ? item.loanId.toUpperCase() : item.id.substring(item.id.length - 6).toUpperCase()}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700">
+                                                                    <div className="relative z-10 pointer-events-none">{item.employeeId}</div>
+                                                                </td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-900 font-medium">
+                                                                    <div className="relative z-10 pointer-events-none">{item.employeeName}</div>
+                                                                </td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700 font-semibold">
+                                                                    AED {Number(item.amount).toLocaleString()}
+                                                                </td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
+                                                                    {(() => {
+                                                                        const recovered = recoveredStatusLabel(item);
+                                                                        const tone =
+                                                                            recovered === 'Paid'
+                                                                                ? 'bg-green-100 text-green-800'
+                                                                                : recovered === 'Partially Paid'
+                                                                                    ? 'bg-amber-100 text-amber-800'
+                                                                                    : 'bg-red-100 text-red-800';
+                                                                        return (
+                                                                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${tone}`}>
+                                                                                {recovered}
+                                                                            </span>
+                                                                        );
+                                                                    })()}
+                                                                </td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
+                                                                    {(() => {
+                                                                        const bucket = listApplicationBucket(item);
+                                                                        const tone =
+                                                                            bucket === 'Completed'
+                                                                                ? 'bg-blue-100 text-blue-800'
+                                                                                : bucket === 'Rejected'
+                                                                                    ? 'bg-red-100 text-red-800'
+                                                                                    : 'bg-yellow-100 text-yellow-800';
+                                                                        return (
+                                                                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${tone}`}>
+                                                                                {bucket}
+                                                                            </span>
+                                                                        );
+                                                                    })()}
+                                                                </td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-right">
+                                                                    <div className="relative z-20 flex items-center justify-end gap-2">
+                                                                        {isAdmin() && (
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    handleDeleteClick(item);
+                                                                                }}
+                                                                                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                                title="Delete Request"
+                                                                            >
+                                                                                <Trash2 size={18} />
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        </ListTableRowLink>
+                                                    );
+                                                })
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
-                        </div>
                         ) : null}
                     </div>
-                </div>
-            </div>
 
             <AddLoanModal
                 isOpen={showAddModal}

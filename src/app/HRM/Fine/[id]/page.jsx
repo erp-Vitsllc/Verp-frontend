@@ -11,7 +11,7 @@ import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { Loader2, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Package, History, ExternalLink, FileText, Wallet } from 'lucide-react';
+import { Loader2, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Package, History, ExternalLink, FileText, Wallet, BookOpen } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -23,6 +23,7 @@ import FineCompanyRefundModal from '../components/FineCompanyRefundModal';
 import FinePayChoiceModal from '../components/FinePayChoiceModal';
 import FineVendorCreditModal from '../components/FineVendorCreditModal';
 import FineEmployeePayModal from '../components/FineEmployeePayModal';
+import FineMyJournalModal from '../components/FineMyJournalModal';
 import FineWorkflowHistoryPanel from '../components/FineWorkflowHistoryPanel';
 import {
     buildFineVendorPaymentPrefill,
@@ -293,6 +294,7 @@ function FineDetailsPageContent() {
     const [finePayChoiceOpen, setFinePayChoiceOpen] = useState(false);
     const [fineVendorCreditOpen, setFineVendorCreditOpen] = useState(false);
     const [fineEmployeePayOpen, setFineEmployeePayOpen] = useState(false);
+    const [myJournalOpen, setMyJournalOpen] = useState(false);
     const openedRefundFromQueryRef = useRef(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [isResubmittingModal, setIsResubmittingModal] = useState(false);
@@ -2323,7 +2325,16 @@ function FineDetailsPageContent() {
                                                     {cells.slice(0, 6)}
                                                 </div>
                                                 {showSettleButtons ? (
-                                                    <div className="mt-auto grid grid-cols-2 gap-2 pt-3 print:hidden">
+                                                    <div className="mt-auto grid grid-cols-3 gap-2 pt-3 print:hidden">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setMyJournalOpen(true)}
+                                                            disabled={actionLoading}
+                                                            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-slate-800 px-2 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+                                                        >
+                                                            <BookOpen className="h-4 w-4 shrink-0" />
+                                                            My Journal
+                                                        </button>
                                                         <button
                                                             type="button"
                                                             onClick={handlePaidByEmployee}
@@ -2951,6 +2962,21 @@ function FineDetailsPageContent() {
                         onEmployeePay={() => {
                             setFinePayChoiceOpen(false);
                             setFineEmployeePayOpen(true);
+                        }}
+                    />
+                    <FineMyJournalModal
+                        isOpen={myJournalOpen}
+                        fine={fine}
+                        onClose={() => setMyJournalOpen(false)}
+                        onSuccess={async (updated) => {
+                            setMyJournalOpen(false);
+                            if (updated) setFine(updated);
+                            try {
+                                const fineRes = await axiosInstance.get(`/Fine/${id}`);
+                                setFine(fineRes.data);
+                            } catch (e) {
+                                console.error('Failed to refresh fine after journal', e);
+                            }
                         }}
                     />
                     <FineEmployeePayModal

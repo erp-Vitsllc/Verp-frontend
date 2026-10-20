@@ -1621,16 +1621,18 @@ function VehicleDetailsPageContent() {
 
     const vehicleCardActionFlags = useCallback(
         (cardKey) => {
+            const soldLocked =
+                String(asset?.vehicleDispositionStatus || '').trim().toLowerCase() === 'sold';
             const access = vehicleCardCrud(cardKey);
             return {
-                showEdit: access.edit,
-                showDelete: showVehicleCardDelete,
-                showRenew: showVehicleCardRenewActions && access.edit,
-                showNotRenew: showVehicleCardRenewActions && access.edit,
+                showEdit: access.edit && !soldLocked,
+                showDelete: showVehicleCardDelete && !soldLocked,
+                showRenew: showVehicleCardRenewActions && access.edit && !soldLocked,
+                showNotRenew: showVehicleCardRenewActions && access.edit && !soldLocked,
                 showDownload: access.download,
             };
         },
-        [showVehicleCardDelete, showVehicleCardRenewActions],
+        [asset?.vehicleDispositionStatus, showVehicleCardDelete, showVehicleCardRenewActions],
     );
 
     const visibleVehicleDetailTabs = useMemo(
@@ -2522,6 +2524,7 @@ function VehicleDetailsPageContent() {
     const { profilePct } = computeVehicleProfileCompletionPercent(asset);
 
     const vehicleDispositionKey = String(asset?.vehicleDispositionStatus || 'active').toLowerCase().trim();
+    const isSoldVehicle = vehicleDispositionKey === 'sold';
     const isDisposedFleetProfile =
         vehicleDispositionKey === 'sold' || vehicleDispositionKey === 'total loss';
 
@@ -3875,7 +3878,9 @@ function VehicleDetailsPageContent() {
                                     showExpirySummary={activeTab !== 'handover'}
                                     actionsAtTop={activeTab === 'handover'}
                                     actionButtons={
-                                        activeTab === 'handover' ? vehicleHandoverCardActionButtons : []
+                                        activeTab === 'handover' && !isSoldVehicle
+                                            ? vehicleHandoverCardActionButtons
+                                            : []
                                     }
                                 />
                             </div>
@@ -3921,7 +3926,7 @@ function VehicleDetailsPageContent() {
                             </div>
 
                             <div className="flex flex-wrap items-center justify-start gap-2">
-                                {activeTab === 'basic' && asset.assignedTo && (
+                                {activeTab === 'basic' && asset.assignedTo && !isSoldVehicle && (
                                     <button
                                         type="button"
                                         onClick={() => setShowHandoverModal(true)}
@@ -3963,7 +3968,7 @@ function VehicleDetailsPageContent() {
                                                                 Review disposition
                                                             </button>
                                                         )}
-                                                        {vehicleCardActionFlags('vehicle').showEdit && (
+                                                        {vehicleCardActionFlags('vehicle').showEdit && !isSoldVehicle && (
                                                             <button
                                                                 type="button"
                                                                 className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
@@ -3975,7 +3980,7 @@ function VehicleDetailsPageContent() {
                                                                 <PencilLine size={18} />
                                                             </button>
                                                         )}
-                                                        {canDeleteWholeVehicle && (
+                                                        {canDeleteWholeVehicle && !isSoldVehicle && (
                                                             <button
                                                                 type="button"
                                                                 onClick={handleDeleteVehicle}
@@ -4655,6 +4660,7 @@ function VehicleDetailsPageContent() {
                                         </div>
                                     </div>
 
+                                    {!isSoldVehicle ? (
                                     <div className="mt-6">
                                         <div className="flex flex-wrap gap-3">
                                             {!hasRegistrationCardData && (
@@ -4716,6 +4722,7 @@ function VehicleDetailsPageContent() {
                                             )}
                                         </div>
                                     </div>
+                                    ) : null}
                                 </div>
                             )}
 
@@ -4723,7 +4730,7 @@ function VehicleDetailsPageContent() {
                                 <div id="asset-focus-vehiclePermit" className="w-full px-2 space-y-6">
                                     <div className="flex items-center justify-between">
                                         <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Permit</h3>
-                                        {permitTabAccess.create && (
+                                        {permitTabAccess.create && !isSoldVehicle && (
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -4887,7 +4894,7 @@ function VehicleDetailsPageContent() {
                                             allowedFineTypes={VEHICLE_DETAIL_FINE_TYPES}
                                             vehiclePrefill={vehicleFineInitialData}
                                             vehicles={fineModalVehicles}
-                                            canCreate={fineTabAccess.create}
+                                            canCreate={fineTabAccess.create && !isSoldVehicle}
                                         />
                                     </Suspense>
                                 </div>
@@ -5041,6 +5048,7 @@ function VehicleDetailsPageContent() {
                                                 className="hidden sm:block w-px self-stretch min-h-[2.25rem] bg-slate-300/80 shrink-0 mx-1"
                                                 aria-hidden="true"
                                             />
+                                            {!isSoldVehicle ? (
                                             <button
                                                 type="button"
                                                 onClick={openServiceTypeRequest}
@@ -5070,6 +5078,7 @@ function VehicleDetailsPageContent() {
                                                 )}
                                                 Request {serviceInnerTab}
                                             </button>
+                                            ) : null}
                                         </div>
 
                                         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -5097,7 +5106,7 @@ function VehicleDetailsPageContent() {
                                                     rows={oilServiceRequestRows}
                                                     emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
                                                     onRowClick={openOilServiceDetail}
-                                                    canDelete={canDeleteVehicleServiceRecords}
+                                                    canDelete={canDeleteVehicleServiceRecords && !isSoldVehicle}
                                                     onDelete={requestDeleteVehicleService}
                                                     deletingServiceId={deletingServiceId}
                                                 />
@@ -5106,7 +5115,7 @@ function VehicleDetailsPageContent() {
                                                     rows={carWashRequestRows}
                                                     emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
                                                     onRowClick={openCarWashRow}
-                                                    canDelete={canDeleteVehicleServiceRecords}
+                                                    canDelete={canDeleteVehicleServiceRecords && !isSoldVehicle}
                                                     onDelete={requestDeleteVehicleService}
                                                     deletingServiceId={deletingServiceId}
                                                 />
@@ -5115,7 +5124,7 @@ function VehicleDetailsPageContent() {
                                                     rows={vehicleServiceTabRequestRows}
                                                     emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
                                                     onRowClick={openVehicleServiceTabRow}
-                                                    canDelete={canDeleteVehicleServiceRecords}
+                                                    canDelete={canDeleteVehicleServiceRecords && !isSoldVehicle}
                                                     onDelete={requestDeleteVehicleService}
                                                     deletingServiceId={deletingServiceId}
                                                 />
@@ -5140,7 +5149,7 @@ function VehicleDetailsPageContent() {
                                     asset={asset}
                                     assetHistory={assetHistory}
                                     loading={loadingHandoverHistory}
-                                    canEdit={accessoriesListTabAccess.edit}
+                                    canEdit={accessoriesListTabAccess.edit && !isSoldVehicle}
                                     canManageItemFines={fineTabAccess.create}
                                     isFlowchartHr={isFlowchartHr}
                                     onUpdate={refreshData}
@@ -5154,6 +5163,7 @@ function VehicleDetailsPageContent() {
                                         asset={asset}
                                         loading={loadingHandoverHistory}
                                         canDelete={
+                                            !isSoldVehicle &&
                                             permissionsMounted &&
                                             currentUser?.isSystemSuperUser === true
                                         }
@@ -5283,17 +5293,10 @@ function VehicleDetailsPageContent() {
                                             <div className="flex items-center justify-between gap-4 flex-wrap">
                                                 <h3 className="text-xl font-semibold text-gray-800">Documents</h3>
                                                 <div className="flex flex-wrap items-center gap-2">
+                                                    {!isSoldVehicle ? (
                                                     <button
                                                         type="button"
                                                         onClick={() => {
-                                                            if (String(asset?.vehicleDispositionStatus || '').toLowerCase() === 'sold') {
-                                                                toast({
-                                                                    variant: 'destructive',
-                                                                    title: 'Vehicle sold',
-                                                                    description: 'A sold vehicle cannot be serviced.',
-                                                                });
-                                                                return;
-                                                            }
                                                             setVehicleServicePresetType('');
                                                             setVehicleServiceEditingRecord(null);
                                                             setVehicleServiceModalOpen(true);
@@ -5302,6 +5305,7 @@ function VehicleDetailsPageContent() {
                                                     >
                                                         <PlusCircle size={16} /> Add service request
                                                     </button>
+                                                    ) : null}
                                                     <button
                                                         type="button"
                                                         onClick={() => {
@@ -5384,18 +5388,20 @@ function VehicleDetailsPageContent() {
 
                                             const documentTabDocAccess = vehicleCardCrud('document');
                                             const isLiveDocumentTab = documentInnerTab === 'live';
-                                            const showDocTabEdit = documentTabDocAccess.edit;
+                                            const showDocTabEdit = documentTabDocAccess.edit && !isSoldVehicle;
                                             const showDocTabRenew =
+                                                !isSoldVehicle &&
                                                 showVehicleCardRenewActions &&
                                                 documentTabDocAccess.edit &&
                                                 isLiveDocumentTab;
                                             const showDocTabNotRenew =
+                                                !isSoldVehicle &&
                                                 showVehicleCardRenewActions &&
                                                 documentTabDocAccess.edit &&
                                                 isLiveDocumentTab;
-                                            const showDocTabDelete = isLiveDocumentTab
+                                            const showDocTabDelete = !isSoldVehicle && (isLiveDocumentTab
                                                 ? showVehicleCardDelete
-                                                : documentTabDocAccess.delete || canAdminDeleteVehicleRecords;
+                                                : documentTabDocAccess.delete || canAdminDeleteVehicleRecords);
 
                                             const attachmentBtn = (url, label) =>
                                                 url ? (
@@ -6165,15 +6171,7 @@ function VehicleDetailsPageContent() {
                                                             onOpenAttachment={(url, label) =>
                                                                 openFilePreview(url, label || 'Attachment')
                                                             }
-                                                            onAddService={(serviceType) => {
-                                                                if (String(asset?.vehicleDispositionStatus || '').toLowerCase() === 'sold') {
-                                                                    toast({
-                                                                        variant: 'destructive',
-                                                                        title: 'Vehicle sold',
-                                                                        description: 'A sold vehicle cannot be serviced.',
-                                                                    });
-                                                                    return;
-                                                                }
+                                                            onAddService={isSoldVehicle ? undefined : (serviceType) => {
                                                                 setVehicleServicePresetType(serviceType);
                                                                 setVehicleServiceEditingRecord(null);
                                                                 setVehicleServiceModalOpen(true);

@@ -18,8 +18,6 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Loader2, Check, X, Download, Edit, Lock, Send, Trash2 } from 'lucide-react';
-import Sidebar from '@/components/Sidebar';
-import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import AddLoanModal from '../components/AddLoanModal';
 import LoanFormCards from '../components/LoanFormCards';
@@ -88,7 +86,6 @@ export default function LoanRequestDetails() {
 
     useEffect(() => {
         if (loan && loan.employeeId) {
-            fetchEmployeeDetails(loan.employeeId);
             fetchLoanStats(loan.employeeId, loan);
         }
     }, [loan]);
@@ -184,20 +181,6 @@ export default function LoanRequestDetails() {
             }
         } catch (err) {
             console.error('Failed to fetch loan stats', err);
-        }
-    };
-
-    const fetchEmployeeDetails = async (empId) => {
-        try {
-            let targetId = loan.employeeObjectId?._id || loan.employeeObjectId || loan.employeeId;
-            if (targetId) {
-                const response = await axiosInstance.get(`/Employee/${targetId}`);
-                if (response.data) {
-                    setEmployee(response.data.employee || response.data);
-                }
-            }
-        } catch (err) {
-            console.error("Failed to fetch employee details for PDF", err);
         }
     };
 
@@ -1023,10 +1006,6 @@ export default function LoanRequestDetails() {
 
     return (
         <PermissionGuard moduleId="hrm_loan" permissionType="view">
-            <div className="flex min-h-screen w-full bg-[#F2F6F9] print:bg-white">
-                <div className="print:hidden"><Sidebar /></div>
-                <div className="flex-1 flex flex-col min-w-0">
-                    <div className="print:hidden shrink-0"><Navbar /></div>
                     <div className="flex-1 flex flex-col items-stretch justify-start py-4 sm:py-6 lg:py-8 print:py-0 relative overflow-y-auto w-full px-3 sm:px-5 lg:px-8">
                         <div className="w-full flex items-center justify-between mb-2 print:hidden">
                             <ListReturnBackButton onNavigate={handleListReturnBack} />
@@ -1326,8 +1305,6 @@ export default function LoanRequestDetails() {
                             />
                         </div>
                     </div>
-                </div>
-            </div>
 
             <FinePayChoiceModal
                 isOpen={loanPayChoiceOpen}

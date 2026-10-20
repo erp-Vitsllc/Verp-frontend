@@ -91,7 +91,7 @@ export function fineHasZohoBill(fine) {
 export function isFineAccountsSettlementDone(fine) {
     if (!fine) return false;
     const path = String(fine.accountsPaymentPath || '').trim().toLowerCase();
-    if (path === 'zoho' || path === 'employee') return true;
+    if (path === 'zoho' || path === 'employee' || path === 'journal') return true;
     if (String(fine.vendorBillStatus || '').toLowerCase() === 'paid') return true;
     return fineHasZohoBill(fine);
 }

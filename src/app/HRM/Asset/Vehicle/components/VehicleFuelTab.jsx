@@ -144,7 +144,9 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
         if (!canCreateMonthlyLimit) setLimitModalOpen(false);
     }, [canCreateMonthlyLimit]);
 
-    const allowHrActions = isFlowchartHr || canManage || canAccessAddFuel();
+    const vehicleIsSold =
+        String(asset?.vehicleDispositionStatus || '').trim().toLowerCase() === 'sold';
+    const allowHrActions = !vehicleIsSold && (isFlowchartHr || canManage || canAccessAddFuel());
     const allowDelete = canDelete || isAdmin();
     const allowEditFuel = Boolean(isFlowchartHr || canEditFuel);
 

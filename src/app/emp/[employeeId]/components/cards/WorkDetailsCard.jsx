@@ -242,7 +242,7 @@ export default function WorkDetailsCard({
                     {
                         label: 'Attendance',
                         value: String(employee.attendanceAccountStatus || 'active') === 'suspended'
-                            ? `Suspended${employee.attendanceSuspension?.fromDate ? ` (${employee.attendanceSuspension.fromDate} to ${employee.attendanceSuspension.untilDate || '—'}${employee.attendanceSuspension.description ? ` · ${employee.attendanceSuspension.description}` : ''})` : ''}`
+                            ? `Suspended${employee.attendanceSuspension?.fromDate ? ` (${employee.attendanceSuspension.fromDate} to ${employee.attendanceSuspension.untilDate || '—'}${employee.attendanceSuspension.description ? ` · ${employee.attendanceSuspension.description}` : ''})` : ''}${Array.isArray(employee.attendanceSuspension?.attachments) && employee.attendanceSuspension.attachments.length ? ` · ${employee.attendanceSuspension.attachments.map((file) => file.name).filter(Boolean).join(', ')}` : ''}`
                             : 'Active',
                         show: !isCompanyProfile,
                     },

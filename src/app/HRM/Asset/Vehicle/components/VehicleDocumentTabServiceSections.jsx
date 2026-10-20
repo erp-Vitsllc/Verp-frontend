@@ -221,7 +221,7 @@ function OilServiceDocTable({ rows, mode, onOpenAttachment, onAdd }) {
                             <td className={tdClass}>
                                 <AttachmentCell srv={srv} onOpen={onOpenAttachment} />
                             </td>
-                            {mode === 'live' ? (
+                            {mode === 'live' && onAdd ? (
                                 <td className={tdClass}>
                                     <button
                                         type="button"
@@ -277,7 +277,7 @@ function CarWashDocTable({ rows, mode, onOpenAttachment, onAdd }) {
                             <td className={tdClass}>
                                 <AttachmentCell srv={srv} onOpen={onOpenAttachment} />
                             </td>
-                            {mode === 'live' ? (
+                            {mode === 'live' && onAdd ? (
                                 <td className={tdClass}>
                                     <button
                                         type="button"
@@ -333,7 +333,7 @@ function GenericServiceDocTable({ serviceType, rows, mode, onOpenAttachment, onA
                             <td className={tdClass}>
                                 <AttachmentCell srv={srv} onOpen={onOpenAttachment} />
                             </td>
-                            {mode === 'live' ? (
+                            {mode === 'live' && onAdd ? (
                                 <td className={tdClass}>
                                     <button
                                         type="button"

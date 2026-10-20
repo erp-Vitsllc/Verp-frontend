@@ -730,10 +730,22 @@ function EventsDetailPanel({ title, events, onClose, onOpenCompOff }) {
                                         </p>
                                     ) : null}
                                     {event.attachmentName ? (
-                                        <p className="inline-flex items-center gap-1 text-xs text-blue-600 mt-2">
-                                            <Paperclip size={12} />
-                                            {event.attachmentName}
-                                        </p>
+                                        event.attachmentUrl ? (
+                                            <a
+                                                href={event.attachmentUrl}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="inline-flex items-center gap-1 text-xs text-blue-600 mt-2 hover:underline"
+                                            >
+                                                <Paperclip size={12} />
+                                                {event.attachmentName}
+                                            </a>
+                                        ) : (
+                                            <p className="inline-flex items-center gap-1 text-xs text-blue-600 mt-2">
+                                                <Paperclip size={12} />
+                                                {event.attachmentName}
+                                            </p>
+                                        )
                                     ) : null}
                                 </li>
                             ))}

@@ -167,6 +167,7 @@ export default function WorkDetailsModal({
     const [suspendOpen, setSuspendOpen] = useState(false);
     const [suspendSaving, setSuspendSaving] = useState(false);
     const [suspendForm, setSuspendForm] = useState({ mode: 'range', fromDate: '', untilDate: '', description: '' });
+    const [suspendFiles, setSuspendFiles] = useState([]);
 
     // State for delete confirmation
     const [deleteConfig, setDeleteConfig] = useState({
@@ -745,14 +746,26 @@ export default function WorkDetailsModal({
         }
         setSuspendSaving(true);
         try {
+            const attachments = await Promise.all(suspendFiles.map((file) => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve({
+                    name: file.name,
+                    mimeType: file.type,
+                    data: String(reader.result || ''),
+                });
+                reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+                reader.readAsDataURL(file);
+            })));
             await axiosInstance.post(`/Employee/${employeeId}/attendance-suspension`, {
                 mode: permanent ? 'permanent' : 'range',
                 fromDate,
                 untilDate,
                 description,
+                attachments,
             });
             toast({ title: 'Attendance suspended' });
             setSuspendOpen(false);
+            setSuspendFiles([]);
             if (onEmployeeRefresh) await onEmployeeRefresh();
         } catch (err) {
             toast({
@@ -1260,6 +1273,53 @@ export default function WorkDetailsModal({
                                 {suspendReason.length > 0 && suspendReason.length < 3 ? (
                                     <p className="mt-1 text-xs text-red-500">Enter a reason of at least 3 characters.</p>
                                 ) : null}
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-sm font-medium text-gray-700">
+                                    Attachment <span className="text-gray-400 font-normal">(optional)</span>
+                                </label>
+                                <input
+                                    type="file"
+                                    multiple
+                                    accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
+                                    onChange={(event) => {
+                                        const picked = Array.from(event.target.files || []);
+                                        const next = [...suspendFiles];
+                                        for (const file of picked) {
+                                            if (next.length >= 5) break;
+                                            const okType = /pdf|jpeg|png|jpg/i.test(file.type) || /\.(pdf|jpe?g|png)$/i.test(file.name);
+                                            if (!okType) {
+                                                toast({ title: 'File type not allowed', description: 'Use PDF, JPG, or PNG.', variant: 'destructive' });
+                                                continue;
+                                            }
+                                            if (file.size > 10 * 1024 * 1024) {
+                                                toast({ title: 'File too large', description: `${file.name} is over 10MB.`, variant: 'destructive' });
+                                                continue;
+                                            }
+                                            next.push(file);
+                                        }
+                                        setSuspendFiles(next);
+                                        event.target.value = '';
+                                    }}
+                                    className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-gray-700"
+                                />
+                                <p className="mt-1 text-xs text-gray-400">PDF, JPG, or PNG. Up to 5 files, 10MB each. You can leave this empty.</p>
+                                {suspendFiles.length > 0 && (
+                                    <ul className="mt-2 space-y-1 text-sm text-gray-700">
+                                        {suspendFiles.map((file, index) => (
+                                            <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2">
+                                                <span className="truncate">{file.name}</span>
+                                                <button
+                                                    type="button"
+                                                    className="text-xs text-red-600"
+                                                    onClick={() => setSuspendFiles((prev) => prev.filter((_, i) => i !== index))}
+                                                >
+                                                    Remove
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
                             </div>
                         </div>
                         <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">

@@ -8,13 +8,25 @@ import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/
 function roundHours(value) {
     const hours = Number(value);
     if (!Number.isFinite(hours) || hours < 0) return 0;
-    return Math.round(hours * 100) / 100;
+    return Math.round(hours * 1e6) / 1e6;
 }
 
-function clockToMinutes(value) {
-    const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})/);
+function clockToSeconds(value) {
+    const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
     if (!match) return null;
-    return Number(match[1]) * 60 + Number(match[2]);
+    return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3] || 0);
+}
+
+function formatExactHours(hours) {
+    const total = Math.max(0, Math.round((Number(hours) || 0) * 3600));
+    const whole = Math.floor(total / 3600);
+    const mins = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    const parts = [];
+    if (whole) parts.push(`${whole} hr`);
+    if (mins) parts.push(`${mins} min`);
+    if (secs) parts.push(`${secs} sec`);
+    return parts.length ? parts.join(' ') : '0 min';
 }
 
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -34,29 +46,27 @@ function requiredHoursForDate(week, dateKey) {
     return 9;
 }
 
-function workedHoursOf(mark) {
-    const stored = Number(mark?.flexibleWorkedHours) || 0;
-    if (stored > 0) return stored;
-    const start = clockToMinutes(mark?.rawTimeIn);
-    const end = clockToMinutes(mark?.rawTimeOut);
-    if (start == null || end == null) return 0;
+function workedSecondsOf(mark) {
+    const start = clockToSeconds(mark?.rawTimeIn || mark?.timeIn);
+    const end = clockToSeconds(mark?.rawTimeOut || mark?.timeOut);
+    if (start == null || end == null) return null;
     const date = String(mark?.date || '').trim();
     const outDate = String(mark?.timeOutDate || '').trim();
-    let minutes;
+    let seconds = end - start;
     if (outDate && date && outDate > date) {
         const days = Math.round((new Date(`${outDate}T12:00:00.000Z`) - new Date(`${date}T12:00:00.000Z`)) / 86400000);
-        minutes = end - start + days * 24 * 60;
-    } else {
-        minutes = end - start;
-        if (minutes < 0) minutes += 24 * 60;
+        seconds += days * 86400;
+    } else if (seconds < 0) {
+        seconds += 86400;
     }
-    return Math.round((Math.max(0, minutes) / 60) * 100) / 100;
+    return Math.max(0, seconds);
 }
 
 function flexibleLossHours(mark, week) {
     const required = requiredHoursForDate(week, mark?.date);
-    const worked = workedHoursOf(mark);
-    return roundHours(Math.max(0, required - worked));
+    const worked = workedSecondsOf(mark);
+    if (!(required > 0) || worked == null) return 0;
+    return roundHours(Math.max(0, required * 3600 - worked) / 3600);
 }
 
 function shiftMinutes(week, dateKey) {
@@ -111,17 +121,19 @@ export function hourAdjustPreview(mark, week) {
     const shift = shiftMinutes(week, mark?.date);
     const dayHours = shift ? (shift.end - shift.start) / 60 : 8;
     let taken = dayHours;
-    if (offer.kind === 'early_go' && shift) {
-        const out = clockToMinutes(mark?.rawTimeOut);
-        if (out != null) taken = Math.max(0, (shift.end - out) / 60);
-    }
-    if (offer.kind === 'late_arrived' && shift) {
-        const inn = clockToMinutes(mark?.rawTimeIn);
-        if (inn != null) taken = Math.max(0, (inn - shift.start) / 60);
+    if ((offer.kind === 'early_go' || offer.kind === 'late_arrived') && shift) {
+        const inn = clockToSeconds(mark?.rawTimeIn || mark?.timeIn);
+        const out = clockToSeconds(mark?.rawTimeOut || mark?.timeOut);
+        const late = inn == null ? 0 : Math.max(0, inn - shift.start * 60);
+        const early = out == null ? 0 : Math.max(0, shift.end * 60 - out);
+        taken = (late + early) / 3600;
+    } else if (offer.kind === 'mispunch') {
+        const short = flexibleLossHours(mark, week);
+        if (short > 0) taken = short;
     }
     taken = roundHours(taken);
     const max = roundHours(taken * 2);
-    return { ...offer, taken, max };
+    return { ...offer, taken, max, unauth: max };
 }
 
 function Row({ label, value }) {
@@ -148,20 +160,15 @@ export default function HourAdjustModal({
     const preview = hourAdjustPreview(mark, week);
     const queued = mark?.pendingChange?.action === 'hour_adjust' ? mark.pendingChange : null;
     const [approvedHours, setApprovedHours] = useState('');
+    const [approvalMode, setApprovalMode] = useState('authorized');
     const [reason, setReason] = useState('');
     const [rejectReason, setRejectReason] = useState('');
     const [rejecting, setRejecting] = useState(false);
     const [saving, setSaving] = useState(false);
     const review = mode === 'review';
     const flexible = Boolean(preview?.flexible);
-    const maxHours =
-        queued && queued.hoursMax != null && queued.hoursMax !== ''
-            ? Number(queued.hoursMax)
-            : preview?.max;
-    const lossHours =
-        queued && queued.hoursTaken != null && queued.hoursTaken !== ''
-            ? Number(queued.hoursTaken)
-            : preview?.taken;
+    const maxHours = preview?.max;
+    const lossHours = preview?.taken;
     const priorReject = String(queued?.rejectReason || '').trim();
     const priorBy = String(queued?.rejectedByName || '').trim();
     const requesterTurn = queued?.stage === 'pending_requester';
@@ -176,6 +183,7 @@ export default function HourAdjustModal({
                     ? preview?.taken
                     : mark?.hoursApproved || preview?.taken || '';
         setApprovedHours(source || source === 0 ? String(source) : '');
+        setApprovalMode('authorized');
         setReason(String(queued?.reason || mark?.hourAdjustReason || ''));
         setRejectReason('');
         setRejecting(Boolean(rejectFirst));
@@ -198,11 +206,11 @@ export default function HourAdjustModal({
         const typed = String(approvedHours ?? '').trim();
         const hours = roundHours(approvedHours);
         const limit = Number(maxHours);
-        if (flexible && hours === 0 && !String(reason || '').trim()) {
-            return { error: 'A reason is required when approved hours are 0' };
+        if (!String(reason || '').trim()) {
+            return { error: 'A reason is required' };
         }
-        if (!flexible && !String(reason || '').trim()) {
-            return { error: 'Description is required' };
+        if (approvalMode === 'authorized') {
+            return { hours: roundHours(lossHours), mode: 'authorized' };
         }
         if (flexible && typed !== '' && !/^\d+(\.\d{1,2})?$/.test(typed)) {
             return { error: `Enter hours from 0 up to ${limit}.` };
@@ -210,7 +218,7 @@ export default function HourAdjustModal({
         if (hours > limit + 0.001) {
             return { error: `Enter hours from 0 up to ${limit}.` };
         }
-        return { hours };
+        return { hours, mode: 'custom' };
     };
 
     const submit = async () => {
@@ -225,7 +233,8 @@ export default function HourAdjustModal({
             const response = await axiosInstance.post('/Attendance/hour-adjust/request', {
                 attendanceId: mark.attendanceId,
                 approvedHours: parsed.hours,
-                reason: flexible && parsed.hours > 0 ? '' : reason,
+                hourAdjustMode: parsed.mode,
+                reason,
             });
             toast({
                 title: mode === 'direct' ? 'Hours approved' : 'Request sent',
@@ -273,7 +282,8 @@ export default function HourAdjustModal({
             const payload = {
                 decision,
                 approvedHours: decision === 'approved' ? hours : undefined,
-                hourReason: decision === 'approved' ? (flexible && hours > 0 ? '' : reason) : undefined,
+                hourAdjustMode: decision === 'approved' ? approvalMode : undefined,
+                hourReason: decision === 'approved' ? reason : undefined,
                 rejectReason: decision === 'rejected' ? String(rejectReason || '').trim() : '',
             };
             const response = changeId
@@ -317,17 +327,26 @@ export default function HourAdjustModal({
                     </p>
                 ) : null}
                 <div className="mt-4">
-                    {flexible ? (
-                        <>
-                            <Row label="Loss of hours" value={`${shownLoss} hrs`} />
-                            <Row label="Unauth taken" value={`${shownLoss * 2} hrs`} />
-                        </>
-                    ) : (
-                        <>
-                            <Row label="Hours taken" value={String(preview.taken)} />
-                            <Row label="Maximum hours" value={`${maxHours} (${preview.taken} × 2)`} />
-                        </>
-                    )}
+                    <Row label="Loss of hours" value={formatExactHours(shownLoss)} />
+                    <Row label="Unauth taken" value={`${formatExactHours(shownLoss * 2)} (double deduct)`} />
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                        type="button"
+                        disabled={readOnly}
+                        onClick={() => setApprovalMode('authorized')}
+                        className={`rounded-lg border px-3 py-2 text-sm font-bold ${approvalMode === 'authorized' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}
+                    >
+                        Set as authorized
+                    </button>
+                    <button
+                        type="button"
+                        disabled={readOnly}
+                        onClick={() => setApprovalMode('custom')}
+                        className={`rounded-lg border px-3 py-2 text-sm font-bold ${approvalMode === 'custom' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}
+                    >
+                        Custom
+                    </button>
                 </div>
                 {priorReject ? (
                     <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
@@ -335,36 +354,38 @@ export default function HourAdjustModal({
                     </div>
                 ) : null}
                 <div className="mt-4 space-y-3">
-                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                        {flexible ? 'Approved hours' : 'Approved to (hrs)'}
-                        <input
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            max={maxHours}
-                            step="0.01"
-                            value={approvedHours}
-                            disabled={readOnly}
-                            onChange={(event) => {
-                                const next = event.target.value;
-                                if (flexible && next !== '' && !/^\d*\.?\d{0,2}$/.test(next)) return;
-                                setApprovedHours(next);
-                            }}
-                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
-                        />
-                    </label>
-                    {flexible && !zeroApproval ? null : (
+                    {approvalMode === 'custom' ? (
                         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                            {flexible ? 'Reason' : 'Description'}
-                            <textarea
-                                value={reason}
+                            Approved hours
+                            <input
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                max={maxHours}
+                                step="0.01"
+                                value={approvedHours}
                                 disabled={readOnly}
-                                onChange={(event) => setReason(event.target.value)}
-                                rows={3}
-                                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
+                                onChange={(event) => {
+                                    const next = event.target.value;
+                                    if (next !== '' && !/^\d*\.?\d{0,4}$/.test(next)) return;
+                                    setApprovedHours(next);
+                                }}
+                                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                             />
                         </label>
+                    ) : (
+                        <Row label="Approved hours" value={formatExactHours(shownLoss)} />
                     )}
+                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Reason
+                        <textarea
+                            value={reason}
+                            disabled={readOnly}
+                            onChange={(event) => setReason(event.target.value)}
+                            rows={3}
+                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
+                        />
+                    </label>
                     {review && rejecting ? (
                         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
                             Reject reason

@@ -73,7 +73,7 @@ export default function VehicleMechanicalWorkGarageCard({
         service,
         cardKey: SHOP_SERVICE_CARD.SCHEDULE,
     });
-    const fieldsDisabled = !canEditGarage || saving || isComplete || assignmentPending || scheduleGate.locked;
+    const fieldsDisabled = !canEditGarage || saving || isComplete || assignmentPending || scheduleGate.locked || scheduleGate.readOnly;
 
     const { fieldMinHeightPx, gapClass } = MECHANICAL_WORK_DETAIL_GRID_LAYOUT;
     const accent = mechanicalAccent;

@@ -80,7 +80,9 @@ export default function AddVehicleFineModal({
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
 
-    const vehicleOptions = vehicles.length > 0 ? vehicles : fleetVehicles;
+    const vehicleOptions = (vehicles.length > 0 ? vehicles : fleetVehicles).filter(
+        (v) => String(v?.vehicleDispositionStatus || '').trim().toLowerCase() !== 'sold',
+    );
 
 
     // Populate data when modal opens
