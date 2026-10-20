@@ -355,6 +355,17 @@ export default function AddLoanModal({
 
     const canOverrideEligibility = () => isFlowchartHrRef.current && !selfService;
 
+    const amountLimitMessage = (() => {
+        if (!selectedEmployee || formData.amount === '' || formData.amount == null) return '';
+        const amount = parseFloat(formData.amount);
+        if (Number.isNaN(amount) || amount <= 0) return '';
+        const salary = Number(selectedEmployee.salary) || 0;
+        const maxAmount = formData.type === 'Advance' ? salary / 2 : salary * 3;
+        if (amount <= maxAmount) return '';
+        const label = formData.type === 'Advance' ? '50% of Salary' : '3x Salary';
+        return `Maximum allowed amount is ${maxAmount.toLocaleString()} (${label})`;
+    })();
+
     const checkEligibility = (employee, type) => {
         setEligibilityWarning('');
         setOverrideWarnings([]);
@@ -408,6 +419,13 @@ export default function AddLoanModal({
     const collectOverrideConfirmMessages = () => {
         const messages = [...overrideWarnings];
         if (dateWarning) messages.push(dateWarning);
+        if (
+            amountLimitMessage &&
+            !selfService &&
+            (canOverrideEligibility() || !flowchartHrResolvedRef.current)
+        ) {
+            messages.push(amountLimitMessage);
+        }
         return messages;
     };
 
@@ -450,18 +468,10 @@ export default function AddLoanModal({
             const amount = parseFloat(formData.amount);
             if (isNaN(amount) || amount <= 0) {
                 newErrors.amount = 'Invalid amount';
-            } else if (selectedEmployee) {
-                const salary = selectedEmployee.salary || 0;
-                let maxAmount = 0;
-
-                if (formData.type === 'Advance') {
-                    maxAmount = salary / 2;
-                } else {
-                    maxAmount = salary * 3;
-                }
-
-                if (amount > maxAmount) {
-                    newErrors.amount = `Maximum allowed amount is ${maxAmount.toLocaleString()} (${formData.type === 'Advance' ? '50% of Salary' : '3x Salary'})`;
+            } else if (amountLimitMessage && !(bypassEligibility && canOverride)) {
+                const hrMayOverride = !selfService && (canOverride || !flowchartHrResolvedRef.current);
+                if (!hrMayOverride) {
+                    newErrors.amount = amountLimitMessage;
                 }
             }
         }
@@ -761,6 +771,12 @@ export default function AddLoanModal({
                             disabled={identityLocked}
                         />
                         {errors.amount && <p className="text-xs text-red-600">{withHodContact(errors.amount)}</p>}
+                        {!errors.amount && amountLimitMessage && !selfService && (isFlowchartHr || !flowchartHrResolved) && (
+                            <p className="text-xs text-amber-700">
+                                {amountLimitMessage}
+                                {isFlowchartHr ? ' Confirm on save to proceed.' : ' Checking HR permissions…'}
+                            </p>
+                        )}
                         {selectedEmployee && (
                             <p className="text-xs text-gray-500">
                                 Max: {(formData.type === 'Advance' ? selectedEmployee.salary / 2 : selectedEmployee.salary * 3).toLocaleString()}

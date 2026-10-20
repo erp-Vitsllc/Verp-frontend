@@ -79,18 +79,12 @@ export function canUserValidateCarWashAccounts(service, asset, isFlowchartAccoun
 export function isCarWashAccountsReviewOpen(service, asset) {
     if (!asset || !service) return false;
     const remark = parseVehicleServiceRemark(service) || {};
-    const billingStatus = String(remark.billingStatus || '').toLowerCase();
-    const paymentStatus = String(remark.carWashPaymentStatus || '').toLowerCase();
-    if (billingStatus === 'billed' || paymentStatus === 'billed') return false;
+    const requestStatus = String(remark.requestStatus || '').toLowerCase();
+    if (requestStatus === 'draft') return false;
 
     const stage = resolveCarWashWorkflowStage(service, asset);
-    if (stage === 'rejected' || stage === 'billed') return false;
+    if (stage === 'rejected') return false;
 
-    // Open for Accounts until Zoho Expense succeeds (status may already be Completed).
-    return (
-        stage === 'pending_billing' ||
-        stage === 'pending_accounts' ||
-        paymentStatus === 'pending' ||
-        String(remark.requestStatus || '').toLowerCase() === 'submitted'
-    );
+    // Accounts keep the expense section after the Zoho expense is stored.
+    return true;
 }

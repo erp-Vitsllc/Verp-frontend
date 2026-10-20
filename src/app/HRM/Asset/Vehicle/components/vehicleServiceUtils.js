@@ -55,6 +55,10 @@ export function resolveServiceAmountTypeAndStatus(serviceOrRemark) {
         return { amountType: 'Warranty', amountStatus: '—', amountStatusTone: 'na' };
     }
 
+    if (remark.carWashMonth || remark.carWashType || remark.carWashPaymentStatus) {
+        return { amountType, amountStatus: 'Paid', amountStatusTone: 'paid' };
+    }
+
     const billingStatus = String(remark.billingStatus || '').toLowerCase();
     const zohoPaymentStatus = String(remark.zohoPaymentStatus || '').toLowerCase();
     const zohoBillStatus = String(remark.zohoBillStatus || '').toLowerCase();

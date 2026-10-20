@@ -1140,15 +1140,40 @@ export default function VehicleCarWashRequestModal({
 
                     {showExpenseCategory ? (
                         <section className="space-y-4">
-                            <div className="border-b border-slate-100 pb-2">
-                                <h3 className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                                    2. Add Expense (Zoho)
-                                </h3>
-                                <p className="mt-1 text-sm text-slate-500">
-                                    Expense Account, Amount, and Paid Through (e.g. 1st Card).
-                                </p>
+                            <div className="border-b border-slate-100 pb-2 flex flex-wrap items-end justify-between gap-3">
+                                <div>
+                                    <h3 className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                                        2. Add Expense (Zoho)
+                                    </h3>
+                                    <p className="mt-1 text-sm text-slate-500">
+                                        Expense Account, Amount, and Paid Through (e.g. 1st Card).
+                                    </p>
+                                </div>
+                                <div className="min-w-[220px]">
+                                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                                        Expense Account
+                                    </p>
+                                    <p className="mt-1 text-sm font-semibold text-slate-800">
+                                        {String(formData.expenseAccountName || '').trim() || 'Select below'}
+                                    </p>
+                                </div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-5">
+                                {String(existingRemark.zohoExpenseNumber || existingRemark.zohoExpenseId || '').trim() ? (
+                                    <FormField label="Bill No">
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            value={String(
+                                                existingRemark.zohoExpenseNumber ||
+                                                    existingRemark.zohoExpenseId ||
+                                                    '',
+                                            ).trim()}
+                                            className={`${fieldControl} border-emerald-200 bg-emerald-50 font-semibold text-emerald-800`}
+                                        />
+                                    </FormField>
+                                ) : null}
+
                                 <FormField label="Name (auto)">
                                     <input
                                         type="text"

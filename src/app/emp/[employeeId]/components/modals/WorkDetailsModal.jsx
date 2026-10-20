@@ -166,7 +166,7 @@ export default function WorkDetailsModal({
     const [canSuspendAttendance, setCanSuspendAttendance] = useState(false);
     const [suspendOpen, setSuspendOpen] = useState(false);
     const [suspendSaving, setSuspendSaving] = useState(false);
-    const [suspendForm, setSuspendForm] = useState({ fromDate: '', untilDate: '', description: '' });
+    const [suspendForm, setSuspendForm] = useState({ mode: 'range', fromDate: '', untilDate: '', description: '' });
 
     // State for delete confirmation
     const [deleteConfig, setDeleteConfig] = useState({
@@ -736,15 +736,17 @@ export default function WorkDetailsModal({
         if (!canSuspendAttendance || suspendSaving) return;
         const employeeId = employee?._id || employee?.id;
         if (!employeeId) return;
-        const fromDate = String(suspendForm.fromDate || '').trim();
-        const untilDate = String(suspendForm.untilDate || '').trim();
+        const permanent = suspendForm.mode === 'permanent';
+        const fromDate = permanent ? '' : String(suspendForm.fromDate || '').trim();
+        const untilDate = permanent ? '' : String(suspendForm.untilDate || '').trim();
         const description = String(suspendForm.description || '').trim();
-        if (!fromDate || !untilDate || untilDate < fromDate || description.length < 3) {
+        if ((!permanent && (!fromDate || !untilDate || untilDate < fromDate)) || description.length < 3) {
             return;
         }
         setSuspendSaving(true);
         try {
             await axiosInstance.post(`/Employee/${employeeId}/attendance-suspension`, {
+                mode: permanent ? 'permanent' : 'range',
                 fromDate,
                 untilDate,
                 description,
@@ -763,14 +765,13 @@ export default function WorkDetailsModal({
         }
     };
 
+    const suspendPermanent = suspendForm.mode === 'permanent';
     const suspendFromDate = String(suspendForm.fromDate || '').trim();
     const suspendToDate = String(suspendForm.untilDate || '').trim();
     const suspendReason = String(suspendForm.description || '').trim();
     const suspendFormReady = Boolean(
-        suspendFromDate &&
-        suspendToDate &&
-        suspendToDate >= suspendFromDate &&
-        suspendReason.length >= 3,
+        suspendReason.length >= 3 &&
+        (suspendPermanent || (suspendFromDate && suspendToDate && suspendToDate >= suspendFromDate)),
     );
 
     const handleSubmit = async () => {
@@ -1193,33 +1194,58 @@ export default function WorkDetailsModal({
                         <div className="px-5 py-4 border-b border-gray-100">
                             <h3 className="text-lg font-semibold text-gray-800">Set as Suspended</h3>
                             <p className="mt-1 text-sm text-gray-500">
-                                Punch in, punch out, and mark attendance stay blocked for this date range. Saved attendance is not changed.
+                                {suspendPermanent
+                                    ? 'Punch in, punch out, and mark attendance stay blocked until attendance is activated again. Saved attendance is not changed.'
+                                    : 'Punch in, punch out, and mark attendance stay blocked for this date range. Saved attendance is not changed.'}
                             </p>
                         </div>
                         <div className="px-5 py-4 overflow-y-auto space-y-3">
                             <div>
-                                <label className="mb-1 block text-sm font-medium text-gray-700">
-                                    From date <span className="text-red-500">*</span>
-                                </label>
-                                <DatePicker
-                                    value={suspendForm.fromDate}
-                                    onChange={(value) => setSuspendForm((prev) => ({ ...prev, fromDate: value || '' }))}
-                                    placeholder="Select from date"
-                                />
+                                <label className="mb-1 block text-sm font-medium text-gray-700">Suspension</label>
+                                <div className="grid grid-cols-2 rounded-xl border border-gray-200 p-1 bg-gray-50">
+                                    <button
+                                        type="button"
+                                        onClick={() => setSuspendForm((prev) => ({ ...prev, mode: 'permanent', fromDate: '', untilDate: '' }))}
+                                        className={`h-9 rounded-lg text-sm font-medium ${suspendPermanent ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+                                    >
+                                        Permanent
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSuspendForm((prev) => ({ ...prev, mode: 'range' }))}
+                                        className={`h-9 rounded-lg text-sm font-medium ${!suspendPermanent ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+                                    >
+                                        Time range
+                                    </button>
+                                </div>
                             </div>
-                            <div>
-                                <label className="mb-1 block text-sm font-medium text-gray-700">
-                                    To date <span className="text-red-500">*</span>
-                                </label>
-                                <DatePicker
-                                    value={suspendForm.untilDate}
-                                    onChange={(value) => setSuspendForm((prev) => ({ ...prev, untilDate: value || '' }))}
-                                    placeholder="Select to date"
-                                />
-                                {suspendForm.fromDate && suspendForm.untilDate && suspendForm.untilDate < suspendForm.fromDate ? (
-                                    <p className="mt-1 text-xs text-red-500">To date must be on or after the from date.</p>
-                                ) : null}
-                            </div>
+                            {!suspendPermanent && (
+                                <>
+                                    <div>
+                                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                                            From date <span className="text-red-500">*</span>
+                                        </label>
+                                        <DatePicker
+                                            value={suspendForm.fromDate}
+                                            onChange={(value) => setSuspendForm((prev) => ({ ...prev, fromDate: value || '' }))}
+                                            placeholder="Select from date"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                                            To date <span className="text-red-500">*</span>
+                                        </label>
+                                        <DatePicker
+                                            value={suspendForm.untilDate}
+                                            onChange={(value) => setSuspendForm((prev) => ({ ...prev, untilDate: value || '' }))}
+                                            placeholder="Select to date"
+                                        />
+                                        {suspendForm.fromDate && suspendForm.untilDate && suspendForm.untilDate < suspendForm.fromDate ? (
+                                            <p className="mt-1 text-xs text-red-500">To date must be on or after the from date.</p>
+                                        ) : null}
+                                    </div>
+                                </>
+                            )}
                             <div>
                                 <label className="mb-1 block text-sm font-medium text-gray-700">
                                     Reason <span className="text-red-500">*</span>

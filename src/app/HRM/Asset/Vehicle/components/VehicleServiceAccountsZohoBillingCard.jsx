@@ -898,8 +898,9 @@ export default function VehicleServiceAccountsZohoBillingCard({
         hasFileHint,
         fileLabel,
         canEdit,
+        zohoBillNumber = '',
     }) => (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className={`grid grid-cols-1 gap-3 ${zohoBillNumber ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
             <label className="block text-xs font-semibold text-gray-500">
                 Garage vendor
                 <div className="mt-1">
@@ -945,6 +946,17 @@ export default function VehicleServiceAccountsZohoBillingCard({
                     </span>
                 )}
             </div>
+            {zohoBillNumber ? (
+                <label className="block text-xs font-semibold text-gray-500">
+                    Bill No
+                    <input
+                        type="text"
+                        readOnly
+                        value={zohoBillNumber}
+                        className="mt-1 min-h-[44px] w-full rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-sm font-semibold text-emerald-800"
+                    />
+                </label>
+            ) : null}
         </div>
     );
 
@@ -977,7 +989,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
     return (
         <div id="service-focus-payment" className={`w-full ${className}`.trim()}>
             <VehicleServiceLockedSection
-                locked={paymentGate.locked}
+                locked={paymentGate.locked && !isBilled}
                 message={paymentGate.message || 'Complete Service first — then Make Payment unlocks'}
             >
                 <FineFormCard
@@ -1143,6 +1155,9 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                                                 : ''
                                                         }`,
                                                         canEdit: canAct,
+                                                        zohoBillNumber: isBilled
+                                                            ? String(bill.zohoBillNumber || bill.billNumber || '').trim()
+                                                            : '',
                                                     })}
 
                                                     {renderBillNoAndDate({
@@ -1254,6 +1269,9 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                                 : ''
                                         }`,
                                         canEdit: canAct,
+                                        zohoBillNumber: isBilled
+                                            ? String(remark.zohoBillNumber || billing.billNumber || '').trim()
+                                            : '',
                                     })}
 
                                     {renderBillNoAndDate({
