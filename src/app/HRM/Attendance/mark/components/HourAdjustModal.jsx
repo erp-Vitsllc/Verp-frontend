@@ -202,11 +202,11 @@ export default function HourAdjustModal({
 
     if (!open || !mark || !preview) return null;
 
-    const readHours = () => {
+    const readHours = ({ requireReason = true } = {}) => {
         const typed = String(approvedHours ?? '').trim();
         const hours = roundHours(approvedHours);
         const limit = Number(maxHours);
-        if (!String(reason || '').trim()) {
+        if (requireReason && !String(reason || '').trim()) {
             return { error: 'A reason is required' };
         }
         if (approvalMode === 'authorized') {
@@ -269,7 +269,7 @@ export default function HourAdjustModal({
         }
         let hours = 0;
         if (decision === 'approved') {
-            const parsed = readHours();
+            const parsed = readHours({ requireReason: requesterTurn });
             if (parsed.error) {
                 toast({ variant: 'destructive', title: 'Check the request', description: parsed.error });
                 return;
@@ -283,7 +283,7 @@ export default function HourAdjustModal({
                 decision,
                 approvedHours: decision === 'approved' ? hours : undefined,
                 hourAdjustMode: decision === 'approved' ? approvalMode : undefined,
-                hourReason: decision === 'approved' ? reason : undefined,
+                hourReason: decision === 'approved' && requesterTurn ? reason : undefined,
                 rejectReason: decision === 'rejected' ? String(rejectReason || '').trim() : '',
             };
             const response = changeId
@@ -376,16 +376,24 @@ export default function HourAdjustModal({
                     ) : (
                         <Row label="Approved hours" value={formatExactHours(shownLoss)} />
                     )}
-                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                        Reason
-                        <textarea
-                            value={reason}
-                            disabled={readOnly}
-                            onChange={(event) => setReason(event.target.value)}
-                            rows={3}
-                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
-                        />
-                    </label>
+                    {review && !requesterTurn ? (
+                        <p className="text-sm text-slate-700">
+                            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Requester reason: </span>
+                            <span className="whitespace-pre-wrap">{String(reason || '').trim() || '—'}</span>
+                        </p>
+                    ) : (
+                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+                            Reason
+                            <textarea
+                                value={reason}
+                                disabled={readOnly}
+                                required
+                                onChange={(event) => setReason(event.target.value)}
+                                rows={3}
+                                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
+                            />
+                        </label>
+                    )}
                     {review && rejecting ? (
                         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
                             Reject reason

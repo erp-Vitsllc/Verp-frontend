@@ -183,6 +183,7 @@ function ViewCellEditor({
                     <VehicleHandoverBodyConditionPhotoCell
                         label={view.label}
                         photo={row?.photo}
+                        fallbackPhoto={previousRow?.photo}
                         missing={photoMissing && !readOnly}
                         uploading={uploading}
                         readOnly={readOnly}

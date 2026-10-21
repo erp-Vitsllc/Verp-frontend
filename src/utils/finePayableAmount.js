@@ -137,10 +137,25 @@ function applyCompanyDiscountShare(fine, partyGross) {
     return share;
 }
 
+/** Stored total often still includes the discount. The employee does not owe that part. */
+function withoutIncludedDiscount(fine, amount) {
+    const discount = Number(fine?.discount) || 0;
+    const gross = Number(fine?.totalFineAmount || fine?.fineAmount) || 0;
+    const value = Number(amount) || 0;
+    if (discount > 0 && gross > 0 && value >= gross - 0.02) {
+        return Math.max(0, Number((value - discount).toFixed(2)));
+    }
+    return value;
+}
+
 /**
  * Employee payable total = fine base + service charge − discount share.
  */
 export function resolveEmployeeFinePayableAmount(fine, employeeId) {
+    return withoutIncludedDiscount(fine, resolveEmployeeFinePayableAmountRaw(fine, employeeId));
+}
+
+function resolveEmployeeFinePayableAmountRaw(fine, employeeId) {
     if (!fine || !employeeId) return 0;
     if ((fine.responsibleFor || '').toLowerCase() === 'company') return 0;
 

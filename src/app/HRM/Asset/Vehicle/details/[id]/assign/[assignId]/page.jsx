@@ -852,9 +852,18 @@ function VehicleHandoverAssignPageContent() {
             <div className="flex-1 flex flex-col min-w-0">
                 <Navbar />
                 <div className="flex-1 flex flex-col items-stretch justify-start py-8 relative overflow-y-auto w-full px-6 md:px-8 print:py-0 animate-in fade-in duration-300">
-                    <div className="w-full flex items-center justify-between mb-2 print:hidden animate-in fade-in slide-in-from-top-2 duration-500">
-                        <ListReturnBackButton onNavigate={handleBack} />
-                    </div>
+                        <div className="w-full flex items-center justify-between mb-2 print:hidden animate-in fade-in slide-in-from-top-2 duration-500">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <ListReturnBackButton onNavigate={handleBack} />
+                                <ListReturnBackButton
+                                    inline
+                                    label="Return to vehicle list"
+                                    ariaLabel="Return to vehicle list"
+                                    title="Return to vehicle list"
+                                    onNavigate={() => router.push('/HRM/Asset/Vehicle')}
+                                />
+                            </div>
+                        </div>
 
                     <div ref={approvalHeaderRef} className="scroll-mt-6 w-full">
                         <VehicleHandoverAssignHeaderCards

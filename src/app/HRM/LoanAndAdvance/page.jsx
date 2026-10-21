@@ -351,18 +351,12 @@ function LoanPageContent() {
 
         if (status.includes('pending') && status !== 'pending payment to employee') {
             s.pending++;
-        } else if (status === 'approved' || status === 'pending payment to employee') {
+        } else if (status === 'approved' || status === 'pending payment to employee' || status === 'paid') {
             s.approved++;
-
-            // Outstanding = still owed. Recovered = amount the employee has paid back.
-            if (item.activeStatus === 'Closed' || status === 'paid') {
-                s.outstanding += (item.amount || 0);
-            } else {
-                s.recovered += (item.amount || 0);
-            }
-        } else if (status === 'paid') {
-            s.approved++;
-            s.outstanding += (item.amount || 0);
+            const amount = Number(item.amount) || 0;
+            const recovered = Number(item.repaidAmount) || 0;
+            s.recovered += recovered;
+            s.outstanding += Math.max(0, amount - recovered);
         }
     });
 

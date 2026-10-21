@@ -292,6 +292,10 @@ export default function FlexibleOtModal({
             toast({ variant: 'destructive', title: 'Approved hours are required' });
             return;
         }
+        if (decision === 'approved' && change?.stage === 'pending_requester' && !String(reason).trim()) {
+            toast({ variant: 'destructive', title: 'Reason for OT is required' });
+            return;
+        }
         setSaving(true);
         try {
             const payload = {
@@ -418,16 +422,24 @@ export default function FlexibleOtModal({
                         Rejected{change?.rejectedByName ? ` by ${change.rejectedByName}` : ''}: {priorReject}
                     </div>
                 ) : null}
-                <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Reason for OT
-                    <textarea
-                        value={reason}
-                        disabled={readOnly}
-                        onChange={(event) => setReason(event.target.value)}
-                        rows={3}
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium normal-case tracking-normal text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
-                    />
-                </label>
+                {review && change?.stage !== 'pending_requester' ? (
+                    <p className="mt-3 text-sm text-slate-700">
+                        <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Requester reason: </span>
+                        <span className="whitespace-pre-wrap">{String(reason || '').trim() || '—'}</span>
+                    </p>
+                ) : (
+                    <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Reason for OT
+                        <textarea
+                            value={reason}
+                            disabled={readOnly}
+                            required
+                            onChange={(event) => setReason(event.target.value)}
+                            rows={3}
+                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium normal-case tracking-normal text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
+                        />
+                    </label>
+                )}
                 {nextDayIntent ? (
                     <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-500">
                         Day to change

@@ -106,7 +106,7 @@ export async function uploadHandoverAssessmentPhoto(file, itemKey, { skipToast =
 
 const assessmentMediaUrlCache = new Map();
 const assessmentMediaInflight = new Map();
-const MAX_PARALLEL_ASSESSMENT_MEDIA = 4;
+const MAX_PARALLEL_ASSESSMENT_MEDIA = 8;
 let assessmentMediaActive = 0;
 const assessmentMediaWaiters = [];
 

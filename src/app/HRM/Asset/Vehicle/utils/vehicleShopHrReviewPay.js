@@ -26,11 +26,18 @@ export function sumHrEmployeeRowPaidAmounts(rows) {
     }, 0);
 }
 
+/** Keep fils (2 decimal places). Whole-dirham Math.round was dropping typed decimals. */
+export function roundMoney2(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    return Math.round(Math.max(0, n) * 100) / 100;
+}
+
 function clampMoney(value, max = Number.POSITIVE_INFINITY) {
     if (value === '' || value == null) return null;
     const n = Number(value);
     if (!Number.isFinite(n) || n < 0) return null;
-    return Math.min(Math.round(n), Math.round(max));
+    return Math.min(roundMoney2(n), roundMoney2(max));
 }
 
 function derivePayPercents(approvedAmount, companyPay, employeePay, paymentByMode) {
@@ -101,8 +108,8 @@ export function syncHrReviewPayCalculation({
             } else {
                 const prevApproved = approved > 0 ? approved : nextApproved;
                 const ratio = prevApproved > 0 ? nextEmployee / prevApproved : 0.5;
-                nextEmployee = Math.round(nextApproved * ratio);
-                nextCompany = Math.max(0, nextApproved - nextEmployee);
+                nextEmployee = roundMoney2(nextApproved * ratio);
+                nextCompany = roundMoney2(nextApproved - nextEmployee);
             }
         }
     } else if (field === 'employeePay') {
@@ -143,7 +150,7 @@ export function syncHrReviewPayFromEmployeeRows({
     companyPay,
     paymentByMode = 'split',
 }) {
-    const employee = Math.max(0, Math.round(sumHrEmployeeRowPaidAmounts(employeeRows)));
+    const employee = roundMoney2(sumHrEmployeeRowPaidAmounts(employeeRows));
     const mode = String(paymentByMode || 'split').toLowerCase();
 
     if (mode === 'person') {
@@ -172,8 +179,8 @@ export function syncHrReviewPayFromEmployeeRows({
     // split: employee rows drive employee total; company stays; approved = company + employee
     const company =
         companyPay != null && companyPay !== ''
-            ? Math.max(0, Math.round(Number(companyPay) || 0))
-            : Math.max(0, Math.round((Number(approvedAmount) || 0) - employee));
+            ? roundMoney2(Number(companyPay) || 0)
+            : roundMoney2((Number(approvedAmount) || 0) - employee);
     const approved = company + employee;
     const percents = derivePayPercents(approved, company, employee, 'split');
     return {
@@ -256,17 +263,17 @@ export function syncInitiateServicePayAmounts({
     employeeLiabilityRows = [],
 } = {}) {
     const mode = String(paymentByMode || 'company').toLowerCase();
-    const prevCost = Math.max(0, Math.round(Number(estimatedCost) || 0));
+    const prevCost = roundMoney2(estimatedCost);
     let nextCost = prevCost;
-    let nextCompany = Math.max(0, Math.round(Number(companyPayAmount) || 0));
-    let nextEmployee = Math.max(0, Math.round(Number(employeePayAmount) || 0));
+    let nextCompany = roundMoney2(companyPayAmount);
+    let nextEmployee = roundMoney2(employeePayAmount);
     const nextRows = Array.isArray(employeeLiabilityRows)
         ? employeeLiabilityRows.map((row) => ({ ...row }))
         : [];
 
     const parseAmt = (raw) => {
         if (raw === '' || raw == null) return 0;
-        const n = Math.round(Number(raw));
+        const n = roundMoney2(raw);
         return Number.isFinite(n) && n >= 0 ? n : 0;
     };
 
@@ -306,8 +313,8 @@ export function syncInitiateServicePayAmounts({
                 nextEmployee = nextCost;
             } else {
                 const ratio = prevCost > 0 ? nextEmployee / prevCost : 0.5;
-                nextEmployee = Math.round(nextCost * ratio);
-                nextCompany = Math.max(0, nextCost - nextEmployee);
+                nextEmployee = roundMoney2(nextCost * ratio);
+                nextCompany = roundMoney2(nextCost - nextEmployee);
             }
         }
     } else if (field === 'companyPay') {
@@ -381,15 +388,15 @@ export function resolveInitiateAbsolutePayAmounts({
     companyPayAmount,
     employeePayAmount,
 } = {}) {
-    const cost = Math.max(0, Math.round(Number(estimatedCost) || 0));
+    const cost = roundMoney2(estimatedCost);
     const hasCompanyAbs = companyPayAmount != null && String(companyPayAmount).trim() !== '';
     const hasEmployeeAbs = employeePayAmount != null && String(employeePayAmount).trim() !== '';
     const company = hasCompanyAbs
-        ? Math.max(0, Math.round(Number(companyPayAmount) || 0))
-        : Math.round((cost * (Number(companyPayPercent) || 0)) / 100);
+        ? roundMoney2(companyPayAmount)
+        : roundMoney2((cost * (Number(companyPayPercent) || 0)) / 100);
     const employee = hasEmployeeAbs
-        ? Math.max(0, Math.round(Number(employeePayAmount) || 0))
-        : Math.round((cost * (Number(employeePayPercent) || 0)) / 100);
+        ? roundMoney2(employeePayAmount)
+        : roundMoney2((cost * (Number(employeePayPercent) || 0)) / 100);
     return {
         estimatedCost: cost,
         companyPayAmount: company,
@@ -417,8 +424,8 @@ export function resolveShopServicePayAmounts({
 
     const fromPercents = () => ({
         estimatedCost: cost,
-        companyPayAmount: Number.isFinite(cost) ? Math.round((cost * companyPct) / 100) : 0,
-        employeePayAmount: Number.isFinite(cost) ? Math.round((cost * employeePct) / 100) : 0,
+        companyPayAmount: Number.isFinite(cost) ? roundMoney2((cost * companyPct) / 100) : 0,
+        employeePayAmount: Number.isFinite(cost) ? roundMoney2((cost * employeePct) / 100) : 0,
         paymentByMode: preferredMode,
     });
 
@@ -446,8 +453,8 @@ export function resolveShopServicePayAmounts({
         const employeeNum = Number(employee) || 0;
         const base = approvedNum > 0 ? approvedNum : companyNum + employeeNum;
         if (base <= 0) return true;
-        const expectedCompany = Math.round((base * companyPct) / 100);
-        const expectedEmployee = Math.round((base * employeePct) / 100);
+        const expectedCompany = roundMoney2((base * companyPct) / 100);
+        const expectedEmployee = roundMoney2((base * employeePct) / 100);
         return (
             Math.abs(expectedCompany - companyNum) <= 1 &&
             Math.abs(expectedEmployee - employeeNum) <= 1

@@ -1331,12 +1331,10 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFir
                             {change.targetDate}
                         </p>
                     ) : null}
-                    {change.reason ? (
-                        <p>
-                            <span className="text-slate-500">Reason: </span>
-                            {change.reason}
-                        </p>
-                    ) : null}
+                    <p>
+                        <span className="text-slate-500">Requester reason: </span>
+                        <span className="whitespace-pre-wrap">{String(change.reason || '').trim() || '—'}</span>
+                    </p>
                     {change.attachmentName ? (
                         <p>
                             <span className="text-slate-500">Attachment: </span>
@@ -3010,7 +3008,12 @@ export default function MarkAttendanceTable({
                 employeeName={leaveDecide?.employee?.name || ''}
                 currentLabel={leaveDecide?.mark?.previousStatusLabel || leaveDecide?.mark?.label || ''}
                 requestedLabel={leaveDecide?.mark?.requestedStatusLabel || ''}
-                reason={leaveDecide?.mark?.leaveRequestReason || leaveDecide?.mark?.reason || ''}
+                reason={
+                    leaveDecide?.mark?.leaveRequestReason ||
+                    leaveDecide?.mark?.pendingChange?.reason ||
+                    leaveDecide?.mark?.reason ||
+                    ''
+                }
                 attachmentName={leaveDecide?.mark?.attachmentName || ''}
                 kind={leaveDecide?.mark?.leaveRequestKind || 'leave'}
                 fromDate={leaveDecide?.mark?.leaveRequestFromDate || ''}

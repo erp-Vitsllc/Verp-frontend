@@ -738,10 +738,10 @@ export default function WorkDetailsModal({
         const employeeId = employee?._id || employee?.id;
         if (!employeeId) return;
         const permanent = suspendForm.mode === 'permanent';
-        const fromDate = permanent ? '' : String(suspendForm.fromDate || '').trim();
+        const fromDate = String(suspendForm.fromDate || '').trim();
         const untilDate = permanent ? '' : String(suspendForm.untilDate || '').trim();
         const description = String(suspendForm.description || '').trim();
-        if ((!permanent && (!fromDate || !untilDate || untilDate < fromDate)) || description.length < 3) {
+        if (!fromDate || description.length < 3 || (!permanent && (!untilDate || untilDate < fromDate))) {
             return;
         }
         setSuspendSaving(true);
@@ -784,7 +784,8 @@ export default function WorkDetailsModal({
     const suspendReason = String(suspendForm.description || '').trim();
     const suspendFormReady = Boolean(
         suspendReason.length >= 3 &&
-        (suspendPermanent || (suspendFromDate && suspendToDate && suspendToDate >= suspendFromDate)),
+        suspendFromDate &&
+        (suspendPermanent || (suspendToDate && suspendToDate >= suspendFromDate)),
     );
 
     const handleSubmit = async () => {
@@ -1031,7 +1032,9 @@ export default function WorkDetailsModal({
                                 </div>
                                 {attendanceSuspended && (attendanceWindow.fromDate || attendanceWindow.untilDate) ? (
                                     <p className="text-xs text-slate-600">
-                                        {attendanceWindow.fromDate || '—'} to {attendanceWindow.untilDate || '—'}
+                                        {attendanceWindow.mode === 'permanent'
+                                            ? `From ${attendanceWindow.fromDate || '—'}`
+                                            : `${attendanceWindow.fromDate || '—'} to ${attendanceWindow.untilDate || '—'}`}
                                         {attendanceWindow.description ? ` · ${attendanceWindow.description}` : ''}
                                     </p>
                                 ) : null}
@@ -1208,8 +1211,8 @@ export default function WorkDetailsModal({
                             <h3 className="text-lg font-semibold text-gray-800">Set as Suspended</h3>
                             <p className="mt-1 text-sm text-gray-500">
                                 {suspendPermanent
-                                    ? 'Punch in, punch out, and mark attendance stay blocked until attendance is activated again. Saved attendance is not changed.'
-                                    : 'Punch in, punch out, and mark attendance stay blocked for this date range. Saved attendance is not changed.'}
+                                    ? 'From the start date, punch in, punch out, and mark attendance stay blocked until attendance is activated again. Saved attendance is not changed.'
+                                    : 'Punch in, punch out, and mark attendance stay blocked from the start date through the to date. Saved attendance is not changed.'}
                             </p>
                         </div>
                         <div className="px-5 py-4 overflow-y-auto space-y-3">
@@ -1218,7 +1221,7 @@ export default function WorkDetailsModal({
                                 <div className="grid grid-cols-2 rounded-xl border border-gray-200 p-1 bg-gray-50">
                                     <button
                                         type="button"
-                                        onClick={() => setSuspendForm((prev) => ({ ...prev, mode: 'permanent', fromDate: '', untilDate: '' }))}
+                                        onClick={() => setSuspendForm((prev) => ({ ...prev, mode: 'permanent', untilDate: '' }))}
                                         className={`h-9 rounded-lg text-sm font-medium ${suspendPermanent ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
                                     >
                                         Permanent
@@ -1232,18 +1235,18 @@ export default function WorkDetailsModal({
                                     </button>
                                 </div>
                             </div>
+                            <div>
+                                <label className="mb-1 block text-sm font-medium text-gray-700">
+                                    From date <span className="text-red-500">*</span>
+                                </label>
+                                <DatePicker
+                                    value={suspendForm.fromDate}
+                                    onChange={(value) => setSuspendForm((prev) => ({ ...prev, fromDate: value || '' }))}
+                                    placeholder="Select from date"
+                                />
+                            </div>
                             {!suspendPermanent && (
                                 <>
-                                    <div>
-                                        <label className="mb-1 block text-sm font-medium text-gray-700">
-                                            From date <span className="text-red-500">*</span>
-                                        </label>
-                                        <DatePicker
-                                            value={suspendForm.fromDate}
-                                            onChange={(value) => setSuspendForm((prev) => ({ ...prev, fromDate: value || '' }))}
-                                            placeholder="Select from date"
-                                        />
-                                    </div>
                                     <div>
                                         <label className="mb-1 block text-sm font-medium text-gray-700">
                                             To date <span className="text-red-500">*</span>

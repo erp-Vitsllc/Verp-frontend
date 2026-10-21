@@ -39,6 +39,7 @@ import {
     resolveShopServicePayAmounts,
     syncInitiateServicePayAmounts,
     resolveInitiateAbsolutePayAmounts,
+    roundMoney2,
 } from '../utils/vehicleShopHrReviewPay';
 import {
     MECHANICAL_WORK_DETAIL_GRID_LAYOUT,
@@ -219,11 +220,11 @@ export default function VehicleMechanicalWorkDetailForm({
 
     const setPaymentByMode = (mode) => {
         setFormData((prev) => {
-            const cost = Math.max(0, Math.round(Number(prev.estimatedCost || 0)));
+            const cost = roundMoney2(prev.estimatedCost || 0);
             const companyPayPercent = mode === 'company' ? '100' : mode === 'person' ? '0' : '50';
             const employeePayPercent = mode === 'person' ? '100' : mode === 'company' ? '0' : '50';
             const companyPayAmount =
-                mode === 'company' ? String(cost) : mode === 'person' ? '0' : String(Math.round(cost / 2));
+                mode === 'company' ? String(cost) : mode === 'person' ? '0' : String(roundMoney2(cost / 2));
             const employeePayAmount =
                 mode === 'person'
                     ? String(cost)
@@ -972,6 +973,7 @@ export default function VehicleMechanicalWorkDetailForm({
                                         className={`${tireMoneyInput} pl-11 text-lg font-bold`}
                                         type="number"
                                         min="0"
+                                        step="0.01"
                                         value={formData.estimatedCost || ''}
                                         onChange={(e) =>
                                             applyPayAmountChange('estimatedCost', e.target.value)
@@ -1013,7 +1015,7 @@ export default function VehicleMechanicalWorkDetailForm({
                                                     className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
                                                     type="number"
                                                     min="0"
-                                                    step="1"
+                                                    step="0.01"
                                                     value={formData.companyPayAmount ?? ''}
                                                     onChange={(e) =>
                                                         applyPayAmountChange(
@@ -1068,7 +1070,7 @@ export default function VehicleMechanicalWorkDetailForm({
                                                     className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
                                                     type="number"
                                                     min="0"
-                                                    step="1"
+                                                    step="0.01"
                                                     value={formData.employeePayAmount ?? ''}
                                                     onChange={(e) =>
                                                         applyPayAmountChange(
@@ -1172,7 +1174,7 @@ export default function VehicleMechanicalWorkDetailForm({
                                             className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-2xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
                                             type="number"
                                             min="0"
-                                            step="1"
+                                            step="0.01"
                                             value={formData.estimatedCost ?? ''}
                                             onChange={(e) =>
                                                 applyPayAmountChange(

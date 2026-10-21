@@ -80,7 +80,7 @@ export function computeEmployeePayTarget(estimatedCost, employeePayPercent) {
     const cost = Number(estimatedCost) || 0;
     const pct = Number(employeePayPercent) || 0;
     if (!Number.isFinite(cost) || !Number.isFinite(pct) || cost <= 0 || pct < 0) return 0;
-    return Math.round((cost * pct) / 100);
+    return Math.round(((cost * pct) / 100) * 100) / 100;
 }
 
 export function applyEmployeePayTargetToRows(rows, estimatedCost, employeePayPercent) {
@@ -113,7 +113,10 @@ export function adjustEmployeeRowsAfterPaidChange(rows, changedIndex, rawPaidAmo
     }
 
     const otherIndices = list.map((_, index) => index).filter((index) => index !== changedIndex);
-    const cappedChanged = Math.min(Math.max(0, Math.round(parsed)), Math.max(0, target));
+    const cappedChanged = Math.min(
+        Math.max(0, Math.round(parsed * 100) / 100),
+        Math.max(0, Math.round(target * 100) / 100),
+    );
     list[changedIndex] = { ...list[changedIndex], paidAmount: String(cappedChanged) };
 
     if (!otherIndices.length) {
@@ -295,7 +298,7 @@ export function buildBodyWorkDetailFormState(service, asset, { flowchartRows = [
         absEmployee != null && absEmployee !== ''
             ? Math.max(0, Number(absEmployee) || 0)
             : Number.isFinite(estimatedForSplit) && Number.isFinite(employeePctForSplit)
-              ? Math.round((estimatedForSplit * employeePctForSplit) / 100)
+              ? Math.round(((estimatedForSplit * employeePctForSplit) / 100) * 100) / 100
               : 0;
     const hasSavedHrRows =
         Array.isArray(remark.hrReviewEmployeeRows) && remark.hrReviewEmployeeRows.length > 0;

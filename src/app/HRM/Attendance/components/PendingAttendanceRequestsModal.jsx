@@ -375,12 +375,10 @@ export default function PendingAttendanceRequestsModal({
                                     {review.targetDate}
                                 </p>
                             ) : null}
-                            {review.reason ? (
-                                <p>
-                                    <span className="text-slate-500">Reason: </span>
-                                    {review.reason}
-                                </p>
-                            ) : null}
+                            <p>
+                                <span className="text-slate-500">Requester reason: </span>
+                                <span className="whitespace-pre-wrap">{String(review.reason || '').trim() || '—'}</span>
+                            </p>
                             {review.attachmentName ? (
                                 <p>
                                     <span className="text-slate-500">Attachment: </span>

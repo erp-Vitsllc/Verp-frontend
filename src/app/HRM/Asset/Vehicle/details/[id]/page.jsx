@@ -3250,6 +3250,13 @@ function VehicleDetailsPageContent() {
                         <div className="flex items-center justify-between flex-wrap gap-3">
                             <div className="flex items-center gap-3 flex-wrap">
                                 <ListReturnBackButton onNavigate={handleListReturnBack} />
+                                <ListReturnBackButton
+                                    inline
+                                    label="Return to vehicle list"
+                                    ariaLabel="Return to vehicle list"
+                                    title="Return to vehicle list"
+                                    onNavigate={() => router.push('/HRM/Asset/Vehicle')}
+                                />
                                 {asset &&
                                     isCreatorUser &&
                                     ((asset.status === 'Draft' && !asset.actionRequiredBy) || asset.status === 'Rejected') ? (

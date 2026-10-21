@@ -2167,9 +2167,11 @@ function FineDetailsPageContent() {
                                         const isDraft = status === 'Draft';
                                         const isApprovedState = ['Approved', 'Active', 'Completed', 'Paid'].includes(status);
                                         const isFinalized = status === 'Approved' || status === 'Rejected' || isApprovedState;
-                                        const totalFineAmount = Number(fine?.totalFineAmount || fine?.fineAmount || 0);
+                                        const grossFineAmount = Number(fine?.totalFineAmount || fine?.fineAmount || 0);
+                                        const payableFineAmount = getEmpShare(fine, employeeOwnerId) || computeFinePayableTotal(fine) || grossFineAmount;
+                                        const totalFineAmount = payableFineAmount;
                                         const paidAmount = Number(fine?.paidAmount || 0);
-                                        const remainingAmount = Math.max(0, totalFineAmount - paidAmount);
+                                        const remainingAmount = Math.max(0, payableFineAmount - paidAmount);
                                         const compactBox = 'p-2 rounded-lg border flex items-center justify-between px-4 min-h-[44px] transition-all break-words gap-2';
 
                                         const statusBoxClass =

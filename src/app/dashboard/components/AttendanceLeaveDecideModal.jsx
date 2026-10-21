@@ -262,12 +262,10 @@ export default function AttendanceLeaveDecideModal({
                                 {punchIn || '—'} – {punchOut || '—'}
                             </p>
                         ) : null}
-                        {reason ? (
-                            <p>
-                                <span className="text-slate-500">Reason: </span>
-                                {reason}
-                            </p>
-                        ) : null}
+                        <p>
+                            <span className="text-slate-500">Requester reason: </span>
+                            <span className="whitespace-pre-wrap">{String(reason || '').trim() || '—'}</span>
+                        </p>
                         {attachmentName ? (
                             <p>
                                 <span className="text-slate-500">Attachment: </span>
@@ -381,14 +379,10 @@ export default function AttendanceLeaveDecideModal({
                                 </p>
                             </>
                         ) : null}
-                        {reason ? (
-                            <>
-                                <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">
-                                    Reason
-                                </p>
-                                <p className="text-slate-700 text-sm whitespace-pre-wrap">{reason}</p>
-                            </>
-                        ) : null}
+                        <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">
+                            Requester reason
+                        </p>
+                        <p className="text-slate-700 text-sm whitespace-pre-wrap">{String(reason || '').trim() || '—'}</p>
                         {attachmentName ? (
                             <>
                                 <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">

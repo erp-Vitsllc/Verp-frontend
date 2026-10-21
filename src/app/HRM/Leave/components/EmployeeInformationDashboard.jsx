@@ -1400,9 +1400,17 @@ function requestApproved(record) {
     );
 }
 
+/** Waive, or an approval that sets deduction hours to 0, restores the full day. */
+function hoursForgiven(record) {
+    if (!record) return false;
+    if (record.deductionWaived === true) return true;
+    return String(record.hourAdjustStatus || '') === 'approved' && !(n(record.hoursApproved) > 0);
+}
+
 function dayKind(record, { isFuture, isToday, isHoliday, isWeeklyOff }) {
     const key = String(record?.statusKey || '');
     if (key === 'suspended' || record?.attendanceSuspended) return 'suspended';
+    if (hoursForgiven(record)) return 'present';
     // A future day stays blank until leave is approved. Unauthorized leave is only a past day.
     const unapprovedFuture = Boolean(isFuture) && !requestApproved(record);
     if (shownEventKind(record) && !unapprovedFuture) return 'attention';
@@ -1668,19 +1676,31 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
           : ctx.salaryLock?.locked
             ? 'future'
             : dayKind(record, { isFuture, isToday: dateKey === ctx.todayKey, isHoliday, isWeeklyOff });
+    const forgiven = hoursForgiven(record);
+    const approvedHours = String(record?.hourAdjustStatus || '') === 'approved' ? n(record?.hoursApproved) : null;
     const worked = recordWorkedMinutes(record);
     const tone = TIP_TONE[kind] || TIP_TONE.empty;
     const column = (getDay(day) + 6) % 7;
     const yellowLabel = kind === 'attention' ? attentionLabel(record) : '';
     const flexibleDay = isFlexibleWeek(ctx.scheduleWeek);
-    const earlyText = dayEarlyText(record, ctx.scheduleWeek);
+    const hourSettled = approvedHours != null;
+    const earlyText = forgiven || hourSettled ? '' : dayEarlyText(record, ctx.scheduleWeek);
     const description = dayDescription(record);
     const adjustment = inMonth && !beforeStart && !ctx.salaryLock?.locked ? ctx.adjustmentByDate.get(dateKey) : null;
     const adjustmentText = adjustmentNote(adjustment ? { date: dateKey, ...adjustment } : null);
     const approval = kind === 'future' ? '' : dayApprovalLabel(record);
     const scheduled = flowchartMinutes(ctx.scheduleWeek, dateKey, record);
-    const balance = worked == null || !(scheduled > 0) ? null : scheduled - worked;
-    const flexibleShort = flexibleDay ? flexibleShortMinutes(record, ctx.scheduleWeek) : null;
+    const rawShort = flexibleDay ? flexibleShortMinutes(record, ctx.scheduleWeek) : (worked == null || !(scheduled > 0) ? null : scheduled - worked);
+    const deductionMinutes = forgiven
+        ? 0
+        : approvedHours != null
+            ? Math.round(approvedHours * 60)
+            : (rawShort == null ? null : Math.max(0, rawShort));
+    const shownWorked = deductionMinutes == null || !(scheduled > 0)
+        ? worked
+        : Math.max(0, scheduled - Math.max(0, deductionMinutes));
+    const balance = deductionMinutes == null ? null : Math.max(0, deductionMinutes);
+    const flexibleShort = flexibleDay ? balance : null;
     const counted = Boolean(ctx.countTo) && dateKey >= ctx.countFrom && dateKey <= ctx.countTo;
     const extraPay = ctx.additionPayByDate.get(dateKey) || 0;
     const syntheticOt = String(record?.timeIn || '').trim() === 'OT'
@@ -1697,12 +1717,14 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         ? money2(attendanceDeductionAmount(record, ctx.scheduleWeek, ctx.salaryDaily, ctx.leavePolicy || {}, ctx.mispunchAmounts))
         : null;
     const doubleDeduction = deduct > 0 && deductionTimes(record, ctx.leavePolicy || {}) === 2;
-    const lateText = dayLateText(record, ctx.scheduleWeek);
+    const lateText = forgiven || hourSettled ? '' : dayLateText(record, ctx.scheduleWeek);
     const visibleLate = lateText && lateText !== '—' && lateText !== '0 Hours' ? lateText : '';
     const visibleEarly = earlyText && earlyText !== '—' && earlyText !== '0 Hours' ? earlyText : '';
-    const typeLabel = visibleLate && visibleEarly
-        ? 'Late Arrival · Early Go'
-        : (yellowLabel || kindLabel(kind));
+    const typeLabel = forgiven
+        ? 'Present (on time)'
+        : visibleLate && visibleEarly
+            ? 'Late Arrival · Early Go'
+            : (yellowLabel || kindLabel(kind));
     const moreLines = [];
     if (ctx.holidayNamesByDate[dateKey]) moreLines.push({ label: 'Holiday', value: ctx.holidayNamesByDate[dateKey] });
     if (adjustmentText) moreLines.push({ label: 'Adjusted', value: adjustmentText });
@@ -1769,7 +1791,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                         })}
                         inSpot={punchSpot(record?.checkInLocation)}
                         outSpot={punchSpot(record?.checkOutLocation)}
-                        workedText={worked == null ? '—' : formatHourlyGap(worked)}
+                        workedText={shownWorked == null ? '—' : formatHourlyGap(shownWorked)}
                         lateText={visibleLate}
                         earlyText={visibleEarly}
                         otText={otText}

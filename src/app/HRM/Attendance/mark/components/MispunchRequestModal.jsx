@@ -152,8 +152,12 @@ export default function MispunchRequestModal({
             toast({ variant: 'destructive', title: 'Reject reason is required' });
             return;
         }
-        if (decision === 'approved' && (!timeIn || !timeOut || !String(reason || '').trim())) {
-            toast({ variant: 'destructive', title: 'Check-in, check-out, and reason are required' });
+        if (decision === 'approved' && (!timeIn || !timeOut)) {
+            toast({ variant: 'destructive', title: 'Check-in and check-out are required' });
+            return;
+        }
+        if (decision === 'approved' && requesterTurn && !String(reason || '').trim()) {
+            toast({ variant: 'destructive', title: 'Reason is required' });
             return;
         }
         const changeId = String(queued?.id || '').trim();
@@ -161,7 +165,7 @@ export default function MispunchRequestModal({
             decision,
             timeIn: decision === 'approved' ? timeIn : undefined,
             timeOut: decision === 'approved' ? timeOut : undefined,
-            hourReason: decision === 'approved' ? String(reason || '').trim() : undefined,
+            hourReason: decision === 'approved' && requesterTurn ? String(reason || '').trim() : undefined,
             approvedHours: decision === 'approved' ? 0 : undefined,
             rejectReason: decision === 'rejected' ? String(rejectReason || '').trim() : '',
         };
@@ -223,16 +227,24 @@ export default function MispunchRequestModal({
                             className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                         />
                     </label>
-                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                        Reason
-                        <textarea
-                            value={reason}
-                            disabled={readOnly}
-                            onChange={(event) => setReason(event.target.value)}
-                            rows={3}
-                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
-                        />
-                    </label>
+                    {review && !requesterTurn ? (
+                        <p className="text-sm text-slate-700">
+                            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Requester reason: </span>
+                            <span className="whitespace-pre-wrap">{String(reason || '').trim() || '—'}</span>
+                        </p>
+                    ) : (
+                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+                            Reason
+                            <textarea
+                                value={reason}
+                                disabled={readOnly}
+                                required
+                                onChange={(event) => setReason(event.target.value)}
+                                rows={3}
+                                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
+                            />
+                        </label>
+                    )}
                     <div className="flex items-center justify-between gap-3 border-y border-slate-100 py-3">
                         <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
                             Eligible mispunch this month

@@ -11,6 +11,7 @@ export default function VehicleHandoverBodyConditionPhotoCell({
     label,
     photo = null,
     photoUrl: photoUrlProp = null,
+    fallbackPhoto = null,
     readOnly = false,
     uploading = false,
     missing = false,
@@ -18,7 +19,11 @@ export default function VehicleHandoverBodyConditionPhotoCell({
     onOpenPicker,
 }) {
     const resolved = useAssessmentMediaUrl(photo || photoUrlProp);
-    const photoUrl = resolved.url || (typeof photoUrlProp === 'string' && photoUrlProp.startsWith('data:') ? photoUrlProp : null);
+    const fallback = useAssessmentMediaUrl(resolved.failed ? fallbackPhoto : null);
+    const photoUrl = resolved.url
+        || fallback.url
+        || (typeof photoUrlProp === 'string' && photoUrlProp.startsWith('data:') ? photoUrlProp : null);
+    const photoFailed = resolved.failed && !fallback.url && (fallback.failed || !fallbackPhoto);
     const hasPhoto = hasAssessmentPhoto(photo) || Boolean(photoUrl);
     const boxClass = `${HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS} border bg-gray-100 ${
         missing ? 'border-amber-300' : 'border-gray-200'
@@ -53,7 +58,7 @@ export default function VehicleHandoverBodyConditionPhotoCell({
                             decoding="async"
                             onError={resolved.retry}
                         />
-                    ) : resolved.failed ? (
+                    ) : photoFailed ? (
                         <span className="px-2 text-center text-[10px] font-semibold leading-snug text-amber-700">
                             Photo file is missing from storage.
                         </span>
@@ -85,7 +90,7 @@ export default function VehicleHandoverBodyConditionPhotoCell({
                             decoding="async"
                             onError={resolved.retry}
                         />
-                    ) : resolved.failed ? (
+                    ) : photoFailed ? (
                         <span className="px-2 text-center text-[10px] font-semibold leading-snug text-amber-700">
                             Photo file is missing from storage. Use Change to upload it again.
                         </span>

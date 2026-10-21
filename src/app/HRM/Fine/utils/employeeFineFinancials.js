@@ -120,7 +120,12 @@ export function resolveEmployeeFinePaidAmount(fine, employeeId, shareAmount) {
     if (share <= 0) return 0;
 
     const entry = (fine.assignedEmployees || []).find((ae) => ae.employeeId === employeeId);
-    const paid = parseFloat(entry?.paidAmount ?? fine.paidAmount ?? 0) || 0;
+    const entryPaid = parseFloat(entry?.paidAmount ?? 0) || 0;
+    const finePaid = parseFloat(fine.paidAmount ?? 0) || 0;
+    const humanCount = (fine.assignedEmployees || []).filter(
+        (ae) => ae?.employeeId && ae.employeeId !== 'VEGA-HR-0000' && ae.employeeId !== 'VEGA_INTERNAL' && ae.employeeId !== 'PENDING',
+    ).length;
+    const paid = humanCount <= 1 ? Math.max(entryPaid, finePaid) : (entry ? entryPaid : finePaid);
     return Math.min(paid, share);
 }
 
