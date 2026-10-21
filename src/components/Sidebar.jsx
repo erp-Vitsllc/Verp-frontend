@@ -44,6 +44,7 @@ import {
     ensureAssetFlowchartRoleMeta,
 } from '@/utils/assetFlowchartModuleAccess';
 import axiosInstance, { isSessionAuthError, shouldSkipSidebarPolling, pauseSidebarPolling, blockSidebarPollingForAuth } from '@/utils/axios';
+import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
 import { performLogout } from '@/utils/authSession';
 import { loadModuleNotificationBundle, invalidateModuleNotificationFeedsCache, MODULE_NOTIFICATIONS_UPDATED, getCachedModuleNotificationBundle, getCachedModuleNotificationFeeds, peekCachedModuleNotificationBundle, readPersistedModuleNotificationCounts } from '@/utils/moduleNotifications';
 import {
@@ -329,7 +330,8 @@ export default function Sidebar() {
     const [userData, setUserData] = useState({
         name: 'User',
         designation: '',
-        status: 'online'
+        status: 'online',
+        photo: '',
     });
     const [sidebarCounts, setSidebarCounts] = useState(EMPTY_SIDEBAR_COUNTS);
     const [taskManagerCount, setTaskManagerCount] = useState(0);
@@ -353,7 +355,8 @@ export default function Sidebar() {
                     setUserData({
                         name: user.name || user.username || 'User',
                         designation: user.designation || user.department || '',
-                        status: 'online'
+                        status: 'online',
+                        photo: toNextImageProfileSrc(user.profilePicture || user.profilePic) || '',
                     });
                 } catch (e) {
                     console.error('Error parsing user data:', e);
@@ -361,6 +364,29 @@ export default function Sidebar() {
             }
         }
     }, []);
+
+    useEffect(() => {
+        if (!mounted) return;
+        let active = true;
+        axiosInstance.get('/Employee/me', { skipToast: true })
+            .then((res) => {
+                if (!active) return;
+                const employee = res.data || {};
+                const photo = toNextImageProfileSrc(employee.profilePicture || employee.profilePic) || '';
+                if (!photo && !employee.firstName) return;
+                const name = [employee.firstName, employee.lastName].filter(Boolean).join(' ').trim();
+                setUserData((prev) => ({
+                    ...prev,
+                    name: name || prev.name,
+                    designation: employee.designation || prev.designation,
+                    photo: photo || prev.photo,
+                }));
+            })
+            .catch(() => {});
+        return () => {
+            active = false;
+        };
+    }, [mounted]);
 
     useEffect(() => {
         if (!mounted) return;
@@ -1006,8 +1032,12 @@ export default function Sidebar() {
 
                         {/* Profile */}
                         <div className="p-4 border-b border-gray-700/50 flex items-center gap-3">
-                            <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-xl">
-                                {userData.name ? userData.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'U'}
+                            <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center overflow-hidden text-white font-bold text-xl">
+                                {userData.photo ? (
+                                    <img src={userData.photo} alt="" className="h-full w-full object-cover" />
+                                ) : (
+                                    userData.name ? userData.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'U'
+                                )}
                             </div>
                             <div className="flex-1">
                                 <p className="font-semibold text-white">{userData.name}</p>

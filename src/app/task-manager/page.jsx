@@ -27,6 +27,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { formatCommandCenterNotificationMessage } from '@/utils/dashboardCommandCenterInbox';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
+import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
 import { basePersonName, personKey, requesterEmployeeName, taskRolePeople } from '@/app/task-manager/taskRolePeople';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
@@ -403,11 +404,12 @@ function pageList(current, total) {
 function PersonCell({ name, photo, hint }) {
     const [failed, setFailed] = useState(false);
     const label = name || '—';
+    const src = toNextImageProfileSrc(photo);
     return (
         <div className="flex items-center gap-2.5 min-w-0" title={hint || label}>
-            {photo && !failed ? (
+            {src && !failed ? (
                 <img
-                    src={photo}
+                    src={src}
                     alt=""
                     className="h-8 w-8 rounded-full object-cover shrink-0 bg-slate-100"
                     onError={() => setFailed(true)}
@@ -455,7 +457,9 @@ function taskMatchesListFilters(task, options) {
     const shown = listStatus(task);
     if (scope === 'My Task' && !taskIsMine(task, viewer)) return false;
     if (typeFilter !== 'All Types' && displayTaskType(task.taskCategory) !== typeFilter) return false;
-    if (includeStatus) {
+    const finished = shown === 'Completed' || shown === 'Closed';
+    if (finished && status !== 'Completed') return false;
+    if (includeStatus && !finished) {
         if (status === 'Pending' && !isOpenPending(shown)) return false;
         if (status !== 'All Status' && status !== 'Pending' && shown !== status) return false;
     }

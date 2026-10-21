@@ -387,6 +387,126 @@ function spanWorkedMinutes(date, span) {
     return diff;
 }
 
+const FLEXIBLE_DAY_CAP_MINUTES = 10 * 60;
+
+function monthRangeLabel(monthKey) {
+    if (!/^\d{4}-\d{2}$/.test(String(monthKey || ''))) return '';
+    const year = Number(monthKey.slice(0, 4));
+    const month = Number(monthKey.slice(5, 7));
+    const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return `${monthKey}-01 to ${monthKey}-${String(last).padStart(2, '0')}`;
+}
+
+function hoursLabel(minutes) {
+    const value = Number(minutes) || 0;
+    return (Math.round((value / 60) * 100) / 100).toFixed(2);
+}
+
+function isWorkedAttendanceDay(row) {
+    const status = String(row?.statusKey || '');
+    if (['present', 'late_arrived', 'early_go', 'mispunch', 'late_in', 'early_out'].includes(status)) return true;
+    return Boolean(String(row?.timeIn || '').trim() && String(row.timeIn).trim() !== 'OT');
+}
+
+/** Flexible days: time past 10 hours. A full hour or more is additional; under 1 hour is short. */
+function flexibleExtraSplit(record, week) {
+    if (!isFlexibleWeek(week)) return { additional: 0, short: 0 };
+    const worked = recordWorkedMinutes(record);
+    if (worked == null || worked <= FLEXIBLE_DAY_CAP_MINUTES) return { additional: 0, short: 0 };
+    const extra = worked - FLEXIBLE_DAY_CAP_MINUTES;
+    if (extra >= 60) return { additional: extra, short: 0 };
+    if (extra > 0) return { additional: 0, short: extra };
+    return { additional: 0, short: 0 };
+}
+
+function summarizeEmployeeAttendance(name, records, week, rangeLabel) {
+    let workingDays = 0;
+    let compOffTaken = 0;
+    let additional = 0;
+    let short = 0;
+    let approvedOt = 0;
+    const days = [];
+    (records || []).forEach((row) => {
+        const date = String(row?.date || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+        if (String(row?.statusKey || '') === 'compoff_leave') compOffTaken += 1;
+        if (isWorkedAttendanceDay(row)) workingDays += 1;
+        const split = flexibleExtraSplit(row, week);
+        additional += split.additional;
+        short += split.short;
+        const ot = String(row?.flexibleOtStatus || '').trim() === 'approved'
+            ? Number(row?.flexibleOtApprovedHours) || 0
+            : 0;
+        approvedOt += ot;
+        if (isWorkedAttendanceDay(row) || String(row?.timeIn || '').trim() || String(row?.timeOut || '').trim()) {
+            days.push({
+                date,
+                timeIn: row.timeIn || '',
+                timeOut: row.timeOut || '',
+                additional: split.additional,
+                short: split.short,
+                approvedOt: ot,
+            });
+        }
+    });
+    days.sort((a, b) => a.date.localeCompare(b.date));
+    return {
+        name: name || 'Employee',
+        rangeLabel,
+        workingDays,
+        compOffTaken,
+        additional,
+        short,
+        approvedOt,
+        days,
+    };
+}
+
+function downloadAttendanceExcel(title, rows) {
+    const esc = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const summaryHead = ['Employee name', 'Date range', 'Total working days', 'Total comp off taken', 'Additional hours', 'Approved OT', 'Short hours'];
+    const summaryBody = rows.map((row) => [
+        row.name,
+        row.rangeLabel,
+        row.workingDays,
+        row.compOffTaken,
+        hoursLabel(row.additional),
+        Number(row.approvedOt || 0).toFixed(2),
+        hoursLabel(row.short),
+    ]);
+    const dayHead = ['Employee name', 'Date', 'Check-in', 'Check-out', 'Additional hours', 'Approved OT', 'Short hours'];
+    const dayBody = rows.flatMap((row) => (row.days || []).map((day) => [
+        row.name,
+        day.date,
+        day.timeIn || '—',
+        day.timeOut || '—',
+        hoursLabel(day.additional),
+        Number(day.approvedOt || 0).toFixed(2),
+        hoursLabel(day.short),
+    ]));
+    const table = (head, body) => `
+        <table border="1">
+            <tr>${head.map((cell) => `<th>${esc(cell)}</th>`).join('')}</tr>
+            ${body.map((line) => `<tr>${line.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`).join('')}
+        </table>`;
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
+        <h3>${esc(title)}</h3>
+        ${table(summaryHead, summaryBody)}
+        <br/>
+        <h3>Daily check-in and check-out</h3>
+        ${table(dayHead, dayBody)}
+    </body></html>`;
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replace(/[^\w]+/g, '-').replace(/^-|-$/g, '') || 'attendance-report'}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
+
 function recordWorkedMinutes(record) {
     const inn = String(record?.timeIn || '').trim();
     const out = String(record?.timeOut || '').trim();
@@ -2722,6 +2842,9 @@ export default function EmployeeInformationDashboard({
     const [compOffPage, setCompOffPage] = useState(1);
     const [compOffView, setCompOffView] = useState(null);
     const [groupKey, setGroupKey] = useState('');
+    const [reportMenuOpen, setReportMenuOpen] = useState(false);
+    const [reportBusy, setReportBusy] = useState(false);
+    const [reportTable, setReportTable] = useState(null);
     const [groupMenuOpen, setGroupMenuOpen] = useState(false);
     const [prepPage, setPrepPage] = useState(1);
     const [taskPage, setTaskPage] = useState(1);
@@ -3467,6 +3590,51 @@ export default function EmployeeInformationDashboard({
         }),
     };
     const selectedGroupLabel = staffGroups.find((group) => group.key === groupKey)?.label || '';
+    const employeeDisplayName = [employee.firstName, employee.lastName].filter(Boolean).join(' ').trim() || employee.employeeName || 'Employee';
+
+    const buildSelectedEmployeeReport = () => {
+        const rangeLabel = monthRangeLabel(monthKey);
+        return [summarizeEmployeeAttendance(employeeDisplayName, monthRecords, scheduleWeek, rangeLabel)];
+    };
+
+    const downloadReport = async (scope) => {
+        setReportMenuOpen(false);
+        setReportBusy(true);
+        try {
+            const rangeLabel = monthRangeLabel(monthKey);
+            let rows = [];
+            let title = '';
+            if (scope === 'employee') {
+                rows = buildSelectedEmployeeReport();
+                title = `${employeeDisplayName} attendance ${rangeLabel}`;
+            } else {
+                const response = await axiosInstance.get('/Leave/group-calendars', {
+                    params: { month: monthKey, staffType: scope, detail: '1' },
+                    skipToast: true,
+                });
+                const payload = response.data || {};
+                const week = payload.scheduleWeek || null;
+                const label = staffGroups.find((group) => group.key === scope)?.label || scope;
+                rows = (payload.employees || []).map((person) => summarizeEmployeeAttendance(
+                    person.employeeName,
+                    person.records || [],
+                    week,
+                    rangeLabel,
+                ));
+                title = `${label} attendance ${rangeLabel}`;
+            }
+            setReportTable({ title, rows });
+            downloadAttendanceExcel(title, rows);
+        } catch (err) {
+            setReportTable({
+                title: 'Attendance report',
+                rows: [],
+                error: err?.response?.data?.message || 'Could not build the report.',
+            });
+        } finally {
+            setReportBusy(false);
+        }
+    };
 
     function openGroupEmployee(id) {
         setGroupMenuOpen(false);
@@ -3720,13 +3888,76 @@ export default function EmployeeInformationDashboard({
                             <button type="button" onClick={onOpenSalary} className="h-8 rounded-lg border border-[#E2E8F0] px-2.5 text-[13px] font-semibold text-[#64748B]">
                                 Salary setup
                             </button>
-                            <button type="button" onClick={onDownload} className="h-8 rounded-lg border border-[#E2E8F0] px-2.5 text-[13px] font-semibold text-[#64748B]">
-                                Report
-                            </button>
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setReportMenuOpen((open) => !open)}
+                                    disabled={reportBusy}
+                                    className="inline-flex h-8 items-center gap-1 rounded-lg border border-[#E2E8F0] px-2.5 text-[13px] font-semibold text-[#64748B] disabled:opacity-50"
+                                >
+                                    {reportBusy ? 'Preparing…' : 'Download report'}
+                                    <ChevronDown size={14} />
+                                </button>
+                                {reportMenuOpen ? (
+                                    <div className="absolute right-0 z-30 mt-1 w-52 rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg">
+                                        <button
+                                            type="button"
+                                            onClick={() => downloadReport('employee')}
+                                            className="block w-full px-3 py-2 text-left text-[13px] font-semibold text-[#1B2A4A] hover:bg-[#F8FAFC]"
+                                        >
+                                            Selected employee
+                                        </button>
+                                        {staffGroups.map((group) => (
+                                            <button
+                                                key={group.key}
+                                                type="button"
+                                                onClick={() => downloadReport(group.key)}
+                                                className="block w-full px-3 py-2 text-left text-[13px] font-semibold text-[#1B2A4A] hover:bg-[#F8FAFC]"
+                                            >
+                                                {group.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : null}
+                            </div>
                         </div>
                     </div>
                 </div>
             </section>
+
+            {reportTable ? (
+                <section className="rounded-2xl border border-[#E6EDF5] bg-white p-3">
+                    <h2 className="text-[15px] font-bold text-[#1B2A4A]">{reportTable.title}</h2>
+                    <p className="mb-2 text-[12px] font-medium text-[#64748B]">Additional hours are flexible time past 10 hours when that extra is at least 1 hour. Extra time under 1 hour is short hours. Approved OT is separate.</p>
+                    {reportTable.error ? <p className="text-sm text-red-500">{reportTable.error}</p> : null}
+                    {reportTable.rows?.length ? (
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full text-left text-[12px]">
+                                <thead>
+                                    <tr className="border-b border-[#E6EDF5] text-[#64748B]">
+                                        {['Employee name', 'Date range', 'Working days', 'Comp off taken', 'Additional hours', 'Approved OT', 'Short hours'].map((label) => (
+                                            <th key={label} className="px-2 py-2 font-semibold">{label}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {reportTable.rows.map((row) => (
+                                        <tr key={row.name} className="border-b border-[#F1F5F9] text-[#1B2A4A]">
+                                            <td className="px-2 py-2 font-semibold">{row.name}</td>
+                                            <td className="px-2 py-2">{row.rangeLabel}</td>
+                                            <td className="px-2 py-2">{row.workingDays}</td>
+                                            <td className="px-2 py-2">{row.compOffTaken}</td>
+                                            <td className="px-2 py-2">{hoursLabel(row.additional)}</td>
+                                            <td className="px-2 py-2">{Number(row.approvedOt || 0).toFixed(2)}</td>
+                                            <td className="px-2 py-2">{hoursLabel(row.short)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : null}
+                </section>
+            ) : null}
 
             {groupKey ? (
                 <GroupAttendanceBoard

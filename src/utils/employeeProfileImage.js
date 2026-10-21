@@ -57,17 +57,11 @@ export function getEmployeeInitials(firstName, lastName) {
     return `${a}${b}`.toUpperCase() || '?';
 }
 
-/** Safe src for next/image — keeps absolute paths and data URLs; adds https only for bare host strings. */
+/** Only a full http(s) or data URL can be an img src. Storage keys are not site paths. */
 export function toNextImageProfileSrc(url) {
     const normalized = normalizeProfilePictureUrl(url);
     if (!normalized) return null;
-    if (
-        normalized.startsWith('http://') ||
-        normalized.startsWith('https://') ||
-        normalized.startsWith('/') ||
-        normalized.startsWith('data:')
-    ) {
-        return normalized;
-    }
-    return `https://${normalized}`;
+    if (normalized.startsWith('data:')) return normalized;
+    if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+    return null;
 }
