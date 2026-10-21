@@ -438,6 +438,7 @@ function VehicleTireChangeDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canActAccounts={isFlowchartAccounts}
+                                canEditInvoiceValue={isFlowchartHr}
                                 workflowStage={tireWorkflowStage}
                                 serviceTypeLabel="Tire Change"
                                 onUpdated={(updatedAsset) => {

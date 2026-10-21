@@ -42,6 +42,8 @@ const STATUS_STYLE = {
     'Pending Due': 'bg-red-50 text-red-600',
     'In Progress': 'bg-sky-50 text-sky-700',
     Completed: 'bg-emerald-50 text-emerald-600',
+    Open: 'bg-sky-50 text-sky-700',
+    'Pending Review': 'bg-amber-50 text-amber-700',
     Cancelled: 'bg-slate-100 text-slate-500',
     'On Hold': 'bg-amber-50 text-amber-700',
     Rejected: 'bg-slate-100 text-slate-600',
@@ -333,25 +335,56 @@ function TaskDetailsPage() {
         if (!action) return;
         const path = action === 'return'
             ? 'return'
-            : action === 'complete'
+            : action === 'complete' || action === 'general-complete'
                 ? 'completion'
-                : 'confirm-completion';
+                : action === 'general-reject'
+                    ? 'review'
+                    : 'confirm-completion';
+        const body = action === 'general-reject'
+            ? { decision: 'reject', description }
+            : { description };
         setBusy(true);
         try {
             const res = await axiosInstance.post(
                 `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/${path}`,
-                { description },
+                body,
                 { skipToast: true },
             );
             setTask(res.data?.task || null);
             setNoteAction(null);
             setTab('updates');
             toast({
-                title: action === 'return' ? 'Task returned' : action === 'complete' ? 'Sent for confirmation' : 'Task closed',
+                title: action === 'return'
+                    ? 'Task returned'
+                    : action === 'general-complete'
+                        ? 'Sent for review'
+                        : action === 'general-reject'
+                            ? 'Task rejected'
+                            : action === 'complete'
+                                ? 'Sent for confirmation'
+                                : 'Task closed',
                 description: res.data?.message || 'Updated.',
             });
         } catch (err) {
             toast({ title: 'Could not update the task', description: err?.response?.data?.message || 'Try again.' });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const approveGeneral = async () => {
+        setBusy(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/review`,
+                { decision: 'approve' },
+                { skipToast: true },
+            );
+            setTask(res.data?.task || null);
+            setTab('updates');
+            toast({ title: 'Task approved', description: res.data?.message || 'The task is closed.' });
+        } catch (err) {
+            toast({ title: 'Could not approve the task', description: err?.response?.data?.message || 'Try again.' });
         } finally {
             setBusy(false);
         }
@@ -460,6 +493,36 @@ function TaskDetailsPage() {
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:opacity-40"
                                 >
                                     <RefreshCw size={14} /> Return
+                                </button>
+                            )}
+                            {task.canCompleteGeneral && (
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => setNoteAction('general-complete')}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
+                                >
+                                    <Check size={14} /> Complete
+                                </button>
+                            )}
+                            {task.canApproveGeneral && (
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={approveGeneral}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
+                                >
+                                    <Check size={14} /> Approve
+                                </button>
+                            )}
+                            {task.canRejectGeneral && (
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => setNoteAction('general-reject')}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-40"
+                                >
+                                    Reject
                                 </button>
                             )}
                             {task.canSubmitCompletion && (
@@ -754,13 +817,33 @@ function TaskDetailsPage() {
             )}
             {noteAction && (
                 <NoteModal
-                    title={noteAction === 'return' ? 'Return Task' : noteAction === 'complete' ? 'Mark as Completed' : 'Confirm Close'}
+                    title={noteAction === 'return'
+                        ? 'Return Task'
+                        : noteAction === 'general-complete'
+                            ? 'Complete Task'
+                            : noteAction === 'general-reject'
+                                ? 'Reject Task'
+                                : noteAction === 'complete'
+                                    ? 'Mark as Completed'
+                                    : 'Confirm Close'}
                     hint={noteAction === 'return'
                         ? 'This returns the task to the original assignee. They receive the description by email and on their notification.'
-                        : noteAction === 'complete'
-                            ? 'The original assignee is emailed. The task stays open until they confirm close.'
-                            : 'Confirming closes this task for both of you. It leaves the open task list.'}
-                    submitLabel={noteAction === 'return' ? 'Return' : noteAction === 'complete' ? 'Send for confirmation' : 'Confirm Close'}
+                        : noteAction === 'general-complete'
+                            ? 'Your reply is saved in Work Updates and emailed to the requester. They approve or reject the task.'
+                            : noteAction === 'general-reject'
+                                ? 'The reason is required. It is saved in Work Updates, emailed to the assignee, and the task goes back to Open.'
+                                : noteAction === 'complete'
+                                    ? 'The original assignee is emailed. The task stays open until they confirm close.'
+                                    : 'Confirming closes this task for both of you. It leaves the open task list.'}
+                    submitLabel={noteAction === 'return'
+                        ? 'Return'
+                        : noteAction === 'general-complete'
+                            ? 'Send for review'
+                            : noteAction === 'general-reject'
+                                ? 'Reject'
+                                : noteAction === 'complete'
+                                    ? 'Send for confirmation'
+                                    : 'Confirm Close'}
                     busy={busy}
                     onClose={() => { if (!busy) setNoteAction(null); }}
                     onSubmit={submitNoteAction}

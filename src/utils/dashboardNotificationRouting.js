@@ -328,6 +328,22 @@ const buildCompanyNotRenewPath = (item, meta) => {
  */
 export const buildDashboardNotificationPath = (item) => {
     if (!item || typeof item !== 'object') return '';
+    const earlyMeta = parseMeta(item.extra3);
+    const sickStatus = String(earlyMeta?.requestedStatusKey || item.requestedStatusKey || '').trim();
+    const sickText = `${item.extra2 || ''} ${item.message || ''}`.toLowerCase();
+    if (sickStatus === 'sick_leave' || sickText.includes('sick leave')) {
+        const day = [earlyMeta?.date, earlyMeta?.from, item.date, item.extra1].find((value) =>
+            /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim()),
+        );
+        return attendanceRequestMarkHref({
+            date: day || '',
+            staffType: earlyMeta?.staffType || item.staffType || 'office',
+            attendanceId: earlyMeta?.attendanceId || item.requestObjectId || item.id || item.dashboardActionId || '',
+            employeeId: earlyMeta?.employeeMongoId || item.employeeMongoId || item.subjectMongoId || item.targetEmployeeId || '',
+            kind: 'leave',
+            type: 'Attendance Leave Request',
+        });
+    }
     if (isLeaveDashboardNotification(item)) {
         return buildLeaveDashboardNotificationPath(item);
     }

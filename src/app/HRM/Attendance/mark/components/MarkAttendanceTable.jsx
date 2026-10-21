@@ -3006,6 +3006,8 @@ export default function MarkAttendanceTable({
                 isOpen={Boolean(leaveDecide)}
                 dateKey={leaveDecide?.mark?.date || dateKey}
                 employeeName={leaveDecide?.employee?.name || ''}
+                employeeMongoId={leaveDecide?.employee?.id || ''}
+                requestedStatusKey={leaveDecide?.mark?.requestedStatusKey || ''}
                 currentLabel={leaveDecide?.mark?.previousStatusLabel || leaveDecide?.mark?.label || ''}
                 requestedLabel={leaveDecide?.mark?.requestedStatusLabel || ''}
                 reason={
@@ -3014,7 +3016,8 @@ export default function MarkAttendanceTable({
                     leaveDecide?.mark?.reason ||
                     ''
                 }
-                attachmentName={leaveDecide?.mark?.attachmentName || ''}
+                attachmentName={leaveDecide?.mark?.attachmentName || leaveDecide?.mark?.pendingChange?.attachmentName || ''}
+                attachmentUrl={leaveDecide?.mark?.attachmentUrl || ''}
                 kind={leaveDecide?.mark?.leaveRequestKind || 'leave'}
                 fromDate={leaveDecide?.mark?.leaveRequestFromDate || ''}
                 toDate={leaveDecide?.mark?.leaveRequestToDate || ''}

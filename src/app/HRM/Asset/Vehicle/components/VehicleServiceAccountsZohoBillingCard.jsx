@@ -273,6 +273,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
     vehicleId,
     serviceId,
     canActAccounts = false,
+    canEditInvoiceValue = false,
     workflowStage = '',
     serviceTypeLabel = 'Vehicle Service',
     onUpdated,
@@ -407,6 +408,9 @@ export default function VehicleServiceAccountsZohoBillingCard({
             allMultiBillsDone);
 
     const canAct = Boolean(canActAccounts) && awaitingBilling && !isBilled;
+    const canEditAmounts = awaitingBilling && !isBilled && Boolean(canEditInvoiceValue);
+    const canEditFiles = awaitingBilling && !isBilled && (Boolean(canActAccounts) || Boolean(canEditInvoiceValue));
+    const canEditBillMeta = canEditFiles;
 
     const assignmentPending = isOilServiceAssignmentPending(remark);
     const paymentGate = resolveShopServiceCardGate({
@@ -762,6 +766,25 @@ export default function VehicleServiceAccountsZohoBillingCard({
                 setBusy(false);
                 return;
             }
+            const billNumbers = isAccidentMultiBill
+                ? (parsedRemark.zohoBills || []).map((bill) => bill.billNumber)
+                : [parsedRemark.billNumber];
+            const duplicateCheck = await axiosInstance.post(
+                '/AssetItem/service-invoice-duplicates',
+                { billNumbers, serviceId },
+                { skipToast: true },
+            );
+            const duplicates = duplicateCheck.data?.duplicates || [];
+            if (duplicates.length) {
+                const numbers = [...new Set(duplicates.map((row) => row.billNumber))].join(', ');
+                toast({
+                    variant: 'destructive',
+                    title: 'Duplicate invoice',
+                    description: `Invoice ${numbers} is already used. It was not sent to Zoho.`,
+                });
+                setBusy(false);
+                return;
+            }
 
             const { data } = await axiosInstance.post(`/AssetItem/${vehicleId}/service-workflow/respond`, {
                 action: 'approve',
@@ -781,6 +804,35 @@ export default function VehicleServiceAccountsZohoBillingCard({
                 description:
                     err.response?.data?.message ||
                     'Zoho bill must succeed before status becomes Billed.',
+            });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const handleSaveInvoice = async () => {
+        if (!vehicleId || !canEditAmounts || busy) return;
+        setBusy(true);
+        try {
+            const serviceUpdates = isAccidentMultiBill
+                ? buildServiceUpdatesMulti()
+                : buildServiceUpdatesSingle();
+            const { data } = await axiosInstance.post(
+                `/AssetItem/${vehicleId}/service-workflow/respond`,
+                {
+                    action: 'save',
+                    serviceUpdates,
+                    ...(serviceId ? { serviceRecordId: serviceId } : {}),
+                },
+                { skipToast: true },
+            );
+            toast({ title: 'Invoice updated', description: data?.message || 'Amount and attachment saved.' });
+            if (typeof onUpdated === 'function') onUpdated(data?.asset || null);
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not save the invoice',
+                description: err.response?.data?.message || 'Try again.',
             });
         } finally {
             setBusy(false);
@@ -1002,7 +1054,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                         isBilled
                             ? 'Zoho bill already created — payment done'
                             : awaitingBilling
-                              ? 'Edit billing below and submit to Zoho'
+                              ? 'Accounts can replace the invoice file. Only HR can change the amount.'
                               : 'Complete Service first — then Make Payment unlocks'
                     }
                 >
@@ -1154,7 +1206,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                                                 ? ' — will attach to Zoho bill'
                                                                 : ''
                                                         }`,
-                                                        canEdit: canAct,
+                                                        canEdit: canEditFiles,
                                                         zohoBillNumber: String(
                                                             bill.zohoBillNumber || bill.zohoBillId || '',
                                                         ).trim(),
@@ -1164,7 +1216,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                                         billNumber: bill.billNumber,
                                                         billDate: bill.billDate,
                                                         onChange: (patch) => setBillField(bill.id, patch),
-                                                        canEdit: canAct,
+                                                        canEdit: canEditBillMeta,
                                                     })}
 
                                                     {renderPayableTable({
@@ -1175,7 +1227,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                                         onChangeLine: (index, patch) =>
                                                             setBillLine(bill.id, index, patch),
                                                         subtotal: payableSum,
-                                                        canEdit: canAct,
+                                                        canEdit: canEditAmounts,
                                                     })}
                                                 </div>
                                             );
@@ -1268,7 +1320,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                                 ? ' — will attach to Zoho bill'
                                                 : ''
                                         }`,
-                                        canEdit: canAct,
+                                        canEdit: canEditFiles,
                                         zohoBillNumber: String(
                                             remark.zohoBillNumber || remark.zohoBillId || '',
                                         ).trim(),
@@ -1279,7 +1331,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                         billDate: billing.billDate,
                                         onChange: (patch) =>
                                             setBilling((prev) => ({ ...prev, ...patch })),
-                                        canEdit: canAct,
+                                        canEdit: canEditBillMeta,
                                     })}
 
                                     {renderPayableTable({
@@ -1288,15 +1340,26 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                         onRemove: removeLine,
                                         onChangeLine: setLine,
                                         subtotal: totalFromLines,
-                                        canEdit: canAct,
+                                        canEdit: canEditAmounts,
                                     })}
                                 </>
                             )
                         ) : null}
                     </div>
 
-                    {canAct ? (
-                        <div className="mt-4 flex justify-end">
+                    {canAct || canEditAmounts ? (
+                        <div className="mt-4 flex justify-end gap-2">
+                            {canEditAmounts ? (
+                                <button
+                                    type="button"
+                                    onClick={() => void handleSaveInvoice()}
+                                    disabled={busy}
+                                    className="inline-flex min-w-[140px] items-center justify-center rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-50"
+                                >
+                                    Save invoice changes
+                                </button>
+                            ) : null}
+                            {canAct ? (
                             <button
                                 type="button"
                                 onClick={() => void handleSubmit()}
@@ -1310,6 +1373,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                 )}
                                 {busy ? 'Working…' : 'Submit to Zoho (Billed)'}
                             </button>
+                            ) : null}
                         </div>
                     ) : awaitingBilling ? (
                         <p className="mt-3 text-xs text-amber-800">

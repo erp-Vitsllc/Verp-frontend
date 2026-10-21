@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 
 const CHUNK_LIMIT = 400;
@@ -70,6 +70,7 @@ export function useZohoChunkedList({
     const load = useCallback(
         async ({
             sync = false,
+            quiet = false,
             page,
             pageSize,
             search,
@@ -89,9 +90,9 @@ export function useZohoChunkedList({
             };
             listQueryRef.current = nextQuery;
 
-            setLoading(true);
-            setLoadingMore(false);
-            setError('');
+            if (!quiet) setLoading(true);
+            setLoadingMore(Boolean(sync));
+            if (!quiet) setError('');
             if (sync) setSyncedCount(0);
 
             try {
@@ -145,6 +146,7 @@ export function useZohoChunkedList({
                 }
 
                 if (abortRef.current !== requestId) return;
+                // All Zoho chunks are in ERP. Reload this page immediately.
                 await fetchPage(listQueryRef.current, requestId);
                 if (totalRemoved > 0) {
                     setError('');
@@ -168,6 +170,17 @@ export function useZohoChunkedList({
         },
         [endpoint, fetchPage, orgId],
     );
+
+    const loadRef = useRef(load);
+    loadRef.current = load;
+
+    // ERP list follows the hourly Zoho sync without a manual refresh.
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            loadRef.current({ sync: false, quiet: true });
+        }, 60 * 1000);
+        return () => window.clearInterval(timer);
+    }, []);
 
     return {
         rows,

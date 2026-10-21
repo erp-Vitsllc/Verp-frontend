@@ -1147,6 +1147,13 @@ function attendanceDeductionAmount(record, week, daily, policy, mispunchAmounts)
         const times = key === 'authorized_leave' ? authTimes : unauthTimes;
         return money2(leaveDayWeight(record, key === 'authorized_leave') * times * (Number(daily) || 0));
     }
+    // The calendar paints an unmarked past working day as Unauthorized / Absent.
+    // That day still deducts a full unauthorized day when nobody punched in.
+    const unmarked = key === 'not_marked' || key === 'absent' || key === '';
+    const punched = Boolean(String(record?.timeIn || '').trim() || String(record?.timeOut || '').trim());
+    if (unmarked && record?.date && !punched) {
+        return money2(unauthTimes * (Number(daily) || 0));
+    }
     return 0;
 }
 
@@ -1659,6 +1666,8 @@ function DayTip({
     );
 }
 
+let pinnedAttendanceDate = '';
+
 function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = false, markTarget = null }) {
     const router = useRouter();
     const dateKey = format(day, 'yyyy-MM-dd');
@@ -1713,9 +1722,13 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         ? null
         : money2((earnsDayRate ? dayRate : 0) + extraPay);
     const deductionWaived = record?.deductionWaived === true;
-    const deduct = counted
+    let deduct = counted
         ? money2(attendanceDeductionAmount(record, ctx.scheduleWeek, ctx.salaryDaily, ctx.leavePolicy || {}, ctx.mispunchAmounts))
         : null;
+    if (counted && kind === 'absent' && !record && !deductionWaived && !(deduct > 0)) {
+        const unauthTimes = ctx.leavePolicy?.unauthorizedDeductionDays == null ? 2 : n(ctx.leavePolicy.unauthorizedDeductionDays);
+        deduct = money2(unauthTimes * dayRate);
+    }
     const doubleDeduction = deduct > 0 && deductionTimes(record, ctx.leavePolicy || {}) === 2;
     const lateText = forgiven || hourSettled ? '' : dayLateText(record, ctx.scheduleWeek);
     const visibleLate = lateText && lateText !== '—' && lateText !== '0 Hours' ? lateText : '';
@@ -1736,6 +1749,17 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     if (dayNote?.takenFrom) compOffLines.push(`Comp off taken from ${formatDayLabel(dayNote.takenFrom)}`);
     const showTip = hoveredDate === dateKey && inMonth && !beforeStart && !ctx.salaryLock?.locked;
     const canOpenMark = Boolean(markTarget?.employeeId) && inMonth && !beforeStart;
+    const pinnedHere = pinnedAttendanceDate === dateKey;
+    useEffect(() => {
+        if (!pinnedHere) return undefined;
+        const close = (event) => {
+            if (event.target?.closest?.('[data-attendance-day]')) return;
+            pinnedAttendanceDate = '';
+            setHoveredDate('');
+        };
+        document.addEventListener('mousedown', close);
+        return () => document.removeEventListener('mousedown', close);
+    }, [pinnedHere, setHoveredDate]);
     const requestLines = inMonth && !beforeStart
         ? (ctx.pendingRequestsByDate?.get(dateKey) || [])
         : [];
@@ -1753,12 +1777,20 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     return (
         <div
             className={`relative ${canOpenMark ? 'cursor-pointer' : ''}`}
-            data-attendance-day={canOpenMark ? dateKey : undefined}
+            data-attendance-day={inMonth && !beforeStart ? dateKey : undefined}
             title={requestPending ? undefined : (canOpenMark ? 'Double-click to mark this day' : undefined)}
             onMouseEnter={() => inMonth && !beforeStart && setHoveredDate(dateKey)}
-            onMouseLeave={() => setHoveredDate('')}
+            onMouseLeave={() => setHoveredDate(pinnedAttendanceDate || '')}
             onClick={(event) => {
-                if (canOpenMark) event.stopPropagation();
+                event.stopPropagation();
+                if (!inMonth || beforeStart || ctx.salaryLock?.locked) return;
+                if (pinnedAttendanceDate === dateKey) {
+                    pinnedAttendanceDate = '';
+                    setHoveredDate('');
+                    return;
+                }
+                pinnedAttendanceDate = dateKey;
+                setHoveredDate(dateKey);
             }}
             onDoubleClick={openMarkPage}
         >
@@ -3206,8 +3238,11 @@ export default function EmployeeInformationDashboard({
             return sum + leaveDayWeight(row, true);
         }, 0));
         const unauthDays = money2(countedRecords.reduce((sum, row) => {
-            if (deductionKind(row) !== 'unauthorized_leave') return sum;
-            return sum + leaveDayWeight(row, false);
+            const key = deductionKind(row);
+            if (key === 'unauthorized_leave') return sum + leaveDayWeight(row, false);
+            const punched = Boolean(String(row?.timeIn || '').trim() || String(row?.timeOut || '').trim());
+            if ((key === 'not_marked' || key === 'absent' || key === '') && row?.date && !punched) return sum + 1;
+            return sum;
         }, 0));
         const authTimes = policy.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
         const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);

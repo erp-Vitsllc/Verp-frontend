@@ -26,6 +26,7 @@ import AttendanceTeamTreeModal from './AttendanceTeamTreeModal';
 import AttendanceLeaveRequestModal from './AttendanceLeaveRequestModal';
 import AttendanceYellowRequestModal from './AttendanceYellowRequestModal';
 import AttendanceFutureRequestModal from './AttendanceFutureRequestModal';
+import LeaveRequestTypeModal from './LeaveRequestTypeModal';
 import AttendanceLeaveDecideModal from './AttendanceLeaveDecideModal';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
 import DashboardSalaryEnrollLock, {
@@ -528,6 +529,7 @@ export default function DashboardAttendanceCalendar({
     const [yellowSubmitting, setYellowSubmitting] = useState(false);
     const [yellowError, setYellowError] = useState('');
     const [futureModal, setFutureModal] = useState(null);
+    const [dayRequest, setDayRequest] = useState(null);
     const [futureSubmitting, setFutureSubmitting] = useState(false);
     const [futureError, setFutureError] = useState('');
     const [decideModal, setDecideModal] = useState(null);
@@ -812,32 +814,46 @@ export default function DashboardAttendanceCalendar({
         reason,
         attachmentName,
     }) => {
-        if (!futureModal?.dateKey || !kind) return;
+        const requestDate = fromDate || futureModal?.dateKey || dayRequest?.dateKey;
+        if (!requestDate || !kind) return;
         setFutureSubmitting(true);
         setFutureError('');
         try {
-            await axiosInstance.post(
-                '/Attendance/me/future-request',
-                {
-                    date: fromDate || futureModal.dateKey,
-                    fromDate: fromDate || futureModal.dateKey,
-                    toDate: toDate || fromDate || futureModal.dateKey,
-                    kind,
-                    dayPart: dayPart || 'full',
-                    session: session || '',
-                    timeIn: timeIn || '',
-                    timeOut: timeOut || '',
-                    reason,
-                    attachmentName: attachmentName || '',
-                },
-                { skipToast: true },
-            );
+            if (kind === 'mispunch') {
+                await axiosInstance.post(
+                    '/Attendance/me/yellow-request',
+                    {
+                        date: requestDate,
+                        reason,
+                        attachmentName: attachmentName || '',
+                    },
+                    { skipToast: true },
+                );
+            } else {
+                await axiosInstance.post(
+                    '/Attendance/me/future-request',
+                    {
+                        date: requestDate,
+                        fromDate: requestDate,
+                        toDate: toDate || requestDate,
+                        kind,
+                        dayPart: dayPart || 'full',
+                        session: session || '',
+                        timeIn: timeIn || '',
+                        timeOut: timeOut || '',
+                        reason,
+                        attachmentName: attachmentName || '',
+                    },
+                    { skipToast: true },
+                );
+            }
             if (kind === 'leave' || kind === 'annual_leave') {
                 notifyLeavePendingInboxChanged();
             } else {
                 notifyAttendancePendingInboxChanged();
             }
             setFutureModal(null);
+            setDayRequest(null);
             await loadMonth();
         } catch (err) {
             setFutureError(err?.response?.data?.message || 'Could not send request.');
@@ -1075,6 +1091,8 @@ export default function DashboardAttendanceCalendar({
                                     record?.leaveRequestStatus !== 'pending' &&
                                     !alreadyApprovedFuture;
                                 const canDecide = viewingOther && pendingLeave && attendanceOpen;
+                                const canOpenRequest =
+                                    isSelf && attendanceOpen && !isHoliday && !isWeeklyOff;
 
                                 const adjustLines = adjustmentLinesForDate(monthAttendanceRecords, dateKey);
                                 const hoverHint = pendingLeave
@@ -1146,28 +1164,18 @@ export default function DashboardAttendanceCalendar({
                                         <button
                                             type="button"
                                             title={adjustLines.join(' ')}
-                                            disabled={
-                                                !canRequest &&
-                                                !canYellowRequest &&
-                                                !canFutureRequest &&
-                                                !canDecide
-                                            }
+                                            disabled={!canOpenRequest && !canDecide}
                                             onClick={() => {
                                                 if (canDecide) openDecideForDay(dateKey, record);
-                                                else if (canRequest)
-                                                    openRequestForDay(dateKey, record, tone.label);
-                                                else if (canYellowRequest)
-                                                    openYellowForDay(dateKey, record, tone.label);
-                                                else if (canFutureRequest)
-                                                    openFutureForDay(dateKey, record);
+                                                else if (canOpenRequest) {
+                                                    setFutureError('');
+                                                    setDayRequest({ dateKey, variant: '' });
+                                                }
                                             }}
                                             className={`dash-cal-day relative w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-[10px] sm:text-[11px] font-semibold tabular-nums leading-none shadow-sm ${tone.cell} ${
                                                 isToday ? 'ring-2 ring-sky-400 ring-offset-1' : ''
                                             } ${
-                                                canRequest ||
-                                                canYellowRequest ||
-                                                canFutureRequest ||
-                                                canDecide
+                                                canOpenRequest || canDecide
                                                     ? 'cursor-pointer hover:brightness-95 hover:scale-110'
                                                     : 'cursor-default pointer-events-none'
                                             }`}
@@ -1250,17 +1258,58 @@ export default function DashboardAttendanceCalendar({
                 onSubmit={submitYellowRequest}
             />
 
+            {dayRequest && !dayRequest.variant ? (
+                <LeaveRequestTypeModal
+                    isOpen
+                    submitting={futureSubmitting}
+                    onClose={() => {
+                        if (!futureSubmitting) setDayRequest(null);
+                    }}
+                    onSelect={(type) => {
+                        setFutureError('');
+                        setDayRequest((current) => (current ? { ...current, variant: type } : current));
+                    }}
+                />
+            ) : null}
             <AttendanceFutureRequestModal
-                key={futureModal?.dateKey || 'future-closed'}
-                isOpen={Boolean(futureModal)}
-                dateKey={futureModal?.dateKey}
+                key={dayRequest?.variant ? `${dayRequest.variant}-${dayRequest.dateKey}` : futureModal?.dateKey || 'future-closed'}
+                isOpen={Boolean(futureModal) || Boolean(dayRequest?.variant)}
+                dateKey={dayRequest?.dateKey || futureModal?.dateKey}
+                variant={
+                    dayRequest?.variant === 'annual'
+                        ? 'annual'
+                        : dayRequest?.variant === 'late'
+                          ? 'late'
+                          : dayRequest?.variant === 'early'
+                            ? 'early'
+                            : dayRequest?.variant === 'mispunch'
+                              ? 'mispunch'
+                              : 'authorized'
+                }
+                heading={
+                    dayRequest?.variant === 'annual'
+                        ? 'Annual leave'
+                        : dayRequest?.variant === 'late'
+                          ? 'Late arrival'
+                          : dayRequest?.variant === 'early'
+                            ? 'Early go'
+                            : dayRequest?.variant === 'mispunch'
+                              ? 'Mispunch'
+                              : dayRequest?.variant
+                                ? 'Authorized leave'
+                                : 'Request for a future day'
+                }
+                eyebrow={dayRequest?.variant ? 'Request' : ''}
                 earliestDate={earliestFutureDate || ''}
                 scheduleWeek={scheduleWeek}
+                holidayDates={holidayDates}
+                offWeekdays={offWeekdays}
                 submitting={futureSubmitting}
                 error={futureError}
                 onClose={() => {
                     if (futureSubmitting) return;
                     setFutureModal(null);
+                    setDayRequest(null);
                     setFutureError('');
                 }}
                 onSubmit={submitFutureRequest}

@@ -51,8 +51,8 @@ export default function CrmCustomersPage() {
         setMounted(true);
     }, []);
 
-    const loadCustomers = useCallback(async ({ sync = false } = {}) => {
-        setLoading(true);
+    const loadCustomers = useCallback(async ({ sync = false, quiet = false } = {}) => {
+        if (!quiet) setLoading(true);
         setSyncing(sync);
         setError('');
         try {
@@ -76,6 +76,13 @@ export default function CrmCustomersPage() {
             setSyncing(false);
         }
     }, []);
+
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            loadCustomers({ sync: false, quiet: true });
+        }, 60 * 1000);
+        return () => window.clearInterval(timer);
+    }, [loadCustomers]);
 
     const handleConnectZoho = useCallback(async () => {
         try {

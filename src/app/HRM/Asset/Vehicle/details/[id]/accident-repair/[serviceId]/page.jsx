@@ -458,6 +458,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canActAccounts={isFlowchartAccounts}
+                                canEditInvoiceValue={isFlowchartHr}
                                 workflowStage={accidentRepairflowStage}
                                 serviceTypeLabel="Accident Repair"
                                 onUpdated={(updatedAsset) => {

@@ -57,6 +57,8 @@ const AVATAR_COLORS = ['#3B82F6', '#8B5CF6', '#F59E0B', '#10B981', '#EF4444', '#
 
 const STATUS_STYLE = {
     Pending: 'bg-rose-50 text-rose-600',
+    Open: 'bg-sky-50 text-sky-700',
+    'Pending Review': 'bg-amber-50 text-amber-700',
     'Pending Due': 'bg-red-50 text-red-600',
     Overdue: 'bg-red-50 text-red-600',
     'In Progress': 'bg-sky-50 text-sky-700',
@@ -103,7 +105,7 @@ function listStatus(task) {
 }
 
 function isOpenPending(shown) {
-    return shown === 'Pending' || shown === 'Overdue';
+    return shown === 'Pending' || shown === 'Overdue' || shown === 'Open' || shown === 'Pending Review';
 }
 
 function paramValue(params, key, fallback = '') {

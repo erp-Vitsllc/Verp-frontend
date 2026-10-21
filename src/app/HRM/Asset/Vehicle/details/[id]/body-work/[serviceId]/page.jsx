@@ -438,6 +438,7 @@ function VehicleBodyWorkDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canActAccounts={isFlowchartAccounts}
+                                canEditInvoiceValue={isFlowchartHr}
                                 workflowStage={bodyWorkflowStage}
                                 serviceTypeLabel="Body Work"
                                 onUpdated={(updatedAsset) => {

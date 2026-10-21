@@ -449,6 +449,8 @@ export default function VehicleOilCashPaymentApprovalCard({
     );
 
     const fieldsDisabled = !canActOnPayment;
+    const amountDisabled = !(paymentGate.active && canActHr);
+    const fileDisabled = !(canActOnPayment || (paymentGate.active && canActHr));
 
     const setLine = (index, patch) => {
         setBilling((prev) => {
@@ -626,6 +628,20 @@ export default function VehicleOilCashPaymentApprovalCard({
                 setBusy(false);
                 return;
             }
+            const duplicateCheck = await axiosInstance.post(
+                '/AssetItem/service-invoice-duplicates',
+                { billNumbers: [parsedRemark.billNumber], serviceId },
+                { skipToast: true },
+            );
+            if ((duplicateCheck.data?.duplicates || []).length) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Duplicate invoice',
+                    description: `Invoice ${parsedRemark.billNumber} is already used. It was not sent to Zoho.`,
+                });
+                setBusy(false);
+                return;
+            }
             if (payableLines.length !== (parsedRemark.billingPayables || []).length) {
                 toast({
                     variant: 'destructive',
@@ -662,6 +678,33 @@ export default function VehicleOilCashPaymentApprovalCard({
         }
     };
 
+    const handleSaveOilInvoice = async () => {
+        if (!vehicleId || !(paymentGate.active && canActHr) || busy) return;
+        setBusy(true);
+        try {
+            const serviceUpdates = buildServiceUpdates();
+            const { data } = await axiosInstance.post(
+                `/AssetItem/${vehicleId}/service-workflow/respond`,
+                {
+                    action: 'save',
+                    serviceUpdates,
+                    ...(serviceId ? { serviceRecordId: serviceId } : {}),
+                },
+                { skipToast: true },
+            );
+            toast({ title: 'Invoice updated', description: data?.message || 'Amount and attachment saved.' });
+            if (typeof onUpdated === 'function') onUpdated(data?.asset || null);
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not save the invoice',
+                description: err.response?.data?.message || 'Try again.',
+            });
+        } finally {
+            setBusy(false);
+        }
+    };
+
     if (mode === 'payment') {
         const isWarrantyPayment = !isOilPayablePaymentMode(remark.amountMode);
         return (
@@ -676,7 +719,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                   ? 'Payment done — values stay visible and cannot be edited'
                                   : paymentLocked
                                   ? 'Visible preview — unlocks after Complete Service for cash billing'
-                                  : 'Submit billing — Zoho bill create sets status to Billed'
+                                  : 'Accounts can replace the invoice. Only HR can change the amount.'
                         }
                         icon={Wallet}
                         iconBg="bg-sky-50"
@@ -736,7 +779,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                         type="file"
                                         accept={ERP_PDF_ACCEPT}
                                         className="sr-only"
-                                        disabled={fieldsDisabled}
+                                        disabled={fileDisabled}
                                         onChange={(e) => {
                                             void handleGarageInvoice(e.target.files?.[0]);
                                             e.target.value = '';
@@ -760,7 +803,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                                 <Eye size={14} />
                                                 View
                                             </button>
-                                            {!fieldsDisabled ? (
+                                            {!fileDisabled ? (
                                                 <button
                                                     type="button"
                                                     onClick={() => garageInvoiceInputRef.current?.click()}
@@ -774,7 +817,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                         <div className="mt-1.5 flex flex-wrap items-center gap-2">
                                             <button
                                                 type="button"
-                                                disabled={fieldsDisabled}
+                                                disabled={fileDisabled}
                                                 onClick={() => garageInvoiceInputRef.current?.click()}
                                                 className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                                             >
@@ -838,7 +881,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                     <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
                                         Zoho payable lines
                                     </span>
-                                    {canActOnPayment ? (
+                                    {paymentGate.active && canActHr ? (
                                         <button
                                             type="button"
                                             onClick={addLine}
@@ -867,7 +910,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                                 className="min-h-[44px] w-full rounded-lg border border-gray-200 px-2.5 text-sm font-semibold text-gray-900 placeholder:text-gray-400"
                                                 placeholder="Description"
                                                 value={row.description || ''}
-                                                disabled={fieldsDisabled}
+                                                disabled={amountDisabled}
                                                 onChange={(e) =>
                                                     setLine(index, { description: e.target.value })
                                                 }
@@ -875,7 +918,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                             <ZohoPayAccountSelect
                                                 value={row.payAccountId || ''}
                                                 name={row.payableTo || ''}
-                                                disabled={fieldsDisabled}
+                                                disabled={amountDisabled}
                                                 placeholder="Select Chart of Accounts"
                                                 onChange={({ id, name }) => {
                                                     setLine(index, {
@@ -891,7 +934,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                                 className="min-h-[44px] w-full rounded-lg border border-gray-200 px-2.5 text-sm font-semibold"
                                                 placeholder="Qty"
                                                 value={row.qty ?? '1'}
-                                                disabled={fieldsDisabled}
+                                                disabled={amountDisabled}
                                                 onChange={(e) => setLine(index, { qty: e.target.value })}
                                             />
                                             <input
@@ -901,10 +944,10 @@ export default function VehicleOilCashPaymentApprovalCard({
                                                 className="min-h-[44px] w-full rounded-lg border border-gray-200 px-2.5 text-sm font-semibold"
                                                 placeholder="Amount"
                                                 value={row.amount || ''}
-                                                disabled={fieldsDisabled}
+                                                disabled={amountDisabled}
                                                 onChange={(e) => setLine(index, { amount: e.target.value })}
                                             />
-                                            {canActOnPayment ? (
+                                            {paymentGate.active && canActHr ? (
                                                 <button
                                                     type="button"
                                                     className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-red-100 text-red-600 disabled:opacity-40"
@@ -927,8 +970,19 @@ export default function VehicleOilCashPaymentApprovalCard({
                             </div>
                         </div>
 
-                        {canActOnPayment ? (
-                            <div className="mt-4 flex justify-end">
+                        {canActOnPayment || (paymentGate.active && canActHr) ? (
+                            <div className="mt-4 flex justify-end gap-2">
+                                {paymentGate.active && canActHr ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleSaveOilInvoice()}
+                                        disabled={busy}
+                                        className="inline-flex min-w-[140px] items-center justify-center rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-50"
+                                    >
+                                        Save invoice changes
+                                    </button>
+                                ) : null}
+                                {canActOnPayment ? (
                                 <button
                                     type="button"
                                     onClick={() => void handleSubmitPayment()}
@@ -938,6 +992,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                     {busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
                                     {busy ? 'Working…' : 'Submit Make Payment (Zoho)'}
                                 </button>
+                                ) : null}
                             </div>
                         ) : stage === 'pending_accounts' ? (
                             <p className="mt-3 text-xs text-amber-800">

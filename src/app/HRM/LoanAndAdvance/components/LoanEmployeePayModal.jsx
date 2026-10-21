@@ -39,9 +39,6 @@ function roundMoney(value) {
     return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-function amountsMatch(a, b) {
-    return Math.abs(roundMoney(a) - roundMoney(b)) <= 0.009;
-}
 
 function employeeOptionLabel(emp) {
     const id = String(emp?.employeeId || '').trim();
@@ -80,8 +77,8 @@ export default function LoanEmployeePayModal({
     const settleEmployeeId = String(loan?.employeeId || employeeId || '').trim();
     const payAmount = roundMoney(getLoanRepaymentBalance(loan));
     const enteredAmount = roundMoney(amountPay);
-    const amountsEqual = Boolean(paidById) && payAmount > 0.01 && amountsMatch(enteredAmount, payAmount);
-    const amountMismatch = String(amountPay || '').trim() !== '' && !amountsEqual;
+    const amountTooHigh = String(amountPay || '').trim() !== '' && enteredAmount - payAmount > 0.009;
+    const amountValid = enteredAmount > 0.009 && !amountTooHigh;
 
     const paidByOptions = useMemo(() => {
         const options = [];
@@ -113,7 +110,7 @@ export default function LoanEmployeePayModal({
         Boolean(paymentDate) &&
         Boolean(paymentSource) &&
         Boolean(attachment?.name) &&
-        amountsEqual &&
+        amountValid &&
         !submitting;
 
     useEffect(() => {
@@ -273,19 +270,19 @@ export default function LoanEmployeePayModal({
                                 onChange={(e) => setAmountPay(e.target.value)}
                                 placeholder={payAmount > 0 ? payAmount.toFixed(2) : '0.00'}
                                 className={`w-full pl-12 pr-3 py-2.5 rounded-lg border text-sm font-bold ${
-                                    amountMismatch
+                                    amountTooHigh
                                         ? 'border-rose-300 bg-rose-50 text-rose-800'
                                         : 'border-gray-200 text-gray-900'
                                 }`}
                             />
                         </div>
-                        {amountMismatch ? (
+                        {amountTooHigh ? (
                             <p className="text-[11px] font-semibold text-rose-600 mt-1">
-                                Amount Pay must equal Pay Amount (AED {payAmount.toFixed(2)}).
+                                Amount Pay cannot be more than the outstanding amount (AED {payAmount.toFixed(2)}).
                             </p>
                         ) : (
                             <p className="text-[11px] text-gray-400 mt-1">
-                                Must match the employee {kindLabel} pay amount exactly.
+                                This amount is taken off the {kindLabel}. Schedule months turn green as each installment is covered.
                             </p>
                         )}
                     </div>

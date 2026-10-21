@@ -178,7 +178,8 @@ export default function AttendanceFutureRequestModal({
     const reasonRequired = !isAnnualLeave;
     const dayAfterTomorrow = nextDateKey(nextDateKey(dubaiTodayKey()));
     const todayKey = dubaiTodayKey();
-    const minimumDate = isMispunch
+    const isAuthorizedLeave = !isAnnualLeave && !isMispunch && !isFuturePunch;
+    const minimumDate = isMispunch || isAuthorizedLeave
         ? ''
         : isAnnualLeave
           ? earliestDate || ''
@@ -317,10 +318,6 @@ export default function AttendanceFutureRequestModal({
             setLocalError('To date cannot be before the from date.');
             return;
         }
-        if (!isAnnualLeave && !isSingleDate && (fromDate < dayAfterTomorrow || toDate < dayAfterTomorrow)) {
-            setLocalError('Authorized leave cannot be requested for today or tomorrow.');
-            return;
-        }
         if (isMispunch && fromDate > todayKey) {
             setLocalError('Mispunch can only be requested for today or a past day.');
             return;
@@ -329,7 +326,7 @@ export default function AttendanceFutureRequestModal({
             setLocalError('This request is only for a future working day.');
             return;
         }
-        if (!isMispunch && minimumDate && fromDate < minimumDate) {
+        if (!isMispunch && !isAuthorizedLeave && minimumDate && fromDate < minimumDate) {
             setLocalError(`The earliest date you can request is ${minimumDate}.`);
             return;
         }
@@ -405,8 +402,7 @@ export default function AttendanceFutureRequestModal({
                                 </p>
                             ) : !isAnnualLeave ? (
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Today and tomorrow cannot be requested.
-                                    {minimumDate ? ` Earliest date is ${minimumDate}.` : ''} Reason is required.
+                                    Past dates can be selected. The end date must be on or after the start date. Reason is required.
                                 </p>
                             ) : earliestDate ? (
                                 <p className="text-xs text-slate-400 mt-1">
@@ -486,7 +482,7 @@ export default function AttendanceFutureRequestModal({
                             <input
                                 type="date"
                                 value={fromDate}
-                                min={isMispunch ? undefined : minimumDate || earliestDate || undefined}
+                                min={isMispunch || isAuthorizedLeave ? undefined : minimumDate || earliestDate || undefined}
                                 max={isMispunch ? todayKey : undefined}
                                 onChange={(e) => {
                                     if (isSingleDate) {
@@ -507,7 +503,13 @@ export default function AttendanceFutureRequestModal({
                             <input
                                 type="date"
                                 value={toDate}
-                                min={leaveDuration === 'multiple' ? fromDate || minimumDate || earliestDate || undefined : minimumDate || earliestDate || undefined}
+                                min={
+                                    isAuthorizedLeave
+                                        ? fromDate || undefined
+                                        : leaveDuration === 'multiple'
+                                          ? fromDate || minimumDate || earliestDate || undefined
+                                          : minimumDate || earliestDate || undefined
+                                }
                                 onChange={(e) => {
                                     const value = e.target.value;
                                     setLocalError('');

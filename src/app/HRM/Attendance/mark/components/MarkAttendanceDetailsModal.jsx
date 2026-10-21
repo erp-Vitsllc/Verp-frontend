@@ -40,8 +40,18 @@ export function getMarkFormConfig(markKey) {
             useWorkingTimeDefaults: false,
         };
     }
+    if (markKey === 'sick_leave') {
+        return {
+            showTimes: false,
+            showReason: true,
+            showAttachment: true,
+            attachmentRequired: true,
+            timesRequired: false,
+            reasonOptional: true,
+            useWorkingTimeDefaults: false,
+        };
+    }
     if (
-        markKey === 'sick_leave' ||
         markKey === 'compoff_leave' ||
         markKey === 'authorized_leave' ||
         markKey === 'unauthorized_leave' ||
@@ -51,6 +61,7 @@ export function getMarkFormConfig(markKey) {
             showTimes: false,
             showReason: true,
             showAttachment: true,
+            attachmentRequired: false,
             timesRequired: false,
             reasonOptional: true,
             useWorkingTimeDefaults: false,
@@ -271,6 +282,10 @@ export default function MarkAttendanceDetailsModal({
                 return;
             }
         }
+        if (config.attachmentRequired && !attachment) {
+            setError('An attachment is required for sick leave.');
+            return;
+        }
         onSave?.({
             markKey,
             markLabel,
@@ -372,8 +387,10 @@ export default function MarkAttendanceDetailsModal({
                     {config.showAttachment ? (
                         <div>
                             <span className="block text-xs font-semibold text-gray-600 mb-1.5">
-                                Attachment{' '}
-                                <span className="font-normal text-gray-400">(optional)</span>
+                                Attachment
+                                {config.attachmentRequired ? null : (
+                                    <span className="font-normal text-gray-400"> (optional)</span>
+                                )}
                             </span>
                             <input
                                 ref={fileRef}
