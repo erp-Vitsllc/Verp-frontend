@@ -1,0 +1,301 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { Check, X } from 'lucide-react';
+import axiosInstance from '@/utils/axios';
+
+const REPORTEE_LEAVE_OPTIONS = [
+    { key: 'authorized_leave', label: 'Authorized Leave', swatch: 'bg-[#2563EB]', selected: 'border-[#2563EB] bg-blue-50/80' },
+    { key: 'sick_leave', label: 'Sick Leave', swatch: 'bg-[#22C55E]', selected: 'border-[#22C55E] bg-emerald-50/80' },
+    { key: 'compoff_leave', label: 'Comp Off Leave', swatch: 'bg-[#9333EA]', selected: 'border-[#9333EA] bg-violet-50/80' },
+    { key: 'unauthorized_leave', label: 'Unauthorized Leave', swatch: 'bg-[#E74C3C]', selected: 'border-[#E74C3C] bg-rose-50/80' },
+];
+
+function isPunchCorrectionKind(kind) {
+    const key = String(kind || '');
+    return key === 'yellow' || key === 'past_late' || key === 'future_late' || key === 'future_early';
+}
+
+function clockInputValue(value) {
+    const match = /^(\d{1,2}):(\d{2})/.exec(String(value || '').trim());
+    if (!match) return '';
+    return `${match[1].padStart(2, '0')}:${match[2]}`;
+}
+
+export default function AttendanceLeaveDecideModal({
+    isOpen,
+    dateKey,
+    employeeName = '',
+    employeeMongoId = '',
+    currentLabel = '',
+    requestedLabel = '',
+    requestedStatusKey = '',
+    reason = '',
+    attachmentName = '',
+    attachmentUrl = '',
+    kind = 'leave',
+    fromDate = '',
+    toDate = '',
+    dayPart = '',
+    session = '',
+    requestTimeIn = '',
+    requestTimeOut = '',
+    timeIn = '',
+    timeOut = '',
+    changedBy = '',
+    hrReview = false,
+    deciding = false,
+    readOnly = false,
+    rejectFirst = false,
+    error = '',
+    onClose,
+    onDecide,
+}) {
+    const [chosenKey, setChosenKey] = useState('');
+    const [localError, setLocalError] = useState('');
+    const [editingTimes, setEditingTimes] = useState(false);
+    const [editIn, setEditIn] = useState('');
+    const [editOut, setEditOut] = useState('');
+    const [rejecting, setRejecting] = useState(false);
+    const [rejectReason, setRejectReason] = useState('');
+    const [sickAllowance, setSickAllowance] = useState(null);
+
+    const isSickRequest =
+        String(requestedStatusKey || '') === 'sick_leave' || /sick/i.test(String(requestedLabel || ''));
+
+    useEffect(() => {
+        if (!isOpen) return;
+        setChosenKey('');
+        setLocalError('');
+        setEditingTimes(false);
+        setRejecting(Boolean(rejectFirst));
+        setRejectReason('');
+        setEditIn(clockInputValue(timeIn || requestTimeIn));
+        setEditOut(clockInputValue(timeOut || requestTimeOut));
+    }, [isOpen, dateKey, rejectFirst, timeIn, timeOut, requestTimeIn, requestTimeOut]);
+
+    useEffect(() => {
+        if (!isOpen || !isSickRequest || !employeeMongoId) {
+            setSickAllowance(null);
+            return undefined;
+        }
+        let cancelled = false;
+        setSickAllowance(null);
+        (async () => {
+            try {
+                const response = await axiosInstance.get(
+                    `/Leave/employees/${employeeMongoId}/attendance-profile`,
+                    { skipToast: true },
+                );
+                const card = response.data?.summary?.yearCard || {};
+                if (!cancelled) {
+                    setSickAllowance({
+                        used: Number(card?.used?.sick_leave) || 0,
+                        allowed:
+                            card?.sickAllowed == null || card?.sickAllowed === ''
+                                ? null
+                                : Number(card.sickAllowed) || 0,
+                    });
+                }
+            } catch {
+                if (!cancelled) setSickAllowance({ used: null, allowed: null });
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, isSickRequest, employeeMongoId, dateKey]);
+
+    if (!isOpen) return null;
+
+    const kindKey = String(kind || '');
+    const isMultiDay = Boolean(fromDate && toDate && fromDate !== toDate);
+    const rangeLabel = isMultiDay ? `${fromDate} → ${toDate}` : '';
+    const side = session === 'pm' ? 'PM' : session === 'am' ? 'AM' : '';
+    const workWindow = requestTimeIn && requestTimeOut ? `work ${requestTimeIn}–${requestTimeOut}` : '';
+    const dayPartLabel =
+        dayPart === 'half' || dayPart === 'quarter'
+            ? [dayPart === 'quarter' ? 'Quarter day' : 'Half day', side, workWindow].filter(Boolean).join(' · ')
+            : dayPart === 'full'
+              ? 'Full day'
+              : '';
+    const skipStatusPicker = isPunchCorrectionKind(kindKey) || kindKey.startsWith('future_');
+
+    const handleReject = () => {
+        if (readOnly) return;
+        if (!rejecting) {
+            setRejecting(true);
+            setLocalError('');
+            return;
+        }
+        if (!String(rejectReason).trim()) {
+            setLocalError('Reject reason is required.');
+            return;
+        }
+        setLocalError('');
+        onDecide?.('rejected', '', '', { rejectReason: String(rejectReason).trim() });
+    };
+
+    const rejectReasonField = rejecting ? (
+        <label className="block text-xs font-semibold text-slate-500">
+            Reject reason
+            <textarea
+                value={rejectReason}
+                disabled={readOnly}
+                onChange={(event) => setRejectReason(event.target.value)}
+                rows={3}
+                className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-slate-800"
+            />
+        </label>
+    ) : null;
+
+    const sickUsedUp =
+        isSickRequest &&
+        sickAllowance &&
+        sickAllowance.allowed != null &&
+        Number(sickAllowance.used) >= Number(sickAllowance.allowed);
+
+    if (isSickRequest) {
+        const allowanceText = !sickAllowance
+            ? 'Loading…'
+            : `${sickAllowance.used == null ? '—' : sickAllowance.used} / ${sickAllowance.allowed == null ? '—' : sickAllowance.allowed}`;
+        return (
+            <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+                <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close" onClick={onClose} disabled={deciding} />
+                <div role="dialog" aria-modal="true" className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl">
+                    <div className="border-b border-slate-100 px-5 py-4">
+                        <h2 className="text-base font-semibold text-slate-900">Sick leave request</h2>
+                    </div>
+                    <div className="space-y-2 px-5 py-4 text-sm text-slate-700">
+                        <p><span className="text-slate-500">Employee name: </span><strong>{employeeName || 'Employee'}</strong></p>
+                        <p><span className="text-slate-500">Requested date: </span>{dateKey || '—'}</p>
+                        <p><span className="text-slate-500">Current status: </span>{currentLabel || '—'}</p>
+                        <p><span className="text-slate-500">Previous sick leaves (year): </span>{allowanceText}</p>
+                        <p>
+                            <span className="text-slate-500">Reason: </span>
+                            <span className="whitespace-pre-wrap">{String(reason || '').trim() || '—'}</span>
+                        </p>
+                        <p>
+                            <span className="text-slate-500">Attachment: </span>
+                            {attachmentUrl ? (
+                                <a href={attachmentUrl} target="_blank" rel="noreferrer" className="font-semibold text-blue-600 hover:underline">
+                                    {attachmentName || 'Open file'}
+                                </a>
+                            ) : (
+                                attachmentName || '—'
+                            )}
+                        </p>
+                        {sickUsedUp ? (
+                            <p className="text-xs text-rose-600">
+                                This year’s sick leave allowance is already used. Approve is unavailable.
+                            </p>
+                        ) : null}
+                        {rejectReasonField}
+                        {error || localError ? <p className="text-xs text-rose-500">{localError || error}</p> : null}
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                        <button type="button" disabled={deciding} onClick={onClose} className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-600">Close</button>
+                        <button type="button" disabled={readOnly || deciding || (rejecting && !String(rejectReason).trim())} onClick={handleReject} className="h-9 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-50">
+                            {rejecting ? 'Confirm reject' : 'Reject'}
+                        </button>
+                        <button type="button" disabled={readOnly || deciding || rejecting} onClick={() => onDecide?.('approved', 'authorized_leave')} className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
+                            Change to authorized
+                        </button>
+                        <button type="button" disabled={readOnly || deciding || rejecting || sickUsedUp || !sickAllowance} onClick={() => onDecide?.('approved', 'sick_leave')} className="h-9 rounded-lg bg-[#EA3D2F] px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
+                            {deciding ? 'Saving…' : 'Approve'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    const handleApprove = () => {
+        if (readOnly) return;
+        if (!skipStatusPicker && !chosenKey) {
+            setLocalError('Choose Authorized, Sick, or Unauthorized leave before approving.');
+            return;
+        }
+        setLocalError('');
+        onDecide?.(
+            'approved',
+            chosenKey,
+            '',
+            isPunchCorrectionKind(kindKey) && (editIn || editOut) ? { timeIn: editIn, timeOut: editOut } : undefined,
+        );
+    };
+
+    return (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+            <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close" onClick={onClose} disabled={deciding} />
+            <div className="relative w-full max-w-sm rounded-2xl bg-white shadow-xl border border-slate-200 overflow-hidden">
+                <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-100">
+                    <div>
+                        <h2 className="text-base font-bold text-slate-800">Leave request</h2>
+                        <p className="text-xs text-slate-500 mt-0.5">{employeeName ? `${employeeName} · ` : ''}{dateKey}</p>
+                    </div>
+                    <button type="button" onClick={onClose} disabled={deciding} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
+                        <X size={18} />
+                    </button>
+                </div>
+                <div className="p-4 space-y-3">
+                    <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5 text-sm">
+                        <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold">Current</p>
+                        <p className="font-semibold text-slate-800">{currentLabel || '—'}</p>
+                        <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">Employee requested</p>
+                        <p className="font-semibold text-slate-800">{requestedLabel || '—'}</p>
+                        {rangeLabel || dayPartLabel ? <p className="text-slate-700 text-sm mt-2">{[rangeLabel, dayPartLabel].filter(Boolean).join(' · ')}</p> : null}
+                        <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">Requester reason</p>
+                        <p className="text-slate-700 text-sm whitespace-pre-wrap">{String(reason || '').trim() || '—'}</p>
+                        {attachmentName ? <p className="text-slate-700 text-sm mt-2">{attachmentName}</p> : null}
+                        {hrReview ? null : changedBy ? <p className="text-xs text-slate-500 mt-2">Changed by {changedBy}</p> : null}
+                    </div>
+                    {!skipStatusPicker ? (
+                        <div className="space-y-2">
+                            {REPORTEE_LEAVE_OPTIONS.map((opt) => {
+                                const active = chosenKey === opt.key;
+                                return (
+                                    <button
+                                        key={opt.key}
+                                        type="button"
+                                        disabled={deciding || readOnly}
+                                        onClick={() => {
+                                            setChosenKey(opt.key);
+                                            setLocalError('');
+                                        }}
+                                        className={`w-full flex items-center gap-3 h-11 px-3 rounded-xl border text-left ${active ? opt.selected : 'border-slate-200 bg-white'}`}
+                                    >
+                                        <span className={`h-2.5 w-2.5 rounded-full ${opt.swatch}`} />
+                                        <span className="flex-1 text-sm font-medium text-slate-800">{opt.label}</span>
+                                        {active ? <Check size={14} /> : null}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : null}
+                    {isPunchCorrectionKind(kindKey) ? (
+                        <div className="grid grid-cols-2 gap-2">
+                            <label className="text-xs text-slate-500">Check in
+                                <input type="time" value={editIn} disabled={readOnly} onChange={(event) => setEditIn(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm" />
+                            </label>
+                            <label className="text-xs text-slate-500">Check out
+                                <input type="time" value={editOut} disabled={readOnly} onChange={(event) => setEditOut(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm" />
+                            </label>
+                        </div>
+                    ) : null}
+                    {rejectReasonField}
+                    {localError || error ? <p className="text-xs text-rose-500">{localError || error}</p> : null}
+                    <div className="flex items-center gap-2 pt-1">
+                        <button type="button" disabled={readOnly || deciding || (rejecting && !String(rejectReason).trim())} onClick={handleReject} className="flex-1 h-10 rounded-xl text-sm font-semibold border border-slate-200 text-slate-700 disabled:opacity-50">
+                            {rejecting ? 'Confirm reject' : 'Reject'}
+                        </button>
+                        <button type="button" disabled={deciding || readOnly || editingTimes} onClick={() => setEditingTimes(false)} className="hidden" />
+                        <button type="button" disabled={deciding || readOnly} onClick={handleApprove} className="flex-1 h-10 rounded-xl text-sm font-semibold text-white bg-[#EA3D2F] disabled:opacity-50">
+                            {deciding ? 'Saving…' : 'Approve'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
