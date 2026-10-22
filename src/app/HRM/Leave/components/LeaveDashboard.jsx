@@ -421,22 +421,23 @@ function countAvailabilityFromEntries(entries, employeeMongoId) {
     const counts = { ...EMPTY_AVAILABILITY };
     for (const entry of entries || []) {
         if (String(entry.employeeMongoId || '') !== String(employeeMongoId)) continue;
-        if (entry.isPending) continue;
+        const part = String(entry.leaveRequestDayPart || '');
+        const weight = part === 'half' ? 0.5 : part === 'quarter' ? 0.25 : 1;
         switch (String(entry.statusKey || '')) {
             case 'sick_leave':
-                counts.sickLeave += 1;
+                counts.sickLeave += weight;
                 break;
             case 'authorized_leave':
-                counts.authorizedLeave += 1;
+                counts.authorizedLeave += weight;
                 break;
             case 'unauthorized_leave':
-                counts.unauthorizedLeave += 1;
+                counts.unauthorizedLeave += weight;
                 break;
             case 'compoff_leave':
-                counts.compoffLeave += 1;
+                counts.compoffLeave += weight;
                 break;
             case 'on_leave':
-                counts.annualLeaveTaken += 1;
+                counts.annualLeaveTaken += weight;
                 break;
             default:
                 break;

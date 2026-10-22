@@ -518,6 +518,9 @@ export default function AnnualLeaveFilterModal({
                             <span className="font-semibold">
                                 {eligibility.eligibleDays} / {eligibility.requiredDays}
                             </span>
+                            {eligibility.cycleNotEligible && eligibility.eligibleOn
+                                ? `. You can go on ${eligibility.eligibleOn}.`
+                                : '.'}
                         </p>
                         {eligibility.groupCap?.enabled ? (
                             <>

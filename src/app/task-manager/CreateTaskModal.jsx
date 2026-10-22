@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Paperclip, User, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Paperclip, Search, User, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
@@ -51,6 +51,7 @@ function toDateInput(value) {
 export default function CreateTaskModal({ open, onClose, onCreated, initialTask = null }) {
     const { toast } = useToast();
     const fileRef = useRef(null);
+    const pickerRef = useRef(null);
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
     const [form, setForm] = useState(EMPTY_FORM);
@@ -60,6 +61,8 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
     const [dragging, setDragging] = useState(false);
+    const [pickerOpen, setPickerOpen] = useState(false);
+    const [employeeQuery, setEmployeeQuery] = useState('');
 
     useEffect(() => {
         if (!open) return undefined;
@@ -78,6 +81,8 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
         setFiles([]);
         setError('');
         setSubmitting(false);
+        setPickerOpen(false);
+        setEmployeeQuery('');
         const onKey = (event) => {
             if (event.key === 'Escape') onCloseRef.current();
         };
@@ -105,7 +110,14 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
         };
     }, [open]);
 
-    if (!open) return null;
+    useEffect(() => {
+        if (!pickerOpen) return undefined;
+        const close = (event) => {
+            if (pickerRef.current && !pickerRef.current.contains(event.target)) setPickerOpen(false);
+        };
+        window.addEventListener('mousedown', close);
+        return () => window.removeEventListener('mousedown', close);
+    }, [pickerOpen]);
 
     const assigneeLocked = Boolean(initialTask) && initialTask.canReassign === false;
     const assigneeOptions = [...employees];
@@ -119,6 +131,17 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
             employeeId: initialTask.assigneeEmpId || '',
         });
     }
+    const selectedEmployee = assigneeOptions.find((employee) => employee.id === form.assigneeId) || null;
+    const visibleEmployees = useMemo(() => {
+        const needle = employeeQuery.trim().toLowerCase();
+        if (!needle) return assigneeOptions;
+        return assigneeOptions.filter((employee) => {
+            const label = `${employee.name || ''} ${employee.employeeId || ''}`.toLowerCase();
+            return label.includes(needle);
+        });
+    }, [assigneeOptions, employeeQuery]);
+
+    if (!open) return null;
 
     const setField = (key, value) => {
         setForm((current) => ({ ...current, [key]: value }));
@@ -272,21 +295,58 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <label>
                             <FieldLabel required>Assignee</FieldLabel>
-                            <div className="relative">
-                                <User size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <select
-                                    value={form.assigneeId}
+                            <div className="relative" ref={pickerRef}>
+                                <User size={15} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-slate-400" />
+                                <button
+                                    type="button"
                                     disabled={loadingPeople || assigneeLocked}
-                                    onChange={(event) => setField('assigneeId', event.target.value)}
-                                    className="h-10 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 outline-none focus:border-blue-500 disabled:bg-slate-50"
+                                    onClick={() => setPickerOpen((open) => !open)}
+                                    className="flex h-10 w-full items-center rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-left text-sm outline-none focus:border-blue-500 disabled:bg-slate-50"
                                 >
-                                    <option value="">{loadingPeople ? 'Loading users...' : 'Select User'}</option>
-                                    {assigneeOptions.map((employee) => (
-                                        <option key={employee.id} value={employee.id}>
-                                            {employee.name}{employee.employeeId ? ` (${employee.employeeId})` : ''}
-                                        </option>
-                                    ))}
-                                </select>
+                                    <span className={selectedEmployee ? 'truncate text-slate-800' : 'truncate text-slate-400'}>
+                                        {loadingPeople
+                                            ? 'Loading users...'
+                                            : selectedEmployee
+                                              ? `${selectedEmployee.name}${selectedEmployee.employeeId ? ` (${selectedEmployee.employeeId})` : ''}`
+                                              : 'Select User'}
+                                    </span>
+                                </button>
+                                {pickerOpen && !assigneeLocked ? (
+                                    <div className="absolute bottom-full z-30 mb-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                                        <div className="relative border-b border-slate-100 p-2">
+                                            <Search size={14} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                                            <input
+                                                autoFocus
+                                                value={employeeQuery}
+                                                onChange={(event) => setEmployeeQuery(event.target.value)}
+                                                placeholder="Search employee"
+                                                aria-label="Search employee"
+                                                className="h-9 w-full rounded-md border border-slate-200 pl-8 pr-2 text-sm text-slate-800 outline-none focus:border-blue-500"
+                                            />
+                                        </div>
+                                        <ul className="max-h-52 overflow-y-auto py-1">
+                                            {visibleEmployees.length === 0 ? (
+                                                <li className="px-3 py-2 text-sm text-slate-500">No employees found</li>
+                                            ) : visibleEmployees.map((employee) => (
+                                                <li key={employee.id}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setField('assigneeId', employee.id);
+                                                            setEmployeeQuery('');
+                                                            setPickerOpen(false);
+                                                        }}
+                                                        className={`block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
+                                                            employee.id === form.assigneeId ? 'bg-blue-50 font-semibold text-[#2563EB]' : 'text-slate-700'
+                                                        }`}
+                                                    >
+                                                        {employee.name}{employee.employeeId ? ` (${employee.employeeId})` : ''}
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ) : null}
                             </div>
                             {assigneeLocked ? (
                                 <p className="mt-1 text-xs text-slate-500">Only the current assignee or admin super user can change the assignee.</p>

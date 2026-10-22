@@ -465,16 +465,6 @@ function summarizeEmployeeAttendance(name, records, week, rangeLabel) {
 
 function downloadAttendanceExcel(title, rows) {
     const esc = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const summaryHead = ['Employee name', 'Date range', 'Total working days', 'Total comp off taken', 'Additional hours', 'Approved OT', 'Short hours'];
-    const summaryBody = rows.map((row) => [
-        row.name,
-        row.rangeLabel,
-        row.workingDays,
-        row.compOffTaken,
-        hoursLabel(row.additional),
-        Number(row.approvedOt || 0).toFixed(2),
-        hoursLabel(row.short),
-    ]);
     const dayHead = ['Employee name', 'Date', 'Check-in', 'Check-out', 'Additional hours', 'Approved OT', 'Short hours'];
     const dayBody = rows.flatMap((row) => (row.days || []).map((day) => [
         row.name,
@@ -492,8 +482,6 @@ function downloadAttendanceExcel(title, rows) {
         </table>`;
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
         <h3>${esc(title)}</h3>
-        ${table(summaryHead, summaryBody)}
-        <br/>
         <h3>Daily check-in and check-out</h3>
         ${table(dayHead, dayBody)}
     </body></html>`;
@@ -1487,14 +1475,59 @@ function financialDeductionRows({ fines, loans, advances, utilityItems, from, to
     return rows;
 }
 
+const LEAVE_COUNT_KEYS = new Set([
+    'on_leave',
+    'sick_leave',
+    'authorized_leave',
+    'unauthorized_leave',
+    'compoff_leave',
+]);
+
+function roundLeaveCount(value) {
+    return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+/** Attendance punch wins the calendar color, so the leave total also reads the covered leave on that day. */
+function recordsForLeaveCounts(attendanceRows, events, from, to) {
+    const byDate = new Map();
+    for (const row of attendanceRows || []) {
+        const date = String(row?.date || '');
+        if (date) byDate.set(date, row);
+    }
+    for (const event of events || []) {
+        const date = String(event?.date || '');
+        if (!date || (from && date < from) || (to && date > to)) continue;
+        const eventKey = String(event?.statusKey || '');
+        if (!LEAVE_COUNT_KEYS.has(eventKey)) continue;
+        const existing = byDate.get(date);
+        if (!existing) {
+            byDate.set(date, event);
+            continue;
+        }
+        const existingKey = String(existing.statusKey || '');
+        if (LEAVE_COUNT_KEYS.has(existingKey)) continue;
+        byDate.set(date, {
+            ...existing,
+            statusKey: eventKey,
+            leaveRequestStatus: event.leaveRequestStatus || existing.leaveRequestStatus || 'approved',
+            requestedStatusKey: event.requestedStatusKey || eventKey,
+            leaveRequestGroupId: event.leaveRequestGroupId || existing.leaveRequestGroupId || '',
+            leaveRequestDayPart: event.leaveRequestDayPart || existing.leaveRequestDayPart || '',
+            leaveDeductionTimes: event.leaveDeductionTimes || existing.leaveDeductionTimes,
+        });
+    }
+    return [...byDate.values()];
+}
+
 function leaveTallies(records, key) {
     const groups = new Map();
     let used = 0;
     for (const row of records) {
         const status = String(row?.statusKey || '');
         const requested = String(row?.requestedStatusKey || '');
-        const decision = String(row?.leaveRequestStatus || '');
-        if (status === key) used += 1;
+        const decision = String(row?.leaveRequestStatus || '').toLowerCase();
+        const countsAsUsed = status === key || (decision === 'approved' && requested === key);
+        if (countsAsUsed) used += leaveDayWeight(row, key === 'authorized_leave');
         const isRequest = decision && (requested === key || status === key);
         const isDirect = !decision && status === key;
         if (!isRequest && !isDirect) continue;
@@ -1511,7 +1544,7 @@ function leaveTallies(records, key) {
         requested += 1;
         if (group.status === 'approved' || group.status === 'direct') approved += 1;
     }
-    return { requested, approved, used };
+    return { requested, approved, used: roundLeaveCount(used) };
 }
 
 function recordsInWindow(records, from, to) {
@@ -1635,6 +1668,7 @@ function eventRowsFromRecords(records, key) {
             adjustWith: link?.withDate ? formatDayLabel(link.withDate) : '',
             adjustLabel: adjustmentNote(link ? { date: row.date, ...link } : null),
             attachmentName: String(row.attachmentName || '').trim(),
+            attachmentUrl: String(row.attachmentUrl || '').trim(),
             leavePayType: String(row.leavePayType || '').trim(),
             };
         });
@@ -1716,18 +1750,19 @@ function DayTip({
                 </p>
             ) : null}
             {sickAttachment?.name ? (
-                sickAttachment.url ? (
-                    <a
-                        href={sickAttachment.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-1 inline-flex max-w-full items-center text-[12px] font-semibold text-[#2563EB] hover:underline"
-                    >
-                        <span className="truncate">Attachment: {sickAttachment.name}</span>
-                    </a>
-                ) : (
-                    <p className="mt-1 truncate text-[12px] font-medium text-[#64748B]">Attachment: {sickAttachment.name}</p>
-                )
+                <p className="mt-1 flex min-w-0 items-center gap-2 text-[12px]">
+                    <span className="truncate font-medium text-[#64748B]">Attachment: {sickAttachment.name}</span>
+                    {sickAttachment.url ? (
+                        <a
+                            href={sickAttachment.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="shrink-0 font-semibold text-[#2563EB] hover:underline"
+                        >
+                            View
+                        </a>
+                    ) : null}
+                </p>
             ) : null}
             <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
                 <TipMoney label="Time In" value={timeIn} />
@@ -3092,16 +3127,11 @@ export default function EmployeeInformationDashboard({
     }, [period, employeeMongoId, detailWindow.from, detailWindow.to, monthKey]);
 
     const monthStats = useMemo(() => {
-        const annual = leaveTallies(countedRecords, 'on_leave');
-        const sick = leaveTallies(countedRecords, 'sick_leave');
-        const authorized = leaveTallies(
-            countedRecords.filter((row) => deductionKind(row) === 'authorized_leave'),
-            'authorized_leave',
-        );
-        const unauthorized = leaveTallies(
-            countedRecords.filter((row) => deductionKind(row) === 'unauthorized_leave'),
-            'unauthorized_leave',
-        );
+        const leaveRows = recordsForLeaveCounts(countedRecords, profile?.events, countFrom, countTo);
+        const annual = leaveTallies(leaveRows, 'on_leave');
+        const sick = leaveTallies(leaveRows, 'sick_leave');
+        const authorized = leaveTallies(leaveRows, 'authorized_leave');
+        const unauthorized = leaveTallies(leaveRows, 'unauthorized_leave');
         let present = 0;
         let wfh = 0;
         let lateIn = 0;
@@ -3119,12 +3149,28 @@ export default function EmployeeInformationDashboard({
             if (kind === 'early_go') earlyOut += 1;
             if (kind === 'mispunch') missed += 1;
             if (key === 'compoff_leave') {
-                compoffUsed += 1;
+                compoffUsed += leaveDayWeight(row, false);
                 if (stored === 'compoff_leave') {
                     const state = String(row?.compOff?.state || '');
                     if (!state || state === 'open') compoffPending += 1;
                 }
             }
+        });
+        const countedCompoffDates = new Set(
+            countedRecords
+                .filter((row) => {
+                    const stored = String(row?.statusKey || '');
+                    return stored === 'compoff_leave' || isNextDayCompOffRow(row);
+                })
+                .map((row) => String(row?.date || '')),
+        );
+        leaveRows.forEach((row) => {
+            if (String(row?.statusKey || '') !== 'compoff_leave') return;
+            const date = String(row?.date || '');
+            if (countedCompoffDates.has(date)) return;
+            compoffUsed += leaveDayWeight(row, false);
+            const decision = String(row?.leaveRequestStatus || '').toLowerCase();
+            if (decision === 'pending') compoffPending += 1;
         });
         let absent = 0;
         if (countTo) {
@@ -3146,7 +3192,7 @@ export default function EmployeeInformationDashboard({
             sick,
             authorized,
             unauthorized,
-            compoffUsed,
+            compoffUsed: roundLeaveCount(compoffUsed),
             compoffPending,
             lateIn,
             earlyOut,
@@ -3155,7 +3201,7 @@ export default function EmployeeInformationDashboard({
             wfh,
             absent,
         };
-    }, [countedRecords, days, recordsByDate, holidayDates, offWeekdays, countFrom, countTo, joinKey]);
+    }, [countedRecords, profile?.events, days, recordsByDate, holidayDates, offWeekdays, countFrom, countTo, joinKey]);
 
     const attendanceMinutes = useMemo(() => {
         if (period === 'all') return { late: null, early: null };
@@ -3232,15 +3278,10 @@ export default function EmployeeInformationDashboard({
         : '—';
 
     const salaryBasis = useMemo(() => {
-        let weekOffs = 0;
-        days.forEach((day) => {
-            if (offWeekdays.has(WEEKDAY_KEYS[getDay(day)])) weekOffs += 1;
-        });
         const calendarDays = days.length;
-        const workingDays = Math.max(calendarDays - weekOffs, 1);
-        const daily = monthlySalary > 0 && calendarDays > 0 ? money2(monthlySalary / workingDays) : 0;
-        return { calendarDays, weekOffs, workingDays, daily };
-    }, [days, offWeekdays, monthlySalary]);
+        const daily = monthlySalary > 0 && calendarDays > 0 ? money2(monthlySalary / calendarDays) : 0;
+        return { calendarDays, weekOffs: 0, workingDays: calendarDays, daily };
+    }, [days, monthlySalary]);
     const additionWeeks = useMemo(() => buildMonthWorkWeeks(monthKey), [monthKey]);
     const additionChoices = useMemo(
         () => buildMonthAdditionChoices(monthKey, todayKey),
@@ -3497,15 +3538,16 @@ export default function EmployeeInformationDashboard({
     ];
     const deductionTotal = salaryTableRows.reduce((sum, row) => sum + (row.amount == null ? 0 : row.amount), 0);
 
-    const elapsedWorkingDays = countFrom && countTo
+    const elapsedMonthDays = countFrom && countTo
         ? days.filter((day) => {
             const dateKey = format(day, 'yyyy-MM-dd');
-            return dateKey >= countFrom && dateKey <= countTo && !offWeekdays.has(WEEKDAY_KEYS[getDay(day)]);
+            return dateKey >= countFrom && dateKey <= countTo;
         }).length
         : 0;
     const monthDeduction = deductionRows.reduce((sum, row) => sum + (row.amount == null ? 0 : Number(row.amount) || 0), 0);
+    const earnedBeforeDeduction = money2(salaryBasis.daily * elapsedMonthDays);
     const accumulated = monthlySalary > 0
-        ? Math.max(0, money2(salaryBasis.daily * elapsedWorkingDays - monthDeduction))
+        ? Math.max(0, money2(earnedBeforeDeduction - monthDeduction))
         : 0;
     const accumulatedPct = monthlySalary > 0 ? Math.round((accumulated / monthlySalary) * 10000) / 100 : 0;
 
@@ -4154,6 +4196,11 @@ export default function EmployeeInformationDashboard({
                                             {monthlySalary > 0 ? `${accumulatedPct.toFixed(2)}%` : '—'}
                                         </p>
                                     </div>
+                                    {monthlySalary > 0 ? (
+                                        <p className="mt-1 text-[10px] leading-snug text-[#64748B]">
+                                            Salary per day {formatAed(salaryBasis.daily, 2)} ({formatAed(monthlySalary)} / {salaryBasis.calendarDays} days, holidays included). Earned {formatAed(earnedBeforeDeduction, 2)} − deductions {formatAed(monthDeduction, 2)}.
+                                        </p>
+                                    ) : null}
                                 </div>
                             </div>
                         </div>
@@ -5047,7 +5094,7 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
                     setRequestModal(null);
                     setRequestError('');
                 }}
-                onSubmit={async ({ requestedStatusKey, reason, attachmentName, timeIn, timeOut }) => {
+                onSubmit={async ({ requestedStatusKey, reason, attachmentName, attachmentData, timeIn, timeOut }) => {
                     if (!requestModal?.dateKey || !requestedStatusKey) return;
                     setRequestSubmitting(true);
                     setRequestError('');
@@ -5057,6 +5104,7 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
                             requestedStatusKey,
                             reason: reason || '',
                             attachmentName: attachmentName || '',
+                            attachmentData: attachmentData || '',
                             timeIn: timeIn || '',
                             timeOut: timeOut || '',
                         }, { skipToast: true });

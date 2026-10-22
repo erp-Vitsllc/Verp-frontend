@@ -148,3 +148,17 @@ export function filterErpUploadFiles(fileList, options = {}) {
         firstError: rejected[0]?.message || '',
     };
 }
+
+/** Data URL the attendance APIs store as the leave attachment. */
+export function readErpFileAsDataUrl(file) {
+    return new Promise((resolve) => {
+        if (!file) {
+            resolve('');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+    });
+}

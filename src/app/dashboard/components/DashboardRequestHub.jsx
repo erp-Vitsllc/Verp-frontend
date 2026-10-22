@@ -407,7 +407,11 @@ export default function DashboardRequestHub() {
     const [leaveScheduleWeek, setLeaveScheduleWeek] = useState(null);
     const [leaveHolidayDates, setLeaveHolidayDates] = useState(null);
     const [leaveOffWeekdays, setLeaveOffWeekdays] = useState(null);
+    const [leaveRecords, setLeaveRecords] = useState([]);
     const [leaveVariant, setLeaveVariant] = useState('');
+    const [leaveSelfId, setLeaveSelfId] = useState('');
+    const [annualEligibleOn, setAnnualEligibleOn] = useState('');
+    const [annualEligibilityNote, setAnnualEligibilityNote] = useState('');
     const [selfLoanEmployee, setSelfLoanEmployee] = useState(null);
     const [selfExistingLoans, setSelfExistingLoans] = useState([]);
 
@@ -439,6 +443,7 @@ export default function DashboardRequestHub() {
                     }),
                 ]);
                 if (cancelled) return;
+                setLeaveSelfId(String(attendanceRes.data?.employee?.id || attendanceRes.data?.employee?._id || ''));
                 const staffType = normalizeWorkLocationKey(attendanceRes.data?.employee?.staffType);
                 const offWeekdays = new Set(
                     Array.isArray(attendanceRes.data?.offWeekdays)
@@ -466,6 +471,7 @@ export default function DashboardRequestHub() {
                 setLeaveDateKey(earliest);
                 setLeaveHolidayDates(holidayDates);
                 setLeaveOffWeekdays(offWeekdays);
+                setLeaveRecords(Array.isArray(attendanceRes.data?.records) ? attendanceRes.data.records : []);
             } catch {
                 if (!cancelled) {
                     const fallback = nextDateKey(nextDateKey(todayKey));
@@ -481,6 +487,47 @@ export default function DashboardRequestHub() {
             cancelled = true;
         };
     }, [composeKind]);
+
+    useEffect(() => {
+        if (composeKind !== 'leave' || leaveVariant !== 'annual' || !leaveSelfId) {
+            setAnnualEligibleOn('');
+            setAnnualEligibilityNote('');
+            return undefined;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const { data } = await axiosInstance.get(
+                    `/Leave/employees/${leaveSelfId}/annual-eligibility`,
+                    { skipToast: true },
+                );
+                if (cancelled) return;
+                const eligibleOn = String(data?.eligibleOn || '').trim();
+                const groupOver = Boolean(data?.groupCap?.over);
+                const beforeDate = Boolean(data?.cycleNotEligible && eligibleOn);
+                setAnnualEligibleOn(beforeDate ? eligibleOn : '');
+                const lines = [];
+                if (beforeDate) {
+                    lines.push(
+                        `You are not eligible for this annual leave. You can go on ${eligibleOn}. You can contact HR for more information.`,
+                    );
+                }
+                if (groupOver && data?.groupCap?.message) lines.push(data.groupCap.message);
+                setAnnualEligibilityNote(lines.join(' '));
+                if (beforeDate) {
+                    setLeaveDateKey((current) => (current && current >= eligibleOn ? current : eligibleOn));
+                }
+            } catch {
+                if (!cancelled) {
+                    setAnnualEligibleOn('');
+                    setAnnualEligibilityNote('');
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [composeKind, leaveVariant, leaveSelfId]);
 
     useEffect(() => {
         if (composeKind !== 'loan' && composeKind !== 'advance') {
@@ -561,22 +608,40 @@ export default function DashboardRequestHub() {
         timeOut,
         reason,
         attachmentName,
+        attachmentData,
+        previousDay,
     }) => {
         setSubmitting(true);
         setError('');
         try {
             const requestKind = kind || (leaveVariant === 'annual' ? 'annual_leave' : 'leave');
+            const requestDate = fromDate || leaveDateKey;
             const res =
-                requestKind === 'mispunch'
+                requestKind === 'mispunch' || requestKind === 'late_arrived' || requestKind === 'early_go'
                     ? await axiosInstance.post(
                           '/Attendance/me/yellow-request',
                           {
-                              date: fromDate || leaveDateKey,
+                              date: requestDate,
                               reason,
                               attachmentName: attachmentName || '',
+                              attachmentData: attachmentData || '',
                           },
                           { skipToast: true },
                       )
+                    : requestKind === 'leave' && previousDay
+                      ? await axiosInstance.post(
+                            '/Attendance/me/leave-request',
+                            {
+                                date: requestDate,
+                                requestedStatusKey: 'authorized_leave',
+                                reason: reason || '',
+                                attachmentName: attachmentName || '',
+                                attachmentData: attachmentData || '',
+                                dayPart: dayPart || 'full',
+                                session: session || '',
+                            },
+                            { skipToast: true },
+                        )
                     : await axiosInstance.post(
                           '/Attendance/me/future-request',
                           {
@@ -590,10 +655,11 @@ export default function DashboardRequestHub() {
                               timeOut: timeOut || '',
                               reason,
                               attachmentName: attachmentName || '',
+                              attachmentData: attachmentData || '',
                           },
                           { skipToast: true },
                       );
-            if (requestKind === 'leave' || requestKind === 'annual_leave') {
+            if (requestKind === 'leave' || requestKind === 'annual_leave' || requestKind === 'sick_leave') {
                 notifyLeavePendingInboxChanged();
             } else {
                 notifyAttendancePendingInboxChanged();
@@ -766,11 +832,18 @@ export default function DashboardRequestHub() {
                     key={`${leaveVariant}-${leaveDateKey || 'hub-leave'}`}
                     isOpen
                     dateKey={leaveDateKey}
-                    earliestDate={leaveEarliestDate}
+                    earliestDate={
+                        leaveVariant === 'annual' && annualEligibleOn
+                            ? annualEligibleOn
+                            : leaveEarliestDate
+                    }
+                    eligibilityNote={leaveVariant === 'annual' ? annualEligibilityNote : ''}
                     scheduleWeek={leaveScheduleWeek}
                     variant={
                         leaveVariant === 'annual'
                             ? 'annual'
+                            : leaveVariant === 'sick'
+                              ? 'sick'
                             : leaveVariant === 'late'
                               ? 'late'
                               : leaveVariant === 'early'
@@ -781,11 +854,14 @@ export default function DashboardRequestHub() {
                     }
                     holidayDates={leaveHolidayDates}
                     offWeekdays={leaveOffWeekdays}
+                    attendanceRecords={leaveRecords}
                     submitting={submitting}
                     error={error}
                     heading={
                         leaveVariant === 'annual'
                             ? 'Annual leave'
+                            : leaveVariant === 'sick'
+                              ? 'Sick leave'
                             : leaveVariant === 'late'
                               ? 'Late arrival'
                               : leaveVariant === 'early'

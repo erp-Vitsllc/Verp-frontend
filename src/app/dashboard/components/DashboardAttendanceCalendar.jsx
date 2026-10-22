@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
     addMonths,
     addYears,
@@ -21,6 +21,7 @@ import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { normalizeWorkLocationKey, workLocationLabel, weekForStaffType } from '@/utils/workLocations';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import { isNextDayCheckout, NextDayCheckoutTime } from '@/app/HRM/Attendance/utils/nextDayCheckout';
+import { markAttendanceHref } from '@/app/HRM/Attendance/utils/markAttendanceHref';
 import { notifyLeavePendingInboxChanged } from '@/app/HRM/Leave/utils/leavePendingInboxCount';
 import AttendanceTeamTreeModal from './AttendanceTeamTreeModal';
 import AttendanceLeaveRequestModal from './AttendanceLeaveRequestModal';
@@ -491,6 +492,7 @@ export default function DashboardAttendanceCalendar({
     hideTeamControls = false,
     className = '',
 }) {
+    const router = useRouter();
     const searchParams = useSearchParams();
     const todayKey = getDubaiDateKey();
     const deepAttendanceDate = String(searchParams?.get('attendanceDate') || '').trim();
@@ -512,6 +514,7 @@ export default function DashboardAttendanceCalendar({
     const [scheduleWeek, setScheduleWeek] = useState(null);
     const [offWeekdays, setOffWeekdays] = useState(() => new Set(['saturday', 'sunday']));
     const [selfEmployeeId, setSelfEmployeeId] = useState('');
+    const [annualFloor, setAnnualFloor] = useState({ date: '', note: '' });
     const lockedEmployeeId = String(forEmployeeId || '').trim();
     const [viewEmployeeId, setViewEmployeeId] = useState(lockedEmployeeId);
     const [isSelf, setIsSelf] = useState(true);
@@ -695,6 +698,44 @@ export default function DashboardAttendanceCalendar({
         () => firstEligibleAdvanceRequestDate(todayKey, holidayDates, offWeekdays),
         [todayKey, holidayDates, offWeekdays],
     );
+
+    useEffect(() => {
+        if (dayRequest?.variant !== 'annual' || !selfEmployeeId) {
+            setAnnualFloor({ date: '', note: '' });
+            return undefined;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const { data } = await axiosInstance.get(
+                    `/Leave/employees/${selfEmployeeId}/annual-eligibility`,
+                    { skipToast: true },
+                );
+                if (cancelled) return;
+                const eligibleOn = String(data?.eligibleOn || '').trim();
+                const beforeDate = Boolean(data?.cycleNotEligible && eligibleOn);
+                const lines = [];
+                if (beforeDate) {
+                    lines.push(
+                        `You are not eligible for this annual leave. You can go on ${eligibleOn}. You can contact HR for more information.`,
+                    );
+                }
+                if (data?.groupCap?.over && data.groupCap.message) lines.push(data.groupCap.message);
+                setAnnualFloor({ date: beforeDate ? eligibleOn : '', note: lines.join(' ') });
+                if (beforeDate) {
+                    setDayRequest((current) => {
+                        if (!current || !current.dateKey || current.dateKey >= eligibleOn) return current;
+                        return { ...current, dateKey: eligibleOn };
+                    });
+                }
+            } catch {
+                if (!cancelled) setAnnualFloor({ date: '', note: '' });
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [dayRequest?.variant, selfEmployeeId]);
     const minMonthKey =
         !salaryLock.locked && processingStartDate ? processingStartDate.slice(0, 7) : '';
     const canGoPrevMonth =
@@ -749,6 +790,7 @@ export default function DashboardAttendanceCalendar({
         requestedStatusKey,
         reason,
         attachmentName,
+        attachmentData,
         timeIn,
         timeOut,
     }) => {
@@ -763,6 +805,7 @@ export default function DashboardAttendanceCalendar({
                     requestedStatusKey,
                     reason: reason || '',
                     attachmentName: attachmentName || '',
+                    attachmentData: attachmentData || '',
                     timeIn: timeIn || '',
                     timeOut: timeOut || '',
                 },
@@ -779,7 +822,7 @@ export default function DashboardAttendanceCalendar({
         }
     };
 
-    const submitYellowRequest = async ({ reason, attachmentName }) => {
+    const submitYellowRequest = async ({ reason, attachmentName, attachmentData }) => {
         if (!yellowModal?.dateKey) return;
         setYellowSubmitting(true);
         setYellowError('');
@@ -790,6 +833,7 @@ export default function DashboardAttendanceCalendar({
                     date: yellowModal.dateKey,
                     reason,
                     attachmentName: attachmentName || '',
+                    attachmentData: attachmentData || '',
                 },
                 { skipToast: true },
             );
@@ -813,19 +857,36 @@ export default function DashboardAttendanceCalendar({
         timeOut,
         reason,
         attachmentName,
+        attachmentData,
+        previousDay,
     }) => {
         const requestDate = fromDate || futureModal?.dateKey || dayRequest?.dateKey;
         if (!requestDate || !kind) return;
         setFutureSubmitting(true);
         setFutureError('');
         try {
-            if (kind === 'mispunch') {
+            if (kind === 'mispunch' || kind === 'late_arrived' || kind === 'early_go') {
                 await axiosInstance.post(
                     '/Attendance/me/yellow-request',
                     {
                         date: requestDate,
                         reason,
                         attachmentName: attachmentName || '',
+                        attachmentData: attachmentData || '',
+                    },
+                    { skipToast: true },
+                );
+            } else if (kind === 'leave' && previousDay) {
+                await axiosInstance.post(
+                    '/Attendance/me/leave-request',
+                    {
+                        date: requestDate,
+                        requestedStatusKey: 'authorized_leave',
+                        reason: reason || '',
+                        attachmentName: attachmentName || '',
+                        attachmentData: attachmentData || '',
+                        dayPart: dayPart || 'full',
+                        session: session || '',
                     },
                     { skipToast: true },
                 );
@@ -843,11 +904,12 @@ export default function DashboardAttendanceCalendar({
                         timeOut: timeOut || '',
                         reason,
                         attachmentName: attachmentName || '',
+                        attachmentData: attachmentData || '',
                     },
                     { skipToast: true },
                 );
             }
-            if (kind === 'leave' || kind === 'annual_leave') {
+            if (kind === 'leave' || kind === 'annual_leave' || kind === 'sick_leave') {
                 notifyLeavePendingInboxChanged();
             } else {
                 notifyAttendancePendingInboxChanged();
@@ -1107,7 +1169,7 @@ export default function DashboardAttendanceCalendar({
                                         ? `Requests open from ${earliestFutureDate}`
                                         : '';
 
-                                const showDayHover = (event) => {
+                                const showDayHover = (event, pinned = false) => {
                                     const baseLabel = String(tone.label || 'Attendance').split(' — ')[0];
                                     const payType = tone.payType || authorizedPayType(record);
                                     const isAuthorizedLeave = AUTHORIZED_LEAVE_KEYS.has(record?.statusKey);
@@ -1149,50 +1211,49 @@ export default function DashboardAttendanceCalendar({
                                               }),
                                         x: event.clientX,
                                         y: event.clientY,
+                                        pinned,
                                     });
                                 };
 
-                                const canClickDay =
-                                    canDecide || canRequest || canYellowRequest || canFutureRequest || canOpenRequest;
-                                const openDay = () => {
-                                    setHoveredDay(null);
-                                    if (canDecide) openDecideForDay(dateKey, record);
-                                    else if (canRequest) openRequestForDay(dateKey, record, tone.label);
-                                    else if (canYellowRequest) openYellowForDay(dateKey, record, tone.label);
-                                    else if (canFutureRequest) openFutureForDay(dateKey, record);
-                                    else if (canOpenRequest) {
-                                        setFutureError('');
-                                        setDayRequest({ dateKey, variant: '' });
-                                    }
+                                const openMarkForDay = () => {
+                                    const employeeId = String(viewEmployeeId || selfEmployeeId || '').trim();
+                                    router.push(markAttendanceHref({
+                                        date: dateKey,
+                                        staffType,
+                                        blinkEmployee: employeeId,
+                                    }));
                                 };
 
                                 return (
                                     <div
                                         key={dateKey}
-                                        onMouseEnter={showDayHover}
-                                        onMouseMove={showDayHover}
-                                        onMouseLeave={() => setHoveredDay(null)}
-                                        onClick={canClickDay ? openDay : undefined}
-                                        className={`min-h-0 flex flex-col items-center justify-start py-0.5 relative ${
-                                            canClickDay ? 'cursor-pointer' : ''
-                                        }`}
+                                        onMouseEnter={(event) => {
+                                            if (!hoveredDay?.pinned) showDayHover(event);
+                                        }}
+                                        onMouseMove={(event) => {
+                                            if (!hoveredDay?.pinned) showDayHover(event);
+                                        }}
+                                        onMouseLeave={() => {
+                                            if (!hoveredDay?.pinned) setHoveredDay(null);
+                                        }}
+                                        className="relative flex min-h-0 cursor-pointer flex-col items-center justify-start py-0.5"
                                         title={adjustLines.join(' ')}
                                     >
                                         <button
                                             type="button"
                                             title={adjustLines.join(' ')}
-                                            disabled={!canClickDay}
                                             onClick={(event) => {
                                                 event.stopPropagation();
-                                                openDay();
+                                                showDayHover(event, true);
+                                            }}
+                                            onDoubleClick={(event) => {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                openMarkForDay();
                                             }}
                                             className={`dash-cal-day relative w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-[10px] sm:text-[11px] font-semibold tabular-nums leading-none shadow-sm ${tone.cell} ${
                                                 isToday ? 'ring-2 ring-sky-400 ring-offset-1' : ''
-                                            } ${
-                                                canClickDay
-                                                    ? 'cursor-pointer hover:brightness-95 hover:scale-110'
-                                                    : 'cursor-default'
-                                            }`}
+                                            } cursor-pointer hover:brightness-95 hover:scale-110`}
                                             style={{ animationDelay: `${Number(format(day, 'd')) * 18}ms` }}
                                         >
                                             {format(day, 'd')}
@@ -1292,6 +1353,8 @@ export default function DashboardAttendanceCalendar({
                 variant={
                     dayRequest?.variant === 'annual'
                         ? 'annual'
+                        : dayRequest?.variant === 'sick'
+                          ? 'sick'
                         : dayRequest?.variant === 'late'
                           ? 'late'
                           : dayRequest?.variant === 'early'
@@ -1303,6 +1366,8 @@ export default function DashboardAttendanceCalendar({
                 heading={
                     dayRequest?.variant === 'annual'
                         ? 'Annual leave'
+                        : dayRequest?.variant === 'sick'
+                          ? 'Sick leave'
                         : dayRequest?.variant === 'late'
                           ? 'Late arrival'
                           : dayRequest?.variant === 'early'
@@ -1314,10 +1379,16 @@ export default function DashboardAttendanceCalendar({
                                 : 'Request for a future day'
                 }
                 eyebrow={dayRequest?.variant ? 'Request' : ''}
-                earliestDate={earliestFutureDate || ''}
+                earliestDate={
+                    dayRequest?.variant === 'annual' && annualFloor.date
+                        ? annualFloor.date
+                        : earliestFutureDate || ''
+                }
+                eligibilityNote={dayRequest?.variant === 'annual' ? annualFloor.note : ''}
                 scheduleWeek={scheduleWeek}
                 holidayDates={holidayDates}
                 offWeekdays={offWeekdays}
+                attendanceRecords={monthAttendanceRecords}
                 submitting={futureSubmitting}
                 error={futureError}
                 onClose={() => {

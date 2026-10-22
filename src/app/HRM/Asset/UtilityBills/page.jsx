@@ -20,6 +20,7 @@ import UtilityBillSummaryTable from './components/UtilityBillSummaryTable';
 import PendingAssetRequestsModal from '../components/PendingAssetRequestsModal';
 import axiosInstance from '@/utils/axios';
 import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
+import { collapseSimBillPaymentReminders } from '@/utils/assetInboxScope';
 import { ASSET_PENDING_INBOX_CHANGED } from '../utils/assetPendingInboxCount';
 import { useToast } from '@/hooks/use-toast';
 import { invalidateAssetPendingInbox } from '../utils/assetPendingInboxCount';
@@ -327,14 +328,15 @@ function compareUtilityEntrySortValues(a, b, key, type, direction) {
  * Utility Bills list — header cards + type tabs for each created utility.
  */
 function countUtilityBillPending(items = []) {
-    return (Array.isArray(items) ? items : []).filter((row) => {
-        const t = String(row?.requestType || '').trim();
+    const rows = (Array.isArray(items) ? items : []).filter((row) => {
+        const t = String(row?.requestType || row?.type || '').trim();
         return (
             t === 'Utility Bill Payment' ||
             t === 'Utility Bill Payment Reminder' ||
             t === 'Utility Entry Status Change'
         );
-    }).length;
+    });
+    return collapseSimBillPaymentReminders(rows).length;
 }
 
 function UtilityBillsPageContent() {

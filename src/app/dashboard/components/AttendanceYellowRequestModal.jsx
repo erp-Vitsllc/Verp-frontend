@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { Paperclip, X } from 'lucide-react';
-import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, validateErpUploadFile } from '@/utils/uploadFileTypes';
+import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, readErpFileAsDataUrl, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 export default function AttendanceYellowRequestModal({
     isOpen,
@@ -28,7 +28,7 @@ export default function AttendanceYellowRequestModal({
         if (result?.blocked) setLocalError(result.message);
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         const trimmed = String(reason || '').trim();
         if (!trimmed) {
@@ -46,6 +46,7 @@ export default function AttendanceYellowRequestModal({
         onSubmit?.({
             reason: trimmed,
             attachmentName: attachment?.name || '',
+            attachmentData: attachment ? await readErpFileAsDataUrl(attachment) : '',
         });
     };
 

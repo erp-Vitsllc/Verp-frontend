@@ -133,9 +133,17 @@ function AnnualLeavePageContent() {
     const sourceEmployeeName = String(searchParams.get('sourceEmployeeName') || '').trim();
     const sourceFrom = String(searchParams.get('sourceFrom') || '').trim();
     const sourceTo = String(searchParams.get('sourceTo') || '').trim();
+    const groupFromLink = normalizeWorkLocationKey(searchParams.get('group') || '');
 
-    const [filterYear, setFilterYear] = useState(ALL_LEAVE_YEAR);
-    const [filterMonth, setFilterMonth] = useState(() => currentLeaveMonthKey());
+    const [filterYear, setFilterYear] = useState(() => {
+        const linked = String(from || '').slice(0, 4);
+        return /^\d{4}$/.test(linked) ? Number(linked) : ALL_LEAVE_YEAR;
+    });
+    const [filterMonth, setFilterMonth] = useState(() => {
+        const linked = String(from || '').slice(0, 7);
+        return /^\d{4}-\d{2}$/.test(linked) ? linked : currentLeaveMonthKey();
+    });
+    const [filterGroup, setFilterGroup] = useState(groupFromLink || ALL_LEAVE_GROUP);
     const yearOptions = useMemo(
         () => leaveDashboardYearOptions(salaryVisibility),
         [salaryVisibility],
@@ -146,8 +154,7 @@ function AnnualLeavePageContent() {
     );
     const yearMin = yearOptions.length ? yearOptions[yearOptions.length - 1] : new Date().getFullYear();
     const yearMax = new Date().getFullYear();
-    const [filterGroup, setFilterGroup] = useState(ALL_LEAVE_GROUP);
-    const [groupMenuLevel, setGroupMenuLevel] = useState('groups');
+    const [groupMenuLevel, setGroupMenuLevel] = useState(groupFromLink ? 'employees' : 'groups');
     const [statusFilter, setStatusFilter] = useState(ALL_LEAVE_STATUS);
 
     const enrolledEmployees = useMemo(() => {

@@ -138,13 +138,14 @@ function parseInboxExtra3(row = {}) {
     }
 }
 
-function simReminderMonthKey(row = {}) {
+function billReminderGroupKey(row = {}) {
     const type = requestTypeOf(row);
     if (type !== 'Utility Bill Payment Reminder') return '';
     const meta = parseInboxExtra3(row);
-    const utilityType = String(meta.utilityType || row.extra1 || '').toLowerCase();
-    if (!utilityType.includes('sim')) return '';
-    return String(meta.billMonth || meta.yearMonth || 'unknown').trim() || 'unknown';
+    const utilityType = String(meta.utilityType || '').trim().toLowerCase();
+    const month = String(meta.billMonth || meta.yearMonth || '').trim();
+    if (!utilityType || !month) return '';
+    return `${utilityType}|${month}`;
 }
 
 function monthLabelFromKey(yearMonth) {
@@ -155,46 +156,48 @@ function monthLabelFromKey(yearMonth) {
 }
 
 /**
- * One bell row per bill month for SIM cards:
- * "September — 12 SIMs are pending for payment".
- * Other utilities stay one row per account.
+ * One bell row per utility type and bill month.
+ * September SIM cards is one item, not one item per SIM.
  */
 export function collapseSimBillPaymentReminders(rows = []) {
     const list = Array.isArray(rows) ? rows : [];
     const groups = new Map();
     const order = [];
     for (const row of list) {
-        const monthKey = simReminderMonthKey(row);
-        if (!monthKey) {
+        const groupKey = billReminderGroupKey(row);
+        if (!groupKey) {
             order.push(row);
             continue;
         }
-        if (!groups.has(monthKey)) {
-            groups.set(monthKey, []);
-            order.push({ __simMonth: monthKey });
+        if (!groups.has(groupKey)) {
+            groups.set(groupKey, []);
+            order.push({ __billGroup: groupKey });
         }
-        groups.get(monthKey).push(row);
+        groups.get(groupKey).push(row);
     }
     return order.map((item) => {
-        if (!item?.__simMonth) return item;
-        const members = groups.get(item.__simMonth) || [];
+        if (!item?.__billGroup) return item;
+        const members = groups.get(item.__billGroup) || [];
         if (members.length <= 1) return members[0];
         const first = members[0];
         const meta = parseInboxExtra3(first);
-        const monthLabel = monthLabelFromKey(item.__simMonth);
+        const monthKey = String(meta.billMonth || meta.yearMonth || '').trim();
+        const monthLabel = monthLabelFromKey(monthKey);
         const monthName = monthLabel.replace(/\s+\d{4}$/, '') || 'This month';
+        const utilityType = String(meta.utilityType || 'Utility').trim() || 'Utility';
         const count = members.length;
-        const noun = count === 1 ? 'SIM is' : 'SIMs are';
         const actionIds = members
             .map((member) => member.dashboardActionId || member.actionId || member._id)
             .filter(Boolean);
         return {
             ...first,
-            extra1: `SIM cards · ${monthLabel}`,
-            extra2: `${monthName} — ${count} ${noun} pending for payment`,
+            extra1: `${utilityType} · ${monthLabel}`,
+            extra2: `${monthName} — ${count} ${utilityType} pending for payment`,
             extra3: JSON.stringify({
                 ...meta,
-                simCount: count,
+                accountNo: '',
+                groupedBillCount: count,
+                simCount: /sim/i.test(utilityType) ? count : meta.simCount,
                 groupedSimReminders: true,
                 detailsPath: '/HRM/Asset/UtilityBills',
             }),

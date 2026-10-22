@@ -605,6 +605,8 @@ function mergePendingChanges(nextMarks, pendingChanges, { dateKey = '', employee
                 hoursTaken: change.hoursTaken,
                 hoursMax: change.hoursMax,
                 hourAdjustKind: change.hourAdjustKind || '',
+                hourAdjustMode: change.hourAdjustMode || '',
+                hourRequestType: change.hourRequestType || '',
                 hourAdjustFlexible: change.hourAdjustFlexible === true,
                 timeIn: change.timeIn || '',
                 timeOut: change.timeOut || '',
@@ -1629,6 +1631,9 @@ function EmployeeRow({
                         const attachment = String(
                             mark?.attachmentName || mark?.pendingChange?.attachmentName || '',
                         ).trim();
+                        const attachmentUrl = String(
+                            mark?.attachmentUrl || mark?.pendingChange?.attachmentUrl || '',
+                        ).trim();
                         const reasonAlreadyShown =
                             requestReason && requestReason === String(shownMark?.reason || '').trim();
                         return (
@@ -1639,21 +1644,21 @@ function EmployeeRow({
                                     </span>
                                 ) : null}
                                 {attachment ? (
-                                    mark?.attachmentUrl ? (
-                                        <a
-                                            href={mark.attachmentUrl}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="text-[10px] font-semibold text-blue-600 max-w-[180px] truncate hover:underline"
-                                            title={attachment}
-                                        >
-                                            Attachment: {attachment}
-                                        </a>
-                                    ) : (
-                                        <span className="text-[10px] font-medium text-slate-600 max-w-[180px] truncate" title={attachment}>
+                                    <span className="inline-flex max-w-[220px] items-center gap-1" title={attachment}>
+                                        <span className="truncate text-[10px] font-medium text-slate-600">
                                             Attachment: {attachment}
                                         </span>
-                                    )
+                                        {attachmentUrl ? (
+                                            <a
+                                                href={attachmentUrl}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="shrink-0 text-[10px] font-semibold text-blue-600 hover:underline"
+                                            >
+                                                View
+                                            </a>
+                                        ) : null}
+                                    </span>
                                 ) : null}
                             </>
                         );

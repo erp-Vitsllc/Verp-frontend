@@ -183,7 +183,7 @@ export default function HourAdjustModal({
                     ? preview?.taken
                     : mark?.hoursApproved || preview?.taken || '';
         setApprovedHours(source || source === 0 ? String(source) : '');
-        setApprovalMode('authorized');
+        setApprovalMode(queued?.hourAdjustMode === 'custom' ? 'custom' : 'authorized');
         setReason(String(queued?.reason || mark?.hourAdjustReason || ''));
         setRejectReason('');
         setRejecting(Boolean(rejectFirst));
@@ -195,6 +195,7 @@ export default function HourAdjustModal({
         mark?.hourAdjustReason,
         queued?.id,
         queued?.hoursApproved,
+        queued?.hourAdjustMode,
         queued?.reason,
         preview?.taken,
         preview?.flexible,
@@ -234,6 +235,7 @@ export default function HourAdjustModal({
                 attendanceId: mark.attendanceId,
                 approvedHours: parsed.hours,
                 hourAdjustMode: parsed.mode,
+                hourRequestType: parsed.hours === 0 ? 'waived' : 'authorized',
                 reason,
             });
             toast({
@@ -283,6 +285,7 @@ export default function HourAdjustModal({
                 decision,
                 approvedHours: decision === 'approved' ? hours : undefined,
                 hourAdjustMode: decision === 'approved' ? approvalMode : undefined,
+                hourRequestType: decision === 'approved' ? (hours === 0 ? 'waived' : 'authorized') : undefined,
                 hourReason: decision === 'approved' && requesterTurn ? reason : undefined,
                 rejectReason: decision === 'rejected' ? String(rejectReason || '').trim() : '',
             };
@@ -314,6 +317,8 @@ export default function HourAdjustModal({
 
     const shownLoss = flexible ? roundHours(lossHours) : lossHours;
     const zeroApproval = flexible && roundHours(approvedHours) === 0;
+    const requestHours = approvalMode === 'authorized' ? roundHours(shownLoss) : roundHours(approvedHours);
+    const requestType = requestHours === 0 ? 'waived' : 'authorized';
     const approveLabel = priorReject || requesterTurn ? 'Reapply' : 'Approve';
 
     return (
@@ -347,6 +352,20 @@ export default function HourAdjustModal({
                     >
                         Custom
                     </button>
+                </div>
+                <div className="mt-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Request type</p>
+                    <div className="mt-1 grid grid-cols-2 gap-2">
+                        <div className={`rounded-lg border px-3 py-2 text-center text-sm font-bold ${requestType === 'waived' ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-slate-200 text-slate-400'}`}>
+                            Waived off
+                        </div>
+                        <div className={`rounded-lg border px-3 py-2 text-center text-sm font-bold ${requestType === 'authorized' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-400'}`}>
+                            Authorized
+                        </div>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                        {requestType === 'waived' ? 'Approved hours are 0, so this is waived off.' : 'Approved hours are above 0, so this is authorized.'}
+                    </p>
                 </div>
                 {priorReject ? (
                     <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">

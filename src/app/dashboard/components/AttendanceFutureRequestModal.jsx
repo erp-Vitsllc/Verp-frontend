@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Paperclip, X } from 'lucide-react';
-import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, validateErpUploadFile } from '@/utils/uploadFileTypes';
+import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, readErpFileAsDataUrl, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
@@ -162,9 +162,11 @@ export default function AttendanceFutureRequestModal({
     variant = 'authorized',
     holidayDates = null,
     offWeekdays = null,
+    attendanceRecords = [],
     submitting = false,
     error = '',
     heading = 'Request for a future day',
+    eligibilityNote = '',
     eyebrow = '',
     icon = null,
     onClose,
@@ -172,13 +174,16 @@ export default function AttendanceFutureRequestModal({
 }) {
     const fileRef = useRef(null);
     const isAnnualLeave = variant === 'annual';
+    const isSickLeave = variant === 'sick';
     const isMispunch = variant === 'mispunch';
     const isFuturePunch = variant === 'late' || variant === 'early';
     const isSingleDate = isMispunch || isFuturePunch;
     const reasonRequired = !isAnnualLeave;
+    const attachmentRequired = isSickLeave;
     const dayAfterTomorrow = nextDateKey(nextDateKey(dubaiTodayKey()));
     const todayKey = dubaiTodayKey();
-    const isAuthorizedLeave = !isAnnualLeave && !isMispunch && !isFuturePunch;
+    const currentMonth = todayKey.slice(0, 7);
+    const isAuthorizedLeave = !isAnnualLeave && !isSickLeave && !isMispunch && !isFuturePunch;
     const minimumDate = isMispunch || isAuthorizedLeave
         ? ''
         : isAnnualLeave
@@ -192,14 +197,39 @@ export default function AttendanceFutureRequestModal({
     const [reason, setReason] = useState('');
     const [attachment, setAttachment] = useState(null);
     const [localError, setLocalError] = useState('');
+    const isPreviousDate = isAuthorizedLeave && leaveDuration === 'previous';
+    const usesDateList = isMispunch || isFuturePunch || isPreviousDate;
+
+    const dateOptions = useMemo(() => {
+        if (!usesDateList) return [];
+        const rows = (Array.isArray(attendanceRecords) ? attendanceRecords : [])
+            .filter((row) => {
+                const date = String(row?.date || '').slice(0, 10);
+                if (!date.startsWith(currentMonth) || date > todayKey) return false;
+                const status = String(row?.statusKey || '');
+                const approved = ['approvalStatus', 'leaveRequestStatus', 'hourAdjustStatus']
+                    .some((key) => String(row?.[key] || '').toLowerCase() === 'approved');
+                const pending = String(row?.leaveRequestStatus || '').toLowerCase() === 'pending';
+                if (approved || pending) return false;
+                if (isMispunch) {
+                    return status === 'unauthorized_leave' || status === 'mispunch' || /mispunch/i.test(String(row?.reason || ''));
+                }
+                if (variant === 'late') return status === 'late_arrived';
+                if (variant === 'early') return status === 'early_go';
+                return status === 'unauthorized_leave';
+            })
+            .map((row) => String(row.date).slice(0, 10));
+        return [...new Set(rows)].sort();
+    }, [attendanceRecords, currentMonth, todayKey, usesDateList, isMispunch, variant]);
 
     useEffect(() => {
         if (!isOpen) return;
-        const start = isMispunch
-            ? todayKey
+        const listed = usesDateList
+            ? (dateOptions.includes(dateKey) ? dateKey : '')
             : dateKey && minimumDate && dateKey < minimumDate
               ? minimumDate
               : dateKey || minimumDate || '';
+        const start = isMispunch ? listed : listed;
         setFromDate(start);
         setToDate(start);
         setLeaveDuration('');
@@ -208,7 +238,7 @@ export default function AttendanceFutureRequestModal({
         setReason('');
         setAttachment(null);
         setLocalError('');
-    }, [isOpen, dateKey, minimumDate, isMispunch, todayKey]);
+    }, [isOpen, dateKey, minimumDate, isMispunch, todayKey, usesDateList, dateOptions]);
     const isMultiDay = Boolean(fromDate && toDate && fromDate !== toDate);
     const leaveDayCount = useMemo(
         () => countLeaveDays(fromDate, toDate, holidayDates, offWeekdays),
@@ -229,10 +259,12 @@ export default function AttendanceFutureRequestModal({
     const partialMessage = isPartial
         ? partialLeaveMessage(scheduleWeek, fromDate || dateKey, dayPart, session)
         : '';
-    const authorizedBlock = !isAnnualLeave ? authorizedSpanMessage(leaveDuration, fromDate, toDate) : '';
+    const authorizedBlock = isAuthorizedLeave ? authorizedSpanMessage(leaveDuration, fromDate, toDate) : '';
     const requestKind = isAnnualLeave
         ? 'annual_leave'
-        : isMispunch
+        : isSickLeave
+          ? 'sick_leave'
+          : isMispunch
           ? 'mispunch'
           : variant === 'late'
             ? 'late_arrived'
@@ -241,6 +273,8 @@ export default function AttendanceFutureRequestModal({
               : 'leave';
     const requestTypeLabel = isAnnualLeave
         ? 'Annual Leave'
+        : isSickLeave
+          ? 'Sick Leave'
         : isMispunch
           ? 'Mispunch'
           : variant === 'late'
@@ -254,6 +288,8 @@ export default function AttendanceFutureRequestModal({
                   : 'Authorized Leave';
     const durationName = isMispunch
         ? 'Mispunch request'
+        : isSickLeave
+          ? 'Sick leave request'
         : variant === 'late'
           ? 'Late arrival request'
           : variant === 'early'
@@ -289,6 +325,13 @@ export default function AttendanceFutureRequestModal({
             setToDate(fromDate);
             return;
         }
+        if (next === 'previous') {
+            const keep = dateOptions.includes(fromDate) ? fromDate : '';
+            setFromDate(keep);
+            setToDate(keep);
+            setDayPart('full');
+            return;
+        }
         setDayPart('full');
     };
 
@@ -300,14 +343,22 @@ export default function AttendanceFutureRequestModal({
         if (result?.blocked) setLocalError(result.message);
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!isAnnualLeave && !isSingleDate && !leaveDuration) {
-            setLocalError('Choose single day or multiple days.');
+            setLocalError(isAuthorizedLeave ? 'Choose previous date, single day, or multiple days.' : 'Choose single day or multiple days.');
             return;
         }
         if (!isSingleDate && authorizedBlock) {
             setLocalError(authorizedBlock);
+            return;
+        }
+        if (isSickLeave && leaveDuration === 'single' && fromDate && toDate && fromDate !== toDate) {
+            setLocalError('Single day leave uses the same start and end date.');
+            return;
+        }
+        if (isSickLeave && leaveDuration === 'multiple' && fromDate && toDate && fromDate === toDate) {
+            setLocalError('Multiple days needs an end date after the start date.');
             return;
         }
         if (!fromDate || !toDate) {
@@ -322,7 +373,7 @@ export default function AttendanceFutureRequestModal({
             setLocalError('Mispunch can only be requested for today or a past day.');
             return;
         }
-        if (isFuturePunch && fromDate <= todayKey) {
+        if (isFuturePunch && !usesDateList && fromDate <= todayKey) {
             setLocalError('This request is only for a future working day.');
             return;
         }
@@ -330,7 +381,7 @@ export default function AttendanceFutureRequestModal({
             setLocalError(`The earliest date you can request is ${minimumDate}.`);
             return;
         }
-        const effectiveDayPart = isMultiDay || isAnnualLeave || isSingleDate ? 'full' : dayPart;
+        const effectiveDayPart = isMultiDay || isAnnualLeave || isSickLeave || isSingleDate ? 'full' : dayPart;
         if ((effectiveDayPart === 'half' || effectiveDayPart === 'quarter') && session !== 'am' && session !== 'pm') {
             setLocalError('Choose AM or PM for a half day or quarter day.');
             return;
@@ -338,6 +389,10 @@ export default function AttendanceFutureRequestModal({
         const trimmed = String(reason || '').trim();
         if (reasonRequired && !trimmed) {
             setLocalError('Reason is required.');
+            return;
+        }
+        if (attachmentRequired && !attachment) {
+            setLocalError('An attachment is required for sick leave.');
             return;
         }
         if (attachment) {
@@ -357,7 +412,9 @@ export default function AttendanceFutureRequestModal({
             timeIn: '',
             timeOut: '',
             reason: trimmed,
+            previousDay: leaveDuration === 'previous',
             attachmentName: attachment?.name || '',
+            attachmentData: attachment ? await readErpFileAsDataUrl(attachment) : '',
         });
     };
 
@@ -393,20 +450,34 @@ export default function AttendanceFutureRequestModal({
                             ) : null}
                             {isMispunch ? (
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Choose the day you missed a punch. Reason is required.
+                                    Choose an unauthorized or mispunched day from this month. Reason is required.
+                                </p>
+                            ) : variant === 'late' ? (
+                                <p className="text-xs text-slate-400 mt-1">
+                                    Choose a late arrival from this month that is not approved. Reason is required.
+                                </p>
+                            ) : variant === 'early' ? (
+                                <p className="text-xs text-slate-400 mt-1">
+                                    Choose an early go from this month that is not approved. Reason is required.
                                 </p>
                             ) : isFuturePunch ? (
                                 <p className="text-xs text-slate-400 mt-1">
                                     Future working days only.
                                     {minimumDate ? ` Earliest date is ${minimumDate}.` : ''} Reason is required.
                                 </p>
+                            ) : isSickLeave ? (
+                                <p className="text-xs text-slate-400 mt-1">
+                                    Full days. Reason and attachment are required. This goes to your primary reportee.
+                                </p>
                             ) : !isAnnualLeave ? (
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Past dates can be selected. The end date must be on or after the start date. Reason is required.
+                                    Previous date lists this month&apos;s unauthorized leave. Single day and multiple days stay the same. Reason is required.
                                 </p>
                             ) : earliestDate ? (
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Earliest allowed date is {earliestDate}. Holidays and weekly offs are skipped.
+                                    {eligibilityNote
+                                        ? eligibilityNote
+                                        : `Earliest allowed date is ${earliestDate}. Holidays and weekly offs are skipped.`}
                                 </p>
                             ) : null}
                         </div>
@@ -437,8 +508,9 @@ export default function AttendanceFutureRequestModal({
                     {!isAnnualLeave && !isSingleDate ? (
                         <div>
                             <span className={labelClass}>Leave duration</span>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className={isAuthorizedLeave ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-2 gap-2'}>
                                 {[
+                                    ...(isAuthorizedLeave ? [{ key: 'previous', label: 'Previous date' }] : []),
                                     { key: 'single', label: 'Single day' },
                                     { key: 'multiple', label: 'Multiple days' },
                                 ].map((option) => {
@@ -476,14 +548,31 @@ export default function AttendanceFutureRequestModal({
                         </div>
                     ) : null}
 
-                    <div className={isSingleDate ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-2 gap-3'}>
+                    <div className={isSingleDate || isPreviousDate ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-2 gap-3'}>
                         <label className="block">
-                            <span className={labelClass}>{isSingleDate ? 'Date' : 'Start date'}</span>
+                            <span className={labelClass}>{isSingleDate || isPreviousDate ? 'Date' : 'Start date'}</span>
+                            {usesDateList ? (
+                                <select
+                                    value={fromDate}
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        setFromDate(value);
+                                        setToDate(value);
+                                        setLocalError('');
+                                    }}
+                                    disabled={submitting || !dateOptions.length}
+                                    className={fieldClass}
+                                >
+                                    <option value="">{dateOptions.length ? 'Select a date' : 'No dates this month'}</option>
+                                    {dateOptions.map((day) => (
+                                        <option key={day} value={day}>{formatDisplayDate(day)}</option>
+                                    ))}
+                                </select>
+                            ) : (
                             <input
                                 type="date"
                                 value={fromDate}
-                                min={isMispunch || isAuthorizedLeave ? undefined : minimumDate || earliestDate || undefined}
-                                max={isMispunch ? todayKey : undefined}
+                                min={minimumDate || earliestDate || undefined}
                                 onChange={(e) => {
                                     if (isSingleDate) {
                                         setFromDate(e.target.value);
@@ -496,8 +585,9 @@ export default function AttendanceFutureRequestModal({
                                 disabled={submitting}
                                 className={fieldClass}
                             />
+                            )}
                         </label>
-                        {isSingleDate ? null : (
+                        {isSingleDate || isPreviousDate ? null : (
                         <label className="block">
                             <span className={labelClass}>End date</span>
                             <input
@@ -532,7 +622,7 @@ export default function AttendanceFutureRequestModal({
                         <p className="text-sm font-medium text-rose-600">{authorizedBlock}</p>
                     ) : null}
 
-                    {!isAnnualLeave && !isSingleDate && leaveDuration === 'single' ? (
+                    {!isAnnualLeave && !isSickLeave && !isSingleDate && leaveDuration === 'single' ? (
                         <label className="block">
                             <span className={labelClass}>Time</span>
                             <select
@@ -601,7 +691,7 @@ export default function AttendanceFutureRequestModal({
                     </label>
 
                     <div>
-                        <span className={labelClass}>Attachment (optional)</span>
+                        <span className={labelClass}>{attachmentRequired ? 'Attachment' : 'Attachment (optional)'}</span>
                         <input
                             ref={fileRef}
                             type="file"
@@ -622,7 +712,11 @@ export default function AttendanceFutureRequestModal({
                                     {attachment ? attachment.name : 'Choose a file'}
                                 </span>
                                 <span className="block text-xs text-slate-400 mt-0.5">
-                                    {attachment ? 'Click to change' : ERP_ATTACHMENT_HINT}
+                                    {attachment
+                                        ? 'Click to change'
+                                        : attachmentRequired
+                                          ? `Required. ${ERP_ATTACHMENT_HINT}`
+                                          : ERP_ATTACHMENT_HINT}
                                 </span>
                             </span>
                         </button>
@@ -650,7 +744,7 @@ export default function AttendanceFutureRequestModal({
                             disabled={submitting || Boolean(authorizedBlock)}
                             className="flex-1 h-11 rounded-xl text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50"
                         >
-                            {submitting ? 'Sending…' : 'Send to HR'}
+                            {submitting ? 'Sending…' : 'Send to reportee'}
                         </button>
                     </div>
                 </form>

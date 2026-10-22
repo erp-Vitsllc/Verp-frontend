@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Check, Paperclip, X } from 'lucide-react';
-import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, validateErpUploadFile } from '@/utils/uploadFileTypes';
+import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, readErpFileAsDataUrl, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 const LEAVE_OPTIONS = [
     {
@@ -67,7 +67,7 @@ export default function AttendanceLeaveRequestModal({
         if (result?.blocked) setLocalError(result.message);
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!selectedKey) {
             setLocalError('Select a leave type.');
@@ -101,11 +101,13 @@ export default function AttendanceLeaveRequestModal({
         }
         setLocalError('');
         const opt = LEAVE_OPTIONS.find((o) => o.key === selectedKey);
+        const sickFile = selectedKey === 'sick_leave' ? attachment : null;
         onSubmit?.({
             requestedStatusKey: selectedKey,
             requestedStatusLabel: opt?.label || selectedKey,
             reason: trimmed,
-            attachmentName: selectedKey === 'sick_leave' ? attachment?.name || '' : '',
+            attachmentName: sickFile?.name || '',
+            attachmentData: sickFile ? await readErpFileAsDataUrl(sickFile) : '',
             timeIn: selectedKey === 'late_arrived' ? arrived : '',
             timeOut: selectedKey === 'late_arrived' ? left : '',
         });

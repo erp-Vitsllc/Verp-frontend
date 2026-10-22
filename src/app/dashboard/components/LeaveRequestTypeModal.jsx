@@ -1,6 +1,6 @@
 'use client';
 
-import { CalendarDays, Clock, Fingerprint, LogOut, ShieldCheck, X } from 'lucide-react';
+import { CalendarDays, Clock, Fingerprint, LogOut, ShieldCheck, Thermometer, X } from 'lucide-react';
 
 export default function LeaveRequestTypeModal({ isOpen, submitting = false, icon = null, onClose, onSelect }) {
     if (!isOpen) return null;
@@ -21,6 +21,14 @@ export default function LeaveRequestTypeModal({ isOpen, submitting = false, icon
             Icon: ShieldCheck,
             wrap: 'bg-blue-50 text-blue-600',
             border: 'hover:border-blue-200',
+        },
+        {
+            key: 'sick',
+            label: 'Sick leave request',
+            description: 'Reason and attachment are required. Sent to your primary reportee.',
+            Icon: Thermometer,
+            wrap: 'bg-emerald-50 text-emerald-600',
+            border: 'hover:border-emerald-200',
         },
         {
             key: 'late',
