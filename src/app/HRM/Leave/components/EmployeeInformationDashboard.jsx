@@ -3541,7 +3541,10 @@ export default function EmployeeInformationDashboard({
     const elapsedMonthDays = countFrom && countTo
         ? days.filter((day) => {
             const dateKey = format(day, 'yyyy-MM-dd');
-            return dateKey >= countFrom && dateKey <= countTo;
+            if (dateKey < countFrom || dateKey > countTo) return false;
+            const record = recordsByDate[dateKey];
+            if (String(record?.statusKey || '') === 'suspended' || record?.attendanceSuspended) return false;
+            return true;
         }).length
         : 0;
     const monthDeduction = deductionRows.reduce((sum, row) => sum + (row.amount == null ? 0 : Number(row.amount) || 0), 0);
@@ -4198,7 +4201,7 @@ export default function EmployeeInformationDashboard({
                                     </div>
                                     {monthlySalary > 0 ? (
                                         <p className="mt-1 text-[10px] leading-snug text-[#64748B]">
-                                            Salary per day {formatAed(salaryBasis.daily, 2)} ({formatAed(monthlySalary)} / {salaryBasis.calendarDays} days, holidays included). Earned {formatAed(earnedBeforeDeduction, 2)} − deductions {formatAed(monthDeduction, 2)}.
+                                            Salary per day {formatAed(salaryBasis.daily, 2)} ({formatAed(monthlySalary)} / {salaryBasis.calendarDays} days). Counted through yesterday. Suspension days are not included. Earned {formatAed(earnedBeforeDeduction, 2)} − deductions {formatAed(monthDeduction, 2)}.
                                         </p>
                                     ) : null}
                                 </div>

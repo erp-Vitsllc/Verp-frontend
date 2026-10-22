@@ -608,6 +608,29 @@ function AssetDetailsPageContent() {
         }
     };
 
+    const handleDirectUnassign = async () => {
+        if (!window.confirm('Unassign this asset now? The asset owner will be notified.')) return;
+        try {
+            const response = await axiosInstance.put(`/AssetItem/${assetId}/return`, {
+                directUnassign: true,
+                reason: 'Unassigned by Asset Controller',
+            });
+            toast({
+                title: 'Unassigned',
+                description: response?.data?.message || 'The asset is now unassigned.',
+            });
+            setShowReturnChoiceModal(false);
+            fetchAssetDetails();
+            fetchAssetHistory();
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not unassign',
+                description: err?.response?.data?.message || 'Unassign failed.',
+            });
+        }
+    };
+
     const handleReturnAsset = async () => {
         try {
             const statusLower = String(asset?.status || '').toLowerCase().trim();
@@ -3414,7 +3437,7 @@ function AssetDetailsPageContent() {
                         isOpen={showReturnChoiceModal}
                         onClose={() => setShowReturnChoiceModal(false)}
                         title="Return"
-                        subtitle="Leave, Employee End of Services, or Return (Others)"
+                        subtitle="Leave, return from the asset owner, or unassign by the Asset Controller"
                         options={[
                             {
                                 key: 'leave',
@@ -3427,21 +3450,30 @@ function AssetDetailsPageContent() {
                                 },
                             },
                             {
-                                key: 'eos',
-                                label: 'Employee End of Services',
-                                displayLabel: 'Employee End of Services',
-                                disabled: !asset?.assignedTo && !asset?.assignedCompany,
+                                key: 'owner-return',
+                                label: 'From others (return)',
+                                displayLabel: 'From others (return)',
+                                disabled: !(
+                                    asset?.assignedTo &&
+                                    currentUserEmployeeId?.toString() ===
+                                        String(asset.assignedTo?._id ?? asset.assignedTo)
+                                ),
                                 onClick: () => {
-                                    setTransferInitialOption('End of Services');
-                                    setShowTransferModal(true);
+                                    setShowReturnModal(true);
                                 },
                             },
                             {
-                                key: 'others',
-                                label: 'Return (Others)',
-                                displayLabel: 'Return (Others)',
+                                key: 'ac-unassign',
+                                label: 'From asset controller (unassign)',
+                                displayLabel: 'From asset controller (unassign)',
+                                disabled: !(
+                                    effectiveIsAssetController ||
+                                    isAssetController ||
+                                    currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
+                                    currentUserEmployeeId?.toString() === 'flowchart_assetcontroller'
+                                ),
                                 onClick: () => {
-                                    setShowReturnModal(true);
+                                    handleDirectUnassign();
                                 },
                             },
                         ]}
