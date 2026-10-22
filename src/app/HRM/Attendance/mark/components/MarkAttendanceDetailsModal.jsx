@@ -47,7 +47,7 @@ export function getMarkFormConfig(markKey) {
             showAttachment: true,
             attachmentRequired: true,
             timesRequired: false,
-            reasonOptional: true,
+            reasonOptional: false,
             useWorkingTimeDefaults: false,
         };
     }
@@ -286,6 +286,10 @@ export default function MarkAttendanceDetailsModal({
             setError('An attachment is required for sick leave.');
             return;
         }
+        if (config.showReason && !config.reasonOptional && !reason.trim()) {
+            setError('Reason is required.');
+            return;
+        }
         onSave?.({
             markKey,
             markLabel,
@@ -372,12 +376,15 @@ export default function MarkAttendanceDetailsModal({
                                 Reason
                                 {config.reasonOptional ? (
                                     <span className="font-normal text-gray-400"> (optional)</span>
-                                ) : null}
+                                ) : (
+                                    <span className="text-red-500"> *</span>
+                                )}
                             </span>
                             <textarea
                                 value={reason}
                                 onChange={(e) => setReason(e.target.value)}
                                 rows={3}
+                                required={config.showReason && !config.reasonOptional}
                                 placeholder="Enter reason…"
                                 className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#EA3D2F]/25 focus:border-[#EA3D2F] resize-y min-h-[80px]"
                             />

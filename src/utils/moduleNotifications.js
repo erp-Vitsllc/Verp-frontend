@@ -55,6 +55,7 @@ import {
     isToolsAssetInboxRow,
     isUtilityBillInboxRow,
     isVehicleAssetInboxRow,
+    collapseSimBillPaymentReminders,
 } from '@/utils/assetInboxScope';
 import {
     getViewerEmployeeObjectIdFromStorage,
@@ -689,7 +690,9 @@ export function buildModuleNotificationBundle(feeds = {}) {
     );
 
     const toolsAsset = toolsVisible.map((row) => pendingInboxToItem(row, 'Tools Asset'));
-    const utilityBillVisible = toolsRawVisible.filter(isUtilityBillInboxRow);
+    const utilityBillVisible = collapseSimBillPaymentReminders(
+        toolsRawVisible.filter(isUtilityBillInboxRow),
+    );
     const utilityBill = utilityBillVisible.map((row) => pendingInboxToItem(row, 'Utility Bills'));
     const vehicleFromInbox = vehicleVisible.map((row) => pendingInboxToItem(row, 'Vehicle Asset'));
     // Stats rows for vehicle document expiry (pending-inbox also returns these once types include it).

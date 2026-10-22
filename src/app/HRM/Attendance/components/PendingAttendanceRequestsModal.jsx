@@ -19,6 +19,7 @@ import NotificationInboxModal from '@/components/notifications/NotificationInbox
 import { buildEmployeeHubDashboardPath, isEmployeeHubRequestItem } from '@/utils/employeeHubRequest';
 import { notifyAttendancePendingInboxChanged } from '../utils/attendancePendingInboxCount';
 import { attendanceRequestMarkHref } from '../utils/markAttendanceHref';
+import AttendanceLeaveDecideModal from '@/app/dashboard/components/AttendanceLeaveDecideModal';
 
 function isAttendanceChangeItem(row) {
     const raw = row?.raw || row || {};
@@ -238,7 +239,7 @@ export default function PendingAttendanceRequestsModal({
         });
     };
 
-    const decideChange = async (decision) => {
+    const decideChange = async (decision, edits = {}) => {
         const id = String(review?.id || review?.dashboardActionId || '').trim();
         if (!id || deciding) return;
         if (decision === 'rejected' && !String(rejectReason).trim()) return;
@@ -254,6 +255,7 @@ export default function PendingAttendanceRequestsModal({
                     ? { approvedHours: Number(editHours) }
                     : {}),
                 ...(decision === 'rejected' ? { rejectReason: String(rejectReason).trim() } : {}),
+                ...(decision === 'approved' && edits.statusKey ? { approvedStatusKey: edits.statusKey } : {}),
             });
             toast({
                 title: decision === 'approved' ? 'Approved' : 'Rejected',
@@ -275,6 +277,9 @@ export default function PendingAttendanceRequestsModal({
     };
 
     const waitingOnHr = review?.changeStage === 'pending_hr';
+    const sickRequest =
+        String(review?.statusKey || review?.requestedStatusKey || '') === 'sick_leave' ||
+        /sick/i.test(String(review?.requestedStatusLabel || review?.statusLabel || ''));
 
     return (
         <>
@@ -290,7 +295,35 @@ export default function PendingAttendanceRequestsModal({
                 onItemClick={handleRowActivate}
                 getItemHref={(row) => buildAttendancePath(row?.raw || row) || ''}
             />
-            {review ? (
+            {review && sickRequest ? (
+                <AttendanceLeaveDecideModal
+                    isOpen
+                    dateKey={review.date || ''}
+                    employeeName={review.subjectName || review.employeeName || ''}
+                    employeeMongoId={review.employeeMongoId || ''}
+                    requestedStatusKey="sick_leave"
+                    requestedLabel={review.requestedStatusLabel || review.statusLabel || 'Sick leave'}
+                    currentLabel={review.previousStatusLabel || 'Unauthorized Leave'}
+                    reason={review.reason || review.leaveRequestReason || ''}
+                    attachmentName={review.attachmentName || ''}
+                    attachmentUrl={review.attachmentUrl || ''}
+                    hrReview={waitingOnHr}
+                    deciding={deciding}
+                    onClose={() => {
+                        if (deciding) return;
+                        setReview(null);
+                    }}
+                    onDecide={(choice, approvedStatusKey, _pay, edits) =>
+                        decideChange(choice, {
+                            ...(edits || {}),
+                            ...(choice === 'approved' && approvedStatusKey === 'authorized_leave'
+                                ? { statusKey: 'authorized_leave' }
+                                : {}),
+                        })
+                    }
+                />
+            ) : null}
+            {review && !sickRequest ? (
                 <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/45">
                     <div
                         role="dialog"
@@ -382,7 +415,18 @@ export default function PendingAttendanceRequestsModal({
                             {review.attachmentName ? (
                                 <p>
                                     <span className="text-slate-500">Attachment: </span>
-                                    {review.attachmentName}
+                                    {review.attachmentUrl ? (
+                                        <a
+                                            href={review.attachmentUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="font-semibold text-blue-600 hover:underline break-all"
+                                        >
+                                            {review.attachmentName}
+                                        </a>
+                                    ) : (
+                                        review.attachmentName
+                                    )}
                                 </p>
                             ) : null}
                             {rejecting ? (
@@ -397,7 +441,7 @@ export default function PendingAttendanceRequestsModal({
                                 </label>
                             ) : null}
                         </div>
-                        <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
+                        <div className="px-5 py-4 border-t border-slate-100 flex flex-wrap items-center justify-end gap-2">
                             <button
                                 type="button"
                                 disabled={deciding}

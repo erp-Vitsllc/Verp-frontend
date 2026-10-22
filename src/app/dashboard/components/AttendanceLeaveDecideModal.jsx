@@ -16,6 +16,12 @@ function isPunchCorrectionKind(kind) {
     return key === 'yellow' || key === 'past_late' || key === 'future_late' || key === 'future_early';
 }
 
+function displayRequestDate(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
+    if (!match) return String(value || '').trim() || '—';
+    return `${match[3]}-${match[2]}-${match[1]}`;
+}
+
 function clockInputValue(value) {
     const match = /^(\d{1,2}):(\d{2})/.exec(String(value || '').trim());
     if (!match) return '';
@@ -164,26 +170,25 @@ export default function AttendanceLeaveDecideModal({
                 <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close" onClick={onClose} disabled={deciding} />
                 <div role="dialog" aria-modal="true" className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl">
                     <div className="border-b border-slate-100 px-5 py-4">
-                        <h2 className="text-base font-semibold text-slate-900">Sick leave request</h2>
+                        <h2 className="text-base font-semibold text-slate-900">Sick leave Request</h2>
                     </div>
                     <div className="space-y-2 px-5 py-4 text-sm text-slate-700">
-                        <p><span className="text-slate-500">Employee name: </span><strong>{employeeName || 'Employee'}</strong></p>
-                        <p><span className="text-slate-500">Requested date: </span>{dateKey || '—'}</p>
+                        <p><span className="text-slate-500">Employee Name: </span><strong>{employeeName || 'Employee'}</strong></p>
+                        <p><span className="text-slate-500">Requested Date: </span>{displayRequestDate(dateKey)}</p>
                         <p><span className="text-slate-500">Current status: </span>{currentLabel || '—'}</p>
-                        <p><span className="text-slate-500">Previous sick leaves (year): </span>{allowanceText}</p>
+                        <p><span className="text-slate-500">Previous sick leaves: </span>{allowanceText}</p>
                         <p>
                             <span className="text-slate-500">Reason: </span>
                             <span className="whitespace-pre-wrap">{String(reason || '').trim() || '—'}</span>
                         </p>
                         <p>
                             <span className="text-slate-500">Attachment: </span>
+                            {attachmentName || '—'}
                             {attachmentUrl ? (
-                                <a href={attachmentUrl} target="_blank" rel="noreferrer" className="font-semibold text-blue-600 hover:underline">
-                                    {attachmentName || 'Open file'}
+                                <a href={attachmentUrl} target="_blank" rel="noreferrer" className="ml-2 font-semibold text-blue-600 hover:underline">
+                                    Open
                                 </a>
-                            ) : (
-                                attachmentName || '—'
-                            )}
+                            ) : null}
                         </p>
                         {sickUsedUp ? (
                             <p className="text-xs text-rose-600">
@@ -199,7 +204,7 @@ export default function AttendanceLeaveDecideModal({
                             {rejecting ? 'Confirm reject' : 'Reject'}
                         </button>
                         <button type="button" disabled={readOnly || deciding || rejecting} onClick={() => onDecide?.('approved', 'authorized_leave')} className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
-                            Change to authorized
+                            Change to Auth
                         </button>
                         <button type="button" disabled={readOnly || deciding || rejecting || sickUsedUp || !sickAllowance} onClick={() => onDecide?.('approved', 'sick_leave')} className="h-9 rounded-lg bg-[#EA3D2F] px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
                             {deciding ? 'Saving…' : 'Approve'}

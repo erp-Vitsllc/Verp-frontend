@@ -15,6 +15,7 @@ import {
     filterToolsAssetInboxRows,
     filterVehicleAssetInboxRows,
     isUtilityBillInboxRow,
+    collapseSimBillPaymentReminders,
 } from '@/utils/assetInboxScope';
 import {
     resolveBulkAssignmentGroupId,
@@ -259,20 +260,33 @@ export default function PendingAssetRequestsModal({
     const executeDeleteNotification = async () => {
         const row = deleteTarget;
         if (!row) return;
-        const actionId = row.dashboardActionId;
+        const actionIds = [
+            ...new Set(
+                [
+                    ...(Array.isArray(row.groupedDashboardActionIds) ? row.groupedDashboardActionIds : []),
+                    row.dashboardActionId,
+                ].filter(Boolean).map(String),
+            ),
+        ];
+        const actionId = actionIds[0];
         if (!actionId) return;
         setDeletingId(actionId);
         try {
-            await axiosInstance.delete(`/AssetItem/dashboard/pending-inbox/${actionId}`);
+            await Promise.all(
+                actionIds.map((id) => axiosInstance.delete(`/AssetItem/dashboard/pending-inbox/${id}`)),
+            );
             setItems((prev) => {
-                const next = prev.filter((item) => item.dashboardActionId !== actionId);
+                const drop = new Set(actionIds);
+                const next = prev.filter((item) => !drop.has(String(item.dashboardActionId)));
                 const fetchScope = inboxScope === 'utility' ? 'tools' : inboxScope;
                 const cacheParams =
                     fetchScope === 'tools' || fetchScope === 'vehicle' ? { scope: fetchScope } : {};
                 rememberPendingInbox(ASSET_PENDING_INBOX_ENDPOINT, cacheParams, next);
                 if (typeof onPendingInboxCount === 'function') {
                     onPendingInboxCount(
-                        next.filter(isPendingInboxRowVisible).filter(isDisplayableAssetPendingInboxRow).length,
+                        collapseSimBillPaymentReminders(
+                            next.filter(isPendingInboxRowVisible).filter(isDisplayableAssetPendingInboxRow),
+                        ).length,
                     );
                 }
                 return next;
@@ -301,9 +315,11 @@ export default function PendingAssetRequestsModal({
     };
 
     const visibleRows = useMemo(() => {
-        return dedupeAssetPendingInboxItems(items)
-            .filter(isPendingInboxRowVisible)
-            .filter(isDisplayableAssetPendingInboxRow);
+        return collapseSimBillPaymentReminders(
+            dedupeAssetPendingInboxItems(items)
+                .filter(isPendingInboxRowVisible)
+                .filter(isDisplayableAssetPendingInboxRow),
+        );
     }, [items]);
 
     // Bell badge must match what the modal actually lists (never count 4 / show 0).

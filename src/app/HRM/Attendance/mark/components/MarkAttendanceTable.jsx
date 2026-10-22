@@ -287,6 +287,16 @@ function markForNonWorkingDay(mark, timeIn, timeOut, dayBaseline) {
     return { ...(mark || {}), key: 'weekly_off', label: 'Off Day', reason: 'Weekly off' };
 }
 
+function countsAsOnTime(mark) {
+    if (!mark) return false;
+    if (mark.deductionWaived === true) return true;
+    const key = String(mark.key || '').trim();
+    if (key !== 'authorized_leave') return false;
+    const approvedHours = Number(mark.hoursApproved);
+    if (String(mark.hourAdjustStatus || '') === 'approved' && !(approvedHours > 0)) return true;
+    return !(Number(mark.deductionDays) > 0);
+}
+
 function formatStatusLabel(mark, timeIn, pastDay = false) {
     const key = String(mark?.key || '').trim();
     const raw = String(mark?.label || '').trim();
@@ -294,6 +304,7 @@ function formatStatusLabel(mark, timeIn, pastDay = false) {
     const punchedIn = Boolean(timeIn && timeIn !== '—');
     const missedDay = pastDay ? 'Unauth' : 'Absent';
 
+    if (countsAsOnTime(mark)) return 'Present (On time)';
     if (key === 'suspended') return 'Suspended';
     // "Unauthorized Leave" contains "authorized leave", so this must run first.
     if (key === 'unauthorized_leave' || /^unauth/i.test(raw)) {
@@ -409,6 +420,7 @@ function rowMenuOptions(baseOptions, mark, { canReviewHour = false, canWaiveDedu
 
 function statusChipClass(mark, label) {
     const key = String(mark?.key || '').trim();
+    if (label === 'Present (On time)') return 'text-emerald-700 bg-emerald-50';
     if (key === 'suspended' || label === 'Suspended') return 'text-slate-700 bg-slate-100';
     if (/\(Approved\)/i.test(label) || label === 'Present (Early Go)' || label === 'Present (Late Arrival)') {
         return 'text-amber-800 bg-amber-50';
@@ -583,6 +595,7 @@ function mergePendingChanges(nextMarks, pendingChanges, { dateKey = '', employee
                 hrName: change.hrName || '',
                 reason: change.reason || '',
                 attachmentName: change.attachmentName || '',
+                attachmentUrl: change.attachmentUrl || '',
                 rejectReason: change.rejectReason || '',
                 rejectedByName: change.rejectedByName || '',
                 hoursApproved: change.hoursApproved,
@@ -1338,7 +1351,18 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFir
                     {change.attachmentName ? (
                         <p>
                             <span className="text-slate-500">Attachment: </span>
-                            {change.attachmentName}
+                            {change.attachmentUrl ? (
+                                <a
+                                    href={change.attachmentUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="font-semibold text-blue-600 hover:underline break-all"
+                                >
+                                    {change.attachmentName}
+                                </a>
+                            ) : (
+                                change.attachmentName
+                            )}
                         </p>
                     ) : null}
                     {rejecting ? (
@@ -1354,7 +1378,7 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFir
                         </label>
                     ) : null}
                 </div>
-                <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
                     <button
                         type="button"
                         disabled={deciding}
@@ -1589,7 +1613,7 @@ function EmployeeRow({
                             Deduction waived
                         </span>
                     ) : null}
-                    {shownMark?.reason && !(syntheticOtReason && adjustLines.length) ? (
+                    {shownMark?.reason && !(syntheticOtReason && adjustLines.length) && !(countsAsOnTime(mark) && /no punch-in or punch-out/i.test(String(shownMark.reason))) ? (
                         <span className="text-[10px] text-gray-500 max-w-[180px] truncate" title={shownMark.reason}>
                             {shownMark.reason}
                         </span>
@@ -2449,6 +2473,20 @@ export default function MarkAttendanceTable({
             return;
         }
         if (kind === 'change') {
+            const change = mark?.pendingChange || {};
+            const sickChange =
+                String(change.statusKey || '') === 'sick_leave' || /sick/i.test(String(change.statusLabel || ''));
+            if (sickChange) {
+                setLeaveDecideError('');
+                setLeaveDecide({
+                    employee,
+                    mark,
+                    rejectFirst: !readOnly && intent === 'reject',
+                    readOnly,
+                    fromChange: true,
+                });
+                return;
+            }
             setChangeReview({
                 employee,
                 mark,
@@ -2460,11 +2498,22 @@ export default function MarkAttendanceTable({
 
     const submitLeaveDecision = async (choice, approvedStatusKey, _pay, edits) => {
         const attendanceId = String(leaveDecide?.mark?.attendanceId || '').trim();
-        if (!attendanceId || leaveDeciding || leaveDecide?.readOnly) return;
+        const changeId = String(leaveDecide?.mark?.pendingChange?.id || '').trim();
+        if (leaveDeciding || leaveDecide?.readOnly) return;
+        if (leaveDecide?.fromChange ? !changeId : !attendanceId) return;
         setLeaveDeciding(true);
         setLeaveDecideError('');
         try {
-            const res = await axiosInstance.post('/Leave/pending-requests/decide', {
+            const res = leaveDecide?.fromChange
+                ? await axiosInstance.post('/Attendance/change-request/decide', {
+                    id: changeId,
+                    decision: choice,
+                    ...(choice === 'approved' && approvedStatusKey === 'authorized_leave'
+                        ? { approvedStatusKey: 'authorized_leave' }
+                        : {}),
+                    ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
+                })
+                : await axiosInstance.post('/Leave/pending-requests/decide', {
                 attendanceId,
                 decision: choice,
                 approvedStatusKey: approvedStatusKey || leaveDecide?.mark?.requestedStatusKey || '',
@@ -2500,6 +2549,7 @@ export default function MarkAttendanceTable({
                     ...(edits?.timeOut ? { timeOut: edits.timeOut } : {}),
                     ...(Number(edits?.approvedHours) > 0 ? { approvedHours: edits.approvedHours } : {}),
                     ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
+                    ...(edits?.statusKey ? { approvedStatusKey: edits.statusKey } : {}),
                 });
                 description = res.data?.message || '';
             } else if (decision.kind === 'leave') {
@@ -3007,17 +3057,25 @@ export default function MarkAttendanceTable({
                 dateKey={leaveDecide?.mark?.date || dateKey}
                 employeeName={leaveDecide?.employee?.name || ''}
                 employeeMongoId={leaveDecide?.employee?.id || ''}
-                requestedStatusKey={leaveDecide?.mark?.requestedStatusKey || ''}
+                requestedStatusKey={
+                    leaveDecide?.fromChange
+                        ? leaveDecide?.mark?.pendingChange?.statusKey || 'sick_leave'
+                        : leaveDecide?.mark?.requestedStatusKey || ''
+                }
                 currentLabel={leaveDecide?.mark?.previousStatusLabel || leaveDecide?.mark?.label || ''}
-                requestedLabel={leaveDecide?.mark?.requestedStatusLabel || ''}
+                requestedLabel={
+                    leaveDecide?.fromChange
+                        ? leaveDecide?.mark?.pendingChange?.statusLabel || 'Sick leave'
+                        : leaveDecide?.mark?.requestedStatusLabel || ''
+                }
                 reason={
                     leaveDecide?.mark?.leaveRequestReason ||
                     leaveDecide?.mark?.pendingChange?.reason ||
                     leaveDecide?.mark?.reason ||
                     ''
                 }
-                attachmentName={leaveDecide?.mark?.attachmentName || leaveDecide?.mark?.pendingChange?.attachmentName || ''}
-                attachmentUrl={leaveDecide?.mark?.attachmentUrl || ''}
+                attachmentName={leaveDecide?.mark?.pendingChange?.attachmentName || leaveDecide?.mark?.attachmentName || ''}
+                attachmentUrl={leaveDecide?.mark?.pendingChange?.attachmentUrl || leaveDecide?.mark?.attachmentUrl || ''}
                 kind={leaveDecide?.mark?.leaveRequestKind || 'leave'}
                 fromDate={leaveDecide?.mark?.leaveRequestFromDate || ''}
                 toDate={leaveDecide?.mark?.leaveRequestToDate || ''}

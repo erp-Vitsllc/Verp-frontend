@@ -129,6 +129,80 @@ export function isToolsAssetInboxRow(row = {}) {
     return low === 'asset' || low.startsWith('asset');
 }
 
+function parseInboxExtra3(row = {}) {
+    if (row?.extra3 && typeof row.extra3 === 'object') return row.extra3;
+    try {
+        return JSON.parse(row?.extra3 || '{}');
+    } catch {
+        return {};
+    }
+}
+
+function simReminderMonthKey(row = {}) {
+    const type = requestTypeOf(row);
+    if (type !== 'Utility Bill Payment Reminder') return '';
+    const meta = parseInboxExtra3(row);
+    const utilityType = String(meta.utilityType || row.extra1 || '').toLowerCase();
+    if (!utilityType.includes('sim')) return '';
+    return String(meta.billMonth || meta.yearMonth || 'unknown').trim() || 'unknown';
+}
+
+function monthLabelFromKey(yearMonth) {
+    if (!/^\d{4}-\d{2}$/.test(yearMonth)) return 'This month';
+    const [year, month] = yearMonth.split('-');
+    const probe = new Date(Number(year), Number(month) - 1, 1);
+    return probe.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+}
+
+/**
+ * One bell row per bill month for SIM cards:
+ * "September — 12 SIMs are pending for payment".
+ * Other utilities stay one row per account.
+ */
+export function collapseSimBillPaymentReminders(rows = []) {
+    const list = Array.isArray(rows) ? rows : [];
+    const groups = new Map();
+    const order = [];
+    for (const row of list) {
+        const monthKey = simReminderMonthKey(row);
+        if (!monthKey) {
+            order.push(row);
+            continue;
+        }
+        if (!groups.has(monthKey)) {
+            groups.set(monthKey, []);
+            order.push({ __simMonth: monthKey });
+        }
+        groups.get(monthKey).push(row);
+    }
+    return order.map((item) => {
+        if (!item?.__simMonth) return item;
+        const members = groups.get(item.__simMonth) || [];
+        if (members.length <= 1) return members[0];
+        const first = members[0];
+        const meta = parseInboxExtra3(first);
+        const monthLabel = monthLabelFromKey(item.__simMonth);
+        const monthName = monthLabel.replace(/\s+\d{4}$/, '') || 'This month';
+        const count = members.length;
+        const noun = count === 1 ? 'SIM is' : 'SIMs are';
+        const actionIds = members
+            .map((member) => member.dashboardActionId || member.actionId || member._id)
+            .filter(Boolean);
+        return {
+            ...first,
+            extra1: `SIM cards · ${monthLabel}`,
+            extra2: `${monthName} — ${count} ${noun} pending for payment`,
+            extra3: JSON.stringify({
+                ...meta,
+                simCount: count,
+                groupedSimReminders: true,
+                detailsPath: '/HRM/Asset/UtilityBills',
+            }),
+            groupedDashboardActionIds: actionIds,
+        };
+    });
+}
+
 /** Utility Bills inbox rows (from tools-scope API feed). Contract expiry bells are disabled. */
 export function isUtilityBillInboxRow(row = {}) {
     if (isTaskManagerHubRequest(row)) return false;

@@ -64,9 +64,16 @@ export default function useAssessmentMediaUrl(photo) {
         }
 
         const storageKey = resolveAssessmentStorageProxyKey(currentPhoto);
-        if (!storageKey || storageKey.startsWith('data:') || storageKey.startsWith('blob:')) {
-            setUrl(null);
-            setFailed(true);
+        const webUrl = (() => {
+            const raw = typeof currentPhoto === 'string'
+                ? currentPhoto
+                : currentPhoto?.url || currentPhoto?.href || '';
+            const text = String(raw || '').trim();
+            return text.startsWith('http://') || text.startsWith('https://') ? text : null;
+        })();
+        if (!storageKey || storageKey.startsWith('data:') || storageKey.startsWith('blob:') || storageKey.startsWith('http://') || storageKey.startsWith('https://')) {
+            setUrl(webUrl);
+            setFailed(!webUrl);
             setLoading(false);
             return undefined;
         }

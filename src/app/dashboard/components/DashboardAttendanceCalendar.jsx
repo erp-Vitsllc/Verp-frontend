@@ -1152,32 +1152,46 @@ export default function DashboardAttendanceCalendar({
                                     });
                                 };
 
+                                const canClickDay =
+                                    canDecide || canRequest || canYellowRequest || canFutureRequest || canOpenRequest;
+                                const openDay = () => {
+                                    setHoveredDay(null);
+                                    if (canDecide) openDecideForDay(dateKey, record);
+                                    else if (canRequest) openRequestForDay(dateKey, record, tone.label);
+                                    else if (canYellowRequest) openYellowForDay(dateKey, record, tone.label);
+                                    else if (canFutureRequest) openFutureForDay(dateKey, record);
+                                    else if (canOpenRequest) {
+                                        setFutureError('');
+                                        setDayRequest({ dateKey, variant: '' });
+                                    }
+                                };
+
                                 return (
                                     <div
                                         key={dateKey}
                                         onMouseEnter={showDayHover}
                                         onMouseMove={showDayHover}
                                         onMouseLeave={() => setHoveredDay(null)}
-                                        className="min-h-0 flex flex-col items-center justify-start py-0.5 relative"
+                                        onClick={canClickDay ? openDay : undefined}
+                                        className={`min-h-0 flex flex-col items-center justify-start py-0.5 relative ${
+                                            canClickDay ? 'cursor-pointer' : ''
+                                        }`}
                                         title={adjustLines.join(' ')}
                                     >
                                         <button
                                             type="button"
                                             title={adjustLines.join(' ')}
-                                            disabled={!canOpenRequest && !canDecide}
-                                            onClick={() => {
-                                                if (canDecide) openDecideForDay(dateKey, record);
-                                                else if (canOpenRequest) {
-                                                    setFutureError('');
-                                                    setDayRequest({ dateKey, variant: '' });
-                                                }
+                                            disabled={!canClickDay}
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                openDay();
                                             }}
                                             className={`dash-cal-day relative w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-[10px] sm:text-[11px] font-semibold tabular-nums leading-none shadow-sm ${tone.cell} ${
                                                 isToday ? 'ring-2 ring-sky-400 ring-offset-1' : ''
                                             } ${
-                                                canOpenRequest || canDecide
+                                                canClickDay
                                                     ? 'cursor-pointer hover:brightness-95 hover:scale-110'
-                                                    : 'cursor-default pointer-events-none'
+                                                    : 'cursor-default'
                                             }`}
                                             style={{ animationDelay: `${Number(format(day, 'd')) * 18}ms` }}
                                         >

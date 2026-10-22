@@ -169,14 +169,31 @@ export function peekCachedAssessmentMediaUrl(photo) {
     return assessmentMediaUrlCache.get(key) || null;
 }
 
+function httpPhotoUrl(photo) {
+    const direct = resolveAssessmentMediaUrl(photo);
+    if (typeof direct === 'string' && (direct.startsWith('http://') || direct.startsWith('https://'))) {
+        return direct;
+    }
+    if (photo && typeof photo === 'object') {
+        const url = String(photo.url || photo.href || '').trim();
+        if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    }
+    if (typeof photo === 'string') {
+        const url = photo.trim();
+        if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    }
+    return null;
+}
+
 /** Load handover/accessories photos via API proxy (avoids Wasabi DNS in the browser). */
 export async function fetchSignedAssessmentMediaUrl(photo, { skipCache = false } = {}) {
     const direct = resolveAssessmentMediaUrl(photo);
     if (direct?.startsWith('data:') || direct?.startsWith('blob:')) return direct;
 
     const key = resolveAssessmentStorageProxyKey(photo);
-    if (!key || isInlineMediaKey(key)) {
-        return direct?.startsWith('data:') || direct?.startsWith('blob:') ? direct : null;
+    const webUrl = httpPhotoUrl(photo);
+    if (!key || isInlineMediaKey(key) || key.startsWith('http://') || key.startsWith('https://')) {
+        return direct?.startsWith('data:') || direct?.startsWith('blob:') ? direct : webUrl;
     }
 
     if (skipCache) {
@@ -198,11 +215,12 @@ export async function fetchSignedAssessmentMediaUrl(photo, { skipCache = false }
         } catch (error) {
             const message = String(error?.message || '');
             if (/not found in storage|specified key does not exist/i.test(message)) {
+                if (webUrl) return webUrl;
                 const missing = new Error('File not found in storage.');
                 missing.code = 'STORAGE_MISS';
                 throw missing;
             }
-            return assessmentMediaUrlCache.get(key) || null;
+            return assessmentMediaUrlCache.get(key) || webUrl || null;
         } finally {
             releaseAssessmentMediaSlot();
             if (assessmentMediaInflight.get(key) === request) {
