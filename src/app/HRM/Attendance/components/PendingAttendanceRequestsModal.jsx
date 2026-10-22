@@ -279,7 +279,15 @@ export default function PendingAttendanceRequestsModal({
     const waitingOnHr = review?.changeStage === 'pending_hr';
     const sickRequest =
         String(review?.statusKey || review?.requestedStatusKey || '') === 'sick_leave' ||
-        /sick/i.test(String(review?.requestedStatusLabel || review?.statusLabel || ''));
+        /sick/i.test(
+            String(
+                review?.requestedStatusLabel ||
+                    review?.statusLabel ||
+                    review?.extra2 ||
+                    review?.message ||
+                    '',
+            ),
+        );
 
     return (
         <>
@@ -297,6 +305,7 @@ export default function PendingAttendanceRequestsModal({
             />
             {review && sickRequest ? (
                 <AttendanceLeaveDecideModal
+                    layerClassName="z-[240]"
                     isOpen
                     dateKey={review.date || ''}
                     employeeName={review.subjectName || review.employeeName || ''}

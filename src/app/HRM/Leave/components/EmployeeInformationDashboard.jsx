@@ -42,6 +42,7 @@ import {
     Zap,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import AttendanceLeaveRequestModal from '@/app/dashboard/components/AttendanceLeaveRequestModal';
 import { MonthPicker } from '@/components/ui/date-picker';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { getEmployeeInitials } from '@/utils/employeeProfileImage';
@@ -1788,7 +1789,7 @@ function DayTip({
 
 let pinnedAttendanceDate = '';
 
-function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = false, markTarget = null }) {
+function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = false, markTarget = null, onRequestDay = null }) {
     const router = useRouter();
     const dateKey = format(day, 'yyyy-MM-dd');
     const inMonth = dateKey.slice(0, 7) === ctx.monthKey;
@@ -1904,6 +1905,10 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
             onClick={(event) => {
                 event.stopPropagation();
                 if (!inMonth || beforeStart || ctx.salaryLock?.locked) return;
+                if (onRequestDay && !isHoliday && !isWeeklyOff) {
+                    onRequestDay({ dateKey, record, isFuture });
+                    return;
+                }
                 if (pinnedAttendanceDate === dateKey) {
                     pinnedAttendanceDate = '';
                     setHoveredDate('');
@@ -4833,6 +4838,9 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [hoveredDate, setHoveredDate] = useState('');
+    const [requestModal, setRequestModal] = useState(null);
+    const [requestSubmitting, setRequestSubmitting] = useState(false);
+    const [requestError, setRequestError] = useState('');
 
     const loadMonth = useCallback(async () => {
         if (!/^\d{4}-\d{2}$/.test(monthKey)) return;
@@ -4997,6 +5005,19 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
                                             employeeId,
                                             staffType,
                                         }}
+                                        onRequestDay={forEmployeeId ? null : ({ dateKey, record, isFuture }) => {
+                                            if (isFuture) {
+                                                setRequestError('Leave can be requested on a past red day.');
+                                            } else if (record?.leaveRequestStatus === 'pending') {
+                                                setRequestError('A leave request is already pending for this date.');
+                                            } else {
+                                                setRequestError('');
+                                            }
+                                            setRequestModal({
+                                                dateKey,
+                                                label: record?.statusLabel || 'Unauthorized Leave',
+                                            });
+                                        }}
                                     />
                                 ))}
                             </div>
@@ -5014,6 +5035,40 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
                 </>
             )}
             <DashboardSalaryEnrollLock {...salaryLock} />
+            <AttendanceLeaveRequestModal
+                key={requestModal?.dateKey || 'leave-closed'}
+                isOpen={Boolean(requestModal)}
+                dateKey={requestModal?.dateKey}
+                currentLabel={requestModal?.label || 'Unauthorized Leave'}
+                submitting={requestSubmitting}
+                error={requestError}
+                onClose={() => {
+                    if (requestSubmitting) return;
+                    setRequestModal(null);
+                    setRequestError('');
+                }}
+                onSubmit={async ({ requestedStatusKey, reason, attachmentName, timeIn, timeOut }) => {
+                    if (!requestModal?.dateKey || !requestedStatusKey) return;
+                    setRequestSubmitting(true);
+                    setRequestError('');
+                    try {
+                        await axiosInstance.post('/Attendance/me/leave-request', {
+                            date: requestModal.dateKey,
+                            requestedStatusKey,
+                            reason: reason || '',
+                            attachmentName: attachmentName || '',
+                            timeIn: timeIn || '',
+                            timeOut: timeOut || '',
+                        }, { skipToast: true });
+                        setRequestModal(null);
+                        await loadMonth();
+                    } catch (err) {
+                        setRequestError(err?.response?.data?.message || 'Could not send leave request.');
+                    } finally {
+                        setRequestSubmitting(false);
+                    }
+                }}
+            />
         </section>
     );
 }

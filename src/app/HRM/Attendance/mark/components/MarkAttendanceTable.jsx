@@ -291,10 +291,9 @@ function countsAsOnTime(mark) {
     if (!mark) return false;
     if (mark.deductionWaived === true) return true;
     const key = String(mark.key || '').trim();
-    if (key !== 'authorized_leave') return false;
+    if (key === 'authorized_leave' || key === 'sick_leave') return false;
     const approvedHours = Number(mark.hoursApproved);
-    if (String(mark.hourAdjustStatus || '') === 'approved' && !(approvedHours > 0)) return true;
-    return !(Number(mark.deductionDays) > 0);
+    return String(mark.hourAdjustStatus || '') === 'approved' && !(approvedHours > 0);
 }
 
 function formatStatusLabel(mark, timeIn, pastDay = false) {

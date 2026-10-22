@@ -56,6 +56,7 @@ export default function AttendanceLeaveDecideModal({
     error = '',
     onClose,
     onDecide,
+    layerClassName = 'z-[90]',
 }) {
     const [chosenKey, setChosenKey] = useState('');
     const [localError, setLocalError] = useState('');
@@ -166,7 +167,7 @@ export default function AttendanceLeaveDecideModal({
             ? 'Loading…'
             : `${sickAllowance.used == null ? '—' : sickAllowance.used} / ${sickAllowance.allowed == null ? '—' : sickAllowance.allowed}`;
         return (
-            <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+            <div className={`fixed inset-0 ${layerClassName} flex items-center justify-center p-4`}>
                 <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close" onClick={onClose} disabled={deciding} />
                 <div role="dialog" aria-modal="true" className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl">
                     <div className="border-b border-slate-100 px-5 py-4">

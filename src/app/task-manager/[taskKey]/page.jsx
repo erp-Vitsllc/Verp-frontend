@@ -43,6 +43,8 @@ const STATUS_STYLE = {
     'Pending Due': 'bg-red-50 text-red-600',
     'In Progress': 'bg-sky-50 text-sky-700',
     Completed: 'bg-emerald-50 text-emerald-600',
+    Closed: 'bg-slate-100 text-slate-700',
+    'Pending Review': 'bg-amber-50 text-amber-700',
     Open: 'bg-sky-50 text-sky-700',
     'Pending Review': 'bg-amber-50 text-amber-700',
     Cancelled: 'bg-slate-100 text-slate-500',
