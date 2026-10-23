@@ -1248,6 +1248,9 @@ function attendanceDeductionAmount(record, week, daily, policy, mispunchAmounts)
     if (key === 'early_go' || key === 'late_arrived') {
         return hourDeductionAmount(record, week, daily, key, unauthTimes);
     }
+    if (key === 'on_leave') {
+        return money2(Number(daily) || 0);
+    }
     if (key === 'authorized_leave' || key === 'unauthorized_leave') {
         if (String(record?.hourAdjustStatus || '') === 'approved') {
             return hourDeductionAmount(record, week, daily, key, 1);
@@ -1265,7 +1268,38 @@ function attendanceDeductionAmount(record, week, daily, policy, mispunchAmounts)
     return 0;
 }
 
+const SALARY_LEAVE_KEYS = new Set(['on_leave', 'authorized_leave', 'unauthorized_leave', 'sick_leave']);
+
+function weekdayKeyOf(dateKey) {
+    return WEEKDAY_KEYS[new Date(`${dateKey}T12:00:00Z`).getUTCDay()];
+}
+
+function recordIsSalaryLeave(record) {
+    if (!record || record.deductionWaived === true) return false;
+    const key = deductionKind(record) || String(record.statusKey || '');
+    return SALARY_LEAVE_KEYS.has(key);
+}
+
+/** Weekly offs and holidays with leave on both sides. Those days deduct one salary day. */
+function enclosedOffDateKeys({ dateKeys = [], recordsByDate = {}, holidayDates, offWeekdays }) {
+    const isOff = (dateKey) => Boolean(holidayDates?.has(dateKey) || offWeekdays?.has(weekdayKeyOf(dateKey)));
+    const isLeave = (dateKey) => recordIsSalaryLeave(recordsByDate?.[dateKey]);
+    const found = [];
+    dateKeys.forEach((dateKey, index) => {
+        if (!isOff(dateKey) || isLeave(dateKey)) return;
+        let previous = index - 1;
+        while (previous >= 0 && isOff(dateKeys[previous]) && !isLeave(dateKeys[previous])) previous -= 1;
+        let next = index + 1;
+        while (next < dateKeys.length && isOff(dateKeys[next]) && !isLeave(dateKeys[next])) next += 1;
+        if (previous >= 0 && next < dateKeys.length && isLeave(dateKeys[previous]) && isLeave(dateKeys[next])) {
+            found.push(dateKey);
+        }
+    });
+    return found;
+}
+
 const ATTENDANCE_DEDUCTION_LABEL = {
+    on_leave: 'Annual Leave',
     authorized_leave: 'Authorized Leave',
     unauthorized_leave: 'Unauthorized Leave',
     late_arrived: 'Late In',
@@ -1274,7 +1308,8 @@ const ATTENDANCE_DEDUCTION_LABEL = {
 };
 
 const ATTENDANCE_TYPE_RANK = {
-    authorized_leave: 0,
+    on_leave: 0,
+    authorized_leave: 1,
     unauthorized_leave: 1,
     late_arrived: 2,
     early_go: 3,
@@ -1891,7 +1926,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         || String(record?.timeOut || '').trim() === 'OT'
         || Boolean(String(record?.flexibleFromOtDate || '').trim());
     const deductedLeave = kind === 'authorized' || kind === 'absent';
-    const earnsDayRate = counted && !deductedLeave && !syntheticOt && !isHoliday && !isWeeklyOff && kind !== 'future' && kind !== 'suspended';
+    const earnsDayRate = counted && !deductedLeave && !syntheticOt && !isHoliday && !isWeeklyOff && kind !== 'annual' && kind !== 'future' && kind !== 'suspended';
     const dayRate = Number(ctx.salaryDaily) || 0;
     const payment = !counted && !(extraPay > 0)
         ? null
@@ -1900,6 +1935,9 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     let deduct = counted
         ? money2(attendanceDeductionAmount(record, ctx.scheduleWeek, ctx.salaryDaily, ctx.leavePolicy || {}, ctx.mispunchAmounts))
         : null;
+    if (counted && ctx.enclosedOffDates?.has(dateKey) && !deductionWaived && !(deduct > 0)) {
+        deduct = money2(dayRate);
+    }
     if (counted && kind === 'absent' && !record && !deductionWaived && !(deduct > 0)) {
         const unauthTimes = ctx.leavePolicy?.unauthorizedDeductionDays == null ? 2 : n(ctx.leavePolicy.unauthorizedDeductionDays);
         deduct = money2(unauthTimes * dayRate);
@@ -3480,6 +3518,16 @@ export default function EmployeeInformationDashboard({
             ? 'Flexible time deducts only the missed hours. Late arrival and early go do not use the salary policy.'
             : 'Until approval this uses the unauthorized leave rate. After approval, only the approved hours are deducted.';
         const missedRule = mispunchPolicyRule(policy);
+        const annualDays = countedRecords.filter((row) => deductionKind(row) === 'on_leave').length;
+        const countedDateKeys = days
+            .map((day) => format(day, 'yyyy-MM-dd'))
+            .filter((dateKey) => dateKey >= countFrom && dateKey <= countTo);
+        const enclosedOffDays = enclosedOffDateKeys({
+            dateKeys: countedDateKeys,
+            recordsByDate,
+            holidayDates,
+            offWeekdays,
+        }).length;
         return [
             {
                 key: 'late_arrived',
@@ -3503,6 +3551,24 @@ export default function EmployeeInformationDashboard({
                 note: eventPolicyNote(punchCountOf('mispunch'), missedRule, daily),
             },
             {
+                key: 'on_leave',
+                type: 'Annual leave',
+                count: annualDays,
+                amount: money2(annualDays * daily),
+                note: annualDays
+                    ? `${annualDays} × 1 day × ${dayRate}`
+                    : `1 annual leave day deducts 1 × ${dayRate}`,
+            },
+            {
+                key: 'enclosed_off',
+                type: 'Off day between leave',
+                count: enclosedOffDays,
+                amount: money2(enclosedOffDays * daily),
+                note: enclosedOffDays
+                    ? `${enclosedOffDays} × 1 day × ${dayRate}`
+                    : 'A Sunday or holiday between leave deducts 1 day',
+            },
+            {
                 key: 'authorized_leave',
                 type: 'Authorized leave',
                 count: authDays,
@@ -3523,8 +3589,8 @@ export default function EmployeeInformationDashboard({
                     ? `${unauthDays} × ${unauthTimes} day × ${dayRate}`
                     : `1 unauthorized day deducts ${unauthTimes} × ${dayRate}`,
             },
-        ];
-    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts]);
+        ].filter((row) => (row.key !== 'on_leave' && row.key !== 'enclosed_off') || Number(row.count) > 0);
+    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts, days, countFrom, countTo, recordsByDate, holidayDates, offWeekdays]);
     const deductionDetailRows = useMemo(() => {
         const attendance = attendanceDeductionRows(detailRecords, profile?.leavePolicy || {}, scheduleWeek, salaryBasis.daily);
         const moneyRows = financialDeductionRows({
@@ -3570,6 +3636,8 @@ export default function EmployeeInformationDashboard({
                 'Late in': 'Late In',
                 'Late out': 'Early Out',
                 'Missed punch': 'Missed Punch',
+                'Annual leave': 'Annual Leave',
+                'Off day between leave': 'Off Day Between Leave',
                 'Authorized leave': 'Authorized Leave',
                 'Unauthorized leave': 'Unauthorized Leave',
             })[row.type] || row.type,
@@ -3671,6 +3739,12 @@ export default function EmployeeInformationDashboard({
         salaryDaily: salaryBasis.daily,
         leavePolicy: profile?.leavePolicy || {},
         mispunchAmounts,
+        enclosedOffDates: new Set(enclosedOffDateKeys({
+            dateKeys: days.map((day) => format(day, 'yyyy-MM-dd')).filter((dateKey) => dateKey >= countFrom && dateKey <= countTo),
+            recordsByDate,
+            holidayDates,
+            offWeekdays,
+        })),
         additionPayByDate,
         calendarNotes,
         adjustmentByDate,
@@ -4359,7 +4433,7 @@ export default function EmployeeInformationDashboard({
                                 </thead>
                                 <tbody>
                                     {salaryTableRows.map((row, index) => {
-                                        const leaveRow = row.key === 'authorized_leave' || row.key === 'unauthorized_leave';
+                                        const leaveRow = row.key === 'on_leave' || row.key === 'enclosed_off' || row.key === 'authorized_leave' || row.key === 'unauthorized_leave';
                                         const countText = salaryLock.locked
                                             ? '—'
                                             : row.count == null || row.count === ''
