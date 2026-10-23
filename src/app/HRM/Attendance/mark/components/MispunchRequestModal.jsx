@@ -49,6 +49,7 @@ export default function MispunchRequestModal({
     const priorBy = String(queued?.rejectedByName || '').trim();
     const requesterTurn = queued?.stage === 'pending_requester';
     const blocked = !review && allowanceBlocked(allowance);
+    const checkoutLocked = !review;
 
     useEffect(() => {
         if (!open) return;
@@ -108,8 +109,8 @@ export default function MispunchRequestModal({
 
     const submit = async () => {
         if (readOnly || blocked) return;
-        if (!timeIn || !timeOut) {
-            toast({ variant: 'destructive', title: 'Check-in and check-out are required' });
+        if (!timeIn) {
+            toast({ variant: 'destructive', title: 'Check-in time is required' });
             return;
         }
         if (!String(reason || '').trim()) {
@@ -222,7 +223,7 @@ export default function MispunchRequestModal({
                         <input
                             type="time"
                             value={timeOut}
-                            disabled={readOnly}
+                            disabled={readOnly || checkoutLocked}
                             onChange={(event) => setTimeOut(event.target.value)}
                             className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
                         />

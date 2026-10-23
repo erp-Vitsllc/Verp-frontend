@@ -1475,7 +1475,7 @@ function TaskManagerContent() {
                     <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
                         <h2 className="text-base font-semibold text-slate-800">Delete task</h2>
                         <p className="mt-2 text-sm text-slate-600">
-                            Delete {deleteTask.taskNumber ? `${deleteTask.taskNumber} — ` : ''}{deleteTask.taskName}? The task, its notifications, and the request it started are removed. An assignment goes back to Unassigned.
+                            Delete {deleteTask.taskNumber ? `${deleteTask.taskNumber} — ` : ''}{deleteTask.taskName}? The task, its notification bells, alerts, and any approval it started are removed. An assignment goes back to Unassigned.
                         </p>
                         <div className="mt-4 flex justify-end gap-2">
                             <button

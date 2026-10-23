@@ -5104,17 +5104,21 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             value={Number(data?.liveAttendance?.workingDays) || 0}
                                                             onClick={openLiveWorkingDaysDetail}
                                                         />
-                                                        <EligibilityCalcRow
-                                                            label="Overtime days"
-                                                            value={liveOvertimeDays}
-                                                            onClick={openLiveOvertimeDaysDetail}
-                                                        />
-                                                        <EligibilityCalcRow
-                                                            label="Overtime hours"
-                                                            hint={`${OVERTIME_HOURS_PER_DAY} hr = 1 day`}
-                                                            value={formatHoursLabel(liveOvertimeHours)}
-                                                            onClick={openLiveOvertimeHoursDetail}
-                                                        />
+                                                        {data?.liveAttendance?.showOvertime ? (
+                                                            <>
+                                                                <EligibilityCalcRow
+                                                                    label="Overtime days"
+                                                                    value={liveOvertimeDays}
+                                                                    onClick={openLiveOvertimeDaysDetail}
+                                                                />
+                                                                <EligibilityCalcRow
+                                                                    label="Overtime hours"
+                                                                    hint={`${OVERTIME_HOURS_PER_DAY} hr = 1 day`}
+                                                                    value={formatHoursLabel(liveOvertimeHours)}
+                                                                    onClick={openLiveOvertimeHoursDetail}
+                                                                />
+                                                            </>
+                                                        ) : null}
                                                         <EligibilityCalcRow
                                                             label="Leave"
                                                             value={formatDeductionDays(attendanceLeaveDeduction)}
@@ -5140,7 +5144,9 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 />
                                                 <p className="text-[9px] font-normal leading-[18px] text-[#6F7C8F]">
                                                     {data?.liveAttendance?.enabled
-                                                        ? `From the processing date through today, only present attendance days count as working days. Absent and unauthorized days are deducted, not counted as present. Overtime punches count as extra days only in full ${OVERTIME_HOURS_PER_DAY}-hour blocks (${OVERTIME_HOURS_PER_DAY} hours = 1 day). Leftover hours under ${OVERTIME_HOURS_PER_DAY} stay as hours (1, 2, 3…) until they reach another ${OVERTIME_HOURS_PER_DAY}. Approved or taken leave and holidays from attendance refresh this card. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
+                                                        ? data?.liveAttendance?.showOvertime
+                                                            ? `From the processing date through today, only present attendance days count as working days. Absent and unauthorized days are deducted, not counted as present. Only approved overtime counts, in full ${OVERTIME_HOURS_PER_DAY}-hour blocks (${OVERTIME_HOURS_PER_DAY} hours = 1 day). Leftover hours under ${OVERTIME_HOURS_PER_DAY} stay as hours until they reach another ${OVERTIME_HOURS_PER_DAY}. Approved or taken leave and holidays from attendance refresh this card. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
+                                                            : `From the processing date through today, only present attendance days count as working days. Absent and unauthorized days are deducted, not counted as present. Scheduled staff do not earn overtime on this card. Approved or taken leave and holidays from attendance refresh this card. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
                                                         : `Earned eligible balance uses historical working days minus leave deductions. Historical overtime is already in those working days. After the VERP processing date is reached, this card updates from present attendance days, overtime (${OVERTIME_HOURS_PER_DAY} hours = 1 day; leftover hours stay as hours), leave, and holidays.`}
                                                 </p>
                                             </div>

@@ -996,6 +996,7 @@ function otSortText(mark, ctx) {
         durationHours,
         requiredHours: mark?.flexibleRequiredHours,
         syntheticOt,
+        nonWorkingDay: Boolean(ctx.dayBaseline) && !syntheticOt && durationHours > 0,
     });
     if (otText) return otText;
     if (!showOtRequest) return null;
@@ -1519,14 +1520,21 @@ function EmployeeRow({
             reason: lateReasonFromSchedule(baseMark.reason, mark?.rawTimeIn || timeIn, scheduleWeek, dateKey),
         }
         : baseMark;
-    const statusText = formatStatusLabel(shownMark, timeIn, pastDay);
     const pendingLeaveLabel = String(mark?.leaveRequestStatus || '') === 'pending'
         ? String(mark?.requestedStatusLabel || rowDecision?.title || 'Leave').trim()
         : '';
-    const statusFull = statusHoverTitle(statusText);
     const rawIn = mark?.rawTimeIn || timeIn;
     const rawOut = mark?.rawTimeOut || timeOut;
     const syntheticOt = isOtPunch(rawIn) || isOtPunch(rawOut);
+    const workedOffDay = Boolean(dayBaseline) && !syntheticOt && (
+        (timeIn && timeIn !== '—') || (timeOut && timeOut !== '—')
+    );
+    const manualLeave = ['sick_leave', 'on_leave', 'authorized_leave', 'compoff_leave', 'work_from_home', 'suspended'].includes(
+        String(shownMark?.key || ''),
+    );
+    const offDayWork = workedOffDay && !manualLeave;
+    const statusText = offDayWork ? 'OT / Comp off' : formatStatusLabel(shownMark, timeIn, pastDay);
+    const statusFull = statusHoverTitle(statusText);
     const duration = syntheticOt
         ? hoursDurationLabel(mark?.flexibleWorkedHours)
         : punchDurationLabel(rawIn, rawOut, mark?.timeOutDate, mark?.date);
@@ -1546,6 +1554,7 @@ function EmployeeRow({
         durationHours,
         requiredHours,
         syntheticOt,
+        nonWorkingDay: offDayWork && durationHours > 0,
     });
     const requestMark = markWithRequestableOt(mark, otHours);
     const otButtonLabel = otDirect ? 'Apply OT' : 'Req OT';
@@ -1596,7 +1605,11 @@ function EmployeeRow({
                             .filter(Boolean)
                             .join(' — ')}
                         className={`inline-flex w-fit cursor-pointer border-0 text-left text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${
-                            pendingLeaveLabel ? 'text-amber-800 bg-amber-50' : statusChipClass(shownMark, statusText)
+                            pendingLeaveLabel
+                                ? 'text-amber-800 bg-amber-50'
+                                : offDayWork
+                                  ? 'text-violet-700 bg-violet-50'
+                                  : statusChipClass(shownMark, statusText)
                         }`}
                     >
                         {pendingLeaveLabel || statusText}

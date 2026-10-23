@@ -59,11 +59,21 @@ export function otActionState({
     durationHours,
     requiredHours,
     syntheticOt = false,
+    nonWorkingDay = false,
 } = {}) {
     const otText = otCellLabel(mark);
-    const otHours = requestableOvertimeHours(mark, durationHours, requiredHours, { syntheticOt });
+    const worked = Number(durationHours) || 0;
+    const storedHours = requestableOvertimeHours(mark, durationHours, requiredHours, { syntheticOt });
+    // A holiday or weekly off is overtime from the first hour. Past 10 hours, the next day can be set too.
+    if (nonWorkingDay && !syntheticOt) {
+        const otHours = otText ? storedHours : Math.max(storedHours, worked);
+        const showOtRequest = otHours > 0 && !otText;
+        const showNextDayPresent = showOtRequest && worked > 10;
+        return { otText, otHours, showOtRequest, showNextDayPresent };
+    }
+    const otHours = storedHours;
     const showOtRequest = otHours > 0 && !otText;
     // A midnight checkout is still one shift. Next day present needs a second working day of hours.
-    const showNextDayPresent = showOtRequest && !syntheticOt && Number(durationHours) > 19;
+    const showNextDayPresent = showOtRequest && !syntheticOt && worked > 19;
     return { otText, otHours, showOtRequest, showNextDayPresent };
 }

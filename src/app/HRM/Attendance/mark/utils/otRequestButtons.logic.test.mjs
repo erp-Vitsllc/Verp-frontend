@@ -82,6 +82,27 @@ test('an 11 hour night shift shows overtime only', () => {
     assert.equal(state.showNextDayPresent, false);
 });
 
+test('holiday or weekly off work shows Req OT, and next day present after 10 hours', () => {
+    const shortDay = otActionState({
+        mark: { flexibleOtHours: 0, flexibleOtStatus: '' },
+        durationHours: 6.5,
+        requiredHours: 10,
+        nonWorkingDay: true,
+    });
+    assert.equal(shortDay.showOtRequest, true);
+    assert.equal(shortDay.otHours, 6.5);
+    assert.equal(shortDay.showNextDayPresent, false);
+
+    const longDay = otActionState({
+        mark: { flexibleOtHours: 0, flexibleOtStatus: '' },
+        durationHours: 10 + 35 / 60,
+        requiredHours: 10,
+        nonWorkingDay: true,
+    });
+    assert.equal(longDay.showOtRequest, true);
+    assert.equal(longDay.showNextDayPresent, true);
+});
+
 test('less than one hour past the required day has no button', () => {
     const state = otActionState({
         mark: { flexibleOtHours: 0, flexibleOtStatus: '' },
