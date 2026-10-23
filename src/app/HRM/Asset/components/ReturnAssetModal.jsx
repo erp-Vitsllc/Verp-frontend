@@ -225,6 +225,25 @@ export default function ReturnAssetModal({
                     title: 'Success',
                     description: 'Return request processed.',
                 });
+            } else if (isAssetController) {
+                const acReturnRes = ids.length > 1
+                    ? await axiosInstance.put(`/AssetItem/${primary}/return`, {
+                        bulkAssetIds: ids,
+                        reason,
+                        directUnassign: true,
+                        ...attachmentPayload,
+                    })
+                    : await axiosInstance.put(`/AssetItem/${primary}/return`, {
+                        reason,
+                        directUnassign: true,
+                        ...attachmentPayload,
+                    });
+                toast({
+                    title: 'Unassigned',
+                    description:
+                        acReturnRes?.data?.message ||
+                        'The asset is unassigned. The asset owner was notified by email or WhatsApp.',
+                });
             } else if (isAssigneeSelf) {
                 if (ids.length > 1) {
                     await axiosInstance.put(`/AssetItem/${primary}/return`, {
@@ -288,9 +307,9 @@ export default function ReturnAssetModal({
         primaryAsset?.assignedTo?.name ||
         'Unknown';
 
-    const forwardTargetLabel =
-        isAssetController && !isAssigneeSelf ? 'Asset Owner' : 'Asset Controller';
-    const forwardButtonText = `Forward to ${forwardTargetLabel}`;
+    const forwardButtonText = isAssetController
+        ? 'Unassign'
+        : 'Return to asset controller';
 
     const selectedCount =
         returnMode === 'bulk' || hasPreset

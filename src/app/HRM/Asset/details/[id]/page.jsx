@@ -3437,7 +3437,7 @@ function AssetDetailsPageContent() {
                         isOpen={showReturnChoiceModal}
                         onClose={() => setShowReturnChoiceModal(false)}
                         title="Return"
-                        subtitle="Leave, return from the asset owner, or unassign by the Asset Controller"
+                        subtitle="Leave, or return this asset"
                         options={[
                             {
                                 key: 'leave',
@@ -3449,33 +3449,31 @@ function AssetDetailsPageContent() {
                                     setShowTransferModal(true);
                                 },
                             },
-                            {
-                                key: 'owner-return',
-                                label: 'From others (return)',
-                                displayLabel: 'From others (return)',
-                                disabled: !(
-                                    asset?.assignedTo &&
-                                    currentUserEmployeeId?.toString() ===
-                                        String(asset.assignedTo?._id ?? asset.assignedTo)
-                                ),
-                                onClick: () => {
-                                    setShowReturnModal(true);
-                                },
-                            },
-                            {
-                                key: 'ac-unassign',
-                                label: 'From asset controller (unassign)',
-                                displayLabel: 'From asset controller (unassign)',
-                                disabled: !(
+                            (() => {
+                                const viewerIsAssetController = Boolean(
                                     effectiveIsAssetController ||
                                     isAssetController ||
                                     currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
-                                    currentUserEmployeeId?.toString() === 'flowchart_assetcontroller'
-                                ),
-                                onClick: () => {
-                                    handleDirectUnassign();
-                                },
-                            },
+                                    currentUserEmployeeId?.toString() === 'flowchart_assetcontroller',
+                                );
+                                const isAssignee = Boolean(
+                                    asset?.assignedTo &&
+                                    currentUserEmployeeId?.toString() ===
+                                        String(asset.assignedTo?._id ?? asset.assignedTo),
+                                );
+                                const returnLabel = viewerIsAssetController
+                                    ? 'Unassign'
+                                    : 'Return to asset controller';
+                                return {
+                                    key: 'return-or-unassign',
+                                    label: returnLabel,
+                                    displayLabel: returnLabel,
+                                    disabled: viewerIsAssetController ? !asset?.assignedTo : !isAssignee,
+                                    onClick: () => {
+                                        setShowReturnModal(true);
+                                    },
+                                };
+                            })(),
                         ]}
                     />
                     {/* Row 2: Handover Document / Assignment Actions */}
