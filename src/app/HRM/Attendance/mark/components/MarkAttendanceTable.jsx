@@ -22,6 +22,26 @@ import { RECORD_FOCUS_BLINK_MS } from '@/utils/notificationFocusNavigation';
 import MarkAttendanceDetailsModal, {
     getMarkFormConfig,
 } from './MarkAttendanceDetailsModal';
+
+async function openStoredLeaveFile(event, file) {
+    event.preventDefault();
+    event.stopPropagation();
+    const ready = String(file?.url || '').trim();
+    if (/^https?:\/\//i.test(ready)) {
+        window.open(ready, '_blank', 'noopener,noreferrer');
+        return;
+    }
+    const attendanceId = String(file?.attendanceId || '').trim();
+    const response = await axiosInstance.get(`/Attendance/attachment/${attendanceId || 'lookup'}`, {
+        params: {
+            employeeMongoId: file?.employeeMongoId || '',
+            date: file?.date || '',
+            name: file?.name || '',
+        },
+    });
+    const url = String(response?.data?.url || '').trim();
+    if (/^https?:\/\//i.test(url)) window.open(url, '_blank', 'noopener,noreferrer');
+}
 import {
     PunchLocationPinCell,
     PunchTypeCell,
@@ -1628,13 +1648,13 @@ function EmployeeRow({
                             mark?.key === 'sick_leave' ||
                             mark?.requestedStatusKey === 'sick_leave' ||
                             mark?.pendingChange?.statusKey === 'sick_leave';
-                        if (!sick) return null;
                         const requestReason = String(
                             mark?.leaveRequestReason || mark?.pendingChange?.reason || '',
                         ).trim();
                         const attachment = String(
                             mark?.attachmentName || mark?.pendingChange?.attachmentName || '',
                         ).trim();
+                        if (!sick && !attachment) return null;
                         const attachmentUrl = String(
                             mark?.attachmentUrl || mark?.pendingChange?.attachmentUrl || '',
                         ).trim();
@@ -1648,21 +1668,20 @@ function EmployeeRow({
                                     </span>
                                 ) : null}
                                 {attachment ? (
-                                    attachmentUrl ? (
-                                        <a
-                                            href={attachmentUrl}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            title={attachment}
-                                            className="max-w-[220px] truncate text-[10px] font-semibold text-blue-600 hover:underline"
-                                        >
-                                            {attachment}
-                                        </a>
-                                    ) : (
-                                        <span className="max-w-[220px] truncate text-[10px] font-medium text-slate-600" title={attachment}>
-                                            {attachment}
-                                        </span>
-                                    )
+                                    <button
+                                        type="button"
+                                        title={`Open ${attachment}`}
+                                        onClick={(event) => openStoredLeaveFile(event, {
+                                            url: attachmentUrl,
+                                            attendanceId: mark?.attendanceId || '',
+                                            employeeMongoId: employee?.id || '',
+                                            date: mark?.date || '',
+                                            name: attachment,
+                                        })}
+                                        className="max-w-[220px] truncate text-left text-[11px] font-bold text-blue-700 underline"
+                                    >
+                                        Open {attachment}
+                                    </button>
                                 ) : null}
                             </>
                         );
@@ -1831,6 +1850,7 @@ export default function MarkAttendanceTable({
     leaveAttendanceId = '',
     changeRequestId = '',
     blinkEmployeeId = '',
+    emailIntent = '',
 }) {
     const { toast } = useToast();
     const [allEmployees, setAllEmployees] = useState([]);
@@ -2138,10 +2158,27 @@ export default function MarkAttendanceTable({
             }
             if (kind === 'leave') {
                 setLeaveDecideError('');
-                setLeaveDecide({ employee, mark });
+                setLeaveDecide({
+                    employee,
+                    mark,
+                    rejectFirst: String(emailIntent || '').toLowerCase() === 'rejected',
+                });
                 return;
             }
             if (kind === 'change') {
+                const sickChange =
+                    String(mark?.pendingChange?.statusKey || '') === 'sick_leave' ||
+                    /sick/i.test(String(mark?.pendingChange?.statusLabel || ''));
+                if (sickChange) {
+                    setLeaveDecideError('');
+                    setLeaveDecide({
+                        employee,
+                        mark,
+                        fromChange: true,
+                        rejectFirst: String(emailIntent || '').toLowerCase() === 'rejected',
+                    });
+                    return;
+                }
                 setChangeReview({ employee, mark });
                 return;
             }
@@ -2171,6 +2208,7 @@ export default function MarkAttendanceTable({
         viewerId,
         canApproveLeave,
         flowchartHrName,
+        emailIntent,
     ]);
 
     useEffect(() => {
@@ -2341,10 +2379,14 @@ export default function MarkAttendanceTable({
 
         setSaving(true);
         try {
-            const res = await axiosInstance.post('/Attendance/mark', {
-                date: dateKey,
-                marks: marksPayload,
-            });
+            const dates = Array.isArray(payload.dates) && payload.dates.length ? payload.dates : [dateKey];
+            let res = null;
+            for (const date of dates) {
+                res = await axiosInstance.post('/Attendance/mark', {
+                    date,
+                    marks: marksPayload,
+                });
+            }
             const records = Array.isArray(res.data?.records) ? res.data.records : [];
             const pending = Array.isArray(res.data?.pending) ? res.data.pending : [];
             if (pending.length) {
@@ -2444,8 +2486,10 @@ export default function MarkAttendanceTable({
     const openRowRequest = (employee, decision, intent) => {
         if (!decision) return;
         const mark = marks[employee.id] || null;
-        const readOnly = intent === 'view';
-        const kind = readOnly ? decision.viewKind || viewKindFromMark(mark) : decision.kind;
+        const readOnly = intent === 'view' || decision.kind === 'waiting';
+        const kind = readOnly
+            ? (decision.viewKind && decision.viewKind !== 'waiting' ? decision.viewKind : viewKindFromMark(mark))
+            : decision.kind;
         if (!kind || kind === 'waiting') return;
         if (kind === 'hour') {
             const next = {
@@ -3011,6 +3055,8 @@ export default function MarkAttendanceTable({
                 markLabel={formState?.markLabel}
                 dateKey={dateKey}
                 staffType={staffType}
+                holidayDates={holidayDates}
+                offWeekdays={offWeekdays}
                 onClose={() => setFormState(null)}
                 onMapped={() => setDayReload((value) => value + 1)}
                 onSave={(payload) => {

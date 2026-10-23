@@ -152,6 +152,14 @@ export default function AnnualLeaveFilterModal({
             ),
         [employeeId, salaryVisibility, selectedEmployee?.employeeId],
     );
+    const hrCanPickEarly = Boolean(showHrOverride && hrOverride);
+    const eligibleOnDate =
+        showAnnualEligibility && eligibility?.cycleNotEligible
+            ? String(eligibility?.eligibleOn || '')
+            : '';
+    const earliestStartDate = hrCanPickEarly
+        ? ''
+        : laterDateKey(processingStartDate, eligibleOnDate);
 
     const selectedLeaveTypeOption =
         LEAVE_TYPE_OPTIONS.find((opt) => opt.value === leaveMode) || LEAVE_TYPE_OPTIONS[0];
@@ -229,6 +237,8 @@ export default function AnnualLeaveFilterModal({
                         lastAnnualLeaveDays: Number(data?.lastAnnualLeaveDays) || 0,
                         eligibleDays: Number(data?.eligibleDays) || 0,
                         requiredDays: Number(data?.requiredDays) || 0,
+                        eligibleOn: String(data?.eligibleOn || ''),
+                        cycleNotEligible: Boolean(data?.cycleNotEligible),
                         notEligible: Boolean(data?.notEligible),
                         groupCap: data?.groupCap && typeof data.groupCap === 'object' ? data.groupCap : null,
                     });
@@ -256,10 +266,10 @@ export default function AnnualLeaveFilterModal({
     }, [open, onClose]);
 
     useEffect(() => {
-        if (!open || !processingStartDate || hrOverride) return;
-        setStartDate((current) => (current && current < processingStartDate ? '' : current));
-        setEndDate((current) => (current && current < processingStartDate ? '' : current));
-    }, [open, employeeId, hrOverride, processingStartDate]);
+        if (!open || !earliestStartDate || hrCanPickEarly) return;
+        setStartDate((current) => (current && current < earliestStartDate ? '' : current));
+        setEndDate((current) => (current && current < earliestStartDate ? '' : current));
+    }, [open, employeeId, hrCanPickEarly, earliestStartDate]);
 
     const submitLeave = (sendToHr = false) => {
         if (submitting) return;
@@ -271,9 +281,11 @@ export default function AnnualLeaveFilterModal({
             setError('Please select start and end dates.');
             return;
         }
-        if (processingStartDate && startDate < processingStartDate && !hrOverride) {
+        if (earliestStartDate && startDate < earliestStartDate && !hrCanPickEarly) {
             setError(
-                `Start date cannot be before this employee's salary processing date (${formatDateLabel(processingStartDate)}).`,
+                eligibleOnDate && startDate < eligibleOnDate
+                    ? `Start date cannot be before ${formatDateLabel(eligibleOnDate)}. You are eligible after that date.`
+                    : `Start date cannot be before this employee's salary processing date (${formatDateLabel(processingStartDate)}).`,
             );
             return;
         }
@@ -461,14 +473,18 @@ export default function AnnualLeaveFilterModal({
                                 className="h-10 rounded-lg border-gray-200 bg-gray-50 text-sm"
                                 disabled={!employeeId}
                                 disabledDays={
-                                    hrOverride ? undefined : disabledDaysBefore(processingStartDate)
+                                    hrCanPickEarly ? undefined : disabledDaysBefore(earliestStartDate)
                                 }
                             />
-                            {employeeId && processingStartDate ? (
+                            {employeeId && earliestStartDate ? (
                                 <p className="mt-1 text-[11px] text-slate-400">
-                                    {hrOverride
-                                        ? `Salary processing date ${formatDateLabel(processingStartDate)} (override on)`
-                                        : `Available from ${formatDateLabel(processingStartDate)}`}
+                                    {eligibleOnDate && earliestStartDate === eligibleOnDate
+                                        ? `Available from ${formatDateLabel(eligibleOnDate)}`
+                                        : `Available from ${formatDateLabel(earliestStartDate)}`}
+                                </p>
+                            ) : employeeId && hrCanPickEarly && eligibleOnDate ? (
+                                <p className="mt-1 text-[11px] text-slate-400">
+                                    Eligible after {formatDateLabel(eligibleOnDate)}. Override is on, so an earlier date can be set.
                                 </p>
                             ) : null}
                         </div>
@@ -486,9 +502,9 @@ export default function AnnualLeaveFilterModal({
                                 className="h-10 rounded-lg border-gray-200 bg-gray-50 text-sm"
                                 disabled={!employeeId}
                                 disabledDays={
-                                    hrOverride
+                                    hrCanPickEarly
                                         ? disabledDaysBefore(startDate)
-                                        : disabledDaysBefore(laterDateKey(processingStartDate, startDate))
+                                        : disabledDaysBefore(laterDateKey(earliestStartDate, startDate))
                                 }
                             />
                         </div>
@@ -499,29 +515,15 @@ export default function AnnualLeaveFilterModal({
                     <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-left text-xs text-amber-950">
                         <p>
                             Previous annual leave taken:{' '}
-                            {eligibility.lastAnnualLeaveEnd
-                                ? `${formatDateLabel(eligibility.lastAnnualLeaveEnd)}${
-                                      eligibility.lastAnnualLeaveDays
-                                          ? ` (${eligibility.lastAnnualLeaveDays} day${
-                                                eligibility.lastAnnualLeaveDays === 1 ? '' : 's'
-                                            })`
-                                          : ''
-                                  }`
-                                : 'None'}
+                            {Number(eligibility.lastAnnualLeaveDays) > 0
+                                ? eligibility.lastAnnualLeaveDays
+                                : 0}
                         </p>
-                        <p className="mt-1">
-                            Eligible days{' '}
-                            {eligibility.lastAnnualLeaveEnd
-                                ? 'from previous annual leave'
-                                : 'from joining'}{' '}
-                            to today:{' '}
-                            <span className="font-semibold">
-                                {eligibility.eligibleDays} / {eligibility.requiredDays}
-                            </span>
-                            {eligibility.cycleNotEligible && eligibility.eligibleOn
-                                ? `. You can go on ${eligibility.eligibleOn}.`
-                                : '.'}
-                        </p>
+                        {eligibility.cycleNotEligible && eligibility.eligibleOn ? (
+                            <p className="mt-1 font-semibold">
+                                You are eligible after {formatDateLabel(eligibility.eligibleOn)}.
+                            </p>
+                        ) : null}
                         {eligibility.groupCap?.enabled ? (
                             <>
                                 <p className="mt-1">
@@ -550,12 +552,6 @@ export default function AnnualLeaveFilterModal({
                 {showAnnualEligibility && eligibilityLoading && !eligibility ? (
                     <p className="mt-3 text-center text-[11px] text-slate-400">
                         Checking annual leave eligibility...
-                    </p>
-                ) : null}
-
-                {showNotEligibleGate ? (
-                    <p className="mt-3 text-center text-sm font-semibold text-red-600">
-                        You are not eligible. Do you want to continue?
                     </p>
                 ) : null}
 

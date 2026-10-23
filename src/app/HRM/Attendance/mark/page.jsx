@@ -306,6 +306,7 @@ function MarkAttendanceContent() {
                     leaveAttendanceId={searchParams.get('leaveAttendanceId') || ''}
                     changeRequestId={searchParams.get('changeRequestId') || ''}
                     blinkEmployeeId={searchParams.get('blinkEmployee') || ''}
+                    emailIntent={searchParams.get('intent') || ''}
                 />
             </div>
         </div>

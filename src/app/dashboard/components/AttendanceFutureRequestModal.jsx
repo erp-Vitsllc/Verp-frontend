@@ -184,7 +184,7 @@ export default function AttendanceFutureRequestModal({
     const todayKey = dubaiTodayKey();
     const currentMonth = todayKey.slice(0, 7);
     const isAuthorizedLeave = !isAnnualLeave && !isSickLeave && !isMispunch && !isFuturePunch;
-    const minimumDate = isMispunch || isAuthorizedLeave
+    const minimumDate = isMispunch || isAuthorizedLeave || isSickLeave
         ? ''
         : isAnnualLeave
           ? earliestDate || ''
@@ -238,7 +238,7 @@ export default function AttendanceFutureRequestModal({
         setReason('');
         setAttachment(null);
         setLocalError('');
-    }, [isOpen, dateKey, minimumDate, isMispunch, todayKey, usesDateList, dateOptions]);
+    }, [isOpen, dateKey, minimumDate, isMispunch, todayKey]);
     const isMultiDay = Boolean(fromDate && toDate && fromDate !== toDate);
     const leaveDayCount = useMemo(
         () => countLeaveDays(fromDate, toDate, holidayDates, offWeekdays),
@@ -362,7 +362,13 @@ export default function AttendanceFutureRequestModal({
             return;
         }
         if (!fromDate || !toDate) {
-            setLocalError(isSingleDate ? 'Choose a date.' : 'Choose a start date and an end date.');
+            setLocalError(
+                isPreviousDate
+                    ? 'Choose an unauthorized leave date from this month.'
+                    : isSingleDate
+                      ? 'Choose a date.'
+                      : 'Choose a start date and an end date.',
+            );
             return;
         }
         if (toDate < fromDate) {
@@ -377,7 +383,7 @@ export default function AttendanceFutureRequestModal({
             setLocalError('This request is only for a future working day.');
             return;
         }
-        if (!isMispunch && !isAuthorizedLeave && minimumDate && fromDate < minimumDate) {
+        if (!isMispunch && !isAuthorizedLeave && !isSickLeave && minimumDate && fromDate < minimumDate) {
             setLocalError(`The earliest date you can request is ${minimumDate}.`);
             return;
         }
@@ -467,7 +473,7 @@ export default function AttendanceFutureRequestModal({
                                 </p>
                             ) : isSickLeave ? (
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Full days. Reason and attachment are required. This goes to your primary reportee.
+                                    Full days. Pick the dates, a reason, and an attachment. This goes to your primary reportee, then HR.
                                 </p>
                             ) : !isAnnualLeave ? (
                                 <p className="text-xs text-slate-400 mt-1">
@@ -550,7 +556,7 @@ export default function AttendanceFutureRequestModal({
 
                     <div className={isSingleDate || isPreviousDate ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-2 gap-3'}>
                         <label className="block">
-                            <span className={labelClass}>{isSingleDate || isPreviousDate ? 'Date' : 'Start date'}</span>
+                            <span className={labelClass}>{isPreviousDate ? 'Unauthorized leave this month' : isSingleDate ? 'Date' : 'Start date'}</span>
                             {usesDateList ? (
                                 <select
                                     value={fromDate}

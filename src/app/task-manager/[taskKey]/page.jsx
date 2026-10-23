@@ -524,7 +524,7 @@ function TaskDetailsPage() {
                                     onClick={approveGeneral}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
                                 >
-                                    <Check size={14} /> Approve
+                                    <Check size={14} /> Approve and close
                                 </button>
                             )}
                             {task.canRejectGeneral && (
@@ -579,16 +579,17 @@ function TaskDetailsPage() {
                             )}
                             <button
                                 type="button"
-                                disabled={!task.canReassign || busy}
+                                disabled={!task.canReassign || busy || task.displayStatus === 'Closed' || task.status === 'Completed'}
                                 onClick={() => setReassignOpen(true)}
-                                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-40"
+                                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 <RefreshCw size={14} /> Reassign
                             </button>
                             <button
                                 type="button"
+                                disabled={busy || task.displayStatus === 'Closed' || task.status === 'Completed'}
                                 onClick={() => setEditOpen(true)}
-                                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white"
+                                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 <Pencil size={14} /> Edit
                             </button>

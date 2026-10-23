@@ -846,6 +846,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
         onChangeLine,
         subtotal,
         canEdit,
+        canSelectAccount = canEdit,
     }) => (
         <div className="rounded-lg border border-gray-200 bg-white p-3">
             <div className="mb-2 flex items-center justify-between">
@@ -897,7 +898,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                         <ZohoPayAccountSelect
                             value={row.payAccountId || ''}
                             name={row.payableTo || ''}
-                            disabled={!canEdit || busy}
+                            disabled={!canSelectAccount || busy}
                             placeholder="Select Chart of Accounts"
                             onChange={({ id, name }) => {
                                 onChangeLine(index, {
@@ -1228,6 +1229,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                                             setBillLine(bill.id, index, patch),
                                                         subtotal: payableSum,
                                                         canEdit: canEditAmounts,
+                                                        canSelectAccount: canAct || canEditAmounts,
                                                     })}
                                                 </div>
                                             );
@@ -1341,6 +1343,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                         onChangeLine: setLine,
                                         subtotal: totalFromLines,
                                         canEdit: canEditAmounts,
+                                        canSelectAccount: canAct || canEditAmounts,
                                     })}
                                 </>
                             )

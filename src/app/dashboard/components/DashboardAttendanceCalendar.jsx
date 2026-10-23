@@ -743,19 +743,6 @@ export default function DashboardAttendanceCalendar({
     const canGoPrevYear =
         !minMonthKey || format(addYears(monthAnchor, -1), 'yyyy-MM') >= minMonthKey;
 
-    const openRequestForDay = (dateKey, record, toneLabel) => {
-        if (!isSelf) return;
-        if (!record || !RED_CLICK_KEYS.has(record.statusKey)) return;
-        if (isMispunchReason(record.reason)) return;
-        if (record.leaveRequestStatus === 'pending') {
-            setRequestError('A leave request is already pending for this date.');
-            setRequestModal({ dateKey, record, label: toneLabel });
-            return;
-        }
-        setRequestError('');
-        setRequestModal({ dateKey, record, label: toneLabel });
-    };
-
     const openYellowForDay = (dateKey, record, toneLabel) => {
         if (!isSelf) return;
         if (!record) return;
@@ -1241,14 +1228,16 @@ export default function DashboardAttendanceCalendar({
                                     >
                                         <button
                                             type="button"
-                                            title={adjustLines.join(' ')}
+                                            title="Click to keep this day open. Double-click to mark attendance."
                                             onClick={(event) => {
+                                                event.preventDefault();
                                                 event.stopPropagation();
                                                 showDayHover(event, true);
                                             }}
                                             onDoubleClick={(event) => {
                                                 event.preventDefault();
                                                 event.stopPropagation();
+                                                setHoveredDay(null);
                                                 openMarkForDay();
                                             }}
                                             className={`dash-cal-day relative w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-[10px] sm:text-[11px] font-semibold tabular-nums leading-none shadow-sm ${tone.cell} ${
@@ -1303,20 +1292,6 @@ export default function DashboardAttendanceCalendar({
             />
             )}
 
-            <AttendanceLeaveRequestModal
-                key={requestModal?.dateKey || 'leave-closed'}
-                isOpen={Boolean(requestModal)}
-                dateKey={requestModal?.dateKey}
-                currentLabel={requestModal?.label || requestModal?.record?.statusLabel}
-                submitting={requestSubmitting}
-                error={requestError}
-                onClose={() => {
-                    if (requestSubmitting) return;
-                    setRequestModal(null);
-                    setRequestError('');
-                }}
-                onSubmit={submitLeaveRequest}
-            />
 
             <AttendanceYellowRequestModal
                 key={yellowModal?.dateKey || 'yellow-closed'}

@@ -1525,8 +1525,11 @@ function leaveTallies(records, key) {
     for (const row of records) {
         const status = String(row?.statusKey || '');
         const requested = String(row?.requestedStatusKey || '');
+        const previous = String(row?.previousStatusKey || '');
         const decision = String(row?.leaveRequestStatus || '').toLowerCase();
-        const countsAsUsed = status === key || (decision === 'approved' && requested === key);
+        const countsAsUsed =
+            decision !== 'rejected' &&
+            (status === key || requested === key || previous === key);
         if (countsAsUsed) used += leaveDayWeight(row, key === 'authorized_leave');
         const isRequest = decision && (requested === key || status === key);
         const isDirect = !decision && status === key;
@@ -1694,6 +1697,26 @@ function TipMap({ spot }) {
     );
 }
 
+async function openStoredLeaveFile(event, file) {
+    event.preventDefault();
+    event.stopPropagation();
+    const ready = String(file?.url || '').trim();
+    if (/^https?:\/\//i.test(ready)) {
+        window.open(ready, '_blank', 'noopener,noreferrer');
+        return;
+    }
+    const attendanceId = String(file?.attendanceId || '').trim();
+    const response = await axiosInstance.get(`/Attendance/attachment/${attendanceId || 'lookup'}`, {
+        params: {
+            employeeMongoId: file?.employeeMongoId || '',
+            date: file?.date || '',
+            name: file?.name || '',
+        },
+    });
+    const url = String(response?.data?.url || '').trim();
+    if (/^https?:\/\//i.test(url)) window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 function DayTip({
     dateLabel,
     statusText,
@@ -1751,21 +1774,14 @@ function DayTip({
             ) : null}
             {sickAttachment?.name ? (
                 <p className="mt-1 min-w-0 text-[12px]">
-                    {sickAttachment.url ? (
-                        <a
-                            href={sickAttachment.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            title={sickAttachment.name}
-                            className="block truncate font-semibold text-[#2563EB] hover:underline"
-                        >
-                            {sickAttachment.name}
-                        </a>
-                    ) : (
-                        <span className="block truncate font-medium text-[#64748B]" title={sickAttachment.name}>
-                            {sickAttachment.name}
-                        </span>
-                    )}
+                    <button
+                        type="button"
+                        title={sickAttachment.name}
+                        onClick={(event) => openStoredLeaveFile(event, sickAttachment)}
+                        className="pointer-events-auto block max-w-full truncate text-left font-semibold text-[#2563EB] hover:underline"
+                    >
+                        {sickAttachment.name}
+                    </button>
                 </p>
             ) : null}
             <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
@@ -1938,7 +1954,6 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         <div
             className={`relative ${canOpenMark ? 'cursor-pointer' : ''}`}
             data-attendance-day={inMonth && !beforeStart ? dateKey : undefined}
-            title={requestPending ? undefined : (canOpenMark ? 'Double-click to mark this day' : undefined)}
             onMouseEnter={() => inMonth && !beforeStart && setHoveredDate(dateKey)}
             onMouseLeave={() => setHoveredDate(pinnedAttendanceDate || '')}
             onClick={(event) => {
@@ -1956,9 +1971,11 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                 pinnedAttendanceDate = dateKey;
                 setHoveredDate(dateKey);
             }}
-            onDoubleClick={openMarkPage}
         >
-            <div className={`${compact
+            <div
+                title={requestPending ? undefined : (canOpenMark ? 'Double-click to mark this day' : undefined)}
+                onDoubleClick={openMarkPage}
+                className={`${compact
                 ? 'flex h-8 w-full items-center justify-center rounded-[7px] text-[11px] font-semibold tabular-nums leading-none'
                 : 'flex min-h-12 w-full flex-col items-center justify-center rounded-[9px] px-0.5 py-1 text-[13px] font-semibold tabular-nums leading-none'
             } ${DAY_STYLE[kind] || DAY_STYLE.empty}${requestPending ? ' attendance-request-blink' : ''}`}>
@@ -1970,7 +1987,12 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                 ) : null}
             </div>
             {showTip ? (
-                <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                <div
+                    className="pointer-events-none"
+                    onClick={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                >
                     <DayTip
                         dateLabel={format(day, 'd MMMM yyyy')}
                         statusText={typeLabel}
@@ -1996,8 +2018,14 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                         balanceText={flexibleShort != null ? formatHourlyGap(Math.max(0, flexibleShort)) : formatHourlyGap(balance)}
                         deductText={deductionWaived ? 'Waived' : deduct == null ? '—' : `${formatAed(deduct, 2)}${doubleDeduction ? ' (double deduction)' : ''}`}
                         sickReason={kind === 'sick' ? String(record?.leaveRequestReason || record?.reason || '').trim() : ''}
-                        sickAttachment={kind === 'sick' && String(record?.attachmentName || '').trim()
-                            ? { name: String(record.attachmentName).trim(), url: String(record?.attachmentUrl || '').trim() }
+                        sickAttachment={String(record?.attachmentName || '').trim()
+                            ? {
+                                name: String(record.attachmentName).trim(),
+                                url: String(record?.attachmentUrl || '').trim(),
+                                attendanceId: String(record?._id || '').trim(),
+                                employeeMongoId: String(record?.employeeMongoId || '').trim(),
+                                date: String(record?.date || dateKey || '').trim(),
+                            }
                             : null}
                         moreLines={moreLines}
                         requestLines={requestLines}

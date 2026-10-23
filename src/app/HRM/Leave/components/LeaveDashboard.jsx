@@ -18,7 +18,7 @@ import RechartsBox from '@/components/charts/RechartsBox';
 import axiosInstance from '@/utils/axios';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { navigateFromList } from '@/utils/listReturnNavigation';
-import { markAttendanceHref } from '@/app/HRM/Attendance/utils/markAttendanceHref';
+import { attendanceRequestMarkHref } from '@/app/HRM/Attendance/utils/markAttendanceHref';
 import { notifyLeavePendingInboxChanged } from '../utils/leavePendingInboxCount';
 import {
     ALL_LEAVE_YEAR,
@@ -229,7 +229,7 @@ function LeaveApprovalTable({
                     event.preventDefault();
                     onRowDoubleClick?.(row);
                 }}
-                title="Double-click to open this day in Mark Attendance"
+                title="Open this request in Mark Attendance"
                 onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
@@ -802,6 +802,18 @@ export default function LeaveDashboard({
             if (decision === 'rejected' && !String(edits?.rejectReason || '').trim()) return;
             setDecidingId(row.id);
             try {
+                if (row.changeRequestId) {
+                    await axiosInstance.post(
+                        '/Attendance/change-request/decide',
+                        {
+                            id: row.changeRequestId,
+                            decision,
+                            approvedStatusKey: row.requestedStatusKey || '',
+                            ...(decision === 'rejected' ? { rejectReason: edits.rejectReason } : {}),
+                        },
+                        { skipToast: true },
+                    );
+                } else {
                 await axiosInstance.post(
                     '/Leave/pending-requests/decide',
                     {
@@ -812,6 +824,7 @@ export default function LeaveDashboard({
                     },
                     { skipToast: true },
                 );
+                }
                 await fetchPendingRequests();
                 await fetchTeamTrack(trackYear);
                 notifyLeavePendingInboxChanged();
@@ -928,29 +941,8 @@ export default function LeaveDashboard({
     const approvalRowClickTimerRef = useRef(null);
     const openedPanelForIdRef = useRef('');
 
-    const handleRowSelect = useCallback(
+    const openRequestInMarkAttendance = useCallback(
         (row) => {
-            if (approvalRowClickTimerRef.current) {
-                window.clearTimeout(approvalRowClickTimerRef.current);
-            }
-            approvalRowClickTimerRef.current = window.setTimeout(() => {
-                approvalRowClickTimerRef.current = null;
-                const mode = rowStatusKey(row) === 'pending' ? 'approve' : 'edit';
-                setFocusedRow(row);
-                setRightFocus('approve');
-                if (onSelectRequest) onSelectRequest(row, mode);
-                else onApprovalRowSelect?.(row);
-            }, 250);
-        },
-        [onApprovalRowSelect, onSelectRequest],
-    );
-
-    const handleRowDoubleClick = useCallback(
-        (row) => {
-            if (approvalRowClickTimerRef.current) {
-                window.clearTimeout(approvalRowClickTimerRef.current);
-                approvalRowClickTimerRef.current = null;
-            }
             const fromRow = String(row?.employeeMongoId || '').trim();
             const code = String(row?.employeeId || '').trim();
             const listed = employees.find(
@@ -962,13 +954,40 @@ export default function LeaveDashboard({
             const dateKey = String(row?.startDateKey || '').trim();
             if (!mongoId || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return;
             const staffType = String(listed?.staffType || row?.staffType || '').trim();
-            navigateFromList(router, markAttendanceHref({
+            const changeId = String(row?.changeRequestId || '').trim();
+            navigateFromList(router, attendanceRequestMarkHref({
                 date: dateKey,
                 staffType,
-                blinkEmployee: mongoId,
+                employeeId: mongoId,
+                attendanceId: changeId || row?.attendanceIds?.[0] || row?.id,
+                kind: changeId ? 'attendance_change' : 'leave',
             }));
         },
         [employees, router],
+    );
+
+    const handleRowSelect = useCallback(
+        (row) => {
+            if (approvalRowClickTimerRef.current) {
+                window.clearTimeout(approvalRowClickTimerRef.current);
+            }
+            approvalRowClickTimerRef.current = window.setTimeout(() => {
+                approvalRowClickTimerRef.current = null;
+                openRequestInMarkAttendance(row);
+            }, 250);
+        },
+        [openRequestInMarkAttendance],
+    );
+
+    const handleRowDoubleClick = useCallback(
+        (row) => {
+            if (approvalRowClickTimerRef.current) {
+                window.clearTimeout(approvalRowClickTimerRef.current);
+                approvalRowClickTimerRef.current = null;
+            }
+            openRequestInMarkAttendance(row);
+        },
+        [openRequestInMarkAttendance],
     );
 
     useEffect(

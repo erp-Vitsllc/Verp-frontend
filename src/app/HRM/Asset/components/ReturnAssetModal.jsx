@@ -307,6 +307,7 @@ export default function ReturnAssetModal({
         primaryAsset?.assignedTo?.name ||
         'Unknown';
 
+    const forwardTargetLabel = isAssetController ? 'Asset Owner' : 'Asset Controller';
     const forwardButtonText = isAssetController
         ? 'Unassign'
         : 'Return to asset controller';
@@ -759,12 +760,16 @@ export default function ReturnAssetModal({
                                         ? `${selectedCount} asset(s)`
                                         : `"${primaryAsset?.name}"`}
                                 </span>
-                                ? This will notify the {forwardTargetLabel} to return the
-                                asset(s) to store as{' '}
+                                ?{' '}
+                                {isAssetController
+                                    ? 'This will unassign the asset(s) and return them to store as '
+                                    : `This will notify the ${forwardTargetLabel} to return the asset(s) to store as `}
                                 <span className="font-bold text-rose-600">
                                     &quot;Unassigned&quot;
                                 </span>
-                                .
+                                {isAssetController
+                                    ? '. The asset owner will be notified.'
+                                    : '.'}
                             </span>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
