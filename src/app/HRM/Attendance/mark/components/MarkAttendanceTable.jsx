@@ -991,6 +991,7 @@ function otSortText(mark, ctx) {
     const span = punchSpanSeconds(mark?.rawTimeIn, mark?.rawTimeOut, mark?.timeOutDate, mark?.date);
     const durationHours = span != null ? span / 3600 : workedHoursValue(mark);
     const syntheticOt = isOtPunch(mark?.rawTimeIn) || isOtPunch(mark?.rawTimeOut);
+    const flexibleTiming = String(ctx.scheduleWeek?.timingMode || '').toLowerCase() === 'flexible';
     const { otText, showOtRequest, showNextDayPresent } = otActionState({
         mark,
         durationHours,
@@ -999,7 +1000,7 @@ function otSortText(mark, ctx) {
         nonWorkingDay: Boolean(ctx.dayBaseline) && !syntheticOt && durationHours > 0,
     });
     if (otText) return otText;
-    if (!showOtRequest) return null;
+    if (!flexibleTiming || !showOtRequest) return null;
     if (ctx.isFlowchartHr) return showNextDayPresent ? 'next day present' : 'apply ot';
     return 'req ot';
 }
@@ -1549,13 +1550,18 @@ function EmployeeRow({
     const spanSeconds = syntheticOt ? null : punchSpanSeconds(rawIn, rawOut, mark?.timeOutDate, mark?.date);
     const durationHours = spanSeconds != null ? spanSeconds / 3600 : workedHoursValue(mark);
     const requiredHours = scheduleDayHours(scheduleWeek, dateKey) || Number(mark?.flexibleRequiredHours) || 0;
-    const { otText, otHours, showOtRequest, showNextDayPresent } = otActionState({
+    const flexibleTiming = String(scheduleWeek?.timingMode || '').toLowerCase() === 'flexible';
+    const otState = otActionState({
         mark,
         durationHours,
         requiredHours,
         syntheticOt,
         nonWorkingDay: offDayWork && durationHours > 0,
     });
+    const otText = otState.otText;
+    const otHours = otState.otHours;
+    const showOtRequest = flexibleTiming && otState.showOtRequest;
+    const showNextDayPresent = flexibleTiming && otState.showNextDayPresent;
     const requestMark = markWithRequestableOt(mark, otHours);
     const otButtonLabel = otDirect ? 'Apply OT' : 'Req OT';
 
@@ -2289,6 +2295,7 @@ export default function MarkAttendanceTable({
             pastDay,
             dayBaseline,
             isFlowchartHr,
+            scheduleWeek,
             actionLocked: dayMode === 'locked',
         };
         return [...filteredEmployees].sort((a, b) => {
@@ -2317,6 +2324,7 @@ export default function MarkAttendanceTable({
         pastDay,
         dayBaseline,
         isFlowchartHr,
+        scheduleWeek,
         dayMode,
         rosterIndexById,
     ]);

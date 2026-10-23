@@ -1926,7 +1926,8 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         || String(record?.timeOut || '').trim() === 'OT'
         || Boolean(String(record?.flexibleFromOtDate || '').trim());
     const deductedLeave = kind === 'authorized' || kind === 'absent';
-    const earnsDayRate = counted && !deductedLeave && !syntheticOt && !isHoliday && !isWeeklyOff && kind !== 'annual' && kind !== 'future' && kind !== 'suspended';
+    const weeklyOffBetweenLeave = isWeeklyOff && ctx.enclosedOffDates?.has(dateKey);
+    const earnsDayRate = counted && !deductedLeave && !syntheticOt && !isHoliday && kind !== 'annual' && kind !== 'future' && kind !== 'suspended' && (!isWeeklyOff || !weeklyOffBetweenLeave);
     const dayRate = Number(ctx.salaryDaily) || 0;
     const payment = !counted && !(extraPay > 0)
         ? null
