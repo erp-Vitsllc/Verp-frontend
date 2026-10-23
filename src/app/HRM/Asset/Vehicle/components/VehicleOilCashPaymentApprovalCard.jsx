@@ -450,6 +450,7 @@ export default function VehicleOilCashPaymentApprovalCard({
 
     const fieldsDisabled = !canActOnPayment;
     const amountDisabled = !(paymentGate.active && canActHr);
+    const lineMetaDisabled = !(canActOnPayment || (paymentGate.active && canActHr));
     const fileDisabled = !(canActOnPayment || (paymentGate.active && canActHr));
 
     const setLine = (index, patch) => {
@@ -910,7 +911,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                                 className="min-h-[44px] w-full rounded-lg border border-gray-200 px-2.5 text-sm font-semibold text-gray-900 placeholder:text-gray-400"
                                                 placeholder="Description"
                                                 value={row.description || ''}
-                                                disabled={amountDisabled}
+                                                disabled={lineMetaDisabled}
                                                 onChange={(e) =>
                                                     setLine(index, { description: e.target.value })
                                                 }
@@ -918,7 +919,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                             <ZohoPayAccountSelect
                                                 value={row.payAccountId || ''}
                                                 name={row.payableTo || ''}
-                                                disabled={amountDisabled}
+                                                disabled={lineMetaDisabled}
                                                 placeholder="Select Chart of Accounts"
                                                 onChange={({ id, name }) => {
                                                     setLine(index, {
@@ -934,7 +935,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                                 className="min-h-[44px] w-full rounded-lg border border-gray-200 px-2.5 text-sm font-semibold"
                                                 placeholder="Qty"
                                                 value={row.qty ?? '1'}
-                                                disabled={amountDisabled}
+                                                disabled={lineMetaDisabled}
                                                 onChange={(e) => setLine(index, { qty: e.target.value })}
                                             />
                                             <input
