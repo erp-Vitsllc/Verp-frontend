@@ -28,6 +28,7 @@ import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import {
     isOilServiceAssignmentPending,
 } from '../utils/vehicleOilServiceAccess';
+import { lockedServiceFieldAccess } from '../utils/vehicleServiceInitiateEditAccess';
 import {
     resolveFlowchartAdminEmployeeRef,
     resolveVehicleServiceAssignedOwnerId,
@@ -233,6 +234,8 @@ export default function VehicleAccidentRepairDetailForm({
     draftSubmitRef,
     onDraftStateChange,
     canEditAssignment = true,
+    isFlowchartHr = false,
+    isFlowchartAccounts = false,
     workflowStage = '',
     flowchartRows = [],
     liveHrReview = null,
@@ -261,6 +264,12 @@ export default function VehicleAccidentRepairDetailForm({
     // Page gates HR-after-submit; Initiate stays editable until Zoho bill is accepted.
     const canEditInitiateFields = Boolean(canEditAssignment);
     const fieldsDisabled = !canEditInitiateFields || saving;
+    const { amountDisabled, attachmentDisabled, showOverrideSave } = lockedServiceFieldAccess({
+        locked: !canEditInitiateFields,
+        saving,
+        isFlowchartHr,
+        isFlowchartAccounts,
+    });
 
     const assetController = asset?.assetController || null;
     const assetControllerId = asset?.assetControllerId || null;
@@ -1018,7 +1027,7 @@ export default function VehicleAccidentRepairDetailForm({
                     View
                 </button>
             ) : null}
-            {!fieldsDisabled ? (
+            {!attachmentDisabled ? (
                 <label className={tireUploadBtn}>
                     <Upload size={14} />
                     {fileName || existingUrl ? 'Change' : 'Upload'}
@@ -1026,7 +1035,7 @@ export default function VehicleAccidentRepairDetailForm({
                         type="file"
                         className="sr-only"
                         accept={kind === 'tireCondition' ? ERP_JPEG_ACCEPT : ERP_PDF_ACCEPT}
-                        disabled={fieldsDisabled}
+                        disabled={attachmentDisabled}
                         onChange={(e) => {
                             handleFileChange(e, kind);
                             e.target.value = '';
@@ -1056,7 +1065,7 @@ export default function VehicleAccidentRepairDetailForm({
                         View
                     </button>
                 ) : null}
-                {!fieldsDisabled ? (
+                {!attachmentDisabled ? (
                     <label className={tireUploadBtn}>
                         <Upload size={14} />
                         {fileName || existingUrl ? 'Change' : 'Add'}
@@ -1064,7 +1073,7 @@ export default function VehicleAccidentRepairDetailForm({
                             type="file"
                             className="sr-only"
                             accept={ERP_PDF_ACCEPT}
-                            disabled={fieldsDisabled}
+                            disabled={attachmentDisabled}
                             onChange={(e) => {
                                 handleGarageQuoteFile(kind, e.target.files?.[0]);
                                 e.target.value = '';
@@ -1278,7 +1287,7 @@ export default function VehicleAccidentRepairDetailForm({
                                                 existingUrl={formData[slot.existing]}
                                             />
                                         </div>
-                                        {!fieldsDisabled ? (
+                                        {!attachmentDisabled ? (
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -1321,7 +1330,7 @@ export default function VehicleAccidentRepairDetailForm({
                                 </VehicleAccidentRepairFormFieldCell>
                             </div>
                         ))}
-                        {!fieldsDisabled && visibleQuoteCount < GARAGE_QUOTE_SLOTS.length ? (
+                        {!attachmentDisabled && visibleQuoteCount < GARAGE_QUOTE_SLOTS.length ? (
                             <div className="flex items-center pt-6">
                                 <button
                                     type="button"
@@ -1420,7 +1429,7 @@ export default function VehicleAccidentRepairDetailForm({
                                     </button>
                                 );
                             })}
-                            {!fieldsDisabled ? (
+                            {!attachmentDisabled ? (
                                 <>
                                     <button
                                         type="button"
@@ -1518,7 +1527,7 @@ export default function VehicleAccidentRepairDetailForm({
                                             step="0.01"
                                             value={formData.policeFineAmount}
                                             onChange={(e) => set('policeFineAmount', e.target.value)}
-                                            disabled={fieldsDisabled || formData.accidentOwnerType !== 'self'}
+                                            disabled={amountDisabled || formData.accidentOwnerType !== 'self'}
                                             placeholder="0.00"
                                             className={`${tireMoneyInput} pl-11`}
                                             {...numberInputNoScrollProps}
@@ -1605,7 +1614,7 @@ export default function VehicleAccidentRepairDetailForm({
                                                         return { ...prev, otherFineRows: rows };
                                                     })
                                                 }
-                                                disabled={fieldsDisabled}
+                                                disabled={amountDisabled}
                                                 placeholder="0.00"
                                                 className={`${tireMoneyInput} pl-11`}
                                                 {...numberInputNoScrollProps}
@@ -1694,7 +1703,7 @@ export default function VehicleAccidentRepairDetailForm({
                                                     onChange={(e) =>
                                                         applyPayAmountChange('companyPay', e.target.value)
                                                     }
-                                                    disabled={fieldsDisabled}
+                                                    disabled={amountDisabled}
                                                     {...numberInputNoScrollProps}
                                                 />
                                                 <span className="text-sm font-bold text-gray-500">AED</span>
@@ -1748,7 +1757,7 @@ export default function VehicleAccidentRepairDetailForm({
                                                     onChange={(e) =>
                                                         applyPayAmountChange('employeePay', e.target.value)
                                                     }
-                                                    disabled={fieldsDisabled}
+                                                    disabled={amountDisabled}
                                                     {...numberInputNoScrollProps}
                                                 />
                                                 <span className="text-sm font-bold text-gray-500">AED</span>
@@ -1820,7 +1829,7 @@ export default function VehicleAccidentRepairDetailForm({
                                                             onBlur={() =>
                                                                 finalizeEmployeeRowPaidAmount(index)
                                                             }
-                                                            disabled={fieldsDisabled}
+                                                            disabled={amountDisabled}
                                                             placeholder="0"
                                                             {...numberInputNoScrollProps}
                                                         />
@@ -1847,7 +1856,7 @@ export default function VehicleAccidentRepairDetailForm({
                                             step="1"
                                             readOnly
                                             value={totalFines}
-                                            disabled={fieldsDisabled}
+                                            disabled={amountDisabled}
                                             {...numberInputNoScrollProps}
                                         />
                                         <span className="text-sm font-bold text-gray-500">AED</span>
@@ -1915,12 +1924,18 @@ export default function VehicleAccidentRepairDetailForm({
                         </div>
                     ) : null}
 
-                    {!assignmentPending && canEditInitiateFields ? (
+                    {!assignmentPending && (canEditInitiateFields || showOverrideSave) ? (
                         <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
                             <button
                                 type="button"
-                                disabled={saving || missingFields.length > 0}
-                                onClick={() => void handleSaveDraft()}
+                                disabled={saving || (canEditInitiateFields && missingFields.length > 0)}
+                                onClick={() => {
+                                    if (showOverrideSave && !canEditInitiateFields) {
+                                        void persistForm({ submitAfterSave: false });
+                                        return;
+                                    }
+                                    void handleSaveDraft();
+                                }}
                                 className={tireBtnPrimary}
                             >
                                 {saving ? 'Saving…' : 'Save'}

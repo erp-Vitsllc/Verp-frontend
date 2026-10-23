@@ -354,6 +354,8 @@ function VehicleTireChangeDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
+                                isFlowchartHr={isFlowchartHr}
+                                isFlowchartAccounts={isFlowchartAccounts}
                                 workflowStage={tireWorkflowStage}
                                 liveHrReview={liveHrReview}
                                 onSaved={() => {

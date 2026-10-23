@@ -354,6 +354,8 @@ function VehicleMechanicalWorkDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
+                                isFlowchartHr={isFlowchartHr}
+                                isFlowchartAccounts={isFlowchartAccounts}
                                 workflowStage={mechanicalWorkflowStage}
                                 liveHrReview={liveHrReview}
                                 onSaved={() => {

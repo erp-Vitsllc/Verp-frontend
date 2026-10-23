@@ -45,7 +45,6 @@ export function getMarkFormConfig(markKey) {
             showTimes: false,
             showReason: true,
             showAttachment: true,
-            showLeaveDates: true,
             attachmentRequired: true,
             timesRequired: false,
             reasonOptional: false,
@@ -299,42 +298,6 @@ export default function MarkAttendanceDetailsModal({
             setError('Reason is required.');
             return;
         }
-        let dates = [dateKey];
-        if (config.showLeaveDates) {
-            if (!fromDate || !toDate) {
-                setError('Choose a start date and an end date.');
-                return;
-            }
-            if (leaveSpan === 'single' && fromDate !== toDate) {
-                setError('Single day leave uses the same start and end date.');
-                return;
-            }
-            if (leaveSpan === 'multiple' && fromDate === toDate) {
-                setError('Multiple days needs an end date after the start date.');
-                return;
-            }
-            if (toDate < fromDate) {
-                setError('End date cannot be before the start date.');
-                return;
-            }
-            const holidays = new Set(holidayDates);
-            const offs = new Set(offWeekdays);
-            dates = [];
-            const [fromYear, fromMonth, fromDay] = fromDate.split('-').map(Number);
-            const cursor = new Date(Date.UTC(fromYear, fromMonth - 1, fromDay, 12, 0, 0));
-            const end = toDate;
-            while (true) {
-                const key = `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}-${String(cursor.getUTCDate()).padStart(2, '0')}`;
-                if (key > end) break;
-                const weekday = WEEKDAY_KEYS[cursor.getUTCDay()];
-                if (!holidays.has(key) && !offs.has(weekday)) dates.push(key);
-                cursor.setUTCDate(cursor.getUTCDate() + 1);
-            }
-            if (!dates.length) {
-                setError('That range has no working days. Holidays and weekly offs are skipped.');
-                return;
-            }
-        }
         onSave?.({
             markKey,
             markLabel,
@@ -344,7 +307,6 @@ export default function MarkAttendanceDetailsModal({
             attachmentName: attachment?.name || '',
             attachmentFile: attachment || null,
             leavePayType: '',
-            dates,
         });
     };
 
@@ -416,67 +378,10 @@ export default function MarkAttendanceDetailsModal({
                         </div>
                     ) : null}
 
-                    {config.showLeaveDates ? (
-                        <div className="space-y-3">
-                            <p className="text-xs text-gray-500">
-                                Full days. Reason and attachment are required. This goes to the primary reportee, then HR.
-                            </p>
-                            <div>
-                                <span className="block text-xs font-semibold text-gray-600 mb-1.5">Leave duration</span>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {[
-                                        { key: 'single', label: 'Single day' },
-                                        { key: 'multiple', label: 'Multiple days' },
-                                    ].map((option) => (
-                                        <button
-                                            key={option.key}
-                                            type="button"
-                                            onClick={() => {
-                                                setLeaveSpan(option.key);
-                                                setError('');
-                                                if (option.key === 'single') setToDate(fromDate);
-                                            }}
-                                            className={`h-10 rounded-lg text-sm font-semibold ${
-                                                leaveSpan === option.key
-                                                    ? 'bg-slate-900 text-white'
-                                                    : 'bg-slate-100 text-slate-600'
-                                            }`}
-                                        >
-                                            {option.label}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <label className="block">
-                                    <span className="block text-xs font-semibold text-gray-600 mb-1.5">Start date</span>
-                                    <input
-                                        type="date"
-                                        value={fromDate}
-                                        onChange={(e) => {
-                                            const value = e.target.value;
-                                            setFromDate(value);
-                                            if (leaveSpan === 'single') setToDate(value);
-                                            else if (toDate && value > toDate) setToDate(value);
-                                        }}
-                                        className="w-full h-10 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm"
-                                        required
-                                    />
-                                </label>
-                                <label className="block">
-                                    <span className="block text-xs font-semibold text-gray-600 mb-1.5">End date</span>
-                                    <input
-                                        type="date"
-                                        value={toDate}
-                                        min={fromDate || undefined}
-                                        disabled={leaveSpan === 'single'}
-                                        onChange={(e) => setToDate(e.target.value)}
-                                        className="w-full h-10 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm disabled:opacity-60"
-                                        required
-                                    />
-                                </label>
-                            </div>
-                        </div>
+                    {markKey === 'sick_leave' ? (
+                        <p className="text-xs text-gray-500">
+                            Reason and attachment are required for this day. This goes to the primary reportee, then HR.
+                        </p>
                     ) : null}
 
                     {config.showReason ? (

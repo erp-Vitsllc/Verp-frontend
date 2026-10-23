@@ -775,6 +775,8 @@ export default function DashboardAttendanceCalendar({
 
     const submitLeaveRequest = async ({
         requestedStatusKey,
+        fromDate,
+        toDate,
         reason,
         attachmentName,
         attachmentData,
@@ -785,6 +787,39 @@ export default function DashboardAttendanceCalendar({
         setRequestSubmitting(true);
         setRequestError('');
         try {
+            const start = fromDate || requestModal.dateKey;
+            const end = toDate || start;
+            if (requestedStatusKey === 'sick_leave' || requestedStatusKey === 'authorized_leave') {
+                try {
+                    await axiosInstance.post(
+                        '/Attendance/me/future-request',
+                        {
+                            date: start,
+                            fromDate: start,
+                            toDate: end,
+                            kind: requestedStatusKey === 'sick_leave' ? 'sick_leave' : 'leave',
+                            dayPart: 'full',
+                            reason: reason || '',
+                            attachmentName: attachmentName || '',
+                            attachmentData: attachmentData || '',
+                        },
+                        { skipToast: true },
+                    );
+                } catch (rangeErr) {
+                    if (requestedStatusKey !== 'authorized_leave' || start !== end) throw rangeErr;
+                    await axiosInstance.post(
+                        '/Attendance/me/leave-request',
+                        {
+                            date: start,
+                            requestedStatusKey,
+                            reason: reason || '',
+                            attachmentName: attachmentName || '',
+                            attachmentData: attachmentData || '',
+                        },
+                        { skipToast: true },
+                    );
+                }
+            } else {
             await axiosInstance.post(
                 '/Attendance/me/leave-request',
                 {
@@ -798,6 +833,7 @@ export default function DashboardAttendanceCalendar({
                 },
                 { skipToast: true },
             );
+            }
             if (requestedStatusKey === 'late_arrived') notifyAttendancePendingInboxChanged();
             else notifyLeavePendingInboxChanged();
             setRequestModal(null);

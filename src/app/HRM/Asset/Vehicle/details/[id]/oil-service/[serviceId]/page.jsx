@@ -369,6 +369,8 @@ function VehicleOilServiceDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
+                                isFlowchartHr={isFlowchartHr}
+                                isFlowchartAccounts={isFlowchartAccounts}
                                 workflowStage={oilWorkflowStage}
                                 canEditServiceDates={canEditServiceDates}
                                 onSaved={refreshAfterMutation}

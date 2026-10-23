@@ -25,6 +25,7 @@ import {
     isOilServiceLive,
     isOilServiceScheduledWaiting,
 } from '../utils/vehicleOilServiceAccess';
+import { lockedServiceFieldAccess } from '../utils/vehicleServiceInitiateEditAccess';
 import {
     resolveDefaultVehicleServiceAssignedOwnerLabel,
     resolveFlowchartAdminEmployeeRef,
@@ -343,6 +344,8 @@ export default function VehicleOilServiceDetailForm({
     draftSubmitRef,
     onDraftStateChange,
     canEditAssignment = true,
+    isFlowchartHr = false,
+    isFlowchartAccounts = false,
     canEditServiceDates = false,
     workflowStage = '',
     flowchartRows = [],
@@ -367,6 +370,12 @@ export default function VehicleOilServiceDetailForm({
     // initiateDone still gates Send / submit only.
     const canEditInitiateFields = Boolean(canEditAssignment);
     const fieldsDisabled = !canEditInitiateFields || saving;
+    const { amountDisabled, attachmentDisabled, showOverrideSave } = lockedServiceFieldAccess({
+        locked: !canEditInitiateFields,
+        saving,
+        isFlowchartHr,
+        isFlowchartAccounts,
+    });
 
     useEffect(() => {
         setFormData(buildOilServiceDetailFormState(service, asset, scheduleRow, { flowchartRows }));
@@ -609,7 +618,8 @@ export default function VehicleOilServiceDetailForm({
     }, [formData, assignmentPending, onSaved, saving, serviceId, toast, vehicleId]);
 
     const handleSaveInitiate = useCallback(async () => {
-        if (!initiateDone || !canEditAssignment || saving || !vehicleId || !serviceId) return;
+        if (!initiateDone || saving || !vehicleId || !serviceId) return;
+        if (!canEditAssignment && !showOverrideSave) return;
         setSaving(true);
         try {
             const body = buildOilServiceDetailSubmitBody(formData, { initiated: true });
@@ -630,7 +640,7 @@ export default function VehicleOilServiceDetailForm({
         } finally {
             setSaving(false);
         }
-    }, [canEditAssignment, formData, initiateDone, onSaved, saving, serviceId, toast, vehicleId]);
+    }, [canEditAssignment, formData, initiateDone, onSaved, saving, serviceId, showOverrideSave, toast, vehicleId]);
 
     const canRequest =
         assignmentPending && !saving && canEditAssignment && !initiateDone && isOilServiceDetailFormComplete(formData);
@@ -800,7 +810,7 @@ export default function VehicleOilServiceDetailForm({
                                 <QuoteField
                                     existingUrl={formData.existingAttachmentUrl}
                                     fileName={formData.attachmentName || formData.remarkAttachmentName}
-                                    disabled={fieldsDisabled}
+                                    disabled={attachmentDisabled}
                                     onFile={(file) => handleQuoteFile('attachment', file)}
                                 />
                             </FormFieldCell>
@@ -808,7 +818,7 @@ export default function VehicleOilServiceDetailForm({
                                 <QuoteField
                                     existingUrl={formData.existingQuotation2Url}
                                     fileName={formData.quotation2Name}
-                                    disabled={fieldsDisabled}
+                                    disabled={attachmentDisabled}
                                     onFile={(file) => handleQuoteFile('quotation2', file)}
                                 />
                             </FormFieldCell>
@@ -816,7 +826,7 @@ export default function VehicleOilServiceDetailForm({
                                 <QuoteField
                                     existingUrl={formData.existingQuotation3Url}
                                     fileName={formData.quotation3Name}
-                                    disabled={fieldsDisabled}
+                                    disabled={attachmentDisabled}
                                     onFile={(file) => handleQuoteFile('quotation3', file)}
                                 />
                             </FormFieldCell>
@@ -885,7 +895,7 @@ export default function VehicleOilServiceDetailForm({
                                             set('value', e.target.value);
                                             set('garageBillAmount', e.target.value);
                                         }}
-                                        disabled={fieldsDisabled}
+                                        disabled={amountDisabled}
                                         placeholder="0"
                                     />
                                 </div>
@@ -919,7 +929,7 @@ export default function VehicleOilServiceDetailForm({
                     </div>
                 ) : null}
 
-                {initiateDone && canEditInitiateFields ? (
+                {initiateDone && (canEditInitiateFields || showOverrideSave) ? (
                     <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
                         <button
                             type="button"

@@ -449,9 +449,9 @@ export default function VehicleOilCashPaymentApprovalCard({
     );
 
     const fieldsDisabled = !canActOnPayment;
-    const amountDisabled = !(paymentGate.active && canActHr);
-    const lineMetaDisabled = !(canActOnPayment || (paymentGate.active && canActHr));
-    const fileDisabled = !(canActOnPayment || (paymentGate.active && canActHr));
+    const amountDisabled = busy || !(canActHr || canActAccounts);
+    const lineMetaDisabled = !(canActOnPayment || (paymentGate.active && canActHr) || canActAccounts);
+    const fileDisabled = busy || !(canActHr || (paymentGate.active && canActAccounts));
 
     const setLine = (index, patch) => {
         setBilling((prev) => {
@@ -680,10 +680,20 @@ export default function VehicleOilCashPaymentApprovalCard({
     };
 
     const handleSaveOilInvoice = async () => {
-        if (!vehicleId || !(paymentGate.active && canActHr) || busy) return;
+        if (!vehicleId || busy || !(canActHr || canActAccounts)) return;
         setBusy(true);
         try {
             const serviceUpdates = buildServiceUpdates();
+            if (!paymentGate.active && serviceId) {
+                const { data } = await axiosInstance.put(
+                    `/AssetItem/${vehicleId}/service/${serviceId}`,
+                    serviceUpdates,
+                    { skipToast: true },
+                );
+                toast({ title: 'Invoice updated', description: data?.message || 'Amount and attachment saved.' });
+                if (typeof onUpdated === 'function') onUpdated(data?.asset || null);
+                return;
+            }
             const { data } = await axiosInstance.post(
                 `/AssetItem/${vehicleId}/service-workflow/respond`,
                 {
@@ -971,9 +981,9 @@ export default function VehicleOilCashPaymentApprovalCard({
                             </div>
                         </div>
 
-                        {canActOnPayment || (paymentGate.active && canActHr) ? (
+                        {canActOnPayment || canActHr || canActAccounts ? (
                             <div className="mt-4 flex justify-end gap-2">
-                                {paymentGate.active && canActHr ? (
+                                {canActHr || canActAccounts ? (
                                     <button
                                         type="button"
                                         onClick={() => void handleSaveOilInvoice()}

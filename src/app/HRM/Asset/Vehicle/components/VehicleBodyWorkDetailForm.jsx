@@ -24,6 +24,7 @@ import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import {
     isOilServiceAssignmentPending,
 } from '../utils/vehicleOilServiceAccess';
+import { lockedServiceFieldAccess } from '../utils/vehicleServiceInitiateEditAccess';
 import {
     resolveFlowchartAdminEmployeeRef,
     resolveVehicleServiceAssignedOwnerId,
@@ -103,6 +104,8 @@ export default function VehicleBodyWorkDetailForm({
     draftSubmitRef,
     onDraftStateChange,
     canEditAssignment = true,
+    isFlowchartHr = false,
+    isFlowchartAccounts = false,
     workflowStage = '',
     flowchartRows = [],
     liveHrReview = null,
@@ -126,6 +129,12 @@ export default function VehicleBodyWorkDetailForm({
     // Page gates HR-after-submit; Initiate stays editable until Zoho bill is accepted.
     const canEditInitiateFields = Boolean(canEditAssignment);
     const fieldsDisabled = !canEditInitiateFields || saving;
+    const { amountDisabled, attachmentDisabled, showOverrideSave } = lockedServiceFieldAccess({
+        locked: !canEditInitiateFields,
+        saving,
+        isFlowchartHr,
+        isFlowchartAccounts,
+    });
 
     useEffect(() => {
         setFormData(buildBodyWorkDetailFormState(service, asset, { flowchartRows }));
@@ -738,7 +747,7 @@ export default function VehicleBodyWorkDetailForm({
                                     View
                                 </button>
                             ) : null}
-                            {!fieldsDisabled ? (
+                            {!attachmentDisabled ? (
                                 <button
                                     type="button"
                                     onClick={() => clearQuoteSlot(item.kind)}
@@ -754,7 +763,7 @@ export default function VehicleBodyWorkDetailForm({
             ) : (
                 <p className="text-xs text-gray-400">No quotes added yet</p>
             )}
-            {!fieldsDisabled && canAddMoreQuotes ? (
+            {!attachmentDisabled && canAddMoreQuotes ? (
                 <label className={tireUploadBtn}>
                     <Upload size={14} />
                     Add quote
@@ -763,7 +772,7 @@ export default function VehicleBodyWorkDetailForm({
                         className="sr-only"
                         accept={ERP_PDF_ACCEPT}
                         multiple
-                        disabled={fieldsDisabled}
+                        disabled={attachmentDisabled}
                         onChange={(e) => {
                             handleQuoteFiles(e.target.files);
                             e.target.value = '';
@@ -904,7 +913,7 @@ export default function VehicleBodyWorkDetailForm({
                                     </button>
                                 );
                             })}
-                            {!fieldsDisabled ? (
+                            {!attachmentDisabled ? (
                                 <>
                                     <button
                                         type="button"
@@ -969,7 +978,7 @@ export default function VehicleBodyWorkDetailForm({
                                         onChange={(e) =>
                                             applyPayAmountChange('estimatedCost', e.target.value)
                                         }
-                                        disabled={fieldsDisabled}
+                                        disabled={amountDisabled}
                                         placeholder="0.00"
                                         {...numberInputNoScrollProps}
                                     />
@@ -1014,7 +1023,7 @@ export default function VehicleBodyWorkDetailForm({
                                                             e.target.value,
                                                         )
                                                     }
-                                                    disabled={fieldsDisabled}
+                                                    disabled={amountDisabled}
                                                     {...numberInputNoScrollProps}
                                                 />
                                                 <span className="text-sm font-bold text-gray-500">
@@ -1069,7 +1078,7 @@ export default function VehicleBodyWorkDetailForm({
                                                             e.target.value,
                                                         )
                                                     }
-                                                    disabled={fieldsDisabled}
+                                                    disabled={amountDisabled}
                                                     {...numberInputNoScrollProps}
                                                 />
                                                 <span className="text-sm font-bold text-gray-500">
@@ -1146,7 +1155,7 @@ export default function VehicleBodyWorkDetailForm({
                                                             onBlur={() =>
                                                                 finalizeEmployeeRowPaidAmount(index)
                                                             }
-                                                            disabled={fieldsDisabled}
+                                                            disabled={amountDisabled}
                                                             placeholder="0"
                                                             {...numberInputNoScrollProps}
                                                         />
@@ -1173,7 +1182,7 @@ export default function VehicleBodyWorkDetailForm({
                                                     e.target.value,
                                                 )
                                             }
-                                            disabled={fieldsDisabled}
+                                            disabled={amountDisabled}
                                             {...numberInputNoScrollProps}
                                         />
                                         <span className="text-sm font-bold text-gray-500">
@@ -1244,12 +1253,18 @@ export default function VehicleBodyWorkDetailForm({
                         </div>
                     ) : null}
 
-                    {!assignmentPending && canEditInitiateFields ? (
+                    {!assignmentPending && (canEditInitiateFields || showOverrideSave) ? (
                         <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
                             <button
                                 type="button"
-                                disabled={saving || missingFields.length > 0}
-                                onClick={() => void handleSaveDraft()}
+                                disabled={saving || (canEditInitiateFields && missingFields.length > 0)}
+                                onClick={() => {
+                                    if (showOverrideSave && !canEditInitiateFields) {
+                                        void persistForm({ submitAfterSave: false });
+                                        return;
+                                    }
+                                    void handleSaveDraft();
+                                }}
                                 className={tireBtnPrimary}
                             >
                                 {saving ? 'Saving…' : 'Save'}

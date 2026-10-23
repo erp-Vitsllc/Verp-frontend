@@ -345,7 +345,9 @@ function TaskDetailsPage() {
                     ? 'completion'
                     : action === 'general-reject'
                         ? 'review'
-                        : 'confirm-completion';
+                        : action === 'reopen'
+                            ? 'reopen'
+                            : 'confirm-completion';
         const body = action === 'general-reject'
             ? { decision: 'reject', description }
             : action === 'reject'
@@ -366,15 +368,17 @@ function TaskDetailsPage() {
                     ? 'Task returned'
                     : action === 'reject' || action === 'general-reject'
                         ? 'Task rejected'
-                        : action === 'hand-back'
-                            ? 'Sent to the original assignee'
-                            : action === 'close-now'
-                                ? 'Task closed'
-                                : action === 'general-complete'
-                                    ? 'Sent for review'
-                                    : action === 'complete'
-                                        ? 'Sent for confirmation'
-                                        : 'Task closed',
+                        : action === 'reopen'
+                            ? 'Task reopened'
+                            : action === 'hand-back'
+                                ? 'Sent to the original assignee'
+                                : action === 'close-now'
+                                    ? 'Task closed'
+                                    : action === 'general-complete'
+                                        ? 'Sent for review'
+                                        : action === 'complete'
+                                            ? 'Sent for confirmation'
+                                            : 'Task closed',
                 description: res.data?.message || 'Updated.',
             });
         } catch (err) {
@@ -397,27 +401,6 @@ function TaskDetailsPage() {
             toast({ title: 'Task approved', description: res.data?.message || 'The task is closed.' });
         } catch (err) {
             toast({ title: 'Could not approve the task', description: err?.response?.data?.message || 'Try again.' });
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const reopenTask = async () => {
-        setBusy(true);
-        try {
-            const res = await axiosInstance.post(
-                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/reopen`,
-                {},
-                { skipToast: true },
-            );
-            setTask(res.data?.task || null);
-            setTab('updates');
-            toast({
-                title: 'Task reopened',
-                description: res.data?.message || 'The task is pending again.',
-            });
-        } catch (err) {
-            toast({ title: 'Could not reopen the task', description: err?.response?.data?.message || 'Try again.' });
         } finally {
             setBusy(false);
         }
@@ -490,11 +473,11 @@ function TaskDetailsPage() {
                                 <button
                                     type="button"
                                     disabled={busy || !task.canReopen}
-                                    title={task.canReopen ? undefined : 'Reopen Request is disabled after the task is Completed'}
-                                    onClick={reopenTask}
+                                    title={task.canReopen ? 'Reopen this task' : 'Reopen is available to the task owner'}
+                                    onClick={() => setNoteAction('reopen')}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                                 >
-                                    <RefreshCw size={14} /> Reopen Request
+                                    <RefreshCw size={14} /> Reopen
                                 </button>
                             )}
                             {task.canReturn && (
@@ -839,7 +822,9 @@ function TaskDetailsPage() {
             )}
             {noteAction && (
                 <NoteModal
-                    title={noteAction === 'return'
+                    title={noteAction === 'reopen'
+                        ? 'Reopen Task'
+                        : noteAction === 'return'
                         ? 'Return Task'
                         : noteAction === 'reject' || noteAction === 'general-reject'
                             ? 'Reject Task'
@@ -852,7 +837,9 @@ function TaskDetailsPage() {
                                         : noteAction === 'complete'
                                             ? 'Mark as Completed'
                                             : 'Confirm Close'}
-                    hint={noteAction === 'reject' || noteAction === 'general-reject'
+                    hint={noteAction === 'reopen'
+                        ? 'A comment is required. It is saved in Work Updates, emailed to the assignee, and the task is sent back to them.'
+                        : noteAction === 'reject' || noteAction === 'general-reject'
                         ? 'A comment is required. It is saved in Work Updates.'
                         : noteAction === 'hand-back'
                             ? 'This sends the task to the original assignee and emails them. Your comment is saved in Work Updates.'
@@ -865,7 +852,9 @@ function TaskDetailsPage() {
                                         : noteAction === 'complete'
                                             ? 'The original assignee is emailed. The task stays open until they confirm close.'
                                             : 'Confirming closes this task for both of you. It leaves the open task list.'}
-                    submitLabel={noteAction === 'reject' || noteAction === 'general-reject'
+                    submitLabel={noteAction === 'reopen'
+                        ? 'Reopen'
+                        : noteAction === 'reject' || noteAction === 'general-reject'
                         ? 'Reject'
                         : noteAction === 'hand-back'
                             ? 'Send to original assignee'

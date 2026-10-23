@@ -51,3 +51,24 @@ export function canEditVehicleServiceInitiate({
     }
     return Boolean(isFlowchartHr);
 }
+
+/**
+ * When the service form is locked, flowchart Accounts can still edit amounts
+ * and flowchart HR can still edit amounts and attachments. Completed or not.
+ */
+export function lockedServiceFieldAccess({
+    locked = false,
+    saving = false,
+    isFlowchartHr = false,
+    isFlowchartAccounts = false,
+} = {}) {
+    const hr = Boolean(isFlowchartHr);
+    const accounts = Boolean(isFlowchartAccounts);
+    const amountOpen = !locked || hr || accounts;
+    const attachmentOpen = !locked || hr;
+    return {
+        amountDisabled: Boolean(saving) || !amountOpen,
+        attachmentDisabled: Boolean(saving) || !attachmentOpen,
+        showOverrideSave: Boolean(locked) && (hr || accounts),
+    };
+}

@@ -408,8 +408,12 @@ export default function VehicleServiceAccountsZohoBillingCard({
             allMultiBillsDone);
 
     const canAct = Boolean(canActAccounts) && awaitingBilling && !isBilled;
-    const canEditAmounts = awaitingBilling && !isBilled && Boolean(canEditInvoiceValue);
-    const canEditFiles = awaitingBilling && !isBilled && (Boolean(canActAccounts) || Boolean(canEditInvoiceValue));
+    const roleCanEditAmounts = Boolean(canActAccounts) || Boolean(canEditInvoiceValue);
+    const paymentVisible = awaitingBilling || isBilled;
+    const canEditAmounts = paymentVisible && roleCanEditAmounts;
+    const canEditFiles =
+        (awaitingBilling && !isBilled && roleCanEditAmounts) ||
+        (isBilled && Boolean(canEditInvoiceValue));
     const canEditBillMeta = canEditFiles;
 
     const assignmentPending = isOilServiceAssignmentPending(remark);
@@ -817,6 +821,16 @@ export default function VehicleServiceAccountsZohoBillingCard({
             const serviceUpdates = isAccidentMultiBill
                 ? buildServiceUpdatesMulti()
                 : buildServiceUpdatesSingle();
+            if (isBilled && serviceId) {
+                const { data } = await axiosInstance.put(
+                    `/AssetItem/${vehicleId}/service/${serviceId}`,
+                    serviceUpdates,
+                    { skipToast: true },
+                );
+                toast({ title: 'Invoice updated', description: data?.message || 'Amount and attachment saved.' });
+                if (typeof onUpdated === 'function') onUpdated(data?.asset || null);
+                return;
+            }
             const { data } = await axiosInstance.post(
                 `/AssetItem/${vehicleId}/service-workflow/respond`,
                 {
@@ -1055,7 +1069,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                         isBilled
                             ? 'Zoho bill already created — payment done'
                             : awaitingBilling
-                              ? 'Accounts can replace the invoice file. Only HR can change the amount.'
+                              ? 'Accounts can edit amounts. HR can edit amounts and the invoice file, including after the bill is complete.'
                               : 'Complete Service first — then Make Payment unlocks'
                     }
                 >

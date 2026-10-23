@@ -198,7 +198,7 @@ export default function AttendanceFutureRequestModal({
     const [attachment, setAttachment] = useState(null);
     const [localError, setLocalError] = useState('');
     const isPreviousDate = isAuthorizedLeave && leaveDuration === 'previous';
-    const usesDateList = isMispunch || isFuturePunch || isPreviousDate;
+    const usesDateList = isMispunch || isFuturePunch || isPreviousDate || isSickLeave;
 
     const dateOptions = useMemo(() => {
         if (!usesDateList) return [];
@@ -207,20 +207,53 @@ export default function AttendanceFutureRequestModal({
                 const date = String(row?.date || '').slice(0, 10);
                 if (!date.startsWith(currentMonth) || date > todayKey) return false;
                 const status = String(row?.statusKey || '');
+                // Cleared attendance is stored as unauthorized leave. A leftover
+                // request flag must not hide that past day from Previous date.
+                if (isPreviousDate) {
+                    if (date >= todayKey) return false;
+                    if (status !== 'unauthorized_leave') return false;
+                    return !/mispunch/i.test(String(row?.reason || ''));
+                }
                 const approved = ['approvalStatus', 'leaveRequestStatus', 'hourAdjustStatus']
                     .some((key) => String(row?.[key] || '').toLowerCase() === 'approved');
                 const pending = String(row?.leaveRequestStatus || '').toLowerCase() === 'pending';
                 if (approved || pending) return false;
-                if (isMispunch) {
-                    return status === 'unauthorized_leave' || status === 'mispunch' || /mispunch/i.test(String(row?.reason || ''));
+                if (isSickLeave || isMispunch) {
+                    const noPunch = !String(row?.timeIn || '').trim() && !String(row?.timeOut || '').trim();
+                    const unauth =
+                        !status ||
+                        status === 'unauthorized_leave' ||
+                        status === 'not_marked' ||
+                        status === 'absent';
+                    if (isSickLeave) return unauth && noPunch && date < todayKey && status !== 'mispunch';
+                    return (
+                        status === 'mispunch' ||
+                        /mispunch/i.test(String(row?.reason || '')) ||
+                        (unauth && noPunch && date < todayKey)
+                    );
                 }
                 if (variant === 'late') return status === 'late_arrived';
                 if (variant === 'early') return status === 'early_go';
                 return status === 'unauthorized_leave';
             })
             .map((row) => String(row.date).slice(0, 10));
+        if (isMispunch || isSickLeave) {
+            const known = new Set(
+                (Array.isArray(attendanceRecords) ? attendanceRecords : []).map((row) => String(row?.date || '').slice(0, 10)),
+            );
+            const [year, month] = currentMonth.split('-').map(Number);
+            const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+            for (let day = 1; day <= last; day += 1) {
+                const key = `${currentMonth}-${String(day).padStart(2, '0')}`;
+                if (key >= todayKey || known.has(key)) continue;
+                const weekday = weekdayKeyFromDateKey(key);
+                if (holidayDates instanceof Set && holidayDates.has(key)) continue;
+                if (offWeekdays instanceof Set && offWeekdays.has(weekday)) continue;
+                rows.push(key);
+            }
+        }
         return [...new Set(rows)].sort();
-    }, [attendanceRecords, currentMonth, todayKey, usesDateList, isMispunch, variant]);
+    }, [attendanceRecords, currentMonth, todayKey, usesDateList, isMispunch, isPreviousDate, variant, holidayDates, offWeekdays]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -345,20 +378,12 @@ export default function AttendanceFutureRequestModal({
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!isAnnualLeave && !isSingleDate && !leaveDuration) {
+        if (!isAnnualLeave && !isSingleDate && !isSickLeave && !leaveDuration) {
             setLocalError(isAuthorizedLeave ? 'Choose previous date, single day, or multiple days.' : 'Choose single day or multiple days.');
             return;
         }
         if (!isSingleDate && authorizedBlock) {
             setLocalError(authorizedBlock);
-            return;
-        }
-        if (isSickLeave && leaveDuration === 'single' && fromDate && toDate && fromDate !== toDate) {
-            setLocalError('Single day leave uses the same start and end date.');
-            return;
-        }
-        if (isSickLeave && leaveDuration === 'multiple' && fromDate && toDate && fromDate === toDate) {
-            setLocalError('Multiple days needs an end date after the start date.');
             return;
         }
         if (!fromDate || !toDate) {
@@ -473,7 +498,7 @@ export default function AttendanceFutureRequestModal({
                                 </p>
                             ) : isSickLeave ? (
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Full days. Pick the dates, a reason, and an attachment. This goes to your primary reportee, then HR.
+                                    Choose an unauthorized leave day from this month. Reason and attachment are required. This goes to your primary reportee, then HR.
                                 </p>
                             ) : !isAnnualLeave ? (
                                 <p className="text-xs text-slate-400 mt-1">
@@ -511,7 +536,7 @@ export default function AttendanceFutureRequestModal({
                         ) : null}
                     </div>
 
-                    {!isAnnualLeave && !isSingleDate ? (
+                    {!isAnnualLeave && !isSingleDate && !isSickLeave ? (
                         <div>
                             <span className={labelClass}>Leave duration</span>
                             <div className={isAuthorizedLeave ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-2 gap-2'}>
@@ -541,7 +566,7 @@ export default function AttendanceFutureRequestModal({
                         </div>
                     ) : null}
 
-                    {isAnnualLeave || isSingleDate || leaveDuration ? (
+                    {isAnnualLeave || isSingleDate || isSickLeave || leaveDuration ? (
                     <>
                     {durationLabel ? (
                         <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-3.5 py-2.5">
@@ -554,9 +579,9 @@ export default function AttendanceFutureRequestModal({
                         </div>
                     ) : null}
 
-                    <div className={isSingleDate || isPreviousDate ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-2 gap-3'}>
+                    <div className={isSingleDate || isPreviousDate || isSickLeave ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-2 gap-3'}>
                         <label className="block">
-                            <span className={labelClass}>{isPreviousDate ? 'Unauthorized leave this month' : isSingleDate ? 'Date' : 'Start date'}</span>
+                            <span className={labelClass}>{isPreviousDate || isSickLeave ? 'Unauthorized leave this month' : isSingleDate ? 'Date' : 'Start date'}</span>
                             {usesDateList ? (
                                 <select
                                     value={fromDate}
@@ -593,7 +618,7 @@ export default function AttendanceFutureRequestModal({
                             />
                             )}
                         </label>
-                        {isSingleDate || isPreviousDate ? null : (
+                        {isSingleDate || isPreviousDate || isSickLeave ? null : (
                         <label className="block">
                             <span className={labelClass}>End date</span>
                             <input

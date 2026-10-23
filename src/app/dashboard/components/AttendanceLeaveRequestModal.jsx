@@ -36,6 +36,9 @@ export default function AttendanceLeaveRequestModal({
 }) {
     const fileRef = useRef(null);
     const [selectedKey, setSelectedKey] = useState('');
+    const [leaveSpan, setLeaveSpan] = useState('single');
+    const [fromDate, setFromDate] = useState('');
+    const [toDate, setToDate] = useState('');
     const [reason, setReason] = useState('');
     const [attachment, setAttachment] = useState(null);
     const [timeIn, setTimeIn] = useState('');
@@ -45,6 +48,9 @@ export default function AttendanceLeaveRequestModal({
     useEffect(() => {
         if (!isOpen) return;
         setSelectedKey('');
+        setLeaveSpan('single');
+        setFromDate(dateKey || '');
+        setToDate(dateKey || '');
         setReason('');
         setAttachment(null);
         setTimeIn('');
@@ -78,6 +84,25 @@ export default function AttendanceLeaveRequestModal({
             setLocalError('Reason is required.');
             return;
         }
+        const dated = selectedKey === 'sick_leave' || selectedKey === 'authorized_leave';
+        if (dated) {
+            if (!fromDate || !toDate) {
+                setLocalError('Choose a start date and an end date.');
+                return;
+            }
+            if (leaveSpan === 'single' && fromDate !== toDate) {
+                setLocalError('Single day leave uses the same start and end date.');
+                return;
+            }
+            if (leaveSpan === 'multiple' && fromDate === toDate) {
+                setLocalError('Multiple days needs an end date after the start date.');
+                return;
+            }
+            if (toDate < fromDate) {
+                setLocalError('End date cannot be before the start date.');
+                return;
+            }
+        }
         if (selectedKey === 'sick_leave' && !attachment?.name) {
             setLocalError('A document is required for sick leave.');
             return;
@@ -105,9 +130,15 @@ export default function AttendanceLeaveRequestModal({
         onSubmit?.({
             requestedStatusKey: selectedKey,
             requestedStatusLabel: opt?.label || selectedKey,
+            fromDate: dated ? fromDate : dateKey,
+            toDate: dated ? toDate : dateKey,
             reason: trimmed,
-            attachmentName: sickFile?.name || '',
-            attachmentData: sickFile ? await readErpFileAsDataUrl(sickFile) : '',
+            attachmentName: sickFile?.name || (selectedKey === 'authorized_leave' ? attachment?.name || '' : ''),
+            attachmentData: sickFile
+                ? await readErpFileAsDataUrl(sickFile)
+                : selectedKey === 'authorized_leave' && attachment
+                  ? await readErpFileAsDataUrl(attachment)
+                  : '',
             timeIn: selectedKey === 'late_arrived' ? arrived : '',
             timeOut: selectedKey === 'late_arrived' ? left : '',
         });
@@ -122,7 +153,7 @@ export default function AttendanceLeaveRequestModal({
                 onClick={handleClose}
                 disabled={submitting}
             />
-            <div className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200/80 overflow-hidden">
+            <div className="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200/80">
                 <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-4 border-b border-slate-100">
                     <div className="min-w-0">
                         <h2 className="text-lg font-semibold text-slate-900 tracking-tight">
@@ -187,6 +218,69 @@ export default function AttendanceLeaveRequestModal({
                         </div>
                     </div>
 
+                    {selectedKey === 'sick_leave' || selectedKey === 'authorized_leave' ? (
+                        <div className="space-y-3">
+                            <p className="text-xs text-slate-500">
+                                {selectedKey === 'sick_leave'
+                                    ? 'Full days. Pick the dates, a reason, and an attachment. This goes to your primary reportee, then HR.'
+                                    : 'Pick the dates and a reason. This goes to your primary reportee, then HR.'}
+                            </p>
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { key: 'single', label: 'Single day' },
+                                    { key: 'multiple', label: 'Multiple days' },
+                                ].map((option) => (
+                                    <button
+                                        key={option.key}
+                                        type="button"
+                                        disabled={submitting}
+                                        onClick={() => {
+                                            setLeaveSpan(option.key);
+                                            setLocalError('');
+                                            if (option.key === 'single') setToDate(fromDate);
+                                        }}
+                                        className={`h-10 rounded-xl text-sm font-semibold ${
+                                            leaveSpan === option.key
+                                                ? 'bg-slate-900 text-white'
+                                                : 'bg-slate-100 text-slate-600'
+                                        }`}
+                                    >
+                                        {option.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <label className="block">
+                                    <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Start date</span>
+                                    <input
+                                        type="date"
+                                        value={fromDate}
+                                        onChange={(e) => {
+                                            const value = e.target.value;
+                                            setFromDate(value);
+                                            if (leaveSpan === 'single') setToDate(value);
+                                            else if (toDate && value > toDate) setToDate(value);
+                                        }}
+                                        className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50/80 text-sm"
+                                        required
+                                    />
+                                </label>
+                                <label className="block">
+                                    <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">End date</span>
+                                    <input
+                                        type="date"
+                                        value={toDate}
+                                        min={fromDate || undefined}
+                                        disabled={leaveSpan === 'single' || submitting}
+                                        onChange={(e) => setToDate(e.target.value)}
+                                        className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50/80 text-sm disabled:opacity-60"
+                                        required
+                                    />
+                                </label>
+                            </div>
+                        </div>
+                    ) : null}
+
                     {selectedKey === 'late_arrived' ? (
                         <div className="grid grid-cols-2 gap-3">
                             <label className="block">
@@ -230,7 +324,7 @@ export default function AttendanceLeaveRequestModal({
                         />
                     </label>
 
-                    {selectedKey === 'sick_leave' ? (
+                    {selectedKey === 'sick_leave' || selectedKey === 'authorized_leave' ? (
                     <div>
                         <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
                             Document
@@ -255,7 +349,11 @@ export default function AttendanceLeaveRequestModal({
                                     {attachment ? attachment.name : 'Choose a file'}
                                 </span>
                                 <span className="block text-xs text-slate-400 mt-0.5">
-                                    {attachment ? 'Click to change' : `Required · ${ERP_ATTACHMENT_HINT}`}
+                                    {attachment
+                                        ? 'Click to change'
+                                        : selectedKey === 'sick_leave'
+                                          ? `Required · ${ERP_ATTACHMENT_HINT}`
+                                          : `Optional · ${ERP_ATTACHMENT_HINT}`}
                                 </span>
                             </span>
                         </button>

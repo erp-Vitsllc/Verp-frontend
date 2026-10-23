@@ -374,6 +374,8 @@ function VehicleAccidentRepairDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
+                                isFlowchartHr={isFlowchartHr}
+                                isFlowchartAccounts={isFlowchartAccounts}
                                 workflowStage={accidentRepairflowStage}
                                 liveHrReview={liveHrReview}
                                 onSaved={() => {

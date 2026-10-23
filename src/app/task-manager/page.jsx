@@ -51,7 +51,13 @@ const DATE_RANGES = [
     { id: 'custom', label: 'Custom' },
 ];
 const TYPE_FILTERS = ['All Types', 'System Task', 'Workflow Task', 'General Task'];
-const STATUSES = ['All Status', 'Pending', 'Overdue', 'Completed', 'Cancelled'];
+const STATUSES = [
+    { value: 'All Status', label: 'All Status' },
+    { value: 'Pending', label: 'Pending' },
+    { value: 'Overdue', label: 'Overdue' },
+    { value: 'Completed', label: 'Completed / Closed' },
+    { value: 'Cancelled', label: 'Cancelled' },
+];
 const PRIORITIES = ['All Priority', 'High', 'Medium', 'Low'];
 
 const AVATAR_COLORS = ['#3B82F6', '#8B5CF6', '#F59E0B', '#10B981', '#EF4444', '#0EA5E9', '#EC4899'];
@@ -64,6 +70,7 @@ const STATUS_STYLE = {
     Overdue: 'bg-red-50 text-red-600',
     'In Progress': 'bg-sky-50 text-sky-700',
     Completed: 'bg-emerald-50 text-emerald-600',
+    Closed: 'bg-emerald-50 text-emerald-700',
     Cancelled: 'bg-slate-100 text-slate-500',
     'On Hold': 'bg-amber-50 text-amber-700',
     Rejected: 'bg-slate-100 text-slate-600',
@@ -119,6 +126,10 @@ function oneOf(value, allowed, fallback) {
     return allowed.includes(value) ? value : fallback;
 }
 
+function statusValue(value) {
+    return STATUSES.some((item) => item.value === value) ? value : 'Pending';
+}
+
 function readTaskListFilters(params) {
     const page = parseInt(paramValue(params, 'page', '1'), 10);
     const size = paramValue(params, 'size', '10');
@@ -131,7 +142,7 @@ function readTaskListFilters(params) {
         datePreset: oneOf(paramValue(params, 'date', 'all'), DATE_RANGES.map((item) => item.id), 'all'),
         fromDate: paramValue(params, 'from'),
         toDate: paramValue(params, 'to'),
-        status: oneOf(paramValue(params, 'status', 'Pending'), STATUSES, 'Pending'),
+        status: statusValue(paramValue(params, 'status', 'Pending')),
         priority: oneOf(paramValue(params, 'priority', 'All Priority'), PRIORITIES, 'All Priority'),
         page: Number.isFinite(page) && page > 0 ? page : 1,
         pageSizeChoice: oneOf(size, PAGE_SIZE_OPTIONS.map((item) => item.id), '10'),
@@ -530,7 +541,7 @@ function summarizeTasks(list) {
                 next.pendingDue += 1;
                 bump('pendingDue', requestedMonth);
             }
-        } else if (shown === 'Completed') {
+        } else if (shown === 'Completed' || shown === 'Closed') {
             next.completed += 1;
             bump('completed', dateKey(task.completionDate || task.requestDate).slice(0, 7));
         }
@@ -1192,7 +1203,7 @@ function TaskManagerContent() {
                                 className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-600"
                             >
                                 {STATUSES.map((item) => (
-                                    <option key={item}>{item}</option>
+                                    <option key={item.value} value={item.value}>{item.label}</option>
                                 ))}
                             </select>
                             <select

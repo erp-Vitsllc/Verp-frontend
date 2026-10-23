@@ -42,7 +42,6 @@ import {
     Zap,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
-import AttendanceLeaveRequestModal from '@/app/dashboard/components/AttendanceLeaveRequestModal';
 import { MonthPicker } from '@/components/ui/date-picker';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { getEmployeeInitials } from '@/utils/employeeProfileImage';
@@ -1923,19 +1922,23 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     const compOffLines = [];
     if (dayNote?.givenTo) compOffLines.push(`Comp off given to ${formatDayLabel(dayNote.givenTo)}`);
     if (dayNote?.takenFrom) compOffLines.push(`Comp off taken from ${formatDayLabel(dayNote.takenFrom)}`);
-    const showTip = hoveredDate === dateKey && inMonth && !beforeStart && !ctx.salaryLock?.locked;
     const canOpenMark = Boolean(markTarget?.employeeId) && inMonth && !beforeStart;
     const pinnedHere = pinnedAttendanceDate === dateKey;
+    const [, setPinTick] = useState(0);
+    const showTip = (pinnedHere || (!pinnedAttendanceDate && hoveredDate === dateKey))
+        && inMonth && !beforeStart && !ctx.salaryLock?.locked;
     useEffect(() => {
         if (!pinnedHere) return undefined;
         const close = (event) => {
-            if (event.target?.closest?.('[data-attendance-day]')) return;
+            const day = event.target?.closest?.('[data-attendance-day]');
+            if (day?.getAttribute('data-attendance-day') === dateKey) return;
             pinnedAttendanceDate = '';
             setHoveredDate('');
+            setPinTick((tick) => tick + 1);
         };
-        document.addEventListener('mousedown', close);
-        return () => document.removeEventListener('mousedown', close);
-    }, [pinnedHere, setHoveredDate]);
+        document.addEventListener('pointerdown', close, true);
+        return () => document.removeEventListener('pointerdown', close, true);
+    }, [pinnedHere, setHoveredDate, dateKey]);
     const requestLines = inMonth && !beforeStart
         ? (ctx.pendingRequestsByDate?.get(dateKey) || [])
         : [];
@@ -1954,26 +1957,29 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         <div
             className={`relative ${canOpenMark ? 'cursor-pointer' : ''}`}
             data-attendance-day={inMonth && !beforeStart ? dateKey : undefined}
-            onMouseEnter={() => inMonth && !beforeStart && setHoveredDate(dateKey)}
-            onMouseLeave={() => setHoveredDate(pinnedAttendanceDate || '')}
+            onMouseEnter={() => {
+                if (pinnedAttendanceDate || !inMonth || beforeStart) return;
+                setHoveredDate(dateKey);
+            }}
+            onMouseLeave={() => {
+                if (pinnedAttendanceDate) return;
+                setHoveredDate('');
+            }}
             onClick={(event) => {
                 event.stopPropagation();
                 if (!inMonth || beforeStart || ctx.salaryLock?.locked) return;
-                if (onRequestDay && !isHoliday && !isWeeklyOff) {
-                    onRequestDay({ dateKey, record, isFuture });
-                    return;
-                }
                 if (pinnedAttendanceDate === dateKey) {
                     pinnedAttendanceDate = '';
                     setHoveredDate('');
+                    setPinTick((tick) => tick + 1);
                     return;
                 }
                 pinnedAttendanceDate = dateKey;
                 setHoveredDate(dateKey);
+                setPinTick((tick) => tick + 1);
             }}
         >
             <div
-                title={requestPending ? undefined : (canOpenMark ? 'Double-click to mark this day' : undefined)}
                 onDoubleClick={openMarkPage}
                 className={`${compact
                 ? 'flex h-8 w-full items-center justify-center rounded-[7px] text-[11px] font-semibold tabular-nums leading-none'
@@ -3252,6 +3258,11 @@ export default function EmployeeInformationDashboard({
     const balances = profile?.leaveBalances || {};
     const annualLeave = profile?.annualLeave || {};
     const sickRemaining = balances.sick_leave?.remaining == null ? '—' : n(balances.sick_leave.remaining);
+    const sickUsed = balances.sick_leave?.taken != null
+        ? n(balances.sick_leave.taken)
+        : balances.sick_leave?.allowed != null && balances.sick_leave?.remaining != null
+            ? n(Number(balances.sick_leave.allowed) - Number(balances.sick_leave.remaining))
+            : showValue(activeStats.sick.used);
     const annualBalance = balances.on_leave?.remaining == null ? n(annualLeave.remainingDays) : n(balances.on_leave.remaining);
     const compoffBalance = n(balances.compoff_leave?.remaining);
     const compoffEarned = balances.compoff_leave?.allowed != null
@@ -4042,7 +4053,7 @@ export default function EmployeeInformationDashboard({
                             <SummaryCard icon={Plus} iconClass="bg-[#22C55E] text-white" rounded="rounded-full" title="Sick Leave" onClick={() => openRecords('sick_leave')}>
                                 <SplitStats
                                     items={[
-                                        { label: 'Used', value: showValue(activeStats.sick.used) },
+                                        { label: 'Used', value: sickUsed },
                                         { label: 'Remaining', value: sickRemaining },
                                     ]}
                                 />
@@ -4477,7 +4488,7 @@ export default function EmployeeInformationDashboard({
                             <LeaveBox tone="bg-[#ECFDF3]" iconBg="bg-[#22C55E]" icon={Plus} title="Sick Leave" columns="grid-cols-4">
                                 <LeaveStat label="Requested" value={showValue(activeStats.sick.requested)} />
                                 <LeaveStat label="Approved" value={showValue(activeStats.sick.approved)} />
-                                <LeaveStat label="Used" value={showValue(activeStats.sick.used)} />
+                                <LeaveStat label="Used" value={sickUsed} />
                                 <LeaveStat label="Balance" value={sickRemaining} accent />
                             </LeaveBox>
                             <LeaveBox tone="bg-[#F0FDFA]" iconBg="bg-[#2DD4BF]" icon={Clock} title="Comp Off" columns="grid-cols-4">
@@ -4884,10 +4895,6 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [hoveredDate, setHoveredDate] = useState('');
-    const [requestModal, setRequestModal] = useState(null);
-    const [requestSubmitting, setRequestSubmitting] = useState(false);
-    const [requestError, setRequestError] = useState('');
-
     const loadMonth = useCallback(async () => {
         if (!/^\d{4}-\d{2}$/.test(monthKey)) return;
         setLoading(true);
@@ -5051,19 +5058,6 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
                                             employeeId,
                                             staffType,
                                         }}
-                                        onRequestDay={forEmployeeId ? null : ({ dateKey, record, isFuture }) => {
-                                            if (isFuture) {
-                                                setRequestError('Leave can be requested on a past red day.');
-                                            } else if (record?.leaveRequestStatus === 'pending') {
-                                                setRequestError('A leave request is already pending for this date.');
-                                            } else {
-                                                setRequestError('');
-                                            }
-                                            setRequestModal({
-                                                dateKey,
-                                                label: record?.statusLabel || 'Unauthorized Leave',
-                                            });
-                                        }}
                                     />
                                 ))}
                             </div>
@@ -5081,41 +5075,6 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
                 </>
             )}
             <DashboardSalaryEnrollLock {...salaryLock} />
-            <AttendanceLeaveRequestModal
-                key={requestModal?.dateKey || 'leave-closed'}
-                isOpen={Boolean(requestModal)}
-                dateKey={requestModal?.dateKey}
-                currentLabel={requestModal?.label || 'Unauthorized Leave'}
-                submitting={requestSubmitting}
-                error={requestError}
-                onClose={() => {
-                    if (requestSubmitting) return;
-                    setRequestModal(null);
-                    setRequestError('');
-                }}
-                onSubmit={async ({ requestedStatusKey, reason, attachmentName, attachmentData, timeIn, timeOut }) => {
-                    if (!requestModal?.dateKey || !requestedStatusKey) return;
-                    setRequestSubmitting(true);
-                    setRequestError('');
-                    try {
-                        await axiosInstance.post('/Attendance/me/leave-request', {
-                            date: requestModal.dateKey,
-                            requestedStatusKey,
-                            reason: reason || '',
-                            attachmentName: attachmentName || '',
-                            attachmentData: attachmentData || '',
-                            timeIn: timeIn || '',
-                            timeOut: timeOut || '',
-                        }, { skipToast: true });
-                        setRequestModal(null);
-                        await loadMonth();
-                    } catch (err) {
-                        setRequestError(err?.response?.data?.message || 'Could not send leave request.');
-                    } finally {
-                        setRequestSubmitting(false);
-                    }
-                }}
-            />
         </section>
     );
 }
