@@ -370,10 +370,14 @@ const DEDUCTION_DAY_KEYS = new Set([
     'authorized_leave',
 ]);
 
+function approvedHoursStillDeduct(mark) {
+    return String(mark?.hourAdjustStatus || '') === 'approved' && Number(mark?.hoursApproved) > 0;
+}
+
 function canOfferDeductionWaive(mark, canWaiveDeduction) {
     if (!canWaiveDeduction || !mark?.attendanceId || mark.deductionWaived) return false;
-    if (!(Number(mark.deductionDays) > 0)) return false;
-    return DEDUCTION_DAY_KEYS.has(String(mark.key || '').trim());
+    if (!DEDUCTION_DAY_KEYS.has(String(mark.key || '').trim())) return false;
+    return Number(mark.deductionDays) > 0 || approvedHoursStillDeduct(mark);
 }
 
 function withWaiveOption(options, mark, canWaiveDeduction) {
@@ -1362,7 +1366,7 @@ function AttendanceChangeReviewModal({ open, employee, mark, deciding, rejectFir
                                     {change.attachmentName}
                                 </a>
                             ) : (
-                                change.attachmentName
+                                <span className="break-all">{change.attachmentName}</span>
                             )}
                         </p>
                     ) : null}
@@ -1644,21 +1648,21 @@ function EmployeeRow({
                                     </span>
                                 ) : null}
                                 {attachment ? (
-                                    <span className="inline-flex max-w-[220px] items-center gap-1" title={attachment}>
-                                        <span className="truncate text-[10px] font-medium text-slate-600">
-                                            Attachment: {attachment}
+                                    attachmentUrl ? (
+                                        <a
+                                            href={attachmentUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            title={attachment}
+                                            className="max-w-[220px] truncate text-[10px] font-semibold text-blue-600 hover:underline"
+                                        >
+                                            {attachment}
+                                        </a>
+                                    ) : (
+                                        <span className="max-w-[220px] truncate text-[10px] font-medium text-slate-600" title={attachment}>
+                                            {attachment}
                                         </span>
-                                        {attachmentUrl ? (
-                                            <a
-                                                href={attachmentUrl}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="shrink-0 text-[10px] font-semibold text-blue-600 hover:underline"
-                                            >
-                                                View
-                                            </a>
-                                        ) : null}
-                                    </span>
+                                    )
                                 ) : null}
                             </>
                         );

@@ -1750,18 +1750,22 @@ function DayTip({
                 </p>
             ) : null}
             {sickAttachment?.name ? (
-                <p className="mt-1 flex min-w-0 items-center gap-2 text-[12px]">
-                    <span className="truncate font-medium text-[#64748B]">Attachment: {sickAttachment.name}</span>
+                <p className="mt-1 min-w-0 text-[12px]">
                     {sickAttachment.url ? (
                         <a
                             href={sickAttachment.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="shrink-0 font-semibold text-[#2563EB] hover:underline"
+                            title={sickAttachment.name}
+                            className="block truncate font-semibold text-[#2563EB] hover:underline"
                         >
-                            View
+                            {sickAttachment.name}
                         </a>
-                    ) : null}
+                    ) : (
+                        <span className="block truncate font-medium text-[#64748B]" title={sickAttachment.name}>
+                            {sickAttachment.name}
+                        </span>
+                    )}
                 </p>
             ) : null}
             <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
@@ -2884,7 +2888,7 @@ export default function EmployeeInformationDashboard({
     const [groupKey, setGroupKey] = useState('');
     const [reportMenuOpen, setReportMenuOpen] = useState(false);
     const [reportBusy, setReportBusy] = useState(false);
-    const [reportTable, setReportTable] = useState(null);
+    const [reportError, setReportError] = useState('');
     const [groupMenuOpen, setGroupMenuOpen] = useState(false);
     const [prepPage, setPrepPage] = useState(1);
     const [taskPage, setTaskPage] = useState(1);
@@ -3673,14 +3677,10 @@ export default function EmployeeInformationDashboard({
                 ));
                 title = `${label} attendance ${rangeLabel}`;
             }
-            setReportTable({ title, rows });
+            setReportError('');
             downloadAttendanceExcel(title, rows);
         } catch (err) {
-            setReportTable({
-                title: 'Attendance report',
-                rows: [],
-                error: err?.response?.data?.message || 'Could not build the report.',
-            });
+            setReportError(err?.response?.data?.message || 'Could not build the report.');
         } finally {
             setReportBusy(false);
         }
@@ -3975,39 +3975,7 @@ export default function EmployeeInformationDashboard({
                 </div>
             </section>
 
-            {reportTable ? (
-                <section className="rounded-2xl border border-[#E6EDF5] bg-white p-3">
-                    <h2 className="text-[15px] font-bold text-[#1B2A4A]">{reportTable.title}</h2>
-                    <p className="mb-2 text-[12px] font-medium text-[#64748B]">Additional hours are flexible time past 10 hours when that extra is at least 1 hour. Extra time under 1 hour is short hours. Approved OT is separate.</p>
-                    {reportTable.error ? <p className="text-sm text-red-500">{reportTable.error}</p> : null}
-                    {reportTable.rows?.length ? (
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full text-left text-[12px]">
-                                <thead>
-                                    <tr className="border-b border-[#E6EDF5] text-[#64748B]">
-                                        {['Employee name', 'Date range', 'Working days', 'Comp off taken', 'Additional hours', 'Approved OT', 'Short hours'].map((label) => (
-                                            <th key={label} className="px-2 py-2 font-semibold">{label}</th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {reportTable.rows.map((row) => (
-                                        <tr key={row.name} className="border-b border-[#F1F5F9] text-[#1B2A4A]">
-                                            <td className="px-2 py-2 font-semibold">{row.name}</td>
-                                            <td className="px-2 py-2">{row.rangeLabel}</td>
-                                            <td className="px-2 py-2">{row.workingDays}</td>
-                                            <td className="px-2 py-2">{row.compOffTaken}</td>
-                                            <td className="px-2 py-2">{hoursLabel(row.additional)}</td>
-                                            <td className="px-2 py-2">{Number(row.approvedOt || 0).toFixed(2)}</td>
-                                            <td className="px-2 py-2">{hoursLabel(row.short)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    ) : null}
-                </section>
-            ) : null}
+            {reportError ? <p className="text-sm text-red-500">{reportError}</p> : null}
 
             {groupKey ? (
                 <GroupAttendanceBoard
