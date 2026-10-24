@@ -128,8 +128,8 @@ export default function AttendanceLeaveDecideModal({
         dayPart === 'half' || dayPart === 'quarter'
             ? [dayPart === 'quarter' ? 'Quarter day' : 'Half day', side, workWindow].filter(Boolean).join(' · ')
             : dayPart === 'full'
-              ? 'Full day'
-              : '';
+                ? 'Full day'
+                : '';
     const skipStatusPicker = isMispunchRequest || isPunchCorrectionKind(kindKey) || kindKey.startsWith('future_');
 
     const handleReject = () => {

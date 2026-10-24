@@ -514,7 +514,8 @@ export default function DashboardAttendanceCalendar({
     const [scheduleWeek, setScheduleWeek] = useState(null);
     const [offWeekdays, setOffWeekdays] = useState(() => new Set(['saturday', 'sunday']));
     const [selfEmployeeId, setSelfEmployeeId] = useState('');
-    const [annualFloor, setAnnualFloor] = useState({ date: '', note: '' });
+    const [annualFloor, setAnnualFloor] = useState({ date: '', note: '', blockers: [] });
+    const [annualBlockersOpen, setAnnualBlockersOpen] = useState(false);
     const lockedEmployeeId = String(forEmployeeId || '').trim();
     const [viewEmployeeId, setViewEmployeeId] = useState(lockedEmployeeId);
     const [isSelf, setIsSelf] = useState(true);
@@ -712,22 +713,19 @@ export default function DashboardAttendanceCalendar({
                     { skipToast: true },
                 );
                 if (cancelled) return;
-                const eligibleOn = String(data?.eligibleOn || '').trim();
-                const beforeDate = Boolean(data?.cycleNotEligible && eligibleOn);
                 const lines = [];
-                if (beforeDate) {
-                    lines.push(
-                        `You are not eligible for this annual leave. You can go on ${eligibleOn}. You can contact HR for more information.`,
-                    );
+                if (data?.allowanceBlock && data.allowanceBlock.ok === false && data.allowanceBlock.message) {
+                    lines.push(data.allowanceBlock.message);
+                } else if (data?.allowance?.active) {
+                    const row = data.allowance.active;
+                    lines.push(`Open period ${row.startDate} to ${row.endDate}. Remaining ${row.remainingDays} of ${row.allowedDays} days.`);
                 }
-                if (data?.groupCap?.over && data.groupCap.message) lines.push(data.groupCap.message);
-                setAnnualFloor({ date: beforeDate ? eligibleOn : '', note: lines.join(' ') });
-                if (beforeDate) {
-                    setDayRequest((current) => {
-                        if (!current || !current.dateKey || current.dateKey >= eligibleOn) return current;
-                        return { ...current, dateKey: eligibleOn };
-                    });
-                }
+                if (data?.groupCap?.over && data.groupCap.message) lines.push(`${data.groupCap.message} Click to see who is on leave.`);
+                setAnnualFloor({
+                    date: '',
+                    note: lines.join(' '),
+                    blockers: Array.isArray(data?.groupCap?.blockers) ? data.groupCap.blockers : [],
+                });
             } catch {
                 if (!cancelled) setAnnualFloor({ date: '', note: '' });
             }
@@ -888,7 +886,7 @@ export default function DashboardAttendanceCalendar({
         setFutureSubmitting(true);
         setFutureError('');
         try {
-            if (kind === 'mispunch' || kind === 'late_arrived' || kind === 'early_go') {
+            if (kind === 'mispunch') {
                 await axiosInstance.post(
                     '/Attendance/me/yellow-request',
                     {
@@ -1396,6 +1394,11 @@ export default function DashboardAttendanceCalendar({
                         : earliestFutureDate || ''
                 }
                 eligibilityNote={dayRequest?.variant === 'annual' ? annualFloor.note : ''}
+                onEligibilityNoteClick={
+                    dayRequest?.variant === 'annual' && annualFloor.blockers?.length
+                        ? () => setAnnualBlockersOpen(true)
+                        : null
+                }
                 scheduleWeek={scheduleWeek}
                 holidayDates={holidayDates}
                 offWeekdays={offWeekdays}
@@ -1410,6 +1413,25 @@ export default function DashboardAttendanceCalendar({
                 }}
                 onSubmit={submitFutureRequest}
             />
+
+            {annualBlockersOpen ? (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+                    <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close" onClick={() => setAnnualBlockersOpen(false)} />
+                    <div className="relative w-full max-w-md rounded-xl bg-white p-4 shadow-2xl">
+                        <h3 className="text-sm font-semibold text-slate-900">Who is on annual leave</h3>
+                        <ul className="mt-3 max-h-64 space-y-2 overflow-auto text-xs text-slate-700">
+                            {(annualFloor.blockers || []).map((person) => (
+                                <li key={person.employeeMongoId || person.employeeId}>
+                                    <span className="font-semibold">{person.name}</span>
+                                    {person.employeeId ? ` (${person.employeeId})` : ''}
+                                    <span className="block text-slate-500">{person.status} · {(person.dates || []).join(', ')}</span>
+                                </li>
+                            ))}
+                        </ul>
+                        <button type="button" onClick={() => setAnnualBlockersOpen(false)} className="mt-3 w-full rounded-lg border border-slate-200 py-2 text-sm font-semibold">Close</button>
+                    </div>
+                </div>
+            ) : null}
 
             <AttendanceLeaveDecideModal
                 isOpen={Boolean(decideModal && !decideModal.pendingOpen && decideModal.record)}

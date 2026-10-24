@@ -19,7 +19,7 @@ const WEEKDAY_KEYS = [
 ];
 
 /** Field rules per mark type. */
-export function getMarkFormConfig(markKey) {
+export function getMarkFormConfig(markKey, { flowchartHr = false } = {}) {
     if (markKey === 'work_from_home' || markKey === 'on_office') {
         return {
             showTimes: true,
@@ -45,7 +45,7 @@ export function getMarkFormConfig(markKey) {
             showTimes: false,
             showReason: true,
             showAttachment: true,
-            attachmentRequired: true,
+            attachmentRequired: !flowchartHr,
             timesRequired: false,
             reasonOptional: false,
             useWorkingTimeDefaults: false,
@@ -148,11 +148,12 @@ export default function MarkAttendanceDetailsModal({
     staffType = 'office',
     holidayDates = [],
     offWeekdays = [],
+    flowchartHr = false,
     onClose,
     onSave,
     onMapped,
 }) {
-    const config = getMarkFormConfig(markKey);
+    const config = getMarkFormConfig(markKey, { flowchartHr });
     const [timeIn, setTimeIn] = useState('');
     const [timeOut, setTimeOut] = useState('');
     const [reason, setReason] = useState('');

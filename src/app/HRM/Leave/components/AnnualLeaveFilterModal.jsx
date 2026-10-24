@@ -131,11 +131,14 @@ export default function AnnualLeaveFilterModal({
     const [dateEditMode, setDateEditMode] = useState(false);
     const [rejecting, setRejecting] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
+    const [blockersOpen, setBlockersOpen] = useState(false);
     const isApplyMode = applyLabel === 'Apply' && !showReject;
     const showHrOverride = isApplyMode && isDesignatedHr;
     const showAnnualEligibility =
         enableAnnualEligibilityGate && leaveMode === 'annual' && Boolean(employeeId);
-    const notEligible = Boolean(showAnnualEligibility && eligibility?.notEligible && !hrOverride);
+    const notEligible = Boolean(
+        showAnnualEligibility && eligibility?.groupCap?.over && !hrOverride,
+    );
     const showNotEligibleGate = Boolean(notEligible && !dateEditMode);
 
     const selectedEmployee = useMemo(
@@ -153,13 +156,11 @@ export default function AnnualLeaveFilterModal({
         [employeeId, salaryVisibility, selectedEmployee?.employeeId],
     );
     const hrCanPickEarly = Boolean(showHrOverride && hrOverride);
-    const eligibleOnDate =
-        showAnnualEligibility && eligibility?.cycleNotEligible
-            ? String(eligibility?.eligibleOn || '')
-            : '';
+    const activeWindow = eligibility?.allowance?.active || null;
+    const allowanceEnd = activeWindow?.endDate || '';
     const earliestStartDate = hrCanPickEarly
         ? ''
-        : laterDateKey(processingStartDate, eligibleOnDate);
+        : laterDateKey(processingStartDate, activeWindow?.startDate || '');
 
     const selectedLeaveTypeOption =
         LEAVE_TYPE_OPTIONS.find((opt) => opt.value === leaveMode) || LEAVE_TYPE_OPTIONS[0];
@@ -238,8 +239,11 @@ export default function AnnualLeaveFilterModal({
                         eligibleDays: Number(data?.eligibleDays) || 0,
                         requiredDays: Number(data?.requiredDays) || 0,
                         eligibleOn: String(data?.eligibleOn || ''),
-                        cycleNotEligible: Boolean(data?.cycleNotEligible),
+                        cycleNotEligible: false,
                         notEligible: Boolean(data?.notEligible),
+                        allowanceBlocked: Boolean(data?.allowanceBlocked),
+                        allowanceBlock: data?.allowanceBlock || null,
+                        allowance: data?.allowance && typeof data.allowance === 'object' ? data.allowance : null,
                         groupCap: data?.groupCap && typeof data.groupCap === 'object' ? data.groupCap : null,
                     });
                 }
@@ -293,8 +297,12 @@ export default function AnnualLeaveFilterModal({
             setError('End date must be on or after start date.');
             return;
         }
+        if (showAnnualEligibility && eligibility?.allowanceBlocked && !hrCanPickEarly) {
+            setError(eligibility?.allowanceBlock?.message || 'This annual leave is outside the open 30-day period.');
+            return;
+        }
 
-        if (notEligible && !sendToHr) {
+        if (notEligible && !sendToHr && !eligibility?.allowanceBlocked) {
             setDateEditMode(false);
             return;
         }
@@ -478,13 +486,7 @@ export default function AnnualLeaveFilterModal({
                             />
                             {employeeId && earliestStartDate ? (
                                 <p className="mt-1 text-[11px] text-slate-400">
-                                    {eligibleOnDate && earliestStartDate === eligibleOnDate
-                                        ? `Available from ${formatDateLabel(eligibleOnDate)}`
-                                        : `Available from ${formatDateLabel(earliestStartDate)}`}
-                                </p>
-                            ) : employeeId && hrCanPickEarly && eligibleOnDate ? (
-                                <p className="mt-1 text-[11px] text-slate-400">
-                                    Eligible after {formatDateLabel(eligibleOnDate)}. Override is on, so an earlier date can be set.
+                                    Available from {formatDateLabel(earliestStartDate)}
                                 </p>
                             ) : null}
                         </div>
@@ -504,7 +506,12 @@ export default function AnnualLeaveFilterModal({
                                 disabledDays={
                                     hrCanPickEarly
                                         ? disabledDaysBefore(startDate)
-                                        : disabledDaysBefore(laterDateKey(earliestStartDate, startDate))
+                                        : {
+                                              ...(disabledDaysBefore(laterDateKey(earliestStartDate, startDate)) || {}),
+                                              ...(dateKeyToLocalDate(allowanceEnd)
+                                                  ? { after: dateKeyToLocalDate(allowanceEnd) }
+                                                  : {}),
+                                          }
                                 }
                             />
                         </div>
@@ -513,16 +520,18 @@ export default function AnnualLeaveFilterModal({
 
                 {showAnnualEligibility && eligibility ? (
                     <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-left text-xs text-amber-950">
-                        <p>
-                            Previous annual leave taken:{' '}
-                            {Number(eligibility.lastAnnualLeaveDays) > 0
-                                ? eligibility.lastAnnualLeaveDays
-                                : 0}
-                        </p>
-                        {eligibility.cycleNotEligible && eligibility.eligibleOn ? (
-                            <p className="mt-1 font-semibold">
-                                You are eligible after {formatDateLabel(eligibility.eligibleOn)}.
+                        {activeWindow ? (
+                            <p>
+                                Open period {formatDateLabel(activeWindow.startDate)} — {formatDateLabel(activeWindow.endDate)}
+                                {' · '}allowed {activeWindow.allowedDays}
+                                {' · '}taken {activeWindow.takenDays}
+                                {' · '}remaining {activeWindow.remainingDays}
                             </p>
+                        ) : (
+                            <p>No open annual leave period yet. It opens when counted working days complete a cycle.</p>
+                        )}
+                        {eligibility.allowanceBlocked && eligibility.allowanceBlock?.message ? (
+                            <p className="mt-1 font-semibold">{eligibility.allowanceBlock.message}</p>
                         ) : null}
                         {eligibility.groupCap?.enabled ? (
                             <>
@@ -541,8 +550,23 @@ export default function AnnualLeaveFilterModal({
                                     <p className="mt-1">
                                         Annual leave already requested or approved in this group
                                         on the selected days:{' '}
-                                        <span className="font-semibold">{eligibility.groupCap.taken}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setBlockersOpen(true)}
+                                            className="font-semibold text-amber-950 underline"
+                                        >
+                                            {eligibility.groupCap.taken}
+                                        </button>
                                     </p>
+                                ) : null}
+                                {eligibility.groupCap.over ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setBlockersOpen(true)}
+                                        className="mt-1 block text-left font-semibold underline"
+                                    >
+                                        {eligibility.groupCap.message || 'Group limit reached.'} See who is on leave.
+                                    </button>
                                 ) : null}
                             </>
                         ) : null}
@@ -654,6 +678,44 @@ export default function AnnualLeaveFilterModal({
                     )}
                 </div>
             </div>
+            {blockersOpen ? (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+                    <button
+                        type="button"
+                        aria-label="Close who is on leave"
+                        className="absolute inset-0 bg-black/40"
+                        onClick={() => setBlockersOpen(false)}
+                    />
+                    <div className="relative z-[121] w-full max-w-md rounded-xl border border-gray-200 bg-white p-4 shadow-2xl">
+                        <h4 className="text-sm font-semibold text-gray-900">Who is on annual leave</h4>
+                        <p className="mt-1 text-xs text-gray-500">
+                            These people already requested or took annual leave on the selected days, so the group limit blocks this request.
+                        </p>
+                        <ul className="mt-3 max-h-64 space-y-2 overflow-auto text-left text-xs text-gray-800">
+                            {(eligibility?.groupCap?.blockers || []).length ? (
+                                eligibility.groupCap.blockers.map((person) => (
+                                    <li key={person.employeeMongoId} className="rounded-lg border border-gray-100 px-2 py-1.5">
+                                        <span className="font-semibold">{person.name}</span>
+                                        {person.employeeId ? ` (${person.employeeId})` : ''}
+                                        <span className="mt-0.5 block text-gray-500">
+                                            {person.status || 'leave'} · {(person.dates || []).map(formatDateLabel).join(', ')}
+                                        </span>
+                                    </li>
+                                ))
+                            ) : (
+                                <li>No one else is recorded on these days.</li>
+                            )}
+                        </ul>
+                        <button
+                            type="button"
+                            onClick={() => setBlockersOpen(false)}
+                            className="mt-3 w-full rounded-lg border border-gray-200 py-2 text-sm font-semibold text-gray-700"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            ) : null}
             <style>{`
                 @keyframes leave-date-blink {
                     0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); background-color: transparent; }

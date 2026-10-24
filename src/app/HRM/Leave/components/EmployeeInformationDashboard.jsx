@@ -58,6 +58,7 @@ import {
     buildMonthAdditionChoices,
     buildMonthWorkWeeks,
     buildWeeklySalaryAddition,
+    buildAmountToPayStatement,
     emptyWeeklySalaryAddition,
     compOffReferenceLinks,
     formatHourMeasure,
@@ -1268,36 +1269,6 @@ function attendanceDeductionAmount(record, week, daily, policy, mispunchAmounts)
     return 0;
 }
 
-const SALARY_LEAVE_KEYS = new Set(['on_leave', 'authorized_leave', 'unauthorized_leave', 'sick_leave']);
-
-function weekdayKeyOf(dateKey) {
-    return WEEKDAY_KEYS[new Date(`${dateKey}T12:00:00Z`).getUTCDay()];
-}
-
-function recordIsSalaryLeave(record) {
-    if (!record || record.deductionWaived === true) return false;
-    const key = deductionKind(record) || String(record.statusKey || '');
-    return SALARY_LEAVE_KEYS.has(key);
-}
-
-/** Weekly offs and holidays with leave on both sides. Those days deduct one salary day. */
-function enclosedOffDateKeys({ dateKeys = [], recordsByDate = {}, holidayDates, offWeekdays }) {
-    const isOff = (dateKey) => Boolean(holidayDates?.has(dateKey) || offWeekdays?.has(weekdayKeyOf(dateKey)));
-    const isLeave = (dateKey) => recordIsSalaryLeave(recordsByDate?.[dateKey]);
-    const found = [];
-    dateKeys.forEach((dateKey, index) => {
-        if (!isOff(dateKey) || isLeave(dateKey)) return;
-        let previous = index - 1;
-        while (previous >= 0 && isOff(dateKeys[previous]) && !isLeave(dateKeys[previous])) previous -= 1;
-        let next = index + 1;
-        while (next < dateKeys.length && isOff(dateKeys[next]) && !isLeave(dateKeys[next])) next += 1;
-        if (previous >= 0 && next < dateKeys.length && isLeave(dateKeys[previous]) && isLeave(dateKeys[next])) {
-            found.push(dateKey);
-        }
-    });
-    return found;
-}
-
 const ATTENDANCE_DEDUCTION_LABEL = {
     on_leave: 'Annual Leave',
     authorized_leave: 'Authorized Leave',
@@ -1774,7 +1745,11 @@ function DayTip({
     sickAttachment = null,
     moreLines,
     otText = '',
+    otPayText = '',
     compOffLines = [],
+    compOffPayText = '',
+    approvedPayText = '',
+    lostText = '',
     requestLines = [],
     alignRight,
 }) {
@@ -1818,12 +1793,17 @@ function DayTip({
                     <span className="block text-[10px] font-medium uppercase tracking-wide text-[#94A3B8]">Location Out</span>
                     <span className="mt-0.5 block"><TipMap spot={outSpot} /></span>
                 </p>
-                <TipMoney label="Worked" value={workedText} />
-                <TipMoney label="Payment" value={paymentText} tone="text-[#16A34A]" />
+                <TipMoney label="Total Worked" value={workedText} />
+                <TipMoney label="Lost Hours" value={lostText || balanceText} />
+                <TipMoney label="OT" value={otText || '0h'} />
+                <TipMoney label="Comp Off Approved" value={compOffLines[0] || 'None'} wrap />
                 {lateText ? <TipMoney label="Late Arrival" value={lateText} /> : null}
                 {earlyText ? <TipMoney label="Early Go" value={earlyText} /> : null}
-                <TipMoney label="Remaining" value={balanceText} />
-                <TipMoney label="Deduct" value={deductText} tone="text-[#DC2626]" />
+                <TipMoney label="Actual Payment" value={paymentText} tone="text-[#16A34A]" />
+                <TipMoney label="Deduction" value={deductText} tone="text-[#DC2626]" />
+                <TipMoney label="Approved Payment" value={approvedPayText} tone="text-[#16A34A]" />
+                <TipMoney label="OT Approved" value={otPayText} tone="text-[#16A34A]" />
+                {compOffPayText ? <TipMoney label="Comp Off Payment" value={compOffPayText} tone="text-[#16A34A]" wrap /> : null}
             </div>
             {moreLines.length || sickReason || sickAttachment?.name ? (
                 <button
@@ -1936,9 +1916,10 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         || String(record?.timeOut || '').trim() === 'OT'
         || Boolean(String(record?.flexibleFromOtDate || '').trim());
     const deductedLeave = kind === 'authorized' || kind === 'absent';
-    const weeklyOffBetweenLeave = isWeeklyOff && ctx.enclosedOffDates?.has(dateKey);
-    const earnsDayRate = counted && !deductedLeave && !syntheticOt && !isHoliday && kind !== 'annual' && kind !== 'future' && kind !== 'suspended' && (!isWeeklyOff || !weeklyOffBetweenLeave);
+    const compOffDay = kind === 'compoff' || syntheticOt || String(record?.statusKey || '') === 'compoff_leave';
+    const earnsDayRate = counted && !deductedLeave && kind !== 'annual' && kind !== 'future' && kind !== 'suspended';
     const dayRate = Number(ctx.salaryDaily) || 0;
+    const hourRate = dayRate / 10;
     const payment = !counted && !(extraPay > 0)
         ? null
         : money2((earnsDayRate ? dayRate : 0) + extraPay);
@@ -1946,9 +1927,6 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     let deduct = counted
         ? money2(attendanceDeductionAmount(record, ctx.scheduleWeek, ctx.salaryDaily, ctx.leavePolicy || {}, ctx.mispunchAmounts))
         : null;
-    if (counted && ctx.enclosedOffDates?.has(dateKey) && !deductionWaived && !(deduct > 0)) {
-        deduct = money2(dayRate);
-    }
     if (counted && kind === 'absent' && !record && !deductionWaived && !(deduct > 0)) {
         const unauthTimes = ctx.leavePolicy?.unauthorizedDeductionDays == null ? 2 : n(ctx.leavePolicy.unauthorizedDeductionDays);
         deduct = money2(unauthTimes * dayRate);
@@ -1975,10 +1953,19 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     if (adjustmentText) moreLines.push({ label: 'Adjusted', value: adjustmentText });
     if (description) moreLines.push({ label: 'Description', value: description });
     const dayNote = ctx.calendarNotes[dateKey] || null;
-    const otText = dayNote?.otHours > 0 ? formatHourMeasure(dayNote.otHours) : '';
+    const otHours = Number(dayNote?.otHours) || 0;
+    const otText = otHours > 0 ? formatHourMeasure(otHours) : '';
+    const otPay = otHours > 0 ? money2(otHours * hourRate) : 0;
+    const compOffTarget = dayNote?.givenTo || (compOffDay ? dateKey : '');
+    const compOffSource = dayNote?.takenFrom || String(record?.flexibleFromOtDate || '').trim();
     const compOffLines = [];
-    if (dayNote?.givenTo) compOffLines.push(`Comp off given to ${formatDayLabel(dayNote.givenTo)}`);
-    if (dayNote?.takenFrom) compOffLines.push(`Comp off taken from ${formatDayLabel(dayNote.takenFrom)}`);
+    if (dayNote?.givenTo) compOffLines.push(formatDayLabel(dayNote.givenTo));
+    if (compOffSource) compOffLines.push(formatDayLabel(compOffSource));
+    if (compOffDay && !compOffLines.length) compOffLines.push(formatDayLabel(dateKey));
+    const compOffPayText = compOffTarget || compOffSource
+        ? `${formatDayLabel(compOffTarget || dateKey)} · ${formatAed(dayRate, 2)}`
+        : '';
+    const approvedPay = approvedHours != null && counted ? money2((approvedHours / 10) * dayRate) : (earnsDayRate ? dayRate : 0);
     const canOpenMark = Boolean(markTarget?.employeeId) && inMonth && !beforeStart;
     const pinnedHere = pinnedAttendanceDate === dateKey;
     const [, setPinTick] = useState(0);
@@ -2079,7 +2066,11 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                         lateText={visibleLate}
                         earlyText={visibleEarly}
                         otText={otText}
+                        otPayText={otPay > 0 ? formatAed(otPay, 2) : formatAed(0, 2)}
                         compOffLines={compOffLines}
+                        compOffPayText={compOffPayText}
+                        approvedPayText={counted ? formatAed(approvedPay, 2) : '—'}
+                        lostText={flexibleShort != null ? formatHourlyGap(Math.max(0, flexibleShort)) : formatHourlyGap(balance)}
                         paymentText={payment == null ? '—' : formatAed(payment, 2)}
                         balanceText={flexibleShort != null ? formatHourlyGap(Math.max(0, flexibleShort)) : formatHourlyGap(balance)}
                         deductText={deductionWaived ? 'Waived' : deduct == null ? '—' : `${formatAed(deduct, 2)}${doubleDeduction ? ' (double deduction)' : ''}`}
@@ -2649,18 +2640,18 @@ function compOffWorkedRows(pay) {
     ));
 }
 
-function AdditionPayBoxes({ ready, pay, onOpen }) {
+function AdditionPayBoxes({ ready, pay, statement, onOpen }) {
     const row = pay || {};
     const compOffWorked = compOffWorkedRows(row);
     const workedDays = (Number(row.workedDays) || 0) + compOffWorked.length;
     const workedHours = (Number(row.workedHours) || 0) + compOffWorked.reduce((sum, item) => sum + (Number(item.hours) || 0), 0);
     const daysText = (value) => (ready ? measureLabel(value, 'Day', 'Days') : '—');
     const hoursText = (value) => (ready ? formatHourMeasure(value) : '—');
-    const amount = Number(row.amount) || 0;
+    const amount = ready && statement ? Number(statement.actual) || 0 : Number(row.amount) || 0;
     const short = ready && amount < -0.004;
     const extra = ready && amount > 0.004;
-    const amountClass = short ? 'text-[#DC2626]' : extra ? 'text-[#16A34A]' : 'text-[#1B2A4A]';
-    const amountText = ready ? `${extra ? '+' : ''}${formatAedNumber(amount)}` : '—';
+    const amountClass = short ? 'text-[#DC2626]' : 'text-[#16A34A]';
+    const amountText = ready ? formatAedNumber(amount) : '—';
     return (
         <div className="space-y-2 px-3 pb-3">
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -2688,7 +2679,91 @@ function AdditionPayBoxes({ ready, pay, onOpen }) {
     );
 }
 
-function SalaryAdditionListModal({ mode, ready, pay, staffType, employeeId, onClose }) {
+function PayStatementTable({ statement }) {
+    if (!statement) return <p className="py-6 text-center text-[13px] text-[#94A3B8]">No amount to show for this range.</p>;
+    const money = (value) => formatAedNumber(value);
+    const rowClass = 'border-b border-[#F4F7FB] text-[13px] text-[#1B2A4A]';
+    const section = (label) => (
+        <tr key={label} className="bg-[#F8FAFC]">
+            <td colSpan={3} className="px-2 py-2 text-[12px] font-bold text-[#1B2A4A]">{label}</td>
+        </tr>
+    );
+    return (
+        <table className="w-full border-collapse text-left">
+            <thead>
+                <tr className="border-b border-[#E6EDF5] text-[11px] font-semibold uppercase tracking-wide text-[#94A3B8]">
+                    <th className="px-2 py-2 font-semibold">Description</th>
+                    <th className="px-2 py-2 font-semibold">Calculation</th>
+                    <th className="px-2 py-2 text-right font-semibold">Amount (AED)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr className={rowClass}>
+                    <td className="px-2 py-2 font-medium">Monthly Salary</td>
+                    <td className="px-2 py-2" />
+                    <td className="px-2 py-2 text-right tabular-nums">{money(statement.monthlySalary)}</td>
+                </tr>
+                <tr className={rowClass}>
+                    <td className="px-2 py-2 font-medium">Per Day Salary</td>
+                    <td className="px-2 py-2" />
+                    <td className="px-2 py-2 text-right tabular-nums">{money(statement.perDay)}</td>
+                </tr>
+                <tr className={rowClass}>
+                    <td className="px-2 py-2 font-medium">Per Hour Salary</td>
+                    <td className="px-2 py-2" />
+                    <td className="px-2 py-2 text-right tabular-nums">{money(statement.perHour)}</td>
+                </tr>
+                {statement.earnings.map((row) => (
+                    <tr key={row.description} className={rowClass}>
+                        <td className="px-2 py-2 font-medium">{row.description}</td>
+                        <td className="px-2 py-2 tabular-nums text-[#64748B]">{row.calculation}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{money(row.amount)}</td>
+                    </tr>
+                ))}
+                <tr className="border-b border-[#E6EDF5]">
+                    <td className="px-2 py-2 text-[13px] font-bold text-[#1B2A4A]">Total Salary</td>
+                    <td />
+                    <td className="px-2 py-2 text-right text-[13px] font-bold tabular-nums text-[#1B2A4A]">{money(statement.totalSalary)}</td>
+                </tr>
+                {section('Loss Hours / Deductions')}
+                {statement.deductions.length ? statement.deductions.map((row) => (
+                    <tr key={row.description} className={rowClass}>
+                        <td className="px-2 py-2 font-medium">{row.description}</td>
+                        <td className="px-2 py-2 tabular-nums text-[#64748B]">{row.calculation}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{money(row.amount)}</td>
+                    </tr>
+                )) : (
+                    <tr className={rowClass}>
+                        <td colSpan={3} className="px-2 py-2 text-[13px] text-[#94A3B8]">No deductions in this range.</td>
+                    </tr>
+                )}
+                <tr className="border-b border-[#E6EDF5]">
+                    <td className="px-2 py-2 text-[13px] font-bold text-[#DC2626]">Total Deduction</td>
+                    <td />
+                    <td className="px-2 py-2 text-right text-[13px] font-bold tabular-nums text-[#DC2626]">{money(statement.totalDeduction)}</td>
+                </tr>
+                {section('Final Salary')}
+                <tr className={rowClass}>
+                    <td className="px-2 py-2 font-medium">Total Salary</td>
+                    <td />
+                    <td className="px-2 py-2 text-right tabular-nums">{money(statement.totalSalary)}</td>
+                </tr>
+                <tr className={rowClass}>
+                    <td className="px-2 py-2 font-medium">Total Deduction</td>
+                    <td />
+                    <td className="px-2 py-2 text-right tabular-nums">{money(statement.totalDeduction)}</td>
+                </tr>
+                <tr>
+                    <td className="px-2 py-2 text-[13px] font-bold text-[#16A34A]">Actual Salary</td>
+                    <td />
+                    <td className="px-2 py-2 text-right text-[13px] font-bold tabular-nums text-[#16A34A]">{money(statement.actual)}</td>
+                </tr>
+            </tbody>
+        </table>
+    );
+}
+
+function SalaryAdditionListModal({ mode, ready, pay, statement, staffType, employeeId, onClose }) {
     const router = useRouter();
     useEffect(() => {
         if (!mode) return undefined;
@@ -2706,7 +2781,6 @@ function SalaryAdditionListModal({ mode, ready, pay, staffType, employeeId, onCl
             ? [...(pay?.[spec.rows] || []), ...compOffWorkedRows(pay)]
             : (pay?.[spec.rows] || []))
         : [];
-    const lines = Array.isArray(pay?.calculation) ? pay.calculation : [];
     const openDay = (date) => {
         if (!date) return;
         router.push(markAttendanceHref({
@@ -2721,7 +2795,7 @@ function SalaryAdditionListModal({ mode, ready, pay, staffType, employeeId, onCl
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="salary-addition-list-title"
-                className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white shadow-2xl"
+                className={`flex max-h-[80vh] w-full flex-col overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white shadow-2xl ${mode === 'amount' ? 'max-w-2xl' : 'max-w-lg'}`}
                 onClick={(event) => event.stopPropagation()}
             >
                 <div className="flex items-start justify-between gap-3 border-b border-[#EEF2F6] px-5 py-4">
@@ -2732,24 +2806,9 @@ function SalaryAdditionListModal({ mode, ready, pay, staffType, employeeId, onCl
                 </div>
                 <div className="overflow-auto px-5 py-3">
                     {mode === 'amount' ? (
-                        <div className="space-y-2">
-                            {ready && lines.length ? lines.map((line, index) => {
-                                const last = index === lines.length - 1;
-                                const amount = Number(pay?.amount) || 0;
-                                const tone = !last
-                                    ? 'text-[#1B2A4A]'
-                                    : amount < -0.004
-                                        ? 'text-[#DC2626]'
-                                        : amount > 0.004
-                                            ? 'text-[#16A34A]'
-                                            : 'text-[#1B2A4A]';
-                                return (
-                                    <p key={`${index}-${line}`} className={`text-[13px] font-medium leading-snug ${tone}`}>{line}</p>
-                                );
-                            }) : (
-                                <p className="py-6 text-center text-[13px] text-[#94A3B8]">No amount to show for this range.</p>
-                            )}
-                        </div>
+                        ready ? <PayStatementTable statement={statement} /> : (
+                            <p className="py-6 text-center text-[13px] text-[#94A3B8]">No amount to show for this range.</p>
+                        )
                     ) : rows.length && ready ? (
                         <div className="divide-y divide-[#F4F7FB]">
                             {rows.map((row, index) => (
@@ -3489,10 +3548,82 @@ export default function EmployeeInformationDashboard({
             })
             : reports[picked];
         mergeCalendar(selected?.calendar);
+        let offDayExtra = 0;
+        payByDate.forEach((amount, date) => {
+            if (!countTo || date < countFrom || date > countTo) return;
+            const info = dayInfo(date);
+            if (!info.weeklyOff && !info.holiday) return;
+            offDayExtra = money2(offDayExtra + amount);
+        });
+        const pay = selected?.balancePay || emptyWeeklySalaryAddition().balancePay;
+        const rangeDates = [...(additionWeek?.dates || []), ...(additionWeek?.extraDates || [])]
+            .filter((date, index, list) => list.indexOf(date) === index)
+            .filter((date) => (!countFrom || date >= countFrom) && (!countTo || date <= countTo));
+        const range = new Set(rangeDates);
+        const workedDayCount = (pay.workedRows || []).filter((row) => dayInfo(row.date).required).length;
+        const otHours = (pay.otRows || []).reduce((sum, row) => sum + (Number(row.hours) || 0), 0) || Number(pay.otHours) || 0;
+        const offDayCount = rangeDates.filter((date) => {
+            const info = dayInfo(date);
+            return info.holiday || info.weeklyOff;
+        }).length;
+        const policy = profile?.leavePolicy || {};
+        const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
+        let lossHours = 0;
+        let cancelledLossHours = 0;
+        let authorizedHours = 0;
+        let unauthorizedHours = 0;
+        const hourCap = (date) => {
+            const scheduled = isFlexibleWeek(scheduleWeek)
+                ? flexibleDayHours(scheduleWeek, date)
+                : dayHoursOf(scheduleWeek, date);
+            const hours = Number(scheduled) || 10;
+            return hours > 10 ? 10 : hours;
+        };
+        monthRecords.forEach((row) => {
+            const date = String(row?.date || '');
+            if (!range.has(date)) return;
+            const key = deductionKind(row);
+            if (key === 'late_arrived' || key === 'early_go') {
+                const hours = deductionLossHours(row, scheduleWeek);
+                if (row?.deductionWaived === true) cancelledLossHours += hours;
+                else lossHours += hours;
+                return;
+            }
+            if (key === 'authorized_leave') {
+                const hours = String(row?.hourAdjustStatus || '') === 'approved'
+                    ? n(row.hoursApproved)
+                    : leaveDayWeight(row, true) * hourCap(date);
+                authorizedHours += hours;
+                return;
+            }
+            const punched = Boolean(String(row?.timeIn || '').trim() || String(row?.timeOut || '').trim());
+            const unmarked = (key === 'not_marked' || key === 'absent' || key === '') && !punched;
+            if (key === 'unauthorized_leave' || unmarked) {
+                const hours = String(row?.hourAdjustStatus || '') === 'approved'
+                    ? n(row.hoursApproved)
+                    : (key === 'unauthorized_leave' ? leaveDayWeight(row, false) : 1) * hourCap(date);
+                unauthorizedHours += hours;
+            }
+        });
+        const statement = buildAmountToPayStatement({
+            monthlySalary,
+            calendarDays: days.length,
+            workedDays: workedDayCount,
+            compOffDays: pay.compOffDays,
+            otHours,
+            offDays: offDayCount,
+            lossHours,
+            cancelledLossHours,
+            authorizedHours,
+            unauthorizedHours,
+            unauthorizedTimes: unauthTimes,
+        });
         return {
             report: selected || emptyWeeklySalaryAddition(),
             payByDate,
             calendarNotes,
+            offDayExtra,
+            statement,
         };
     }, [
         additionWeeks,
@@ -3508,8 +3639,11 @@ export default function EmployeeInformationDashboard({
         recordsByDate,
         holidayDates,
         offWeekdays,
+        countFrom,
+        profile?.leavePolicy,
     ]);
     const salaryAddition = additionBundle.report;
+    const payStatement = additionBundle.statement;
     const additionPayByDate = additionBundle.payByDate;
     const calendarNotes = additionBundle.calendarNotes || {};
     const mispunchAmounts = useMemo(
@@ -3563,15 +3697,6 @@ export default function EmployeeInformationDashboard({
             : 'Until approval this uses the unauthorized leave rate. After approval, only the approved hours are deducted.';
         const missedRule = mispunchPolicyRule(policy);
         const annualDays = countedRecords.filter((row) => deductionKind(row) === 'on_leave').length;
-        const countedDateKeys = days
-            .map((day) => format(day, 'yyyy-MM-dd'))
-            .filter((dateKey) => dateKey >= countFrom && dateKey <= countTo);
-        const enclosedOffDays = enclosedOffDateKeys({
-            dateKeys: countedDateKeys,
-            recordsByDate,
-            holidayDates,
-            offWeekdays,
-        }).length;
         return [
             {
                 key: 'late_arrived',
@@ -3604,15 +3729,6 @@ export default function EmployeeInformationDashboard({
                     : `1 annual leave day deducts 1 × ${dayRate}`,
             },
             {
-                key: 'enclosed_off',
-                type: 'Off day between leave',
-                count: enclosedOffDays,
-                amount: money2(enclosedOffDays * daily),
-                note: enclosedOffDays
-                    ? `${enclosedOffDays} × 1 day × ${dayRate}`
-                    : 'A Sunday or holiday between leave deducts 1 day',
-            },
-            {
                 key: 'authorized_leave',
                 type: 'Authorized leave',
                 count: authDays,
@@ -3633,8 +3749,8 @@ export default function EmployeeInformationDashboard({
                     ? `${unauthDays} × ${unauthTimes} day × ${dayRate}`
                     : `1 unauthorized day deducts ${unauthTimes} × ${dayRate}`,
             },
-        ].filter((row) => (row.key !== 'on_leave' && row.key !== 'enclosed_off') || Number(row.count) > 0);
-    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts, days, countFrom, countTo, recordsByDate, holidayDates, offWeekdays]);
+        ].filter((row) => row.key !== 'on_leave' || Number(row.count) > 0);
+    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts]);
     const deductionDetailRows = useMemo(() => {
         const attendance = attendanceDeductionRows(detailRecords, profile?.leavePolicy || {}, scheduleWeek, salaryBasis.daily);
         const moneyRows = financialDeductionRows({
@@ -3681,7 +3797,6 @@ export default function EmployeeInformationDashboard({
                 'Late out': 'Early Out',
                 'Missed punch': 'Missed Punch',
                 'Annual leave': 'Annual Leave',
-                'Off day between leave': 'Off Day Between Leave',
                 'Authorized leave': 'Authorized Leave',
                 'Unauthorized leave': 'Unauthorized Leave',
             })[row.type] || row.type,
@@ -3703,7 +3818,7 @@ export default function EmployeeInformationDashboard({
         }).length
         : 0;
     const monthDeduction = deductionRows.reduce((sum, row) => sum + (row.amount == null ? 0 : Number(row.amount) || 0), 0);
-    const earnedBeforeDeduction = money2(salaryBasis.daily * elapsedMonthDays);
+    const earnedBeforeDeduction = money2(salaryBasis.daily * elapsedMonthDays + (additionBundle.offDayExtra || 0));
     const accumulated = monthlySalary > 0
         ? Math.max(0, money2(earnedBeforeDeduction - monthDeduction))
         : 0;
@@ -3783,12 +3898,7 @@ export default function EmployeeInformationDashboard({
         salaryDaily: salaryBasis.daily,
         leavePolicy: profile?.leavePolicy || {},
         mispunchAmounts,
-        enclosedOffDates: new Set(enclosedOffDateKeys({
-            dateKeys: days.map((day) => format(day, 'yyyy-MM-dd')).filter((dateKey) => dateKey >= countFrom && dateKey <= countTo),
-            recordsByDate,
-            holidayDates,
-            offWeekdays,
-        })),
+        enclosedOffDates: new Set(),
         additionPayByDate,
         calendarNotes,
         adjustmentByDate,
@@ -4329,7 +4439,7 @@ export default function EmployeeInformationDashboard({
                                     </div>
                                     {monthlySalary > 0 ? (
                                         <p className="mt-1 text-[10px] leading-snug text-[#64748B]">
-                                            Salary per day {formatAed(salaryBasis.daily, 2)} ({formatAed(monthlySalary)} / {salaryBasis.calendarDays} days). Counted through yesterday. Suspension days are not included. Earned {formatAed(earnedBeforeDeduction, 2)} − deductions {formatAed(monthDeduction, 2)}.
+                                            Salary per day {formatAed(salaryBasis.daily, 2)} ({formatAed(monthlySalary)} / {salaryBasis.calendarDays} days). Week offs and holidays in this month are paid. Work on those days pays as overtime up to 10 hours, or as comp off above 10 hours. Approved overtime or comp off follows that decision. Counted through yesterday. Suspension days are not included. Earned {formatAed(earnedBeforeDeduction, 2)} − deductions {formatAed(monthDeduction, 2)}.
                                         </p>
                                     ) : null}
                                 </div>
@@ -4451,6 +4561,7 @@ export default function EmployeeInformationDashboard({
                             <AdditionPayBoxes
                                 ready={additionReady}
                                 pay={salaryAddition.balancePay}
+                                statement={payStatement}
                                 onOpen={setAdditionModal}
                             />
                         </div>
@@ -4480,7 +4591,7 @@ export default function EmployeeInformationDashboard({
                                 </thead>
                                 <tbody>
                                     {salaryTableRows.map((row, index) => {
-                                        const leaveRow = row.key === 'on_leave' || row.key === 'enclosed_off' || row.key === 'authorized_leave' || row.key === 'unauthorized_leave';
+                                        const leaveRow = row.key === 'on_leave' || row.key === 'authorized_leave' || row.key === 'unauthorized_leave';
                                         const countText = salaryLock.locked
                                             ? '—'
                                             : row.count == null || row.count === ''
@@ -4992,6 +5103,7 @@ export default function EmployeeInformationDashboard({
                 mode={additionModal}
                 ready={additionReady}
                 pay={salaryAddition.balancePay}
+                statement={payStatement}
                 staffType={staffType}
                 employeeId={employeeMongoId}
                 onClose={() => setAdditionModal('')}

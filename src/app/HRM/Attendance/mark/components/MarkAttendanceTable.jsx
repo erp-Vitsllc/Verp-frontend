@@ -638,6 +638,7 @@ function mergePendingChanges(nextMarks, pendingChanges, { dateKey = '', employee
                 hoursTaken: change.hoursTaken,
                 hoursMax: change.hoursMax,
                 hourAdjustKind: change.hourAdjustKind || '',
+                previousStatusLabel: change.previousStatusLabel || '',
                 hourAdjustMode: change.hourAdjustMode || '',
                 hourRequestType: change.hourRequestType || '',
                 hourAdjustFlexible: change.hourAdjustFlexible === true,
@@ -2227,6 +2228,12 @@ export default function MarkAttendanceTable({
                 setChangeReview({ employee, mark });
                 return;
             }
+            if (kind === 'hour' && isAuthorizedLeaveHour(mark)) {
+                openAuthorizedLeaveDecision(employee, mark, {
+                    rejectFirst: String(emailIntent || '').toLowerCase() === 'rejected',
+                });
+                return;
+            }
             if (kind === 'hour') {
                 const decision = rowDecisionFor(mark, employee, {
                     isFlowchartHr,
@@ -2530,6 +2537,21 @@ export default function MarkAttendanceTable({
         });
     };
 
+    const isAuthorizedLeaveHour = (mark) =>
+        String(mark?.pendingChange?.action || '') === 'hour_adjust' &&
+        String(mark?.pendingChange?.hourAdjustKind || mark?.hourAdjustKind || '') === 'authorized_leave';
+
+    const openAuthorizedLeaveDecision = (employee, mark, { rejectFirst = false, readOnly = false } = {}) => {
+        setLeaveDecideError('');
+        setLeaveDecide({
+            employee,
+            mark,
+            fromHourLeave: true,
+            rejectFirst,
+            readOnly,
+        });
+    };
+
     const openRowRequest = (employee, decision, intent) => {
         if (!decision) return;
         const mark = marks[employee.id] || null;
@@ -2538,6 +2560,13 @@ export default function MarkAttendanceTable({
             ? (decision.viewKind && decision.viewKind !== 'waiting' ? decision.viewKind : viewKindFromMark(mark))
             : decision.kind;
         if (!kind || kind === 'waiting') return;
+        if (kind === 'hour' && isAuthorizedLeaveHour(mark)) {
+            openAuthorizedLeaveDecision(employee, mark, {
+                rejectFirst: !readOnly && intent === 'reject',
+                readOnly,
+            });
+            return;
+        }
         if (kind === 'hour') {
             const next = {
                 employee,
@@ -2599,11 +2628,18 @@ export default function MarkAttendanceTable({
         const attendanceId = String(leaveDecide?.mark?.attendanceId || '').trim();
         const changeId = String(leaveDecide?.mark?.pendingChange?.id || '').trim();
         if (leaveDeciding || leaveDecide?.readOnly) return;
-        if (leaveDecide?.fromChange ? !changeId : !attendanceId) return;
+        if (leaveDecide?.fromHourLeave ? !changeId : leaveDecide?.fromChange ? !changeId : !attendanceId) return;
         setLeaveDeciding(true);
         setLeaveDecideError('');
         try {
-            const res = leaveDecide?.fromChange
+            const res = leaveDecide?.fromHourLeave
+                ? await axiosInstance.post('/Attendance/change-request/decide', {
+                    id: changeId,
+                    decision: choice,
+                    ...(choice === 'approved' ? { approvedStatusKey: approvedStatusKey || 'authorized_leave' } : {}),
+                    ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
+                })
+                : leaveDecide?.fromChange
                 ? await axiosInstance.post('/Attendance/change-request/decide', {
                     id: changeId,
                     decision: choice,
@@ -3074,6 +3110,13 @@ export default function MarkAttendanceTable({
                                 }
                                 canWaiveDeduction={isFlowchartHr}
                                 onRequestHour={(row, mark) => {
+                                    if (
+                                        String(mark?.hourAdjustStatus || '') === 'pending' &&
+                                        String(mark?.pendingChange?.hourAdjustKind || mark?.hourAdjustKind || '') === 'authorized_leave'
+                                    ) {
+                                        openAuthorizedLeaveDecision(row, mark);
+                                        return;
+                                    }
                                     const next = {
                                         employee: row,
                                         mark,
@@ -3104,6 +3147,7 @@ export default function MarkAttendanceTable({
                 staffType={staffType}
                 holidayDates={holidayDates}
                 offWeekdays={offWeekdays}
+                flowchartHr={isFlowchartHr}
                 onClose={() => setFormState(null)}
                 onMapped={() => setDayReload((value) => value + 1)}
                 onSave={(payload) => {
@@ -3159,13 +3203,21 @@ export default function MarkAttendanceTable({
                 employeeName={leaveDecide?.employee?.name || ''}
                 employeeMongoId={leaveDecide?.employee?.id || ''}
                 requestedStatusKey={
-                    leaveDecide?.fromChange
+                    leaveDecide?.fromHourLeave
+                        ? 'authorized_leave'
+                        : leaveDecide?.fromChange
                         ? leaveDecide?.mark?.pendingChange?.statusKey || 'sick_leave'
                         : leaveDecide?.mark?.requestedStatusKey || ''
                 }
-                currentLabel={leaveDecide?.mark?.previousStatusLabel || leaveDecide?.mark?.label || ''}
+                currentLabel={
+                    leaveDecide?.fromHourLeave
+                        ? leaveDecide?.mark?.pendingChange?.previousStatusLabel || leaveDecide?.mark?.label || ''
+                        : leaveDecide?.mark?.previousStatusLabel || leaveDecide?.mark?.label || ''
+                }
                 requestedLabel={
-                    leaveDecide?.fromChange
+                    leaveDecide?.fromHourLeave
+                        ? 'Authorized Leave'
+                        : leaveDecide?.fromChange
                         ? leaveDecide?.mark?.pendingChange?.statusLabel || 'Sick leave'
                         : leaveDecide?.mark?.requestedStatusLabel || ''
                 }

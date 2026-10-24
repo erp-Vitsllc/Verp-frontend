@@ -167,6 +167,7 @@ export default function AttendanceFutureRequestModal({
     error = '',
     heading = 'Request for a future day',
     eligibilityNote = '',
+    onEligibilityNoteClick = null,
     eyebrow = '',
     icon = null,
     onClose,
@@ -198,7 +199,7 @@ export default function AttendanceFutureRequestModal({
     const [attachment, setAttachment] = useState(null);
     const [localError, setLocalError] = useState('');
     const isPreviousDate = isAuthorizedLeave && leaveDuration === 'previous';
-    const usesDateList = isMispunch || isFuturePunch || isPreviousDate || isSickLeave;
+    const usesDateList = isMispunch || isPreviousDate || isSickLeave;
 
     const dateOptions = useMemo(() => {
         if (!usesDateList) return [];
@@ -404,11 +405,7 @@ export default function AttendanceFutureRequestModal({
             setLocalError('Mispunch can only be requested for today or a past day.');
             return;
         }
-        if (isFuturePunch && !usesDateList && fromDate <= todayKey) {
-            setLocalError('This request is only for a future working day.');
-            return;
-        }
-        if (!isMispunch && !isAuthorizedLeave && !isSickLeave && minimumDate && fromDate < minimumDate) {
+        if (!isMispunch && !isFuturePunch && !isAuthorizedLeave && !isSickLeave && minimumDate && fromDate < minimumDate) {
             setLocalError(`The earliest date you can request is ${minimumDate}.`);
             return;
         }
@@ -483,13 +480,9 @@ export default function AttendanceFutureRequestModal({
                                 <p className="text-xs text-slate-400 mt-1">
                                     Choose an unauthorized or mispunched day from this month. Reason is required.
                                 </p>
-                            ) : variant === 'late' ? (
+                            ) : variant === 'late' || variant === 'early' ? (
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Choose a late arrival from this month that is not approved. Reason is required.
-                                </p>
-                            ) : variant === 'early' ? (
-                                <p className="text-xs text-slate-400 mt-1">
-                                    Choose an early go from this month that is not approved. Reason is required.
+                                    Past or future working days. Reason is required.
                                 </p>
                             ) : isFuturePunch ? (
                                 <p className="text-xs text-slate-400 mt-1">
@@ -504,12 +497,22 @@ export default function AttendanceFutureRequestModal({
                                 <p className="text-xs text-slate-400 mt-1">
                                     Previous date lists this month&apos;s unauthorized leave. Single day and multiple days stay the same. Reason is required.
                                 </p>
-                            ) : earliestDate ? (
-                                <p className="text-xs text-slate-400 mt-1">
-                                    {eligibilityNote
-                                        ? eligibilityNote
-                                        : `Earliest allowed date is ${earliestDate}. Holidays and weekly offs are skipped.`}
-                                </p>
+                            ) : earliestDate || eligibilityNote ? (
+                                onEligibilityNoteClick && eligibilityNote ? (
+                                    <button
+                                        type="button"
+                                        onClick={onEligibilityNoteClick}
+                                        className="mt-1 text-left text-xs text-amber-800 underline"
+                                    >
+                                        {eligibilityNote}
+                                    </button>
+                                ) : (
+                                    <p className="text-xs text-slate-400 mt-1">
+                                        {eligibilityNote
+                                            ? eligibilityNote
+                                            : `Earliest allowed date is ${earliestDate}. Holidays and weekly offs are skipped.`}
+                                    </p>
+                                )
                             ) : null}
                         </div>
                     </div>
@@ -603,7 +606,7 @@ export default function AttendanceFutureRequestModal({
                             <input
                                 type="date"
                                 value={fromDate}
-                                min={minimumDate || earliestDate || undefined}
+                                min={isFuturePunch ? undefined : minimumDate || earliestDate || undefined}
                                 onChange={(e) => {
                                     if (isSingleDate) {
                                         setFromDate(e.target.value);

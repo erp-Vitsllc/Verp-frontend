@@ -226,6 +226,31 @@ function clockToMinutes(value) {
     return Number(match[1]) * 60 + Number(match[2]);
 }
 
+/**
+ * Work on a week off or holiday is paid as overtime up to 10 hours.
+ * More than 10 hours becomes one comp off. Hours already approved as overtime,
+ * or already given as comp off, stay on that decision.
+ */
+function settleOffDayWork(day, date, info) {
+    if (!day || !(day.workedHours > 0)) return false;
+    if (!info?.holiday && !info?.weeklyOff) return false;
+    if (day.nextDayCount > 0 || day.compOffDays > 0) return true;
+    if (day.payable > 0) return true;
+    const where = info.holiday ? 'a holiday' : 'a weekly off';
+    if (day.workedHours > COMP_OFF_DAY_HOURS) {
+        day.nextDayCount += 1;
+        addLink(
+            day.compOffLinks,
+            `${formatAdditionDay(date)} worked on ${where} for more than 10 hours and counts as comp off`,
+        );
+        return true;
+    }
+    const ot = roundHours(Math.min(day.workedHours, COMP_OFF_DAY_HOURS));
+    day.payable = roundHours(day.payable + ot);
+    addLink(day.otLinks, `${formatAdditionDay(date)} worked on ${where} and counts as overtime`);
+    return true;
+}
+
 /** Paid overtime hours. HR approval is required. Hours already used as another day's present are not paid again. */
 function hrApprovedOtHours(row, usedOnAnotherDay) {
     if (String(row?.flexibleOtStatus || '') !== 'approved') return 0;
@@ -383,7 +408,6 @@ export function buildWeeklySalaryAddition({
         if (!ledger.has(date)) ledger.set(date, blankDay(date));
         return ledger.get(date);
     };
-    const overDayPay = new Set();
     const compOffs = [];
 
     const markOverDay = (target, source, hours) => {
@@ -455,6 +479,7 @@ export function buildWeeklySalaryAddition({
                 day.coverSource = fromDay;
                 addLink(day.coverLinks, `${formatAdditionDay(date)} adjusted with ${formatAdditionDay(fromDay)}`);
             }
+            settleOffDayWork(day, date, infoOf(date));
             return;
         }
 
@@ -470,13 +495,8 @@ export function buildWeeklySalaryAddition({
             markOverDay(nextDay, date, coveredHours);
             return;
         }
-        if (day.workedHours > 0 && (info.holiday || info.weeklyOff) && !(approved > 0)) {
-            const where = info.holiday ? 'a holiday' : 'a weekly off';
-            addLink(day.otLinks, `${formatAdditionDay(date)} worked on ${where} and counts as one day`);
-            overDayPay.add(date);
-            return;
-        }
         if (approved > 0) day.payable = roundHours(day.payable + approved);
+        if (settleOffDayWork(day, date, info)) return;
     });
 
     const pool = [...ledger.values()]
@@ -597,9 +617,8 @@ export function buildWeeklySalaryAddition({
     detailDates.forEach((date) => {
         const day = ledger.get(date) || blankDay(date);
         const netHours = Math.max(0, roundHours(day.payable - day.consumed));
-        const paysDay = overDayPay.has(date) && dayRate > 0;
-        const amount = money2((hourRate * netHours) + (paysDay ? dayRate : 0));
-        const adjustedDays = day.covered || paysDay ? (day.nextDayCount > 0 ? day.nextDayCount : 1) : 0;
+        const amount = money2(hourRate * netHours);
+        const adjustedDays = day.covered ? (day.nextDayCount > 0 ? day.nextDayCount : 1) : 0;
         const adjustedHours = roundHours(day.moved + day.consumed + day.compOffAdjusted);
         const approvedOt = day.payable > 0 || day.nextDayCount > 0 || netHours > 0;
         const approvedCompOff = day.compOffDays > 0 || day.covered || day.compOffAdjusted > 0 || adjustedDays > 0;
@@ -608,7 +627,6 @@ export function buildWeeklySalaryAddition({
         [...day.otLinks, ...day.coverLinks, ...day.compOffLinks].forEach((line) => addLink(linkLines, line));
         const calculation = [];
         if (netHours > 0) calculation.push(`${formatHourMeasure(netHours)} × ${aedText(dayRate)} ÷ 10 Hours`);
-        if (paysDay) calculation.push(`1 Day × ${aedText(dayRate)}`);
         details.push({
             date,
             label: formatAdditionDay(date),
@@ -621,7 +639,7 @@ export function buildWeeklySalaryAddition({
         });
     });
 
-    const overDays = details.filter((row) => overDayPay.has(row.date)).length;
+    const overDays = weekDays.filter((day) => day.nextDayCount > 0 && !day.nextDayDate && (infoOf(day.date).holiday || infoOf(day.date).weeklyOff)).length;
     const total = money2(details.reduce((sum, row) => sum + row.amount, 0));
     const balanceHours = roundHours(Math.max(0, otBalance));
     const pushView = (list, day) => {
@@ -1045,4 +1063,76 @@ export function compOffReferenceLinks(records = [], monthKey = '') {
     }
 
     return [...days.values()].sort((left, right) => right.date.localeCompare(left.date));
+}
+
+function qtyText(value) {
+    const rounded = roundHours(value);
+    if (Number.isInteger(rounded)) return String(rounded);
+    return rounded.toFixed(2);
+}
+
+function rateText(value) {
+    return money2(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Salary statement for the amount-to-pay window.
+ * Worked days, comp off, and week offs or holidays pay the day rate.
+ * Overtime pays the hour rate. Cancelled loss hours are shown and left out of the deduction.
+ */
+export function buildAmountToPayStatement({
+    monthlySalary = 0,
+    calendarDays = 0,
+    workedDays = 0,
+    compOffDays = 0,
+    otHours = 0,
+    offDays = 0,
+    lossHours = 0,
+    cancelledLossHours = 0,
+    authorizedHours = 0,
+    unauthorizedHours = 0,
+    unauthorizedTimes = 2,
+} = {}) {
+    const salary = Math.max(0, Number(monthlySalary) || 0);
+    const days = Math.max(0, Number(calendarDays) || 0);
+    const perDay = days > 0 ? money2(salary / days) : 0;
+    const perHour = money2(perDay / 10);
+    const times = Number(unauthorizedTimes) > 0 ? Number(unauthorizedTimes) : 2;
+    const line = (description, count, rate, amount, calculation) => ({
+        description,
+        calculation: calculation || '',
+        amount: money2(amount),
+        count: roundHours(count),
+        rate: money2(rate),
+    });
+    const worked = line('Worked Days', workedDays, perDay, workedDays * perDay, `${qtyText(workedDays)} × ${rateText(perDay)}`);
+    const compOff = line('Comp Off', compOffDays, perDay, compOffDays * perDay, `${qtyText(compOffDays)} × ${rateText(perDay)}`);
+    const overtime = line('Overtime (OT)', otHours, perHour, (Number(otHours) || 0) * perDay / 10, `${formatHourMeasure(otHours)} × ${rateText(perHour)}`);
+    const off = line('Holiday / Weekly Off', offDays, perDay, offDays * perDay, `${qtyText(offDays)} × ${rateText(perDay)}`);
+    const earnings = [worked, compOff, overtime, off];
+    const totalSalary = money2(earnings.reduce((sum, row) => sum + row.amount, 0));
+    const loss = line('Loss Hours', lossHours, perHour, (Number(lossHours) || 0) * perDay / 10, `${qtyText(lossHours)} × ${rateText(perHour)}`);
+    const cancelled = line('Loss Hours (Cancelled)', cancelledLossHours, perHour, (Number(cancelledLossHours) || 0) * perDay / 10, `${qtyText(cancelledLossHours)} × ${rateText(perHour)}`);
+    const authorized = line('Authorized', authorizedHours, perHour, (Number(authorizedHours) || 0) * perDay / 10, `${qtyText(authorizedHours)} × ${rateText(perHour)}`);
+    const unauthorizedAmount = (Number(unauthorizedHours) || 0) * perDay / 10 * times;
+    const unauthorized = line(
+        'Unauthorized',
+        unauthorizedHours,
+        perHour,
+        unauthorizedAmount,
+        `${qtyText(unauthorizedHours)} × (${rateText(perHour)} × ${qtyText(times)})`,
+    );
+    const deductions = [loss, cancelled, authorized, unauthorized].filter((row) => row.count > 0 || row.amount > 0);
+    const totalDeduction = money2(loss.amount + authorized.amount + unauthorized.amount);
+    const actual = money2(totalSalary - totalDeduction);
+    return {
+        perDay,
+        perHour,
+        monthlySalary: money2(salary),
+        earnings,
+        totalSalary,
+        deductions,
+        totalDeduction,
+        actual,
+    };
 }

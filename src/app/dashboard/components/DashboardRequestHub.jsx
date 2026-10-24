@@ -412,6 +412,8 @@ export default function DashboardRequestHub() {
     const [leaveSelfId, setLeaveSelfId] = useState('');
     const [annualEligibleOn, setAnnualEligibleOn] = useState('');
     const [annualEligibilityNote, setAnnualEligibilityNote] = useState('');
+    const [annualBlockers, setAnnualBlockers] = useState([]);
+    const [annualBlockersOpen, setAnnualBlockersOpen] = useState(false);
     const [selfLoanEmployee, setSelfLoanEmployee] = useState(null);
     const [selfExistingLoans, setSelfExistingLoans] = useState([]);
 
@@ -492,6 +494,7 @@ export default function DashboardRequestHub() {
         if (composeKind !== 'leave' || leaveVariant !== 'annual' || !leaveSelfId) {
             setAnnualEligibleOn('');
             setAnnualEligibilityNote('');
+            setAnnualBlockers([]);
             return undefined;
         }
         let cancelled = false;
@@ -502,21 +505,19 @@ export default function DashboardRequestHub() {
                     { skipToast: true },
                 );
                 if (cancelled) return;
-                const eligibleOn = String(data?.eligibleOn || '').trim();
-                const groupOver = Boolean(data?.groupCap?.over);
-                const beforeDate = Boolean(data?.cycleNotEligible && eligibleOn);
-                setAnnualEligibleOn(beforeDate ? eligibleOn : '');
                 const lines = [];
-                if (beforeDate) {
+                if (data?.allowanceBlock && data.allowanceBlock.ok === false && data.allowanceBlock.message) {
+                    lines.push(data.allowanceBlock.message);
+                } else if (data?.allowance?.active) {
+                    const row = data.allowance.active;
                     lines.push(
-                        `You are not eligible for this annual leave. You can go on ${eligibleOn}. You can contact HR for more information.`,
+                        `Open period ${row.startDate} to ${row.endDate}. Remaining ${row.remainingDays} of ${row.allowedDays} days.`,
                     );
                 }
-                if (groupOver && data?.groupCap?.message) lines.push(data.groupCap.message);
+                if (data?.groupCap?.over && data.groupCap.message) lines.push(`${data.groupCap.message} Click to see who is on leave.`);
+                setAnnualEligibleOn('');
                 setAnnualEligibilityNote(lines.join(' '));
-                if (beforeDate) {
-                    setLeaveDateKey((current) => (current && current >= eligibleOn ? current : eligibleOn));
-                }
+                setAnnualBlockers(Array.isArray(data?.groupCap?.blockers) ? data.groupCap.blockers : []);
             } catch {
                 if (!cancelled) {
                     setAnnualEligibleOn('');
@@ -617,7 +618,7 @@ export default function DashboardRequestHub() {
             const requestKind = kind || (leaveVariant === 'annual' ? 'annual_leave' : 'leave');
             const requestDate = fromDate || leaveDateKey;
             const res =
-                requestKind === 'mispunch' || requestKind === 'late_arrived' || requestKind === 'early_go'
+                requestKind === 'mispunch'
                     ? await axiosInstance.post(
                           '/Attendance/me/yellow-request',
                           {
@@ -838,6 +839,11 @@ export default function DashboardRequestHub() {
                             : leaveEarliestDate
                     }
                     eligibilityNote={leaveVariant === 'annual' ? annualEligibilityNote : ''}
+                    onEligibilityNoteClick={
+                        leaveVariant === 'annual' && annualBlockers.length
+                            ? () => setAnnualBlockersOpen(true)
+                            : null
+                    }
                     scheduleWeek={leaveScheduleWeek}
                     variant={
                         leaveVariant === 'annual'
@@ -920,6 +926,25 @@ export default function DashboardRequestHub() {
                     }}
                     onSubmit={sendRequest}
                 />
+            ) : null}
+
+            {annualBlockersOpen ? (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+                    <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close" onClick={() => setAnnualBlockersOpen(false)} />
+                    <div className="relative w-full max-w-md rounded-xl bg-white p-4 shadow-2xl">
+                        <h3 className="text-sm font-semibold text-slate-900">Who is on annual leave</h3>
+                        <ul className="mt-3 max-h-64 space-y-2 overflow-auto text-xs text-slate-700">
+                            {annualBlockers.map((person) => (
+                                <li key={person.employeeMongoId || person.employeeId}>
+                                    <span className="font-semibold">{person.name}</span>
+                                    {person.employeeId ? ` (${person.employeeId})` : ''}
+                                    <span className="block text-slate-500">{person.status} · {(person.dates || []).join(', ')}</span>
+                                </li>
+                            ))}
+                        </ul>
+                        <button type="button" onClick={() => setAnnualBlockersOpen(false)} className="mt-3 w-full rounded-lg border border-slate-200 py-2 text-sm font-semibold">Close</button>
+                    </div>
+                </div>
             ) : null}
 
             {decide?.request ? (

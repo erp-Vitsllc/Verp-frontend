@@ -22,12 +22,6 @@ function allowanceLabel(allowance) {
     return `${used} / ${Math.max(0, Number(allowance.allowed) || 0)}`;
 }
 
-function allowanceBlocked(allowance) {
-    if (!allowance || allowance.allowed == null || allowance.allowed === '') return false;
-    if (allowance.includesDate) return false;
-    return (Number(allowance.used) || 0) >= Number(allowance.allowed);
-}
-
 export default function MispunchRequestModal({
     open,
     mode = 'request',
@@ -52,7 +46,6 @@ export default function MispunchRequestModal({
     const priorReject = String(queued?.rejectReason || '').trim();
     const priorBy = String(queued?.rejectedByName || '').trim();
     const requesterTurn = queued?.stage === 'pending_requester';
-    const blocked = !review && allowanceBlocked(allowance);
     const shownIn = punchDisplay(queued?.timeIn || mark?.rawTimeIn);
     const shownOut = punchDisplay(queued?.timeOut || mark?.rawTimeOut);
 
@@ -113,7 +106,7 @@ export default function MispunchRequestModal({
             : 'Sent to the primary reportee, then HR. Check-in and check-out cannot be changed.';
 
     const submit = async () => {
-        if (readOnly || blocked) return;
+        if (readOnly) return;
         if (!String(reason || '').trim()) {
             toast({ variant: 'destructive', title: 'Reason is required' });
             return;
@@ -233,16 +226,11 @@ export default function MispunchRequestModal({
                         <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
                             Eligible mispunch this month
                         </span>
-                        <span className={`text-sm font-semibold tabular-nums ${blocked ? 'text-rose-700' : 'text-slate-800'}`}>
+                        <span className="text-sm font-semibold tabular-nums text-slate-800">
                             {allowanceLabel(allowance)}
                         </span>
                     </div>
                     <p className="text-xs text-slate-500">Count of mispunch / maximum request, for this month.</p>
-                    {blocked ? (
-                        <p className="text-sm text-rose-700">
-                            This month is already at the maximum request count, so this request cannot be sent.
-                        </p>
-                    ) : null}
                     {review && rejecting ? (
                         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
                             Reject reason
@@ -283,7 +271,7 @@ export default function MispunchRequestModal({
                         ) : (
                             <button
                                 type="button"
-                                disabled={saving || blocked}
+                                disabled={saving}
                                 onClick={submit}
                                 className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
                             >

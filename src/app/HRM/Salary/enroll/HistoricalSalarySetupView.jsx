@@ -70,6 +70,7 @@ const LEAVE_TYPES = [
     { key: 'unauthorized', label: 'Unauthorized', color: '#EF4444' },
     { key: 'annual', label: 'Annual Leave', color: '#8B5CF6' },
     { key: 'holiday', label: 'Holiday', color: '#0F766E' },
+    { key: 'compoff', label: 'Comp Off', color: '#0EA5E9' },
 ];
 const LEAVE_SOURCES = [
     { key: 'manual', label: 'Manual' },
@@ -3291,6 +3292,33 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [leaveTypeFilter, setLeaveTypeFilter] = useState('');
     const [systemLeaveTypeFilter, setSystemLeaveTypeFilter] = useState('');
     const [leaveGroupModal, setLeaveGroupModal] = useState(null);
+    const [annualWindowsOpen, setAnnualWindowsOpen] = useState(false);
+    const [annualWindows, setAnnualWindows] = useState(null);
+
+    useEffect(() => {
+        if (!annualWindowsOpen) return undefined;
+        const mongoId = String(data?.employee?.mongoId || '').trim();
+        if (!mongoId) {
+            setAnnualWindows({ error: 'This employee is not linked to a leave profile yet.' });
+            return undefined;
+        }
+        let cancelled = false;
+        setAnnualWindows(null);
+        (async () => {
+            try {
+                const { data: payload } = await axiosInstance.get(
+                    `/Leave/employees/${mongoId}/annual-eligibility`,
+                    { skipToast: true },
+                );
+                if (!cancelled) setAnnualWindows(payload?.allowance || { windows: [] });
+            } catch {
+                if (!cancelled) setAnnualWindows({ error: 'Could not load annual leave periods.' });
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [annualWindowsOpen, data?.employee?.mongoId]);
     const [leaveDraftIndex, setLeaveDraftIndex] = useState(null);
     const [cycleModal, setCycleModal] = useState(false);
     const [cycleDraft, setCycleDraft] = useState(null);
@@ -3562,7 +3590,9 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         cycleDays,
         leaveMultipliers,
     });
-    const liveOvertimeHours = Number(data?.liveAttendance?.overtimeHours) || 0;
+    const liveOvertimeHours = Number(
+        data?.liveAttendance?.approvedOvertimeHours ?? data?.liveAttendance?.overtimeHours,
+    ) || 0;
     const liveOvertimeDays = overtimeHoursToDays(liveOvertimeHours);
     const liveOvertimeRemainderHours = overtimeHoursRemainder(liveOvertimeHours);
     const liveScheduledWorkingDays = Number(data?.liveAttendance?.scheduledWorkingDays) || 0;
@@ -3572,11 +3602,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const liveCompOffDays = data?.liveAttendance?.showOvertime
         ? Number(data?.liveAttendance?.compOffDays) || 0
         : 0;
-    const liveLeaveTaken = (liveLeaveRecords || []).reduce(
-        (sum, row) => sum + (Number(row?.eligibleWorkingDays ?? row?.actualDays ?? row?.calendarDays) || 0),
-        0,
-    );
-    const liveActualWorkedDays = liveScheduledWorkingDays - liveLeaveTaken + liveCompOffDays;
+    const liveLeaveTaken = (liveLeaveRecords || []).reduce((sum, row) => {
+        const type = String(row?.leaveType || '').toLowerCase();
+        if (type === 'holiday') return sum;
+        return sum + (Number(row?.eligibleWorkingDays ?? row?.actualDays ?? row?.calendarDays) || 0);
+    }, 0);
+    const liveActualWorkedDays = liveScheduledWorkingDays + liveCompOffDays - liveLeaveTaken;
     const calc = calculateHistoricalEligibility({
         workingDays:
             (Number(data?.workingDays) || 0) +
@@ -3878,7 +3909,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         const range = from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from);
         setEligibilityDetail({
             title: 'Overtime days',
-            subtitle: `${range || 'Processing date to today'}. ${OVERTIME_HOURS_PER_DAY} hours = 1 day.`,
+            subtitle: `${range || 'Processing date to yesterday'}. ${OVERTIME_HOURS_PER_DAY} hours = 1 day.`,
             rows: [
                 {
                     key: 'ot-hours',
@@ -3906,7 +3937,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             : [];
         setEligibilityDetail({
             title: 'Overtime hours',
-            subtitle: `${from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from) || 'Processing date to today'}. ${OVERTIME_HOURS_PER_DAY} hours = 1 day. Leftover hours under ${OVERTIME_HOURS_PER_DAY} stay as hours.`,
+            subtitle: `${from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from) || 'Processing date to yesterday'}. ${OVERTIME_HOURS_PER_DAY} hours = 1 day. Leftover hours under ${OVERTIME_HOURS_PER_DAY} stay as hours.`,
             rows: records.map((row, index) => ({
                 key: `${row.date || 'ot'}-${index}`,
                 date: prettyDate(row.date),
@@ -4761,12 +4792,16 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         ? `No ${leaveMeta(leaveTypeFilter).label.toLowerCase()} records.`
                                                         : 'No leave records yet.'
                                                 }
-                                                onOpen={(group) =>
+                                                onOpen={(group) => {
+                                                    if (group.type === 'holiday') {
+                                                        setAnnualWindowsOpen(true);
+                                                        return;
+                                                    }
                                                     setLeaveGroupModal({
                                                         type: group.type,
                                                         source: group.source,
-                                                    })
-                                                }
+                                                    });
+                                                }}
                                             />
                                             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                                                 <label className="inline-flex items-center gap-2 text-[13px] text-[#64748B]">
@@ -5098,7 +5133,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                             {liveAttendanceEnabled ? (
                                                 <div className="border-t border-[#E8ECF1] bg-[#F8FAFC]">
                                                     <p className="px-4 pt-3 text-[9px] font-bold uppercase leading-3 tracking-[0.8px] text-[#7B8797]">
-                                                        Processing date to today
+                                                        Processing date to yesterday
                                                     </p>
                                                     {(data?.liveAttendance?.from || toMonthStartDate(verpStartDate)) &&
                                                     data?.liveAttendance?.to ? (
@@ -5140,7 +5175,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Actual worked days"
-                                                            hint="Total working days − leave taken + comp off"
+                                                            hint="Total working days + comp off − leave taken"
                                                             value={liveActualWorkedDays}
                                                             strong
                                                             danger={liveActualWorkedDays < 0}
@@ -5157,7 +5192,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 />
                                                 <p className="text-[9px] font-normal leading-[18px] text-[#6F7C8F]">
                                                     {data?.liveAttendance?.enabled
-                                                        ? `Total working days are the days this group has to work. Holidays and weekly off are already outside that total. Comp off counts only a next day added from approved overtime, and is 0 for a scheduled group. Overtime counts approved hours only, and is 0 for a scheduled group. Actual worked days = total working days − leave taken + comp off. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
+                                                        ? `Counted from the processing date through yesterday. Today is not included. Total working days are the days this group has to work, with weekly off and holidays already removed. Comp off is a next day that was added and is still present. Overtime is the approved overtime hours. Leave taken is every leave in that range: sick, authorized, unauthorized, annual, and a comp off day when leave covers that day. Holidays and weekly off run through yesterday. Actual worked days = total working days + comp off − leave taken. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
                                                         : `Earned eligible balance uses historical working days minus leave deductions. Historical overtime is already in those working days. After the VERP processing date is reached, this card shows required working days, approved comp off and overtime, leave taken, holidays and weekly off, and actual worked days.`}
                                                 </p>
                                             </div>
@@ -5551,6 +5586,73 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     if (ok) notifySalaryPendingInboxChanged();
                 }}
             />
+            <ModalShell
+                open={annualWindowsOpen}
+                title="Annual leave periods"
+                onClose={() => setAnnualWindowsOpen(false)}
+                width="max-w-4xl"
+                zClass="z-[80]"
+            >
+                <p className="mt-1 text-[12px] text-[#64748B]">
+                    Each time counted working days reach the salary-policy cycle, a 30-day annual leave period opens for the next 12 months. When the next cycle completes, the previous period stays here as Lapsed and those days cannot be taken.
+                </p>
+                {annualWindows?.error ? (
+                    <p className="mt-4 text-[13px] text-[#B45309]">{annualWindows.error}</p>
+                ) : !annualWindows ? (
+                    <p className="mt-4 text-[13px] text-[#64748B]">Loading periods…</p>
+                ) : (
+                    <div className="mt-4 max-h-[70vh] overflow-auto">
+                        <table className="w-full min-w-[720px] text-left text-[12px] text-[#0F172A]">
+                            <thead className="text-[11px] uppercase tracking-wide text-[#64748B]">
+                                <tr>
+                                    <th className="px-2 py-2">Start</th>
+                                    <th className="px-2 py-2">End</th>
+                                    <th className="px-2 py-2">Allowed</th>
+                                    <th className="px-2 py-2">Approved</th>
+                                    <th className="px-2 py-2">Taken</th>
+                                    <th className="px-2 py-2">Balance</th>
+                                    <th className="px-2 py-2">Leave dates</th>
+                                    <th className="px-2 py-2">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(annualWindows.windows || []).length ? (
+                                    annualWindows.windows.map((row) => (
+                                        <tr key={row.index} className="border-t border-[#E6EAF0]">
+                                            <td className="px-2 py-2">{prettyDate(row.startDate)}</td>
+                                            <td className="px-2 py-2">{prettyDate(row.endDate)}</td>
+                                            <td className="px-2 py-2">{row.allowedDays}</td>
+                                            <td className="px-2 py-2">{row.approvedDays}</td>
+                                            <td className="px-2 py-2">{row.takenDays}</td>
+                                            <td className="px-2 py-2">{row.balance}</td>
+                                            <td className="px-2 py-2">{(row.leaveDates || []).map((date) => prettyDate(date)).join(', ') || '—'}</td>
+                                            <td className="px-2 py-2">{row.status}</td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={8} className="px-2 py-6 text-[#64748B]">
+                                            No period yet. The first row is added when counted working days reach {annualWindows.cycleDays || 300}.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+                <div className="mt-4 flex justify-end">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setAnnualWindowsOpen(false);
+                            setLeaveGroupModal({ type: 'holiday', source: 'manual' });
+                        }}
+                        className="rounded-lg border border-[#E6EAF0] px-3 py-2 text-[12px] font-semibold text-[#334155]"
+                    >
+                        View holiday records
+                    </button>
+                </div>
+            </ModalShell>
             <ModalShell
                 open={Boolean(leaveGroupModal)}
                 title={
