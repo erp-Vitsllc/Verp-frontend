@@ -127,6 +127,12 @@ function pendingInboxToItem(row, moduleCategory) {
             actionedDate: null,
             status: 'Pending',
             extra1: row?.extra1 || row?.date || '',
+            date: row?.date || '',
+            staffType: row?.staffType || '',
+            leaveRequestKind: row?.leaveRequestKind || '',
+            targetDate: row?.targetDate || '',
+            confirmNextDay: row?.confirmNextDay === true,
+            leaveRequestFromDate: row?.leaveRequestFromDate || '',
             extra2:
                 row?.extra2 ||
                 row?.message ||

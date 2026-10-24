@@ -116,7 +116,8 @@ export function hourAdjustPreview(mark, week) {
     if (!offer) return null;
     if (isFlexibleWeek(week)) {
         const taken = flexibleLossHours(mark, week);
-        return { ...offer, flexible: true, taken, unauth: taken * 2, max: taken };
+        const unauth = roundHours(taken * 2);
+        return { ...offer, flexible: true, taken, unauth, max: unauth };
     }
     const shift = shiftMinutes(week, mark?.date);
     const dayHours = shift ? (shift.end - shift.start) / 60 : 8;

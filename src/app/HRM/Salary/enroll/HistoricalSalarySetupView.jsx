@@ -3565,6 +3565,18 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const liveOvertimeHours = Number(data?.liveAttendance?.overtimeHours) || 0;
     const liveOvertimeDays = overtimeHoursToDays(liveOvertimeHours);
     const liveOvertimeRemainderHours = overtimeHoursRemainder(liveOvertimeHours);
+    const liveScheduledWorkingDays = Number(data?.liveAttendance?.scheduledWorkingDays) || 0;
+    const liveHolidayDays = Number(data?.liveAttendance?.holidayDays) || 0;
+    const liveWeeklyOffDays = Number(data?.liveAttendance?.weeklyOffDays) || 0;
+    const liveHolidaysAndWeekOff = liveHolidayDays + liveWeeklyOffDays;
+    const liveCompOffDays = data?.liveAttendance?.showOvertime
+        ? Number(data?.liveAttendance?.compOffDays) || 0
+        : 0;
+    const liveLeaveTaken = (liveLeaveRecords || []).reduce(
+        (sum, row) => sum + (Number(row?.eligibleWorkingDays ?? row?.actualDays ?? row?.calendarDays) || 0),
+        0,
+    );
+    const liveActualWorkedDays = liveScheduledWorkingDays - liveLeaveTaken + liveCompOffDays;
     const calc = calculateHistoricalEligibility({
         workingDays:
             (Number(data?.workingDays) || 0) +
@@ -5100,37 +5112,38 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     ) : null}
                                                     <div className="mt-2">
                                                         <EligibilityCalcRow
-                                                            label="Working days"
-                                                            value={Number(data?.liveAttendance?.workingDays) || 0}
+                                                            label="Total working days"
+                                                            hint="Days this group has to work"
+                                                            value={liveScheduledWorkingDays}
                                                             onClick={openLiveWorkingDaysDetail}
                                                         />
-                                                        {data?.liveAttendance?.showOvertime ? (
-                                                            <>
-                                                                <EligibilityCalcRow
-                                                                    label="Overtime days"
-                                                                    value={liveOvertimeDays}
-                                                                    onClick={openLiveOvertimeDaysDetail}
-                                                                />
-                                                                <EligibilityCalcRow
-                                                                    label="Overtime hours"
-                                                                    hint={`${OVERTIME_HOURS_PER_DAY} hr = 1 day`}
-                                                                    value={formatHoursLabel(liveOvertimeHours)}
-                                                                    onClick={openLiveOvertimeHoursDetail}
-                                                                />
-                                                            </>
-                                                        ) : null}
                                                         <EligibilityCalcRow
-                                                            label="Leave"
-                                                            value={formatDeductionDays(attendanceLeaveDeduction)}
-                                                            danger={Number(attendanceLeaveDeduction) > 0}
+                                                            label="Comp off"
+                                                            hint={data?.liveAttendance?.showOvertime ? 'Next day added' : 'Scheduled group'}
+                                                            value={liveCompOffDays}
+                                                        />
+                                                        <EligibilityCalcRow
+                                                            label="Overtime"
+                                                            hint={data?.liveAttendance?.showOvertime ? 'Approved only' : 'Scheduled group'}
+                                                            value={data?.liveAttendance?.showOvertime ? formatHoursLabel(liveOvertimeHours) : 0}
+                                                            onClick={data?.liveAttendance?.showOvertime ? openLiveOvertimeHoursDetail : undefined}
+                                                        />
+                                                        <EligibilityCalcRow
+                                                            label="Leave taken"
+                                                            value={formatDeductionDays(liveLeaveTaken)}
+                                                            danger={liveLeaveTaken > 0}
                                                             onClick={openAttendanceLeaveDetail}
                                                         />
                                                         <EligibilityCalcRow
-                                                            label="Period balance"
-                                                            value={livePeriodBalance}
+                                                            label="Holidays & week off"
+                                                            value={liveHolidaysAndWeekOff}
+                                                        />
+                                                        <EligibilityCalcRow
+                                                            label="Actual worked days"
+                                                            hint="Total working days − leave taken + comp off"
+                                                            value={liveActualWorkedDays}
                                                             strong
-                                                            danger={Number(livePeriodBalance) < 0}
-                                                            onClick={openLivePeriodBalanceDetail}
+                                                            danger={liveActualWorkedDays < 0}
                                                         />
                                                     </div>
                                                 </div>
@@ -5144,10 +5157,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 />
                                                 <p className="text-[9px] font-normal leading-[18px] text-[#6F7C8F]">
                                                     {data?.liveAttendance?.enabled
-                                                        ? data?.liveAttendance?.showOvertime
-                                                            ? `From the processing date through today, only present attendance days count as working days. Absent and unauthorized days are deducted, not counted as present. Only approved overtime counts, in full ${OVERTIME_HOURS_PER_DAY}-hour blocks (${OVERTIME_HOURS_PER_DAY} hours = 1 day). Leftover hours under ${OVERTIME_HOURS_PER_DAY} stay as hours until they reach another ${OVERTIME_HOURS_PER_DAY}. Approved or taken leave and holidays from attendance refresh this card. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
-                                                            : `From the processing date through today, only present attendance days count as working days. Absent and unauthorized days are deducted, not counted as present. Scheduled staff do not earn overtime on this card. Approved or taken leave and holidays from attendance refresh this card. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
-                                                        : `Earned eligible balance uses historical working days minus leave deductions. Historical overtime is already in those working days. After the VERP processing date is reached, this card updates from present attendance days, overtime (${OVERTIME_HOURS_PER_DAY} hours = 1 day; leftover hours stay as hours), leave, and holidays.`}
+                                                        ? `Total working days are the days this group has to work. Holidays and weekly off are already outside that total. Comp off counts only a next day added from approved overtime, and is 0 for a scheduled group. Overtime counts approved hours only, and is 0 for a scheduled group. Actual worked days = total working days − leave taken + comp off. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
+                                                        : `Earned eligible balance uses historical working days minus leave deductions. Historical overtime is already in those working days. After the VERP processing date is reached, this card shows required working days, approved comp off and overtime, leave taken, holidays and weekly off, and actual worked days.`}
                                                 </p>
                                             </div>
                                         </section>

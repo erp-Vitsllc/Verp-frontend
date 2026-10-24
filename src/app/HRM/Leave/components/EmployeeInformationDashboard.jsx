@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isNextDayCheckout, NextDayCheckoutTime } from '@/app/HRM/Attendance/utils/nextDayCheckout';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { handleNavigateFromListClick } from '@/utils/listReturnNavigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { handleNavigateFromListClick, syncBrowserUrl } from '@/utils/listReturnNavigation';
 import {
     addMonths,
     eachDayOfInterval,
@@ -1759,6 +1759,8 @@ function DayTip({
     dotClass,
     timeIn,
     timeOut,
+    timeInTone = '',
+    timeOutTone = '',
     timeOutNextDay = false,
     inSpot,
     outSpot,
@@ -1800,30 +1802,13 @@ function DayTip({
                 <span className={statusClass}>{statusText}</span>
                 {approvalText ? <span className={approvalClass}>· {approvalText}</span> : null}
             </p>
-            {sickReason ? (
-                <p className="mt-1 text-[12px] leading-snug text-[#1B2A4A]">
-                    <span className="font-medium text-[#94A3B8]">Reason </span>
-                    {sickReason}
-                </p>
-            ) : null}
-            {sickAttachment?.name ? (
-                <p className="mt-1 min-w-0 text-[12px]">
-                    <button
-                        type="button"
-                        title={sickAttachment.name}
-                        onClick={(event) => openStoredLeaveFile(event, sickAttachment)}
-                        className="pointer-events-auto block max-w-full truncate text-left font-semibold text-[#2563EB] hover:underline"
-                    >
-                        {sickAttachment.name}
-                    </button>
-                </p>
-            ) : null}
             <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
-                <TipMoney label="Time In" value={timeIn} />
+                <TipMoney label="Time In" value={timeIn} tone={timeInTone} />
                 <TipMoney
                     label="Time Out"
                     wrap={timeOutNextDay}
-                    value={<NextDayCheckoutTime time={timeOut} nextDay={timeOutNextDay} />}
+                    tone={timeOutTone}
+                    value={<NextDayCheckoutTime time={timeOut} nextDay={timeOutNextDay} className={timeOutTone} />}
                 />
                 <p className="min-w-0">
                     <span className="block text-[10px] font-medium uppercase tracking-wide text-[#94A3B8]">Location In</span>
@@ -1840,11 +1825,16 @@ function DayTip({
                 <TipMoney label="Remaining" value={balanceText} />
                 <TipMoney label="Deduct" value={deductText} tone="text-[#DC2626]" />
             </div>
-            {moreLines.length ? (
+            {moreLines.length || sickReason || sickAttachment?.name ? (
                 <button
                     type="button"
-                    onClick={() => setMore((open) => !open)}
-                    className="mt-2 text-[12px] font-semibold text-[#2563EB]"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setMore((open) => !open);
+                    }}
+                    className="pointer-events-auto mt-2 text-[12px] font-semibold text-[#2563EB]"
                 >
                     {more ? 'Show less' : 'Show more'}
                 </button>
@@ -1863,13 +1853,33 @@ function DayTip({
                 </div>
             ) : null}
             {more ? (
-                <div className="mt-2 space-y-1.5 border-t border-[#EEF2F6] pt-2">
+                <div className="pointer-events-auto mt-2 space-y-1.5 border-t border-[#EEF2F6] pt-2">
                     {moreLines.map((line) => (
                         <p key={line.label} className="flex items-start justify-between gap-3 text-[12px]">
                             <span className="shrink-0 text-[#94A3B8]">{line.label}</span>
                             <span className="text-right font-medium text-[#1B2A4A]">{line.value}</span>
                         </p>
                     ))}
+                    {sickReason && !moreLines.some((line) => line.label === 'Description') ? (
+                        <p className="flex items-start justify-between gap-3 text-[12px]">
+                            <span className="shrink-0 text-[#94A3B8]">Description</span>
+                            <span className="text-right font-medium text-[#1B2A4A]">{sickReason}</span>
+                        </p>
+                    ) : null}
+                    {sickAttachment?.name ? (
+                        <p className="flex items-start justify-between gap-3 text-[12px]">
+                            <span className="shrink-0 text-[#94A3B8]">Attachment</span>
+                            <button
+                                type="button"
+                                title={sickAttachment.name}
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={(event) => openStoredLeaveFile(event, sickAttachment)}
+                                className="max-w-[180px] truncate text-right font-semibold text-[#2563EB] hover:underline"
+                            >
+                                {sickAttachment.name}
+                            </button>
+                        </p>
+                    ) : null}
                 </div>
             ) : null}
         </div>
@@ -1947,6 +1957,14 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     const lateText = forgiven || hourSettled ? '' : dayLateText(record, ctx.scheduleWeek);
     const visibleLate = lateText && lateText !== '—' && lateText !== '0 Hours' ? lateText : '';
     const visibleEarly = earlyText && earlyText !== '—' && earlyText !== '0 Hours' ? earlyText : '';
+    const punchKind = shownEventKind(record);
+    const missingIn = !String(record?.timeIn || '').trim();
+    const missingOut = !String(record?.timeOut || '').trim();
+    const timeInLabel = punchKind === 'mispunch' && missingIn ? 'Mispunched' : formatClock12(record?.timeIn);
+    const timeOutLabel = punchKind === 'mispunch' && missingOut ? 'Mispunched' : formatClock12(record?.timeOut);
+    const lateInk = 'text-[#DC2626]';
+    const timeInTone = punchKind === 'late_arrived' || visibleLate || (punchKind === 'mispunch' && missingIn) ? lateInk : '';
+    const timeOutTone = punchKind === 'early_go' || visibleEarly || (punchKind === 'mispunch' && missingOut) ? lateInk : '';
     const typeLabel = forgiven
         ? 'Present (on time)'
         : visibleLate && visibleEarly
@@ -2033,8 +2051,9 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
             </div>
             {showTip ? (
                 <div
-                    className="pointer-events-none"
+                    className="pointer-events-auto"
                     onClick={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => event.stopPropagation()}
                     onMouseDown={(event) => event.stopPropagation()}
                     onDoubleClick={(event) => event.stopPropagation()}
                 >
@@ -2044,8 +2063,10 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                         statusClass={tone.text}
                         approvalText={approval}
                         dotClass={tone.dot}
-                        timeIn={formatClock12(record?.timeIn)}
-                        timeOut={formatClock12(record?.timeOut)}
+                        timeIn={timeInLabel}
+                        timeOut={timeOutLabel}
+                        timeInTone={timeInTone}
+                        timeOutTone={timeOutTone}
                         timeOutNextDay={isNextDayCheckout({
                             date: dateKey,
                             timeIn: record?.timeIn,
@@ -2928,6 +2949,8 @@ export default function EmployeeInformationDashboard({
     onOpenLeaveList,
 }) {
     const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
     const { tabs: staffGroups } = useWorkLocations();
     const todayKey = dubaiTodayKey();
     const currentMonth = todayKey.slice(0, 7);
@@ -2958,7 +2981,7 @@ export default function EmployeeInformationDashboard({
     const [otView, setOtView] = useState(null);
     const [compOffPage, setCompOffPage] = useState(1);
     const [compOffView, setCompOffView] = useState(null);
-    const [groupKey, setGroupKey] = useState('');
+    const [groupKey, setGroupKey] = useState(() => String(searchParams.get('group') || '').trim());
     const [reportMenuOpen, setReportMenuOpen] = useState(false);
     const [reportBusy, setReportBusy] = useState(false);
     const [reportError, setReportError] = useState('');
@@ -2976,6 +2999,26 @@ export default function EmployeeInformationDashboard({
     useEffect(() => {
         setTaskPage(1);
     }, [employeeMongoId]);
+
+    const writeGroupToUrl = useCallback((nextKey) => {
+        const params = new URLSearchParams(searchParams.toString());
+        const key = String(nextKey || '').trim();
+        if (key) params.set('group', key);
+        else params.delete('group');
+        const query = params.toString();
+        syncBrowserUrl(query ? `${pathname}?${query}` : pathname);
+    }, [pathname, searchParams]);
+
+    const selectGroup = useCallback((nextKey) => {
+        const key = String(nextKey || '').trim();
+        setGroupKey(key);
+        writeGroupToUrl(key);
+    }, [writeGroupToUrl]);
+
+    useEffect(() => {
+        const fromUrl = String(searchParams.get('group') || '').trim();
+        setGroupKey((current) => (current === fromUrl ? current : fromUrl));
+    }, [searchParams]);
 
     useEffect(() => {
         if (!groupMenuOpen) return undefined;
@@ -3803,10 +3846,13 @@ export default function EmployeeInformationDashboard({
     function openGroupEmployee(id) {
         setGroupMenuOpen(false);
         if (!id || String(id) === String(employeeMongoId || '')) {
-            setGroupKey('');
+            selectGroup('');
             return;
         }
-        router.push(`/HRM/Leave/${id}`);
+        const params = new URLSearchParams(searchParams.toString());
+        if (groupKey) params.set('group', groupKey);
+        const query = params.toString();
+        router.push(query ? `/HRM/Leave/${id}?${query}` : `/HRM/Leave/${id}`);
     }
 
     function selectMonth(nextKey) {
@@ -3958,7 +4004,7 @@ export default function EmployeeInformationDashboard({
                                     <button
                                         type="button"
                                         onClick={() => {
-                                            setGroupKey('');
+                                            selectGroup('');
                                             setGroupMenuOpen(false);
                                         }}
                                         className={`flex w-full px-3 py-2 text-left text-[13px] font-semibold hover:bg-[#F8FAFC] ${groupKey ? 'text-[#64748B]' : 'bg-[#EFF6FF] text-[#2563EB]'}`}
@@ -3970,7 +4016,7 @@ export default function EmployeeInformationDashboard({
                                             key={group.key}
                                             type="button"
                                             onClick={() => {
-                                                setGroupKey(group.key);
+                                                selectGroup(group.key);
                                                 setGroupMenuOpen(false);
                                             }}
                                             className={`flex w-full px-3 py-2 text-left text-[13px] font-semibold hover:bg-[#F8FAFC] ${groupKey === group.key ? 'bg-[#EFF6FF] text-[#2563EB]' : 'text-[#1B2A4A]'}`}

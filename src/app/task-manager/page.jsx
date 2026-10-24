@@ -71,6 +71,7 @@ const STATUS_STYLE = {
     'In Progress': 'bg-sky-50 text-sky-700',
     Completed: 'bg-emerald-50 text-emerald-600',
     Closed: 'bg-emerald-50 text-emerald-700',
+    Reopened: 'bg-sky-50 text-sky-700',
     Cancelled: 'bg-slate-100 text-slate-500',
     'On Hold': 'bg-amber-50 text-amber-700',
     Rejected: 'bg-slate-100 text-slate-600',
@@ -113,7 +114,7 @@ function listStatus(task) {
 }
 
 function isOpenPending(shown) {
-    return shown === 'Pending' || shown === 'Overdue' || shown === 'Open' || shown === 'Pending Review';
+    return shown === 'Pending' || shown === 'Overdue' || shown === 'Open' || shown === 'Pending Review' || shown === 'Reopened';
 }
 
 function paramValue(params, key, fallback = '') {
@@ -176,7 +177,14 @@ function isMyTask(task, viewer) {
         .map((value) => String(value || '').trim().toLowerCase())
         .filter(Boolean);
     const assignee = String(task.assigneeName || '').trim().toLowerCase();
-    return Boolean(assignee && names.includes(assignee));
+    if (assignee && names.includes(assignee)) return true;
+    const paren = assignee.match(/\(([^)]+)\)\s*$/);
+    if (!paren) return false;
+    const lead = assignee.slice(0, assignee.lastIndexOf('(')).trim();
+    const inside = paren[1].trim();
+    if (names.includes(lead) || names.includes(inside)) return true;
+    const requester = String(task.requesterBaseName || task.requesterName || '').trim().toLowerCase();
+    return Boolean(requester && names.includes(requester));
 }
 
 function addDays(key, days) {
@@ -1432,20 +1440,24 @@ function TaskManagerContent() {
                     onClick={(event) => event.stopPropagation()}
                 >
                     {[
+                        { id: 'return', label: 'Return to assignee' },
                         { id: 'delete', label: 'Delete' },
                         { id: 'edit', label: 'Edit' },
                         { id: 'reassign', label: 'Reassign' },
                         { id: 'workflow', label: 'Workflow' },
                     ].map((item) => {
                         const task = tasks.find((row) => row.actionId === openMenu.id);
-                        const disabled = (item.id === 'reassign' && task && !task.canReassign)
+                        if (item.id === 'return' && !task?.canReturn) return null;
+                        const closed = task?.displayStatus === 'Closed';
+                        const disabled = closed && (item.id === 'edit' || item.id === 'reassign' || item.id === 'delete')
+                            || (item.id === 'reassign' && task && !task.canReassign)
                             || (item.id === 'delete' && task && !task.canDelete);
                         return (
                             <button
                                 key={item.id}
                                 type="button"
                                 disabled={disabled}
-                                title={disabled ? (item.id === 'delete' ? 'Only the task creator or an admin super user can delete' : 'Only the current assignee, the original assignee, or an admin super user can reassign') : undefined}
+                                title={disabled ? (closed ? 'This task is closed' : item.id === 'delete' ? 'Only the task creator or an admin super user can delete' : 'Only the current assignee, the original assignee, or an admin super user can reassign') : undefined}
                                 onClick={() => {
                                     setOpenMenu(null);
                                     if (!task) return;
@@ -1454,6 +1466,9 @@ function TaskManagerContent() {
                                         setDeleteTask(task);
                                     } else if (item.id === 'edit') {
                                         setEditTask(task);
+                                    } else if (item.id === 'return') {
+                                        const href = taskDetailsHref(task);
+                                        router.push(href.includes('?') ? `${href}&return=1` : `${href}?return=1`);
                                     } else if (item.id === 'reassign') {
                                         setReassignTask(task);
                                     } else {

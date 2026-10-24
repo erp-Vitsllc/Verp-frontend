@@ -116,6 +116,10 @@ export default function AttendanceLeaveDecideModal({
     if (!isOpen) return null;
 
     const kindKey = String(kind || '');
+    const isMispunchRequest =
+        String(requestedStatusKey || '') === 'mispunch' ||
+        /mispunch/i.test(String(requestedLabel || '')) ||
+        (kindKey === 'yellow' && (!String(timeIn || '').trim() || !String(timeOut || '').trim()));
     const isMultiDay = Boolean(fromDate && toDate && fromDate !== toDate);
     const rangeLabel = isMultiDay ? `${fromDate} → ${toDate}` : '';
     const side = session === 'pm' ? 'PM' : session === 'am' ? 'AM' : '';
@@ -126,7 +130,7 @@ export default function AttendanceLeaveDecideModal({
             : dayPart === 'full'
               ? 'Full day'
               : '';
-    const skipStatusPicker = isPunchCorrectionKind(kindKey) || kindKey.startsWith('future_');
+    const skipStatusPicker = isMispunchRequest || isPunchCorrectionKind(kindKey) || kindKey.startsWith('future_');
 
     const handleReject = () => {
         if (readOnly) return;
@@ -279,7 +283,16 @@ export default function AttendanceLeaveDecideModal({
                             })}
                         </div>
                     ) : null}
-                    {isPunchCorrectionKind(kindKey) ? (
+                    {isMispunchRequest ? (
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="text-xs text-slate-500">Check in
+                                <p className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-sm font-semibold text-slate-800">{clockInputValue(timeIn) || 'Misspunched'}</p>
+                            </div>
+                            <div className="text-xs text-slate-500">Check out
+                                <p className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-sm font-semibold text-slate-800">{clockInputValue(timeOut) || 'Misspunched'}</p>
+                            </div>
+                        </div>
+                    ) : isPunchCorrectionKind(kindKey) ? (
                         <div className="grid grid-cols-2 gap-2">
                             <label className="text-xs text-slate-500">Check in
                                 <input type="time" value={editIn} disabled={readOnly} onChange={(event) => setEditIn(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm" />

@@ -184,7 +184,7 @@ export default function AttendanceFutureRequestModal({
     const todayKey = dubaiTodayKey();
     const currentMonth = todayKey.slice(0, 7);
     const isAuthorizedLeave = !isAnnualLeave && !isSickLeave && !isMispunch && !isFuturePunch;
-    const minimumDate = isMispunch || isAuthorizedLeave || isSickLeave
+    const minimumDate = isMispunch || isAuthorizedLeave || isSickLeave || isFuturePunch
         ? ''
         : isAnnualLeave
           ? earliestDate || ''

@@ -1421,6 +1421,7 @@ export default function DashboardAttendanceCalendar({
                     ''
                 }
                 requestedLabel={decideModal?.record?.requestedStatusLabel || ''}
+                requestedStatusKey={decideModal?.record?.requestedStatusKey || ''}
                 reason={
                     decideModal?.record?.leaveRequestReason || decideModal?.record?.reason || ''
                 }

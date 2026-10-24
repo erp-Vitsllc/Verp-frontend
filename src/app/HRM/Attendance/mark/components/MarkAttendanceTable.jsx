@@ -208,6 +208,13 @@ function punchDurationLabel(timeIn, timeOut, timeOutDate, date) {
     return `${hours}h ${String(mins).padStart(2, '0')}m`;
 }
 
+function scheduledLateMinutes(week, dateKey, timeIn) {
+    const start = scheduledStartMinutes(week, dateKey);
+    const actual = clockToMinutes(timeIn);
+    if (start == null || actual == null || actual <= start) return 0;
+    return actual - start;
+}
+
 function dubaiDateKey(date = new Date()) {
     return new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Asia/Dubai',
@@ -323,7 +330,7 @@ function formatStatusLabel(mark, timeIn, pastDay = false) {
     const punchedIn = Boolean(timeIn && timeIn !== '—');
     const missedDay = pastDay ? 'Unauth' : 'Absent';
 
-    if (countsAsOnTime(mark)) return 'Present (On time)';
+    if (punchedIn && countsAsOnTime(mark)) return 'Present (On time)';
     if (key === 'suspended') return 'Suspended';
     // "Unauthorized Leave" contains "authorized leave", so this must run first.
     if (key === 'unauthorized_leave' || /^unauth/i.test(raw)) {
@@ -355,11 +362,13 @@ function formatStatusLabel(mark, timeIn, pastDay = false) {
     if (key === 'work_from_home') return raw || 'Work from home';
     if (key === 'weekly_off') return 'Off Day';
     if (key === 'holiday') return raw || 'Holiday';
-    if (!punchedIn && (key === '' || key === 'not_marked' || key === 'absent')) return missedDay;
+    if (!punchedIn && (key === '' || key === 'not_marked' || key === 'absent' || key === 'on_office' || /^(on time|present|on work|on office)/i.test(raw))) return missedDay;
     if (
-        key === 'on_office' ||
-        key === 'not_marked' ||
-        /^(on time|present|on work|on office)$/i.test(raw)
+        punchedIn && (
+            key === 'on_office' ||
+            key === 'not_marked' ||
+            /^(on time|present|on work|on office)$/i.test(raw)
+        )
     ) {
         return 'Present (On time)';
     }
@@ -1539,6 +1548,7 @@ function EmployeeRow({
     const duration = syntheticOt
         ? hoursDurationLabel(mark?.flexibleWorkedHours)
         : punchDurationLabel(rawIn, rawOut, mark?.timeOutDate, mark?.date);
+    const mispunchedHours = String(shownMark?.key || '') === 'mispunch' || /mispunch/i.test(statusText);
     const rowLocked = actionLocked;
     const lockTitle = actionLocked ? actionTitle : undefined;
 
@@ -1551,6 +1561,9 @@ function EmployeeRow({
     const durationHours = spanSeconds != null ? spanSeconds / 3600 : workedHoursValue(mark);
     const requiredHours = scheduleDayHours(scheduleWeek, dateKey) || Number(mark?.flexibleRequiredHours) || 0;
     const flexibleTiming = String(scheduleWeek?.timingMode || '').toLowerCase() === 'flexible';
+    const lateMinutes = !flexibleTiming && /late/i.test(statusText)
+        ? scheduledLateMinutes(scheduleWeek, dateKey, rawIn)
+        : 0;
     const otState = otActionState({
         mark,
         durationHours,
@@ -1602,7 +1615,20 @@ function EmployeeRow({
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">
                 {isOtPunch(timeOut) ? '—' : <NextDayCheckoutTime time={timeOut} nextDay={checkoutNextDay} />}
             </td>
-            <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle whitespace-nowrap">{duration}</td>
+            <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle whitespace-nowrap">
+                {mispunchedHours ? (
+                    <span className="font-medium text-amber-600">Mispunched</span>
+                ) : (
+                    <span>
+                        {duration}
+                        {lateMinutes > 0 ? (
+                            <span className="mt-0.5 block text-[11px] font-medium text-amber-600">
+                                {lateMinutes} minute{lateMinutes === 1 ? '' : 's'} late
+                            </span>
+                        ) : null}
+                    </span>
+                )}
+            </td>
             <td className="px-3 py-3 align-middle min-w-[220px]">
                 <div className="flex flex-col gap-0.5 min-w-0">
                     <StatusApprovalTip

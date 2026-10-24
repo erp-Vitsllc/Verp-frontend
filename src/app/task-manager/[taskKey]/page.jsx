@@ -44,6 +44,7 @@ const STATUS_STYLE = {
     'In Progress': 'bg-sky-50 text-sky-700',
     Completed: 'bg-emerald-50 text-emerald-600',
     Closed: 'bg-slate-100 text-slate-700',
+    Reopened: 'bg-sky-50 text-sky-700',
     'Pending Review': 'bg-amber-50 text-amber-700',
     Open: 'bg-sky-50 text-sky-700',
     'Pending Review': 'bg-amber-50 text-amber-700',
@@ -231,6 +232,12 @@ function TaskDetailsPage() {
         if (requested === 'comments') setTab('updates');
         else if (TABS.some((item) => item.id === requested)) setTab(requested);
     }, []);
+
+    useEffect(() => {
+        if (!task?.canReturn) return;
+        const query = new URLSearchParams(window.location.search);
+        if (query.get('return') === '1') setNoteAction('return');
+    }, [task]);
 
     useEffect(() => {
         let cancelled = false;
@@ -487,7 +494,7 @@ function TaskDetailsPage() {
                                     onClick={() => setNoteAction('return')}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:opacity-40"
                                 >
-                                    <RefreshCw size={14} /> Return
+                                    <RefreshCw size={14} /> Return to assignee
                                 </button>
                             )}
                             {task.canCompleteGeneral && (
@@ -838,7 +845,7 @@ function TaskDetailsPage() {
                                             ? 'Mark as Completed'
                                             : 'Confirm Close'}
                     hint={noteAction === 'reopen'
-                        ? 'A comment is required. It is saved in Work Updates, emailed to the assignee, and the task is sent back to them.'
+                        ? 'A comment is required. The task becomes Reopened, returns to the last assignee, and they are emailed the task number, name, reason, and your details.'
                         : noteAction === 'reject' || noteAction === 'general-reject'
                         ? 'A comment is required. It is saved in Work Updates.'
                         : noteAction === 'hand-back'

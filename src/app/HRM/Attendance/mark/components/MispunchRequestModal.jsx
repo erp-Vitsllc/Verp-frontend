@@ -11,6 +11,10 @@ function clockInputValue(value) {
     return `${match[1].padStart(2, '0')}:${match[2]}`;
 }
 
+function punchDisplay(value) {
+    return clockInputValue(value) || 'Misspunched';
+}
+
 function allowanceLabel(allowance) {
     if (!allowance) return '…';
     const used = Math.max(0, Number(allowance.used) || 0);
@@ -49,7 +53,8 @@ export default function MispunchRequestModal({
     const priorBy = String(queued?.rejectedByName || '').trim();
     const requesterTurn = queued?.stage === 'pending_requester';
     const blocked = !review && allowanceBlocked(allowance);
-    const checkoutLocked = !review;
+    const shownIn = punchDisplay(queued?.timeIn || mark?.rawTimeIn);
+    const shownOut = punchDisplay(queued?.timeOut || mark?.rawTimeOut);
 
     useEffect(() => {
         if (!open) return;
@@ -99,20 +104,16 @@ export default function MispunchRequestModal({
 
     const flowNote = review
         ? queued?.stage === 'pending_hr'
-            ? 'Approving this updates the check-in and check-out.'
+            ? 'Approving keeps the punches as they are. A late arrival stays late and is still deducted.'
             : requesterTurn
-                ? 'Update the times and reason, then send it again. Or reject it to remove the request.'
-                : 'Approving this sends it to HR. The day stays unchanged until HR approves.'
+                ? 'Update the reason, then send it again. Or reject it to remove the request.'
+                : 'Approving this sends it to HR. Punches stay unchanged until HR approves.'
         : mode === 'direct'
-            ? 'This updates the day now.'
-            : 'Sent to the primary reportee, then HR. The day stays unchanged until HR approves.';
+            ? 'This approves the missed punch. Check-in and check-out stay as they are.'
+            : 'Sent to the primary reportee, then HR. Check-in and check-out cannot be changed.';
 
     const submit = async () => {
         if (readOnly || blocked) return;
-        if (!timeIn) {
-            toast({ variant: 'destructive', title: 'Check-in time is required' });
-            return;
-        }
         if (!String(reason || '').trim()) {
             toast({ variant: 'destructive', title: 'Reason is required' });
             return;
@@ -121,8 +122,6 @@ export default function MispunchRequestModal({
         try {
             const response = await axiosInstance.post('/Attendance/mispunch/request', {
                 attendanceId: mark.attendanceId,
-                timeIn,
-                timeOut,
                 reason: String(reason || '').trim(),
             });
             toast({
@@ -153,10 +152,6 @@ export default function MispunchRequestModal({
             toast({ variant: 'destructive', title: 'Reject reason is required' });
             return;
         }
-        if (decision === 'approved' && (!timeIn || !timeOut)) {
-            toast({ variant: 'destructive', title: 'Check-in and check-out are required' });
-            return;
-        }
         if (decision === 'approved' && requesterTurn && !String(reason || '').trim()) {
             toast({ variant: 'destructive', title: 'Reason is required' });
             return;
@@ -164,8 +159,6 @@ export default function MispunchRequestModal({
         const changeId = String(queued?.id || '').trim();
         const payload = {
             decision,
-            timeIn: decision === 'approved' ? timeIn : undefined,
-            timeOut: decision === 'approved' ? timeOut : undefined,
             hourReason: decision === 'approved' && requesterTurn ? String(reason || '').trim() : undefined,
             approvedHours: decision === 'approved' ? 0 : undefined,
             rejectReason: decision === 'rejected' ? String(rejectReason || '').trim() : '',
@@ -208,26 +201,16 @@ export default function MispunchRequestModal({
                     </div>
                 ) : null}
                 <div className="mt-4 space-y-3">
-                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                        Check-in time
-                        <input
-                            type="time"
-                            value={timeIn}
-                            disabled={readOnly}
-                            onChange={(event) => setTimeIn(event.target.value)}
-                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
-                        />
-                    </label>
-                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                        Check-out time
-                        <input
-                            type="time"
-                            value={timeOut}
-                            disabled={readOnly || checkoutLocked}
-                            onChange={(event) => setTimeOut(event.target.value)}
-                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50"
-                        />
-                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Check-in</p>
+                            <p className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">{shownIn}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Check-out</p>
+                            <p className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">{shownOut}</p>
+                        </div>
+                    </div>
                     {review && !requesterTurn ? (
                         <p className="text-sm text-slate-700">
                             <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Requester reason: </span>

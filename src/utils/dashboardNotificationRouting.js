@@ -332,9 +332,12 @@ export const buildDashboardNotificationPath = (item) => {
     const sickStatus = String(earlyMeta?.requestedStatusKey || item.requestedStatusKey || '').trim();
     const sickText = `${item.extra2 || ''} ${item.message || ''}`.toLowerCase();
     if (sickStatus === 'sick_leave' || sickText.includes('sick leave')) {
-        const day = [earlyMeta?.date, earlyMeta?.from, item.date, item.extra1].find((value) =>
-            /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim()),
-        );
+        const day = [earlyMeta?.date, earlyMeta?.from, item.leaveRequestFromDate, item.date, item.extra1, item.extra2]
+            .map((value) => {
+                const match = String(value || '').match(/\d{4}-\d{2}-\d{2}/);
+                return match ? match[0] : '';
+            })
+            .find(Boolean);
         return attendanceRequestMarkHref({
             date: day || '',
             staffType: earlyMeta?.staffType || item.staffType || 'office',
@@ -502,9 +505,27 @@ export const buildDashboardNotificationPath = (item) => {
         } catch {
             meta = {};
         }
-        const day = [meta.date, meta.from, item.date, item.extra1].find((value) =>
-            /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim()),
-        );
+        const dateKey = (value) => {
+            const match = String(value || '').match(/\d{4}-\d{2}-\d{2}/);
+            return match ? match[0] : '';
+        };
+        const nextDay =
+            meta.confirmNextDay === true || item.confirmNextDay === true
+                ? dateKey(meta.targetDate || item.targetDate)
+                : '';
+        const day =
+            nextDay ||
+            [
+                meta.date,
+                meta.from,
+                item.leaveRequestFromDate,
+                item.date,
+                item.extra1,
+                item.extra2,
+                item.message,
+            ]
+                .map(dateKey)
+                .find(Boolean);
         return attendanceRequestMarkHref({
             date: day || '',
             staffType: meta.staffType || item.staffType || 'office',
