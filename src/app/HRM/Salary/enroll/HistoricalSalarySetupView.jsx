@@ -3301,6 +3301,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [leaveGroupModal, setLeaveGroupModal] = useState(null);
     const [annualWindowsOpen, setAnnualWindowsOpen] = useState(false);
     const [annualWindows, setAnnualWindows] = useState(null);
+    const [officeHolidayOpen, setOfficeHolidayOpen] = useState(false);
+    const [officeHolidays, setOfficeHolidays] = useState(null);
 
     useEffect(() => {
         if (!annualWindowsOpen) return undefined;
@@ -3487,6 +3489,23 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     }, [employeeId, joiningDate, joiningDateReason, verpStartDate, loading]);
 
     const historicalTo = verpStartDate ? addDays(verpStartDate, -1) : '';
+    useEffect(() => {
+        if (!officeHolidayOpen) return undefined;
+        const from = String(joiningDate || '').trim();
+        const to = String(historicalTo || '').trim();
+        if (!ISO.test(from) || !ISO.test(to) || to < from) {
+            setOfficeHolidays([]);
+            return undefined;
+        }
+        let cancelled = false;
+        setOfficeHolidays(null);
+        fetchHolidaysInPeriod(from, to).then((rows) => {
+            if (!cancelled) setOfficeHolidays(rows);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [officeHolidayOpen, joiningDate, historicalTo]);
     const cycleDays = policyLeaveWorkingDays(data?.policy, data?.cycleDays);
     const leaveMultipliers = data?.leaveMultipliers || policyLeaveMultipliers(data?.policy);
     const splitLeave = splitLeavePayload(leaveRecords);
@@ -4813,8 +4832,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         : 'No leave records yet.'
                                                 }
                                                 onOpen={(group) => {
-                                                    if (group.type === 'holiday') {
+                                                    if (group.type === 'annual') {
                                                         setAnnualWindowsOpen(true);
+                                                        return;
+                                                    }
+                                                    if (group.type === 'holiday') {
+                                                        setOfficeHolidayOpen(true);
                                                         return;
                                                     }
                                                     setLeaveGroupModal({
@@ -5614,7 +5637,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 zClass="z-[80]"
             >
                 <p className="mt-1 text-[12px] text-[#64748B]">
-                    The first row starts on the contract joining date and runs for 12 months. It stays “Not hit 300” with balance 0 until counted working days finish a {annualWindows?.cycleDays || 300}-day cycle. When that end date passes, or the next cycle is counted, a new row opens and the previous one becomes Lapsed. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
+                    Each completed {annualWindows?.cycleDays || 300}-day cycle opens the next 12 months after the contract joining date. Annual leave taken between that start and end counts against the 30-day balance. The latest row is Active and every earlier row is Lapsed. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
                 </p>
                 {annualWindows?.error ? (
                     <p className="mt-4 text-[13px] text-[#B45309]">{annualWindows.error}</p>
@@ -5625,49 +5648,40 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                         <table className="w-full min-w-[720px] text-left text-[12px] text-[#0F172A]">
                             <thead className="text-[11px] uppercase tracking-wide text-[#64748B]">
                                 <tr>
-                                    <th className="px-2 py-2">Joining date</th>
-                                    <th className="px-2 py-2">Leave due</th>
+                                    <th className="px-2 py-2">Start</th>
+                                    <th className="px-2 py-2">End</th>
                                     <th className="px-2 py-2">Leave taken</th>
                                     <th className="px-2 py-2">Balance</th>
-                                    <th className="px-2 py-2">Leave dates</th>
                                     <th className="px-2 py-2">Status</th>
-                                    <th className="px-2 py-2" />
                                 </tr>
                             </thead>
                             <tbody>
                                 {(annualWindows.windows || []).length ? (
                                     annualWindows.windows.map((row) => (
-                                        <tr key={row.index} className="border-t border-[#E6EAF0]">
+                                        <tr
+                                            key={row.index}
+                                            className="cursor-pointer border-t border-[#E6EAF0] hover:bg-[#F8FAFC]"
+                                            onClick={() => {
+                                                setAnnualWindowsOpen(false);
+                                                setLeaveGroupModal({
+                                                    type: 'annual',
+                                                    source: 'manual',
+                                                    from: row.startDate,
+                                                    to: row.endDate,
+                                                });
+                                            }}
+                                        >
                                             <td className="px-2 py-2">{prettyDate(row.startDate)}</td>
                                             <td className="px-2 py-2">{prettyDate(row.endDate)}</td>
                                             <td className="px-2 py-2">{row.takenDays} days</td>
                                             <td className="px-2 py-2">{row.balance}</td>
-                                            <td className="px-2 py-2">{(row.leaveDates || []).map((date) => prettyDate(date)).join(', ') || '—'}</td>
                                             <td className="px-2 py-2">{row.status}</td>
-                                            <td className="px-2 py-2 text-right">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setAnnualWindowsOpen(false);
-                                                        setLeaveGroupModal({
-                                                            type: 'annual',
-                                                            source: 'manual',
-                                                            from: row.startDate,
-                                                            to: row.endDate,
-                                                            includeHoliday: true,
-                                                        });
-                                                    }}
-                                                    className="text-[12px] font-semibold text-[#2563EB]"
-                                                >
-                                                    View
-                                                </button>
-                                            </td>
                                         </tr>
                                     ))
                                 ) : (
                                     <tr>
-                                        <td colSpan={7} className="px-2 py-6 text-[#64748B]">
-                                            No period yet. The first row is added from the contract joining date.
+                                        <td colSpan={5} className="px-2 py-6 text-[#64748B]">
+                                            No period yet. The first row opens when counted working days reach {annualWindows.cycleDays || 300}.
                                         </td>
                                     </tr>
                                 )}
@@ -5679,6 +5693,58 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     <button
                         type="button"
                         onClick={() => setAnnualWindowsOpen(false)}
+                        className="rounded-lg border border-[#E6EAF0] px-3 py-2 text-[12px] font-semibold text-[#334155]"
+                    >
+                        Close
+                    </button>
+                </div>
+            </ModalShell>
+            <ModalShell
+                open={officeHolidayOpen}
+                title="Office holidays"
+                onClose={() => setOfficeHolidayOpen(false)}
+                width="max-w-xl"
+                zClass="z-[80]"
+            >
+                <p className="mt-1 text-[12px] text-[#64748B]">
+                    UAE public holidays and holidays added on the office calendar, from the contract joining date through the historical period.
+                </p>
+                {officeHolidays == null ? (
+                    <p className="mt-4 text-[13px] text-[#64748B]">Loading holidays…</p>
+                ) : (
+                    <div className="mt-4 max-h-[70vh] overflow-auto">
+                        <table className="w-full text-left text-[12px] text-[#0F172A]">
+                            <thead className="text-[11px] uppercase tracking-wide text-[#64748B]">
+                                <tr>
+                                    <th className="px-2 py-2">Date</th>
+                                    <th className="px-2 py-2">Reason</th>
+                                    <th className="px-2 py-2">Count</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {officeHolidays.length ? (
+                                    officeHolidays.map((row) => (
+                                        <tr key={row.date} className="border-t border-[#E6EAF0]">
+                                            <td className="px-2 py-2">{prettyDate(row.date)}</td>
+                                            <td className="px-2 py-2">{row.name || 'Holiday'}</td>
+                                            <td className="px-2 py-2">1 day</td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={3} className="px-2 py-6 text-[#64748B]">
+                                            No office holidays in this period.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+                <div className="mt-4 flex justify-end">
+                    <button
+                        type="button"
+                        onClick={() => setOfficeHolidayOpen(false)}
                         className="rounded-lg border border-[#E6EAF0] px-3 py-2 text-[12px] font-semibold text-[#334155]"
                     >
                         Close
