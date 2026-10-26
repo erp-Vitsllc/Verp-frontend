@@ -3758,8 +3758,8 @@ export default function EmployeeInformationDashboard({
             statusKey,
             reason: 'Weekly off or holiday between leave',
         }));
-        const deductionSource = [...countedRecords, ...sandwichRows];
-        const authDays = money2(deductionSource.reduce((sum, row) => {
+        const sandwichDaysOf = (kind) => sandwichRows.filter((row) => deductionKind(row) === kind);
+        const authDays = money2(countedRecords.reduce((sum, row) => {
             if (deductionKind(row) !== 'authorized_leave') return sum;
             if (String(row?.hourAdjustStatus || '') === 'approved') {
                 const dayHours = flexibleDayHours(scheduleWeek, row.date) || dayHoursOf(scheduleWeek, row.date) || 8;
@@ -3767,13 +3767,21 @@ export default function EmployeeInformationDashboard({
             }
             return sum + leaveDayWeight(row, true);
         }, 0));
-        const unauthDays = money2(deductionSource.reduce((sum, row) => {
+        const sandwichAuthDays = money2(sandwichDaysOf('authorized_leave').reduce(
+            (sum, row) => sum + leaveDayWeight(row, true),
+            0,
+        ));
+        const unauthDays = money2(countedRecords.reduce((sum, row) => {
             const key = deductionKind(row);
             if (key === 'unauthorized_leave') return sum + leaveDayWeight(row, false);
             const punched = Boolean(String(row?.timeIn || '').trim() || String(row?.timeOut || '').trim());
             if ((key === 'not_marked' || key === 'absent' || key === '') && row?.date && !punched) return sum + 1;
             return sum;
         }, 0));
+        const sandwichUnauthDays = money2(sandwichDaysOf('unauthorized_leave').reduce(
+            (sum, row) => sum + leaveDayWeight(row, false),
+            0,
+        ));
         const authTimes = policy.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
         const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
         const punchShare = (row, kind) => {
@@ -3798,7 +3806,9 @@ export default function EmployeeInformationDashboard({
             ? 'Flexible time deducts only the missed hours. Late arrival and early go do not use the salary policy.'
             : 'Until approval this uses the unauthorized leave rate. After approval, only the approved hours are deducted.';
         const missedRule = mispunchPolicyRule(policy);
-        const annualDays = deductionSource.filter((row) => deductionKind(row) === 'on_leave').length;
+        const annualDays = countedRecords.filter((row) => deductionKind(row) === 'on_leave').length;
+        const sandwichAnnualDays = sandwichDaysOf('on_leave').length;
+        const sandwichNote = 'Weekly off or holiday between leave days. No separate leave request is required.';
         return [
             {
                 key: 'late_arrived',
@@ -3831,16 +3841,30 @@ export default function EmployeeInformationDashboard({
                     : `1 annual leave day deducts 1 × ${dayRate}`,
             },
             {
+                key: 'on_leave_sandwich',
+                type: 'Annual leave · weekly off between leave',
+                count: sandwichAnnualDays,
+                amount: money2(sandwichAnnualDays * daily),
+                note: sandwichNote,
+            },
+            {
                 key: 'authorized_leave',
                 type: 'Authorized leave',
                 count: authDays,
-                amount: money2(deductionSource.reduce((sum, row) => {
+                amount: money2(countedRecords.reduce((sum, row) => {
                     if (deductionKind(row) !== 'authorized_leave') return sum;
                     return sum + attendanceDeductionAmount(row, scheduleWeek, daily, policy);
                 }, 0)),
                 note: authDays
                     ? `${authDays} × ${authTimes} day × ${dayRate}`
                     : `1 authorized day deducts ${authTimes} × ${dayRate}`,
+            },
+            {
+                key: 'authorized_leave_sandwich',
+                type: 'Authorized leave · weekly off between leave',
+                count: sandwichAuthDays,
+                amount: money2(sandwichAuthDays * authTimes * daily),
+                note: sandwichNote,
             },
             {
                 key: 'unauthorized_leave',
@@ -3851,7 +3875,14 @@ export default function EmployeeInformationDashboard({
                     ? `${unauthDays} × ${unauthTimes} day × ${dayRate}`
                     : `1 unauthorized day deducts ${unauthTimes} × ${dayRate}`,
             },
-        ].filter((row) => row.key !== 'on_leave' || Number(row.count) > 0);
+            {
+                key: 'unauthorized_leave_sandwich',
+                type: 'Unauthorized leave · weekly off between leave',
+                count: sandwichUnauthDays,
+                amount: money2(sandwichUnauthDays * unauthTimes * daily),
+                note: sandwichNote,
+            },
+        ].filter((row) => (String(row.key).includes('sandwich') ? Number(row.count) > 0 : (row.key !== 'on_leave' || Number(row.count) > 0)));
     }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts, holidayDates, offWeekdays, countFrom, countTo]);
     const deductionDetailRows = useMemo(() => {
         const enclosedOff = sandwichLeaveByDate({
@@ -4718,7 +4749,10 @@ export default function EmployeeInformationDashboard({
                                 </thead>
                                 <tbody>
                                     {salaryTableRows.map((row, index) => {
-                                        const leaveRow = row.key === 'on_leave' || row.key === 'authorized_leave' || row.key === 'unauthorized_leave';
+                                        const leaveRow = row.key === 'on_leave'
+                                            || row.key === 'authorized_leave'
+                                            || row.key === 'unauthorized_leave'
+                                            || String(row.key || '').endsWith('_sandwich');
                                         const countText = salaryLock.locked
                                             ? '—'
                                             : row.count == null || row.count === ''

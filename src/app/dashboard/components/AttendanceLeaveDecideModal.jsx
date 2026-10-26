@@ -1,15 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
-
-const REPORTEE_LEAVE_OPTIONS = [
-    { key: 'authorized_leave', label: 'Authorized Leave', swatch: 'bg-[#2563EB]', selected: 'border-[#2563EB] bg-blue-50/80' },
-    { key: 'sick_leave', label: 'Sick Leave', swatch: 'bg-[#22C55E]', selected: 'border-[#22C55E] bg-emerald-50/80' },
-    { key: 'compoff_leave', label: 'Comp Off Leave', swatch: 'bg-[#9333EA]', selected: 'border-[#9333EA] bg-violet-50/80' },
-    { key: 'unauthorized_leave', label: 'Unauthorized Leave', swatch: 'bg-[#E74C3C]', selected: 'border-[#E74C3C] bg-rose-50/80' },
-];
 
 function isPunchCorrectionKind(kind) {
     const key = String(kind || '');
@@ -58,7 +51,6 @@ export default function AttendanceLeaveDecideModal({
     onDecide,
     layerClassName = 'z-[90]',
 }) {
-    const [chosenKey, setChosenKey] = useState('');
     const [localError, setLocalError] = useState('');
     const [editingTimes, setEditingTimes] = useState(false);
     const [editIn, setEditIn] = useState('');
@@ -72,7 +64,6 @@ export default function AttendanceLeaveDecideModal({
 
     useEffect(() => {
         if (!isOpen) return;
-        setChosenKey('');
         setLocalError('');
         setEditingTimes(false);
         setRejecting(Boolean(rejectFirst));
@@ -130,8 +121,6 @@ export default function AttendanceLeaveDecideModal({
             : dayPart === 'full'
                 ? 'Full day'
                 : '';
-    const skipStatusPicker = isMispunchRequest || isPunchCorrectionKind(kindKey) || kindKey.startsWith('future_');
-
     const handleReject = () => {
         if (readOnly) return;
         if (!rejecting) {
@@ -222,14 +211,10 @@ export default function AttendanceLeaveDecideModal({
 
     const handleApprove = () => {
         if (readOnly) return;
-        if (!skipStatusPicker && !chosenKey) {
-            setLocalError('Choose Authorized, Sick, or Unauthorized leave before approving.');
-            return;
-        }
         setLocalError('');
         onDecide?.(
             'approved',
-            chosenKey,
+            requestedStatusKey || '',
             '',
             isPunchCorrectionKind(kindKey) && (editIn || editOut) ? { timeIn: editIn, timeOut: editOut } : undefined,
         );
@@ -250,39 +235,25 @@ export default function AttendanceLeaveDecideModal({
                 </div>
                 <div className="p-4 space-y-3">
                     <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5 text-sm">
-                        <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold">Current</p>
+                        <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold">Current status</p>
                         <p className="font-semibold text-slate-800">{currentLabel || '—'}</p>
-                        <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">Employee requested</p>
+                        <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">Status change to</p>
                         <p className="font-semibold text-slate-800">{requestedLabel || '—'}</p>
                         {rangeLabel || dayPartLabel ? <p className="text-slate-700 text-sm mt-2">{[rangeLabel, dayPartLabel].filter(Boolean).join(' · ')}</p> : null}
-                        <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">Requester reason</p>
+                        <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">Reason</p>
                         <p className="text-slate-700 text-sm whitespace-pre-wrap">{String(reason || '').trim() || '—'}</p>
-                        {attachmentName ? <p className="text-slate-700 text-sm mt-2">{attachmentName}</p> : null}
+                        {attachmentName ? (
+                            <p className="text-slate-700 text-sm mt-2">
+                                <span className="text-slate-500 text-xs uppercase tracking-wide font-semibold">Attachment </span>
+                                {attachmentUrl ? (
+                                    <a href={attachmentUrl} target="_blank" rel="noreferrer" className="font-semibold text-blue-600 hover:underline">
+                                        {attachmentName}
+                                    </a>
+                                ) : attachmentName}
+                            </p>
+                        ) : null}
                         {hrReview ? null : changedBy ? <p className="text-xs text-slate-500 mt-2">Changed by {changedBy}</p> : null}
                     </div>
-                    {!skipStatusPicker ? (
-                        <div className="space-y-2">
-                            {REPORTEE_LEAVE_OPTIONS.map((opt) => {
-                                const active = chosenKey === opt.key;
-                                return (
-                                    <button
-                                        key={opt.key}
-                                        type="button"
-                                        disabled={deciding || readOnly}
-                                        onClick={() => {
-                                            setChosenKey(opt.key);
-                                            setLocalError('');
-                                        }}
-                                        className={`w-full flex items-center gap-3 h-11 px-3 rounded-xl border text-left ${active ? opt.selected : 'border-slate-200 bg-white'}`}
-                                    >
-                                        <span className={`h-2.5 w-2.5 rounded-full ${opt.swatch}`} />
-                                        <span className="flex-1 text-sm font-medium text-slate-800">{opt.label}</span>
-                                        {active ? <Check size={14} /> : null}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    ) : null}
                     {isMispunchRequest ? (
                         <div className="grid grid-cols-2 gap-2">
                             <div className="text-xs text-slate-500">Check in
