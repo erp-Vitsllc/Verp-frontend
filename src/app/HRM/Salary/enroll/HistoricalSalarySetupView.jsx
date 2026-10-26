@@ -5608,7 +5608,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 zClass="z-[80]"
             >
                 <p className="mt-1 text-[12px] text-[#64748B]">
-                    The first 12 months from the contract joining date are worked. Leave is allowed in the next row, from that start date to that end date. The row stays “Not hit 300” with balance 0 until counted working days finish a {annualWindows?.cycleDays || 300}-day cycle. When that row’s end date passes, or the next cycle is counted, a new row opens and the previous one becomes Lapsed. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
+                    The first row starts on the contract joining date and runs for 12 months. It stays “Not hit 300” with balance 0 until counted working days finish a {annualWindows?.cycleDays || 300}-day cycle. When that end date passes, or the next cycle is counted, a new row opens and the previous one becomes Lapsed. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
                 </p>
                 {annualWindows?.error ? (
                     <p className="mt-4 text-[13px] text-[#B45309]">{annualWindows.error}</p>
