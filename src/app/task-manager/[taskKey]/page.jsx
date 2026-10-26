@@ -106,15 +106,16 @@ function Avatar({ name, photo, size = 'h-9 w-9' }) {
     return <span className={`flex ${size} items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700`}>{initials}</span>;
 }
 
-function Toggle({ checked, onChange, label }) {
+function Toggle({ checked, onChange, label, disabled }) {
     return (
         <button
             type="button"
             role="switch"
             aria-checked={checked}
             aria-label={label}
-            onClick={() => onChange(!checked)}
-            className={`relative h-6 w-11 shrink-0 rounded-full transition ${checked ? 'bg-[#2563EB]' : 'bg-slate-300'}`}
+            disabled={disabled}
+            onClick={() => { if (!disabled) onChange(!checked); }}
+            className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 ${checked ? 'bg-[#2563EB]' : 'bg-slate-300'}`}
         >
             <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${checked ? 'left-5' : 'left-0.5'}`} />
         </button>
@@ -445,6 +446,7 @@ function TaskDetailsPage() {
 
     const notes = task.notifications || { workUpdate: true, comment: true };
     const nameLines = taskNameLines(task);
+    const generalClosed = task.taskCategory === 'General Task' && (task.displayStatus === 'Closed' || task.status === 'Completed');
     const updates = Array.isArray(task.updates) ? task.updates : [];
     const comments = Array.isArray(task.comments) ? task.comments : [];
     const number = taskNumber || task.taskNumber || '';
@@ -476,11 +478,11 @@ function TaskDetailsPage() {
                             {task.closeMessage ? <p className="mt-1 text-sm text-slate-500">{task.closeMessage}</p> : null}
                         </div>
                         <div className="flex items-center gap-2">
-                            {(task.canReopen || task.showReopen) && (
+                            {task.canReopen && (
                                 <button
                                     type="button"
-                                    disabled={busy || !task.canReopen}
-                                    title={task.canReopen ? 'Reopen this task' : 'Reopen is available to the task owner'}
+                                    disabled={busy}
+                                    title="Reopen this task"
                                     onClick={() => setNoteAction('reopen')}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                                 >
@@ -544,7 +546,7 @@ function TaskDetailsPage() {
                                     onClick={() => setNoteAction('confirm')}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
                                 >
-                                    <Check size={14} /> Confirm Close
+                                    <Check size={14} /> {task.taskCategory === 'System Task' || task.taskCategory === 'Workflow Task' || task.taskCategory === 'Work Flow Task' ? 'Approve' : 'Confirm Close'}
                                 </button>
                             )}
                             {task.canRequestClose && (
@@ -567,22 +569,26 @@ function TaskDetailsPage() {
                                     <Check size={14} /> Close this request
                                 </button>
                             )}
-                            <button
-                                type="button"
-                                disabled={!task.canReassign || busy || task.displayStatus === 'Closed' || task.status === 'Completed'}
-                                onClick={() => setReassignOpen(true)}
-                                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                                <RefreshCw size={14} /> Reassign
-                            </button>
-                            <button
-                                type="button"
-                                disabled={busy || task.displayStatus === 'Closed' || task.status === 'Completed'}
-                                onClick={() => setEditOpen(true)}
-                                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                                <Pencil size={14} /> Edit
-                            </button>
+                            {!generalClosed && (
+                                <button
+                                    type="button"
+                                    disabled={!task.canReassign || busy || task.displayStatus === 'Closed' || task.status === 'Completed'}
+                                    onClick={() => setReassignOpen(true)}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    <RefreshCw size={14} /> Reassign
+                                </button>
+                            )}
+                            {!generalClosed && (
+                                <button
+                                    type="button"
+                                    disabled={busy || task.displayStatus === 'Closed' || task.status === 'Completed'}
+                                    onClick={() => setEditOpen(true)}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    <Pencil size={14} /> Edit
+                                </button>
+                            )}
                             {task.canCloseNow && (
                                 <button
                                     type="button"
@@ -668,8 +674,8 @@ function TaskDetailsPage() {
                         {tab === 'updates' && (
                             <div>
                                 <h3 className="mb-3 text-base font-semibold text-slate-800">Work Updates</h3>
-                                <div className="mb-4 rounded-xl border border-slate-200 p-3">
-                                    <textarea value={updateText} onChange={(event) => setUpdateText(event.target.value)} rows={3} placeholder="Write the work update. Type @ and a name to email that person." className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                                <div className={`mb-4 rounded-xl border border-slate-200 p-3 ${generalClosed ? 'opacity-60' : ''}`}>
+                                    <textarea value={updateText} onChange={(event) => setUpdateText(event.target.value)} rows={3} disabled={generalClosed} placeholder={generalClosed ? 'This task is closed. Only the requester can reopen it.' : 'Write the work update. Type @ and a name to email that person.'} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-slate-50" />
                                     {mentionChoices.length > 0 && (
                                         <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white">
                                             {mentionChoices.map((person) => (
@@ -686,7 +692,7 @@ function TaskDetailsPage() {
                                     )}
                                     <p className="mt-1 text-xs text-slate-500">Type @Name to email that person. With no @, the email goes to the current assignee.</p>
                                     <div className="mt-2 flex justify-end">
-                                        <button type="button" disabled={busy || !updateText.trim()} onClick={addUpdate} className="h-8 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-60">Post update</button>
+                                        <button type="button" disabled={generalClosed || busy || !updateText.trim()} onClick={addUpdate} className="h-8 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-60">Post update</button>
                                     </div>
                                 </div>
                                 <div className="space-y-4">
@@ -778,7 +784,8 @@ function TaskDetailsPage() {
                             title="Send email on work update"
                             hint="Notify a mentioned person, or the assignee"
                             checked={notes.workUpdate !== false}
-                            onChange={(workUpdate) => saveNotifications({ ...notes, workUpdate })}
+                            disabled={generalClosed}
+                            onChange={(workUpdate) => { if (!generalClosed) saveNotifications({ ...notes, workUpdate }); }}
                         />
                         <h3 className="mb-2 mt-4 text-sm font-semibold text-slate-800">Notification Recipients</h3>
                         <Recipient
@@ -922,14 +929,14 @@ function PersonFact({ label, name, role, photo }) {
     );
 }
 
-function SettingRow({ title, hint, checked, onChange }) {
+function SettingRow({ title, hint, checked, onChange, disabled }) {
     return (
         <div className="mt-3 flex items-center justify-between gap-3">
             <div>
                 <p className="flex items-center gap-1.5 text-sm font-medium text-slate-800"><Mail size={14} className="text-slate-400" /> {title}</p>
                 <p className="text-xs text-slate-500">{hint}</p>
             </div>
-            <Toggle checked={checked} onChange={onChange} label={title} />
+            <Toggle checked={checked} onChange={onChange} label={title} disabled={disabled} />
         </div>
     );
 }

@@ -46,9 +46,20 @@ function requiredHoursForDate(week, dateKey) {
     return 9;
 }
 
+function punchText(mark, which) {
+    const raw = which === 'in' ? mark?.rawTimeIn || mark?.timeIn : mark?.rawTimeOut || mark?.timeOut;
+    const text = String(raw || '').trim();
+    if (!text || text === '—' || text === '-') return '';
+    return text;
+}
+
+function bothPunchesBlank(mark) {
+    return !punchText(mark, 'in') && !punchText(mark, 'out');
+}
+
 function workedSecondsOf(mark) {
-    const start = clockToSeconds(mark?.rawTimeIn || mark?.timeIn);
-    const end = clockToSeconds(mark?.rawTimeOut || mark?.timeOut);
+    const start = clockToSeconds(punchText(mark, 'in'));
+    const end = clockToSeconds(punchText(mark, 'out'));
     if (start == null || end == null) return null;
     const date = String(mark?.date || '').trim();
     const outDate = String(mark?.timeOutDate || '').trim();
@@ -64,8 +75,10 @@ function workedSecondsOf(mark) {
 
 function flexibleLossHours(mark, week) {
     const required = requiredHoursForDate(week, mark?.date);
+    if (!(required > 0)) return 0;
+    if (bothPunchesBlank(mark)) return roundHours(required);
     const worked = workedSecondsOf(mark);
-    if (!(required > 0) || worked == null) return 0;
+    if (worked == null) return 0;
     return roundHours(Math.max(0, required * 3600 - worked) / 3600);
 }
 
@@ -120,9 +133,10 @@ export function hourAdjustPreview(mark, week) {
         return { ...offer, flexible: true, taken, unauth, max: unauth };
     }
     const shift = shiftMinutes(week, mark?.date);
-    const dayHours = shift ? (shift.end - shift.start) / 60 : 8;
+    const scheduled = requiredHoursForDate(week, mark?.date);
+    const dayHours = shift ? (shift.end - shift.start) / 60 : (scheduled > 0 ? scheduled : 8);
     let taken = dayHours;
-    if ((offer.kind === 'early_go' || offer.kind === 'late_arrived') && shift) {
+    if (!bothPunchesBlank(mark) && (offer.kind === 'early_go' || offer.kind === 'late_arrived') && shift) {
         const inn = clockToSeconds(mark?.rawTimeIn || mark?.timeIn);
         const out = clockToSeconds(mark?.rawTimeOut || mark?.timeOut);
         const late = inn == null ? 0 : Math.max(0, inn - shift.start * 60);
@@ -376,7 +390,7 @@ export default function HourAdjustModal({
                 <div className="mt-4 space-y-3">
                     {approvalMode === 'custom' ? (
                         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                            Approved hours
+                            Approved remaining hour
                             <input
                                 type="number"
                                 inputMode="decimal"

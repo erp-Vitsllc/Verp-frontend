@@ -223,6 +223,72 @@ function shiftDateKey(dateKey, days) {
     return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
 }
 
+const SANDWICH_LEAVE_KEYS = new Set([
+    'on_leave',
+    'sick_leave',
+    'authorized_leave',
+    'unauthorized_leave',
+    'compoff_leave',
+]);
+
+const SANDWICH_KIND = {
+    on_leave: 'annual',
+    sick_leave: 'sick',
+    authorized_leave: 'authorized',
+    unauthorized_leave: 'absent',
+    compoff_leave: 'compoff',
+};
+
+function dateKeysBetween(from, to) {
+    const dates = [];
+    let cursor = from;
+    while (cursor && cursor <= to && dates.length < 400) {
+        dates.push(cursor);
+        cursor = shiftDateKey(cursor, 1);
+    }
+    return dates;
+}
+
+/**
+ * Holiday or weekly off with leave on the working day before it and the working
+ * day after it counts as that earlier leave. Other attendance rules stay as they are.
+ */
+function sandwichLeaveByDate({ records, holidayDates, offWeekdays, from, to, enabled = true }) {
+    const map = new Map();
+    if (!enabled || !from || !to) return map;
+    const start = shiftDateKey(from, -14) || from;
+    const end = shiftDateKey(to, 14) || to;
+    const leaveByDate = new Map();
+    const offSet = new Set();
+    for (const row of records || []) {
+        const date = String(row?.date || '');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < start || date > end) continue;
+        const key = String(row?.statusKey || '');
+        if (SANDWICH_LEAVE_KEYS.has(key)) leaveByDate.set(date, key);
+        if (key === 'holiday' || key === 'weekly_off') offSet.add(date);
+    }
+    for (const date of dateKeysBetween(start, end)) {
+        const weekday = WEEKDAY_KEYS[new Date(`${date}T00:00:00Z`).getUTCDay()];
+        if (holidayDates?.has(date) || offWeekdays?.has(weekday)) offSet.add(date);
+    }
+    const nearest = (date, direction) => {
+        let cursor = shiftDateKey(date, direction);
+        while (cursor && cursor >= start && cursor <= end) {
+            if (!offSet.has(cursor)) return cursor;
+            cursor = shiftDateKey(cursor, direction);
+        }
+        return '';
+    };
+    for (const date of dateKeysBetween(from, to)) {
+        if (!offSet.has(date) || leaveByDate.has(date)) continue;
+        const prev = leaveByDate.get(nearest(date, -1));
+        const next = leaveByDate.get(nearest(date, 1));
+        if (!prev || !next) continue;
+        map.set(date, prev);
+    }
+    return map;
+}
+
 function inclusiveDays(from, to) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) return 0;
     const a = Date.parse(`${from}T00:00:00Z`);
@@ -1885,6 +1951,12 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
           : ctx.salaryLock?.locked
             ? 'future'
             : dayKind(record, { isFuture, isToday: dateKey === ctx.todayKey, isHoliday, isWeeklyOff });
+    const sandwichStatus = ctx.enclosedOffByDate instanceof Map ? (ctx.enclosedOffByDate.get(dateKey) || '') : '';
+    const sandwichKind = SANDWICH_KIND[sandwichStatus] || '';
+    const payKind = sandwichKind || kind;
+    const payRecord = sandwichStatus
+        ? { ...(record || {}), date: dateKey, statusKey: sandwichStatus, reason: 'Weekly off or holiday between leave' }
+        : record;
     const forgiven = hoursForgiven(record);
     const approvedHours = String(record?.hourAdjustStatus || '') === 'approved' ? n(record?.hoursApproved) : null;
     const worked = recordWorkedMinutes(record);
@@ -1915,9 +1987,9 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     const syntheticOt = String(record?.timeIn || '').trim() === 'OT'
         || String(record?.timeOut || '').trim() === 'OT'
         || Boolean(String(record?.flexibleFromOtDate || '').trim());
-    const deductedLeave = kind === 'authorized' || kind === 'absent';
-    const compOffDay = kind === 'compoff' || syntheticOt || String(record?.statusKey || '') === 'compoff_leave';
-    const earnsDayRate = counted && !deductedLeave && kind !== 'annual' && kind !== 'future' && kind !== 'suspended';
+    const deductedLeave = payKind === 'authorized' || payKind === 'absent';
+    const compOffDay = payKind === 'compoff' || syntheticOt || String(record?.statusKey || '') === 'compoff_leave';
+    const earnsDayRate = counted && !sandwichStatus && !deductedLeave && payKind !== 'annual' && payKind !== 'future' && payKind !== 'suspended';
     const dayRate = Number(ctx.salaryDaily) || 0;
     const hourRate = dayRate / 10;
     const payment = !counted && !(extraPay > 0)
@@ -1925,13 +1997,13 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         : money2((earnsDayRate ? dayRate : 0) + extraPay);
     const deductionWaived = record?.deductionWaived === true;
     let deduct = counted
-        ? money2(attendanceDeductionAmount(record, ctx.scheduleWeek, ctx.salaryDaily, ctx.leavePolicy || {}, ctx.mispunchAmounts))
+        ? money2(attendanceDeductionAmount(payRecord, ctx.scheduleWeek, ctx.salaryDaily, ctx.leavePolicy || {}, ctx.mispunchAmounts))
         : null;
     if (counted && kind === 'absent' && !record && !deductionWaived && !(deduct > 0)) {
         const unauthTimes = ctx.leavePolicy?.unauthorizedDeductionDays == null ? 2 : n(ctx.leavePolicy.unauthorizedDeductionDays);
         deduct = money2(unauthTimes * dayRate);
     }
-    const doubleDeduction = deduct > 0 && deductionTimes(record, ctx.leavePolicy || {}) === 2;
+    const doubleDeduction = deduct > 0 && deductionTimes(payRecord, ctx.leavePolicy || {}) === 2;
     const lateText = forgiven || hourSettled ? '' : dayLateText(record, ctx.scheduleWeek);
     const visibleLate = lateText && lateText !== '—' && lateText !== '0 Hours' ? lateText : '';
     const visibleEarly = earlyText && earlyText !== '—' && earlyText !== '0 Hours' ? earlyText : '';
@@ -1943,7 +2015,9 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     const lateInk = 'text-[#DC2626]';
     const timeInTone = punchKind === 'late_arrived' || visibleLate || (punchKind === 'mispunch' && missingIn) ? lateInk : '';
     const timeOutTone = punchKind === 'early_go' || visibleEarly || (punchKind === 'mispunch' && missingOut) ? lateInk : '';
-    const typeLabel = forgiven
+    const typeLabel = sandwichStatus
+        ? `${kindLabel(sandwichKind)} · weekly off between leave`
+        : forgiven
         ? 'Present (on time)'
         : visibleLate && visibleEarly
             ? 'Late Arrival · Early Go'
@@ -2028,7 +2102,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                 className={`${compact
                 ? 'flex h-8 w-full items-center justify-center rounded-[7px] text-[11px] font-semibold tabular-nums leading-none'
                 : 'flex min-h-12 w-full flex-col items-center justify-center rounded-[9px] px-0.5 py-1 text-[13px] font-semibold tabular-nums leading-none'
-            } ${DAY_STYLE[kind] || DAY_STYLE.empty}${requestPending ? ' attendance-request-blink' : ''}`}>
+            } ${DAY_STYLE[payKind] || DAY_STYLE.empty}${requestPending ? ' attendance-request-blink' : ''}`}>
                 <span>{format(day, 'd')}</span>
                 {!compact && adjustmentText ? (
                     <span className={`mt-0.5 text-center text-[8px] font-bold leading-tight ${adjInk(kind)}`}>
@@ -2047,9 +2121,9 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                     <DayTip
                         dateLabel={format(day, 'd MMMM yyyy')}
                         statusText={typeLabel}
-                        statusClass={tone.text}
+                        statusClass={(sandwichKind ? TIP_TONE[sandwichKind] : tone)?.text}
                         approvalText={approval}
-                        dotClass={tone.dot}
+                        dotClass={(sandwichKind ? TIP_TONE[sandwichKind] : tone)?.dot}
                         timeIn={timeInLabel}
                         timeOut={timeOutLabel}
                         timeInTone={timeInTone}
@@ -2230,6 +2304,13 @@ function buildMonthCalendarContext({
         salaryDaily,
         leavePolicy: policy,
         mispunchAmounts,
+        enclosedOffByDate: sandwichLeaveByDate({
+            records: monthRecords,
+            holidayDates,
+            offWeekdays,
+            from: countFrom,
+            to: countTo,
+        }),
         additionPayByDate: payByDate,
         calendarNotes,
         adjustmentByDate: buildAdjustmentIndex(monthRecords),
@@ -3562,7 +3643,15 @@ export default function EmployeeInformationDashboard({
         const range = new Set(rangeDates);
         const workedDayCount = (pay.workedRows || []).filter((row) => dayInfo(row.date).required).length;
         const otHours = (pay.otRows || []).reduce((sum, row) => sum + (Number(row.hours) || 0), 0) || Number(pay.otHours) || 0;
+        const enclosedOff = sandwichLeaveByDate({
+            records: monthRecords,
+            holidayDates,
+            offWeekdays,
+            from: countFrom,
+            to: countTo,
+        });
         const offDayCount = rangeDates.filter((date) => {
+            if (enclosedOff.has(date)) return false;
             const info = dayInfo(date);
             return info.holiday || info.weeklyOff;
         }).length;
@@ -3657,7 +3746,20 @@ export default function EmployeeInformationDashboard({
     const deductionRows = useMemo(() => {
         const policy = profile?.leavePolicy || {};
         const daily = salaryBasis.daily;
-        const authDays = money2(countedRecords.reduce((sum, row) => {
+        const enclosedOff = sandwichLeaveByDate({
+            records: countedRecords,
+            holidayDates,
+            offWeekdays,
+            from: countFrom,
+            to: countTo,
+        });
+        const sandwichRows = [...enclosedOff.entries()].map(([date, statusKey]) => ({
+            date,
+            statusKey,
+            reason: 'Weekly off or holiday between leave',
+        }));
+        const deductionSource = [...countedRecords, ...sandwichRows];
+        const authDays = money2(deductionSource.reduce((sum, row) => {
             if (deductionKind(row) !== 'authorized_leave') return sum;
             if (String(row?.hourAdjustStatus || '') === 'approved') {
                 const dayHours = flexibleDayHours(scheduleWeek, row.date) || dayHoursOf(scheduleWeek, row.date) || 8;
@@ -3665,7 +3767,7 @@ export default function EmployeeInformationDashboard({
             }
             return sum + leaveDayWeight(row, true);
         }, 0));
-        const unauthDays = money2(countedRecords.reduce((sum, row) => {
+        const unauthDays = money2(deductionSource.reduce((sum, row) => {
             const key = deductionKind(row);
             if (key === 'unauthorized_leave') return sum + leaveDayWeight(row, false);
             const punched = Boolean(String(row?.timeIn || '').trim() || String(row?.timeOut || '').trim());
@@ -3696,7 +3798,7 @@ export default function EmployeeInformationDashboard({
             ? 'Flexible time deducts only the missed hours. Late arrival and early go do not use the salary policy.'
             : 'Until approval this uses the unauthorized leave rate. After approval, only the approved hours are deducted.';
         const missedRule = mispunchPolicyRule(policy);
-        const annualDays = countedRecords.filter((row) => deductionKind(row) === 'on_leave').length;
+        const annualDays = deductionSource.filter((row) => deductionKind(row) === 'on_leave').length;
         return [
             {
                 key: 'late_arrived',
@@ -3732,7 +3834,7 @@ export default function EmployeeInformationDashboard({
                 key: 'authorized_leave',
                 type: 'Authorized leave',
                 count: authDays,
-                amount: money2(countedRecords.reduce((sum, row) => {
+                amount: money2(deductionSource.reduce((sum, row) => {
                     if (deductionKind(row) !== 'authorized_leave') return sum;
                     return sum + attendanceDeductionAmount(row, scheduleWeek, daily, policy);
                 }, 0)),
@@ -3750,9 +3852,24 @@ export default function EmployeeInformationDashboard({
                     : `1 unauthorized day deducts ${unauthTimes} × ${dayRate}`,
             },
         ].filter((row) => row.key !== 'on_leave' || Number(row.count) > 0);
-    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts]);
+    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts, holidayDates, offWeekdays, countFrom, countTo]);
     const deductionDetailRows = useMemo(() => {
-        const attendance = attendanceDeductionRows(detailRecords, profile?.leavePolicy || {}, scheduleWeek, salaryBasis.daily);
+        const enclosedOff = sandwichLeaveByDate({
+            records: detailRecords,
+            holidayDates,
+            offWeekdays,
+            from: detailWindow.from || countFrom,
+            to: detailWindow.to || countTo,
+        });
+        const withSandwich = [
+            ...detailRecords,
+            ...[...enclosedOff.entries()].map(([date, statusKey]) => ({
+                date,
+                statusKey,
+                reason: 'Weekly off or holiday between leave',
+            })),
+        ];
+        const attendance = attendanceDeductionRows(withSandwich, profile?.leavePolicy || {}, scheduleWeek, salaryBasis.daily);
         const moneyRows = financialDeductionRows({
             fines,
             loans,
@@ -3780,6 +3897,10 @@ export default function EmployeeInformationDashboard({
         detailWindow.from,
         detailWindow.to,
         period,
+        holidayDates,
+        offWeekdays,
+        countFrom,
+        countTo,
     ]);
     const deductionHint = spanLoading && period !== 'month'
         ? `Loading ${overtimeRange}`
@@ -3898,7 +4019,13 @@ export default function EmployeeInformationDashboard({
         salaryDaily: salaryBasis.daily,
         leavePolicy: profile?.leavePolicy || {},
         mispunchAmounts,
-        enclosedOffDates: new Set(),
+        enclosedOffByDate: sandwichLeaveByDate({
+            records: monthRecords,
+            holidayDates,
+            offWeekdays,
+            from: countFrom,
+            to: countTo,
+        }),
         additionPayByDate,
         calendarNotes,
         adjustmentByDate,

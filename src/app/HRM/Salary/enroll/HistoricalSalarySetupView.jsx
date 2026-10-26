@@ -1950,10 +1950,17 @@ function leaveSourceKey(row) {
     return 'manual';
 }
 
-function leaveRowsForGroup(rows, type, source) {
-    return (Array.isArray(rows) ? rows : []).filter(
-        (row) => leaveTypeKey(row) === type && leaveSourceKey(row) === source,
-    );
+function leaveRowsForGroup(rows, type, source, from = '', to = '') {
+    return (Array.isArray(rows) ? rows : []).filter((row) => {
+        if (leaveTypeKey(row) !== type || leaveSourceKey(row) !== source) return false;
+        const startLimit = String(from || '').trim();
+        const endLimit = String(to || '').trim();
+        if (!ISO.test(startLimit) || !ISO.test(endLimit)) return true;
+        const start = String(row?.fromDate || row?.startDate || row?.date || '').slice(0, 10);
+        const end = String(row?.toDate || row?.endDate || start).slice(0, 10);
+        if (!ISO.test(start) || !ISO.test(end)) return false;
+        return end >= startLimit && start <= endLimit;
+    });
 }
 
 function summarizeLeaveHistoryGroups(rows) {
@@ -3555,10 +3562,17 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         if (!leaveGroupModal) return [];
         const pool =
             leaveGroupModal.source === 'system' ? systemLeaveHistoryList : historicalLeaveHistoryRows;
-        return leaveRowsForGroup(pool, leaveGroupModal.type, leaveGroupModal.source);
+        return leaveRowsForGroup(
+            pool,
+            leaveGroupModal.type,
+            leaveGroupModal.source,
+            leaveGroupModal.from,
+            leaveGroupModal.to,
+        );
     }, [historicalLeaveHistoryRows, leaveGroupModal, systemLeaveHistoryList]);
     useEffect(() => {
         if (!leaveGroupModal) return;
+        if (leaveGroupModal.from || leaveGroupModal.to) return;
         if (!leaveGroupRows.length) setLeaveGroupModal(null);
     }, [leaveGroupModal, leaveGroupRows.length]);
     const annualLeaveOptions = useMemo(
@@ -5594,7 +5608,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 zClass="z-[80]"
             >
                 <p className="mt-1 text-[12px] text-[#64748B]">
-                    Each time counted working days reach the salary-policy cycle, a 30-day annual leave period opens for the next 12 months. When the next cycle completes, the previous period stays here as Lapsed and those days cannot be taken.
+                    The first 12 months from the contract joining date are worked. Leave is allowed in the next row, from that start date to that end date. The row stays “Not hit 300” with balance 0 until counted working days finish a {annualWindows?.cycleDays || 300}-day cycle. When that row’s end date passes, or the next cycle is counted, a new row opens and the previous one becomes Lapsed. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
                 </p>
                 {annualWindows?.error ? (
                     <p className="mt-4 text-[13px] text-[#B45309]">{annualWindows.error}</p>
@@ -5605,14 +5619,13 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                         <table className="w-full min-w-[720px] text-left text-[12px] text-[#0F172A]">
                             <thead className="text-[11px] uppercase tracking-wide text-[#64748B]">
                                 <tr>
-                                    <th className="px-2 py-2">Start</th>
-                                    <th className="px-2 py-2">End</th>
-                                    <th className="px-2 py-2">Allowed</th>
-                                    <th className="px-2 py-2">Approved</th>
-                                    <th className="px-2 py-2">Taken</th>
+                                    <th className="px-2 py-2">Joining date</th>
+                                    <th className="px-2 py-2">Leave due</th>
+                                    <th className="px-2 py-2">Leave taken</th>
                                     <th className="px-2 py-2">Balance</th>
                                     <th className="px-2 py-2">Leave dates</th>
                                     <th className="px-2 py-2">Status</th>
+                                    <th className="px-2 py-2" />
                                 </tr>
                             </thead>
                             <tbody>
@@ -5621,18 +5634,33 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                         <tr key={row.index} className="border-t border-[#E6EAF0]">
                                             <td className="px-2 py-2">{prettyDate(row.startDate)}</td>
                                             <td className="px-2 py-2">{prettyDate(row.endDate)}</td>
-                                            <td className="px-2 py-2">{row.allowedDays}</td>
-                                            <td className="px-2 py-2">{row.approvedDays}</td>
-                                            <td className="px-2 py-2">{row.takenDays}</td>
+                                            <td className="px-2 py-2">{row.takenDays} days</td>
                                             <td className="px-2 py-2">{row.balance}</td>
                                             <td className="px-2 py-2">{(row.leaveDates || []).map((date) => prettyDate(date)).join(', ') || '—'}</td>
                                             <td className="px-2 py-2">{row.status}</td>
+                                            <td className="px-2 py-2 text-right">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setAnnualWindowsOpen(false);
+                                                        setLeaveGroupModal({
+                                                            type: 'holiday',
+                                                            source: 'manual',
+                                                            from: row.startDate,
+                                                            to: row.endDate,
+                                                        });
+                                                    }}
+                                                    className="text-[12px] font-semibold text-[#2563EB]"
+                                                >
+                                                    View
+                                                </button>
+                                            </td>
                                         </tr>
                                     ))
                                 ) : (
                                     <tr>
-                                        <td colSpan={8} className="px-2 py-6 text-[#64748B]">
-                                            No period yet. The first row is added when counted working days reach {annualWindows.cycleDays || 300}.
+                                        <td colSpan={7} className="px-2 py-6 text-[#64748B]">
+                                            No period yet. The first row is added from the contract joining date.
                                         </td>
                                     </tr>
                                 )}
@@ -5643,13 +5671,10 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 <div className="mt-4 flex justify-end">
                     <button
                         type="button"
-                        onClick={() => {
-                            setAnnualWindowsOpen(false);
-                            setLeaveGroupModal({ type: 'holiday', source: 'manual' });
-                        }}
+                        onClick={() => setAnnualWindowsOpen(false)}
                         className="rounded-lg border border-[#E6EAF0] px-3 py-2 text-[12px] font-semibold text-[#334155]"
                     >
-                        View holiday records
+                        Close
                     </button>
                 </div>
             </ModalShell>
@@ -5668,7 +5693,10 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             >
                 <p className="mt-1 text-[12px] text-[#64748B]">
                     {leaveGroupRows.length}{' '}
-                    {leaveGroupRows.length === 1 ? 'record' : 'records'} for this leave type and source.
+                    {leaveGroupRows.length === 1 ? 'record' : 'records'} for this leave type and source
+                    {leaveGroupModal?.from && leaveGroupModal?.to
+                        ? ` between ${prettyDate(leaveGroupModal.from)} and ${prettyDate(leaveGroupModal.to)}.`
+                        : '.'}
                 </p>
                 <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
                     <LeaveTable
