@@ -3562,6 +3562,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         if (!leaveGroupModal) return [];
         const pool =
             leaveGroupModal.source === 'system' ? systemLeaveHistoryList : historicalLeaveHistoryRows;
+        if (leaveGroupModal.includeHoliday) {
+            return [
+                ...leaveRowsForGroup(pool, 'annual', leaveGroupModal.source, leaveGroupModal.from, leaveGroupModal.to),
+                ...leaveRowsForGroup(pool, 'holiday', leaveGroupModal.source, leaveGroupModal.from, leaveGroupModal.to),
+            ];
+        }
         return leaveRowsForGroup(
             pool,
             leaveGroupModal.type,
@@ -5644,10 +5650,11 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     onClick={() => {
                                                         setAnnualWindowsOpen(false);
                                                         setLeaveGroupModal({
-                                                            type: 'holiday',
+                                                            type: 'annual',
                                                             source: 'manual',
                                                             from: row.startDate,
                                                             to: row.endDate,
+                                                            includeHoliday: true,
                                                         });
                                                     }}
                                                     className="text-[12px] font-semibold text-[#2563EB]"
@@ -5681,7 +5688,9 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             <ModalShell
                 open={Boolean(leaveGroupModal)}
                 title={
-                    leaveGroupModal
+                    leaveGroupModal?.includeHoliday
+                        ? `Annual leave · ${prettyDate(leaveGroupModal.from)} – ${prettyDate(leaveGroupModal.to)}`
+                        : leaveGroupModal
                         ? `${leaveMeta(leaveGroupModal.type).label} · ${
                               leaveGroupModal.source === 'system' ? 'System' : 'Manual'
                           }`
@@ -5692,11 +5701,15 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 zClass="z-[80]"
             >
                 <p className="mt-1 text-[12px] text-[#64748B]">
-                    {leaveGroupRows.length}{' '}
-                    {leaveGroupRows.length === 1 ? 'record' : 'records'} for this leave type and source
-                    {leaveGroupModal?.from && leaveGroupModal?.to
-                        ? ` between ${prettyDate(leaveGroupModal.from)} and ${prettyDate(leaveGroupModal.to)}.`
-                        : '.'}
+                    {leaveGroupModal?.includeHoliday
+                        ? 'Holidays in this period, and the annual leave days taken inside it. The period allowance is 30 days.'
+                        : `${leaveGroupRows.length} ${
+                              leaveGroupRows.length === 1 ? 'record' : 'records'
+                          } for this leave type and source${
+                              leaveGroupModal?.from && leaveGroupModal?.to
+                                  ? ` between ${prettyDate(leaveGroupModal.from)} and ${prettyDate(leaveGroupModal.to)}.`
+                                  : '.'
+                          }`}
                 </p>
                 <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
                     <LeaveTable
