@@ -227,28 +227,15 @@ function clockToMinutes(value) {
 }
 
 /**
- * Work on a week off or holiday is paid as overtime up to 10 hours.
- * More than 10 hours becomes one comp off. Hours already approved as overtime,
- * or already given as comp off, stay on that decision.
+ * Work on a week off or holiday is paid only after overtime or comp off is approved.
+ * The holiday or weekly-off day amount stays on the salary statement either way.
  */
 function settleOffDayWork(day, date, info) {
     if (!day || !(day.workedHours > 0)) return false;
     if (!info?.holiday && !info?.weeklyOff) return false;
     if (day.nextDayCount > 0 || day.compOffDays > 0) return true;
     if (day.payable > 0) return true;
-    const where = info.holiday ? 'a holiday' : 'a weekly off';
-    if (day.workedHours > COMP_OFF_DAY_HOURS) {
-        day.nextDayCount += 1;
-        addLink(
-            day.compOffLinks,
-            `${formatAdditionDay(date)} worked on ${where} for more than 10 hours and counts as comp off`,
-        );
-        return true;
-    }
-    const ot = roundHours(Math.min(day.workedHours, COMP_OFF_DAY_HOURS));
-    day.payable = roundHours(day.payable + ot);
-    addLink(day.otLinks, `${formatAdditionDay(date)} worked on ${where} and counts as overtime`);
-    return true;
+    return false;
 }
 
 /** Paid overtime hours. HR approval is required. Hours already used as another day's present are not paid again. */
@@ -580,15 +567,15 @@ export function buildWeeklySalaryAddition({
         const dayCap = info.scheduledHours > DAY_HOUR_CAP ? DAY_HOUR_CAP : roundHours(info.scheduledHours);
         requiredHours = roundHours(requiredHours + dayCap);
         const day = ledger.get(date);
-        if (countsAsWorked(day)) {
-            workedDays += 1;
-            workedHours = roundHours(workedHours + creditedDayHours(day?.workedHours, info.scheduledHours));
-        } else if (isCompOffRemainder(day)) {
+        if (isCompOffRemainder(day)) {
             compOffRemaining += 1;
             adjustedHours = roundHours(adjustedHours + dayCap);
             const lines = [...(day.compOffLinks || []), ...(day.coverLinks || [])];
             if (lines.length) lines.forEach((line) => addLink(compOffLines, line));
             else addLink(compOffLines, `${formatAdditionDay(date)} is comp off`);
+        } else if (countsAsWorked(day)) {
+            workedDays += 1;
+            workedHours = roundHours(workedHours + creditedDayHours(day?.workedHours, info.scheduledHours));
         }
     });
     weekSet.forEach((date) => {
@@ -596,6 +583,7 @@ export function buildWeeklySalaryAddition({
         if (!flexible || (!info.holiday && !info.weeklyOff)) return;
         const day = ledger.get(date);
         if (!day || day.synthetic) return;
+        if (!(day.payable > 0 || day.nextDayCount > 0 || day.compOffDays > 0)) return;
         if (!countsAsWorked(day) && !(day.workedHours > 0)) return;
         const alreadyPaid = roundHours(Math.max(0, day.payable - day.consumed));
         const hours = roundHours(Math.max(0, Math.min(day.workedHours, DAY_HOUR_CAP) - alreadyPaid));

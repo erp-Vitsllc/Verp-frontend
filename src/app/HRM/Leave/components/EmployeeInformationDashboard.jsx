@@ -249,6 +249,33 @@ function dateKeysBetween(from, to) {
     return dates;
 }
 
+function leaveKeyOf(row) {
+    const key = String(row?.statusKey || '');
+    if (SANDWICH_LEAVE_KEYS.has(key)) return key;
+    const requested = String(row?.requestedStatusKey || '');
+    const approved = String(row?.leaveRequestStatus || '').toLowerCase() === 'approved';
+    if (approved && SANDWICH_LEAVE_KEYS.has(requested)) return requested;
+    return '';
+}
+
+function dayIsOff(date, { recordsByDate, holidayDates, offWeekdays }) {
+    const row = recordsByDate?.[date];
+    const key = String(row?.statusKey || '');
+    if (key === 'holiday' || key === 'weekly_off') return true;
+    if (holidayDates?.has?.(date)) return true;
+    const weekday = WEEKDAY_KEYS[new Date(`${date}T00:00:00Z`).getUTCDay()];
+    return Boolean(offWeekdays?.has?.(weekday));
+}
+
+function neighborIsLeave(dateKey, direction, ctx) {
+    let cursor = shiftDateKey(dateKey, direction);
+    for (let step = 0; step < 14 && cursor; step += 1) {
+        if (!dayIsOff(cursor, ctx)) return Boolean(leaveKeyOf(ctx.recordsByDate?.[cursor]));
+        cursor = shiftDateKey(cursor, direction);
+    }
+    return false;
+}
+
 /**
  * Holiday or weekly off with leave on the working day before it and the working
  * day after it counts as that earlier leave. Other attendance rules stay as they are.
@@ -261,11 +288,12 @@ function sandwichLeaveByDate({ records, holidayDates, offWeekdays, from, to, ena
     const leaveByDate = new Map();
     const offSet = new Set();
     for (const row of records || []) {
-        const date = String(row?.date || '');
+        const date = String(row?.date || '').slice(0, 10);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < start || date > end) continue;
-        const key = String(row?.statusKey || '');
-        if (SANDWICH_LEAVE_KEYS.has(key)) leaveByDate.set(date, key);
-        if (key === 'holiday' || key === 'weekly_off') offSet.add(date);
+        const key = leaveKeyOf(row);
+        if (key) leaveByDate.set(date, key);
+        const status = String(row?.statusKey || '');
+        if (status === 'holiday' || status === 'weekly_off') offSet.add(date);
     }
     for (const date of dateKeysBetween(start, end)) {
         const weekday = WEEKDAY_KEYS[new Date(`${date}T00:00:00Z`).getUTCDay()];
@@ -283,8 +311,8 @@ function sandwichLeaveByDate({ records, holidayDates, offWeekdays, from, to, ena
         if (!offSet.has(date) || leaveByDate.has(date)) continue;
         const prev = leaveByDate.get(nearest(date, -1));
         const next = leaveByDate.get(nearest(date, 1));
-        if (!prev || !next || prev !== next) continue;
-        map.set(date, prev);
+        if (!prev || !next) continue;
+        map.set(date, 'sandwich');
     }
     return map;
 }
@@ -1645,17 +1673,18 @@ function hoursForgiven(record) {
 function dayKind(record, { isFuture, isToday, isHoliday, isWeeklyOff }) {
     const key = String(record?.statusKey || '');
     if (key === 'suspended' || record?.attendanceSuspended) return 'suspended';
+    if (key === 'sick_leave') return 'sick';
+    if (key === 'authorized_leave') return 'authorized';
+    if (key === 'on_leave') return 'annual';
+    if (key === 'compoff_leave') return 'compoff';
+    // A punch on a holiday or weekly off does not change the day colour.
+    if (key === 'holiday' || isHoliday) return 'holiday';
+    if (key === 'weekly_off' || isWeeklyOff) return 'weekend';
     if (hoursForgiven(record)) return 'present';
     // A future day stays blank until leave is approved. Unauthorized leave is only a past day.
     const unapprovedFuture = Boolean(isFuture) && !requestApproved(record);
     if (shownEventKind(record) && !unapprovedFuture) return 'attention';
     if (key === 'on_office' || key === 'work_from_home') return 'present';
-    if (key === 'sick_leave') return 'sick';
-    if (key === 'authorized_leave') return 'authorized';
-    if (key === 'on_leave') return 'annual';
-    if (key === 'compoff_leave') return 'compoff';
-    if (key === 'holiday' || isHoliday) return 'holiday';
-    if (key === 'weekly_off' || isWeeklyOff) return 'weekend';
     if (isFuture) return 'future';
     if (key === 'unauthorized_leave' || key === 'not_marked') return 'absent';
     if (isToday) return 'future';
@@ -1802,25 +1831,26 @@ function DayTip({
     inSpot,
     outSpot,
     workedText,
-    paymentText,
-    balanceText,
-    deductText,
+    workedAmountText,
+    sideMode = '',
+    sideHoursText = '',
+    sideAmountText = '',
+    totalText,
+    totalTone = '',
+    compOffDate = '',
     lateText = '',
     earlyText = '',
     sickReason = '',
     sickAttachment = null,
     moreLines,
-    otText = '',
-    otPayText = '',
-    compOffLines = [],
-    compOffPayText = '',
-    approvedPayText = '',
-    lostText = '',
     requestLines = [],
     alignRight,
 }) {
     const [more, setMore] = useState(false);
     const approvalClass = approvalText === 'Approved' ? 'text-[#16A34A]' : 'text-[#DC2626]';
+    const sideLabel = sideMode === 'deduction' ? 'Deduction' : sideMode === 'ot' ? 'OT earned' : '';
+    const sideAmountLabel = sideMode === 'deduction' ? 'Deduction amount' : sideMode === 'ot' ? 'OT amount' : '';
+    const sideTone = sideMode === 'deduction' ? 'text-[#DC2626]' : 'text-[#16A34A]';
     return (
         <div className={`absolute z-30 w-80 rounded-xl border border-[#E6EDF5] bg-white p-3 text-left shadow-xl ${alignRight ? 'right-0' : 'left-1/2'} top-full mt-1`}>
             {requestLines.length ? (
@@ -1851,55 +1881,53 @@ function DayTip({
                     tone={timeOutTone}
                     value={<NextDayCheckoutTime time={timeOut} nextDay={timeOutNextDay} className={timeOutTone} />}
                 />
-                <p className="min-w-0">
-                    <span className="block text-[10px] font-medium uppercase tracking-wide text-[#94A3B8]">Location In</span>
-                    <span className="mt-0.5 block"><TipMap spot={inSpot} /></span>
-                </p>
-                <p className="min-w-0">
-                    <span className="block text-[10px] font-medium uppercase tracking-wide text-[#94A3B8]">Location Out</span>
-                    <span className="mt-0.5 block"><TipMap spot={outSpot} /></span>
-                </p>
-                <TipMoney label="Total Worked" value={workedText} />
-                <TipMoney label="Lost Hours" value={lostText || balanceText} />
-                <TipMoney label="OT" value={otText || '0h'} />
-                <TipMoney label="Comp Off Approved" value={compOffLines[0] || 'None'} wrap />
-                {lateText ? <TipMoney label="Late Arrival" value={lateText} /> : null}
-                {earlyText ? <TipMoney label="Early Go" value={earlyText} /> : null}
-                <TipMoney label="Actual Payment" value={paymentText} tone="text-[#16A34A]" />
-                <TipMoney label="Deduction" value={deductText} tone="text-[#DC2626]" />
-                <TipMoney label="Approved Payment" value={approvedPayText} tone="text-[#16A34A]" />
-                <TipMoney label="OT Approved" value={otPayText} tone="text-[#16A34A]" />
-                {compOffPayText ? <TipMoney label="Comp Off Payment" value={compOffPayText} tone="text-[#16A34A]" wrap /> : null}
+                <TipMoney label="Total worked" value={workedText} />
+                {sideLabel ? <TipMoney label={sideLabel} value={sideHoursText || '—'} tone={sideTone} /> : <span />}
+                <TipMoney label="Worked amount" value={workedAmountText} tone="text-[#16A34A]" />
+                {sideAmountLabel ? <TipMoney label={sideAmountLabel} value={sideAmountText || '—'} tone={sideTone} /> : <span />}
             </div>
-            {moreLines.length || sickReason || sickAttachment?.name ? (
-                <button
-                    type="button"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setMore((open) => !open);
-                    }}
-                    className="pointer-events-auto mt-2 text-[12px] font-semibold text-[#2563EB]"
-                >
-                    {more ? 'Show less' : 'Show more'}
-                </button>
-            ) : null}
-            {otText || compOffLines.length ? (
-                <div className="mt-2 space-y-1 border-t border-[#EEF2F6] pt-2">
-                    {otText ? (
-                        <p className="flex items-start justify-between gap-3 text-[12px]">
-                            <span className="shrink-0 font-medium text-[#94A3B8]">Overtime</span>
-                            <span className="text-right font-semibold text-[#1B2A4A]">{otText}</span>
-                        </p>
-                    ) : null}
-                    {compOffLines.map((line) => (
-                        <p key={line} className="text-[12px] font-semibold leading-snug text-[#0F766E]">{line}</p>
-                    ))}
+            <div className="mt-2 border-t border-[#EEF2F6] pt-2">
+                <TipMoney label="Total payment" value={totalText} tone={totalTone} />
+            </div>
+            {compOffDate ? (
+                <div className="mt-2">
+                    <TipMoney label="Comp off date" value={compOffDate} wrap />
                 </div>
             ) : null}
+            <button
+                type="button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setMore((open) => !open);
+                }}
+                className="pointer-events-auto mt-2 text-[12px] font-semibold text-[#2563EB]"
+            >
+                {more ? 'Show less' : 'Show more'}
+            </button>
             {more ? (
                 <div className="pointer-events-auto mt-2 space-y-1.5 border-t border-[#EEF2F6] pt-2">
+                    <p className="flex items-start justify-between gap-3 text-[12px]">
+                        <span className="shrink-0 text-[#94A3B8]">Location in</span>
+                        <span className="text-right"><TipMap spot={inSpot} /></span>
+                    </p>
+                    <p className="flex items-start justify-between gap-3 text-[12px]">
+                        <span className="shrink-0 text-[#94A3B8]">Location out</span>
+                        <span className="text-right"><TipMap spot={outSpot} /></span>
+                    </p>
+                    {lateText ? (
+                        <p className="flex items-start justify-between gap-3 text-[12px]">
+                            <span className="shrink-0 text-[#94A3B8]">Late arrival</span>
+                            <span className="text-right font-medium text-[#DC2626]">{lateText}</span>
+                        </p>
+                    ) : null}
+                    {earlyText ? (
+                        <p className="flex items-start justify-between gap-3 text-[12px]">
+                            <span className="shrink-0 text-[#94A3B8]">Early go</span>
+                            <span className="text-right font-medium text-[#DC2626]">{earlyText}</span>
+                        </p>
+                    ) : null}
                     {moreLines.map((line) => (
                         <p key={line.label} className="flex items-start justify-between gap-3 text-[12px]">
                             <span className="shrink-0 text-[#94A3B8]">{line.label}</span>
@@ -1908,7 +1936,7 @@ function DayTip({
                     ))}
                     {sickReason && !moreLines.some((line) => line.label === 'Description') ? (
                         <p className="flex items-start justify-between gap-3 text-[12px]">
-                            <span className="shrink-0 text-[#94A3B8]">Description</span>
+                            <span className="shrink-0 text-[#94A3B8]">Reason</span>
                             <span className="text-right font-medium text-[#1B2A4A]">{sickReason}</span>
                         </p>
                     ) : null}
@@ -1952,6 +1980,10 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
             ? 'future'
             : dayKind(record, { isFuture, isToday: dateKey === ctx.todayKey, isHoliday, isWeeklyOff });
     const sandwichStatus = ctx.enclosedOffByDate instanceof Map ? (ctx.enclosedOffByDate.get(dateKey) || '') : '';
+    const betweenLeave = (isWeeklyOff || isHoliday)
+        && neighborIsLeave(dateKey, -1, ctx)
+        && neighborIsLeave(dateKey, 1, ctx);
+    const sandwiched = Boolean(sandwichStatus) || betweenLeave;
     const sandwichKind = SANDWICH_KIND[sandwichStatus] || '';
     const payKind = sandwichKind || kind;
     const payRecord = sandwichStatus
@@ -1977,11 +2009,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         : approvedHours != null
             ? Math.round(approvedHours * 60)
             : (rawShort == null ? null : Math.max(0, rawShort));
-    const shownWorked = deductionMinutes == null || !(scheduled > 0)
-        ? worked
-        : Math.max(0, scheduled - Math.max(0, deductionMinutes));
     const balance = deductionMinutes == null ? null : Math.max(0, deductionMinutes);
-    const flexibleShort = flexibleDay ? balance : null;
     const counted = Boolean(ctx.countTo) && dateKey >= ctx.countFrom && dateKey <= ctx.countTo;
     const extraPay = ctx.additionPayByDate.get(dateKey) || 0;
     const syntheticOt = String(record?.timeIn || '').trim() === 'OT'
@@ -1989,7 +2017,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         || Boolean(String(record?.flexibleFromOtDate || '').trim());
     const deductedLeave = payKind === 'authorized' || payKind === 'absent';
     const compOffDay = payKind === 'compoff' || syntheticOt || String(record?.statusKey || '') === 'compoff_leave';
-    const earnsDayRate = counted && !sandwichStatus && !deductedLeave && payKind !== 'annual' && payKind !== 'future' && payKind !== 'suspended';
+    const earnsDayRate = counted && !sandwiched && !deductedLeave && payKind !== 'annual' && payKind !== 'future' && payKind !== 'suspended';
     const dayRate = Number(ctx.salaryDaily) || 0;
     const hourRate = dayRate / 10;
     const payment = !counted && !(extraPay > 0)
@@ -2003,6 +2031,9 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         const unauthTimes = ctx.leavePolicy?.unauthorizedDeductionDays == null ? 2 : n(ctx.leavePolicy.unauthorizedDeductionDays);
         deduct = money2(unauthTimes * dayRate);
     }
+    if (counted && sandwiched && !deductionWaived) {
+        deduct = money2(dayRate);
+    }
     const doubleDeduction = deduct > 0 && deductionTimes(payRecord, ctx.leavePolicy || {}) === 2;
     const lateText = forgiven || hourSettled ? '' : dayLateText(record, ctx.scheduleWeek);
     const visibleLate = lateText && lateText !== '—' && lateText !== '0 Hours' ? lateText : '';
@@ -2015,8 +2046,8 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     const lateInk = 'text-[#DC2626]';
     const timeInTone = punchKind === 'late_arrived' || visibleLate || (punchKind === 'mispunch' && missingIn) ? lateInk : '';
     const timeOutTone = punchKind === 'early_go' || visibleEarly || (punchKind === 'mispunch' && missingOut) ? lateInk : '';
-    const typeLabel = sandwichStatus
-        ? `${kindLabel(sandwichKind)} · weekly off between leave`
+    const typeLabel = sandwiched
+        ? 'Weekly off · between leave'
         : forgiven
         ? 'Present (on time)'
         : visibleLate && visibleEarly
@@ -2030,16 +2061,22 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     const otHours = Number(dayNote?.otHours) || 0;
     const otText = otHours > 0 ? formatHourMeasure(otHours) : '';
     const otPay = otHours > 0 ? money2(otHours * hourRate) : 0;
-    const compOffTarget = dayNote?.givenTo || (compOffDay ? dateKey : '');
+    const dayMinutes = scheduled > 0 ? scheduled : 10 * 60;
+    const shortOfDay = worked != null && dayMinutes > 0 && worked + 1 < dayMinutes;
+    const sideMode = (deduct > 0 || (shortOfDay && !(otHours > 0))) ? 'deduction' : (otHours > 0 ? 'ot' : '');
+    const deductionHoursText = balance > 0
+        ? formatHourlyGap(balance)
+        : (sideMode === 'deduction' ? formatHourlyGap(dayMinutes) : '');
+    const workedAmount = earnsDayRate ? dayRate : 0;
+    const sideAmount = sideMode === 'deduction' ? (Number(deduct) || 0) : sideMode === 'ot' ? otPay : 0;
+    const totalPay = payment == null && sideMode === ''
+        ? null
+        : money2(workedAmount + (sideMode === 'ot' ? sideAmount : 0) - (sideMode === 'deduction' ? sideAmount : 0));
     const compOffSource = dayNote?.takenFrom || String(record?.flexibleFromOtDate || '').trim();
     const compOffLines = [];
     if (dayNote?.givenTo) compOffLines.push(formatDayLabel(dayNote.givenTo));
     if (compOffSource) compOffLines.push(formatDayLabel(compOffSource));
     if (compOffDay && !compOffLines.length) compOffLines.push(formatDayLabel(dateKey));
-    const compOffPayText = compOffTarget || compOffSource
-        ? `${formatDayLabel(compOffTarget || dateKey)} · ${formatAed(dayRate, 2)}`
-        : '';
-    const approvedPay = approvedHours != null && counted ? money2((approvedHours / 10) * dayRate) : (earnsDayRate ? dayRate : 0);
     const canOpenMark = Boolean(markTarget?.employeeId) && inMonth && !beforeStart;
     const pinnedHere = pinnedAttendanceDate === dateKey;
     const [, setPinTick] = useState(0);
@@ -2136,18 +2173,18 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                         })}
                         inSpot={punchSpot(record?.checkInLocation)}
                         outSpot={punchSpot(record?.checkOutLocation)}
-                        workedText={shownWorked == null ? '—' : formatHourlyGap(shownWorked)}
+                        workedText={worked == null ? '—' : formatHourlyGap(worked)}
+                        workedAmountText={payment == null && !earnsDayRate ? '—' : formatAed(workedAmount, 2)}
+                        sideMode={sideMode}
+                        sideHoursText={sideMode === 'ot' ? (otText || '—') : deductionWaived ? 'Waived' : deductionHoursText}
+                        sideAmountText={deductionWaived && sideMode === 'deduction'
+                            ? 'Waived'
+                            : `${formatAed(sideAmount, 2)}${sideMode === 'deduction' && doubleDeduction ? ' (double deduction)' : ''}`}
+                        totalText={totalPay == null ? '—' : formatAed(totalPay, 2)}
+                        totalTone={totalPay != null && totalPay < 0 ? 'text-[#DC2626]' : 'text-[#16A34A]'}
+                        compOffDate={compOffLines[0] || ''}
                         lateText={visibleLate}
                         earlyText={visibleEarly}
-                        otText={otText}
-                        otPayText={otPay > 0 ? formatAed(otPay, 2) : formatAed(0, 2)}
-                        compOffLines={compOffLines}
-                        compOffPayText={compOffPayText}
-                        approvedPayText={counted ? formatAed(approvedPay, 2) : '—'}
-                        lostText={flexibleShort != null ? formatHourlyGap(Math.max(0, flexibleShort)) : formatHourlyGap(balance)}
-                        paymentText={payment == null ? '—' : formatAed(payment, 2)}
-                        balanceText={flexibleShort != null ? formatHourlyGap(Math.max(0, flexibleShort)) : formatHourlyGap(balance)}
-                        deductText={deductionWaived ? 'Waived' : deduct == null ? '—' : `${formatAed(deduct, 2)}${doubleDeduction ? ' (double deduction)' : ''}`}
                         sickReason={kind === 'sick' ? String(record?.leaveRequestReason || record?.reason || '').trim() : ''}
                         sickAttachment={String(record?.attachmentName || '').trim()
                             ? {
@@ -3401,6 +3438,10 @@ export default function EmployeeInformationDashboard({
         let compoffPending = 0;
         countedRecords.forEach((row) => {
             const stored = String(row?.statusKey || '');
+            const date = String(row?.date || '');
+            const weekday = WEEKDAY_KEYS[new Date(`${date}T00:00:00Z`).getUTCDay()];
+            const offDay = holidayDates.has(date) || stored === 'holiday' || stored === 'weekly_off' || offWeekdays.has(weekday);
+            if (offDay) return;
             const key = stored !== 'compoff_leave' && isNextDayCompOffRow(row) ? 'compoff_leave' : stored;
             const kind = deductionKind(row);
             if (key === 'on_office') present += 1;
@@ -3747,18 +3788,18 @@ export default function EmployeeInformationDashboard({
         const policy = profile?.leavePolicy || {};
         const daily = salaryBasis.daily;
         const enclosedOff = sandwichLeaveByDate({
-            records: countedRecords,
+            records: monthRecords,
             holidayDates,
             offWeekdays,
             from: countFrom,
             to: countTo,
         });
-        const sandwichRows = [...enclosedOff.entries()].map(([date, statusKey]) => ({
+        const sandwichRows = [...enclosedOff.entries()].map(([date]) => ({
             date,
-            statusKey,
+            statusKey: 'sandwich',
             reason: 'Weekly off or holiday between leave',
         }));
-        const deductionSource = [...countedRecords, ...sandwichRows];
+        const deductionSource = countedRecords;
         const authDays = money2(deductionSource.reduce((sum, row) => {
             if (deductionKind(row) !== 'authorized_leave') return sum;
             if (String(row?.hourAdjustStatus || '') === 'approved') {
@@ -3851,8 +3892,17 @@ export default function EmployeeInformationDashboard({
                     ? `${unauthDays} × ${unauthTimes} day × ${dayRate}`
                     : `1 unauthorized day deducts ${unauthTimes} × ${dayRate}`,
             },
+            {
+                key: 'sandwich',
+                type: 'Sandwich leave',
+                count: sandwichRows.length,
+                amount: money2(sandwichRows.length * daily),
+                note: sandwichRows.length
+                    ? `${sandwichRows.length} weekly off or holiday day${sandwichRows.length === 1 ? '' : 's'} between leave × ${dayRate}`
+                    : 'A weekly off or holiday between leave days deducts 1 day.',
+            },
         ].filter((row) => row.key !== 'on_leave' || Number(row.count) > 0);
-    }, [countedRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts, holidayDates, offWeekdays, countFrom, countTo]);
+    }, [countedRecords, monthRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts, holidayDates, offWeekdays, countFrom, countTo]);
     const deductionDetailRows = useMemo(() => {
         const enclosedOff = sandwichLeaveByDate({
             records: detailRecords,
@@ -3920,6 +3970,7 @@ export default function EmployeeInformationDashboard({
                 'Annual leave': 'Annual Leave',
                 'Authorized leave': 'Authorized Leave',
                 'Unauthorized leave': 'Unauthorized Leave',
+                'Sandwich leave': 'Sandwich Leave',
             })[row.type] || row.type,
         })),
         { key: 'fine', type: 'Fine', count: null, amount: fineOutstanding },
@@ -4718,7 +4769,7 @@ export default function EmployeeInformationDashboard({
                                 </thead>
                                 <tbody>
                                     {salaryTableRows.map((row, index) => {
-                                        const leaveRow = row.key === 'on_leave' || row.key === 'authorized_leave' || row.key === 'unauthorized_leave';
+                                        const leaveRow = row.key === 'on_leave' || row.key === 'authorized_leave' || row.key === 'unauthorized_leave' || row.key === 'sandwich';
                                         const countText = salaryLock.locked
                                             ? '—'
                                             : row.count == null || row.count === ''
@@ -5250,6 +5301,7 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
     const [staffType, setStaffType] = useState('');
     const [holidayRows, setHolidayRows] = useState([]);
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
+    const [calendarPay, setCalendarPay] = useState(null);
     const [employeeId, setEmployeeId] = useState('');
     const [employeeName, setEmployeeName] = useState('');
     const [loading, setLoading] = useState(true);
@@ -5277,6 +5329,7 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
             setEmployeeId(String(response.data?.employee?.id || requestedId || ''));
             setEmployeeName(String(response.data?.employee?.name || '').trim());
             setSalaryLock(salaryLockFromAttendancePayload(response.data));
+            setCalendarPay(response.data?.calendarPay || null);
         } catch (err) {
             setRecords([]);
             if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
@@ -5329,6 +5382,7 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
         end: endOfWeek(endOfMonth(anchor), { weekStartsOn: 1 }),
     }), [anchor]);
     const calendarCtx = useMemo(() => {
+        const monthPay = salaryForMonth(calendarPay?.salary, calendarPay?.salaryHistory, monthKey);
         const built = buildMonthCalendarContext({
             monthKey,
             todayKey,
@@ -5337,10 +5391,10 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
             offWeekdays,
             staffType,
             holidayRows,
-            leavePolicy: {},
-            monthlySalary: 0,
-            joinKey: '',
-            visibleFrom: '',
+            leavePolicy: calendarPay?.leavePolicy || {},
+            monthlySalary: monthPay.monthlySalary,
+            joinKey: calendarPay?.joinKey || '',
+            visibleFrom: calendarPay?.joinKey || '',
             pendingRequests: [],
         });
         return {
@@ -5353,7 +5407,7 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
                 employeeName,
             }),
         };
-    }, [employeeName, holidayRows, monthKey, offWeekdays, records, salaryLock, scheduleWeek, staffType, todayKey]);
+    }, [calendarPay, employeeName, holidayRows, monthKey, offWeekdays, records, salaryLock, scheduleWeek, staffType, todayKey]);
 
     function shiftMonth(delta) {
         const next = format(addMonths(anchor, delta), 'yyyy-MM');

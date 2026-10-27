@@ -303,15 +303,14 @@ function lateReasonFromSchedule(reason, timeIn, week, dateKey) {
 }
 
 function markForNonWorkingDay(mark, timeIn, timeOut, dayBaseline) {
-    const punched =
-        (timeIn && timeIn !== '—') || (timeOut && timeOut !== '—');
+    if (!dayBaseline) return mark;
     const key = String(mark?.key || '').trim();
-    const blank = !key || key === 'not_marked' || key === 'absent' || key === 'unauthorized_leave';
-    if (!dayBaseline || punched || !blank) return mark;
+    const leave = ['sick_leave', 'on_leave', 'authorized_leave', 'compoff_leave', 'work_from_home', 'suspended'].includes(key);
+    if (leave) return mark;
     if (dayBaseline === 'holiday') {
-        return { ...(mark || {}), key: 'holiday', label: 'Holiday', reason: 'Holiday' };
+        return { ...(mark || {}), key: 'holiday', label: 'Holiday', reason: mark?.reason || 'Holiday' };
     }
-    return { ...(mark || {}), key: 'weekly_off', label: 'Off Day', reason: 'Weekly off' };
+    return { ...(mark || {}), key: 'weekly_off', label: 'Off Day', reason: mark?.reason || 'Weekly off' };
 }
 
 function countsAsOnTime(mark) {
@@ -1544,7 +1543,7 @@ function EmployeeRow({
         String(shownMark?.key || ''),
     );
     const offDayWork = workedOffDay && !manualLeave;
-    const statusText = offDayWork ? 'OT / Comp off' : formatStatusLabel(shownMark, timeIn, pastDay);
+    const statusText = formatStatusLabel(shownMark, timeIn, pastDay);
     const statusFull = statusHoverTitle(statusText);
     const duration = syntheticOt
         ? hoursDurationLabel(mark?.flexibleWorkedHours)
@@ -1574,8 +1573,9 @@ function EmployeeRow({
     });
     const otText = otState.otText;
     const otHours = otState.otHours;
-    const showOtRequest = flexibleTiming && otState.showOtRequest;
-    const showNextDayPresent = flexibleTiming && otState.showNextDayPresent;
+    const showOtRequest = otState.showOtRequest && (flexibleTiming || offDayWork);
+    const showNextDayPresent = otState.showNextDayPresent && (flexibleTiming || offDayWork);
+    const showCompOff = offDayWork && otState.showOtRequest;
     const requestMark = markWithRequestableOt(mark, otHours);
     const otButtonLabel = otDirect ? 'Apply OT' : 'Req OT';
 
@@ -1640,9 +1640,7 @@ function EmployeeRow({
                         className={`inline-flex w-fit cursor-pointer border-0 text-left text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${
                             pendingLeaveLabel
                                 ? 'text-amber-800 bg-amber-50'
-                                : offDayWork
-                                  ? 'text-violet-700 bg-violet-50'
-                                  : statusChipClass(shownMark, statusText)
+                                : statusChipClass(shownMark, statusText)
                         }`}
                     >
                         {pendingLeaveLabel || statusText}
@@ -1779,7 +1777,7 @@ function EmployeeRow({
                     <span className="text-xs font-bold text-slate-700">{otText}</span>
                 ) : showOtRequest ? (
                     <div className="flex flex-col items-start gap-1">
-                        {showNextDayPresent ? (
+                        {showNextDayPresent || showCompOff ? (
                             <button
                                 type="button"
                                 disabled={rowLocked || !canRequestOt}
@@ -1793,7 +1791,7 @@ function EmployeeRow({
                                 }}
                                 className="rounded-lg border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                             >
-                                Next day present
+                                {showCompOff ? 'Comp Off' : 'Next day present'}
                             </button>
                         ) : null}
                         <button

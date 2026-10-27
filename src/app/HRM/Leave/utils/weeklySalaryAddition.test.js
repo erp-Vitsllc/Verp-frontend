@@ -471,29 +471,28 @@ describe('weekly salary addition counts', () => {
         assert.equal(result.workingDay.balance, 2);
     });
 
-    it('pays work on a weekly off as overtime up to 10 hours', () => {
+    it('does not pay Sunday or holiday work until overtime or comp off is approved', () => {
         const records = [
             { date: '2026-10-05', statusKey: 'on_office', timeIn: '08:00', timeOut: '18:00' },
             { date: '2026-10-10', statusKey: 'on_office', timeIn: '09:00', timeOut: '15:00' },
         ];
         const result = report(weeks[1], records, { flexible: false, offSaturday: true });
-        assert.equal(result.overtime.approved, 6);
-        assert.equal(result.overtime.balance, 6);
-        assert.equal(result.total, 600);
-        assert.match(result.overtime.title, /10-Oct-2026 worked on a weekly off and counts as overtime/);
+        assert.equal(result.overtime.approved, 0);
+        assert.equal(result.overtime.balance, 0);
+        assert.equal(result.total, 0);
+        assert.equal(result.compOff.approved, 0);
         assert.equal(result.workingDay.required, 5);
         assert.equal(result.workingHours.worked, 8);
     });
 
-    it('turns more than 10 hours on a holiday into comp off instead of overtime pay', () => {
+    it('does not turn holiday hours into comp off before approval', () => {
         const records = [
             { date: '2026-10-11', statusKey: 'on_office', timeIn: '08:00', timeOut: '20:00' },
         ];
         const result = report(weeks[2], records, { flexible: false, holidays: ['2026-10-11'] });
         assert.equal(result.overtime.balance, 0);
         assert.equal(result.total, 0);
-        assert.equal(result.compOff.approved, 1);
-        assert.match(result.compOff.title, /11-Oct-2026 worked on a holiday for more than 10 hours and counts as comp off/);
+        assert.equal(result.compOff.approved, 0);
     });
 
     it('keeps approved overtime on a weekly off as the overtime payment', () => {
