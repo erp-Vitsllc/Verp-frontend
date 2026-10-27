@@ -5637,7 +5637,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 zClass="z-[80]"
             >
                 <p className="mt-1 text-[12px] text-[#64748B]">
-                    The first joining date is the contract joining date. Each later row is the next year, starting the day after the previous leave eligible date. Leave eligible date is 12 months after that row&apos;s joining date. Eligible days are {annualWindows?.allowedDays || 30} once the {annualWindows?.cycleDays || 300}-day cycle is complete, otherwise Not eligible. Used leave reduces that balance. The latest row is Active and every earlier row is Inactive. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
+                    The first joining date is the contract joining date. Each later row starts the day after the previous leave eligible date. Used counts annual leave from that joining date through the next row&apos;s leave eligible date. Eligible days are {annualWindows?.allowedDays || 30} after the {annualWindows?.cycleDays || 300}-day cycle, and balance is that amount minus used. A row is Inactive until the cycle is complete, then Active, and Lapsed after the next leave eligible date. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
                 </p>
                 {annualWindows?.error ? (
                     <p className="mt-4 text-[13px] text-[#B45309]">{annualWindows.error}</p>
@@ -5659,8 +5659,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                             <tbody>
                                 {(annualWindows.windows || []).length ? (
                                     annualWindows.windows.map((row) => {
-                                        const eligible = Number(row.allowedDays) > 0;
-                                        const active = String(row.status || '').toLowerCase() === 'active';
+                                        const inactive = String(row.status || '').toLowerCase() === 'inactive';
                                         return (
                                         <tr
                                             key={row.index}
@@ -5671,16 +5670,16 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     type: 'annual',
                                                     source: 'manual',
                                                     from: row.startDate,
-                                                    to: row.endDate,
+                                                    to: row.takeUntil || row.endDate,
                                                 });
                                             }}
                                         >
                                             <td className="px-2 py-2">{prettyDate(row.startDate)}</td>
                                             <td className="px-2 py-2">{prettyDate(row.endDate)}</td>
-                                            <td className="px-2 py-2">{eligible ? row.allowedDays : 'Not eligible'}</td>
+                                            <td className="px-2 py-2">{inactive ? 'Not eligible' : row.allowedDays || annualWindows.allowedDays || 30}</td>
                                             <td className="px-2 py-2">{row.takenDays} days</td>
                                             <td className="px-2 py-2">{row.balance}</td>
-                                            <td className="px-2 py-2">{active ? 'Active' : 'Inactive'}</td>
+                                            <td className="px-2 py-2">{row.status}</td>
                                         </tr>
                                         );
                                     })
