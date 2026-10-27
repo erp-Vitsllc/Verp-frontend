@@ -297,7 +297,7 @@ export default function AnnualLeaveFilterModal({
             setError('End date must be on or after start date.');
             return;
         }
-        if (showAnnualEligibility && eligibility?.allowanceBlocked && !hrCanPickEarly) {
+        if (showAnnualEligibility && eligibility?.allowanceBlocked && !isDesignatedHr) {
             setError(eligibility?.allowanceBlock?.message || 'This annual leave is outside the open 30-day period.');
             return;
         }
@@ -531,7 +531,10 @@ export default function AnnualLeaveFilterModal({
                             <p>No open annual leave period yet. It opens when counted working days complete a cycle.</p>
                         )}
                         {eligibility.allowanceBlocked && eligibility.allowanceBlock?.message ? (
-                            <p className="mt-1 font-semibold">{eligibility.allowanceBlock.message}</p>
+                            <p className="mt-1 font-semibold">
+                                {eligibility.allowanceBlock.message}
+                                {isDesignatedHr ? ' Shown for review. HR can still apply.' : ''}
+                            </p>
                         ) : null}
                         {eligibility.groupCap?.enabled ? (
                             <>
