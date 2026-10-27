@@ -5637,7 +5637,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 zClass="z-[80]"
             >
                 <p className="mt-1 text-[12px] text-[#64748B]">
-                    Each completed {annualWindows?.cycleDays || 300}-day cycle opens the next 12 months after the contract joining date. Annual leave taken between that start and end counts against the 30-day balance. The latest row is Active and every earlier row is Lapsed. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
+                    The first joining date is the contract joining date. Each later row is the next year, starting the day after the previous leave eligible date. Leave eligible date is 12 months after that row&apos;s joining date. Eligible days are {annualWindows?.allowedDays || 30} once the {annualWindows?.cycleDays || 300}-day cycle is complete, otherwise Not eligible. Used leave reduces that balance. The latest row is Active and every earlier row is Inactive. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
                 </p>
                 {annualWindows?.error ? (
                     <p className="mt-4 text-[13px] text-[#B45309]">{annualWindows.error}</p>
@@ -5648,16 +5648,20 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                         <table className="w-full min-w-[720px] text-left text-[12px] text-[#0F172A]">
                             <thead className="text-[11px] uppercase tracking-wide text-[#64748B]">
                                 <tr>
-                                    <th className="px-2 py-2">Start</th>
-                                    <th className="px-2 py-2">End</th>
-                                    <th className="px-2 py-2">Leave taken</th>
+                                    <th className="px-2 py-2">Joining date</th>
+                                    <th className="px-2 py-2">Leave eligible date</th>
+                                    <th className="px-2 py-2">Eligible days</th>
+                                    <th className="px-2 py-2">Used</th>
                                     <th className="px-2 py-2">Balance</th>
-                                    <th className="px-2 py-2">Status</th>
+                                    <th className="px-2 py-2">Leave status</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {(annualWindows.windows || []).length ? (
-                                    annualWindows.windows.map((row) => (
+                                    annualWindows.windows.map((row) => {
+                                        const eligible = Number(row.allowedDays) > 0;
+                                        const active = String(row.status || '').toLowerCase() === 'active';
+                                        return (
                                         <tr
                                             key={row.index}
                                             className="cursor-pointer border-t border-[#E6EAF0] hover:bg-[#F8FAFC]"
@@ -5673,15 +5677,17 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                         >
                                             <td className="px-2 py-2">{prettyDate(row.startDate)}</td>
                                             <td className="px-2 py-2">{prettyDate(row.endDate)}</td>
+                                            <td className="px-2 py-2">{eligible ? row.allowedDays : 'Not eligible'}</td>
                                             <td className="px-2 py-2">{row.takenDays} days</td>
                                             <td className="px-2 py-2">{row.balance}</td>
-                                            <td className="px-2 py-2">{row.status}</td>
+                                            <td className="px-2 py-2">{active ? 'Active' : 'Inactive'}</td>
                                         </tr>
-                                    ))
+                                        );
+                                    })
                                 ) : (
                                     <tr>
-                                        <td colSpan={5} className="px-2 py-6 text-[#64748B]">
-                                            No period yet. The first row opens when counted working days reach {annualWindows.cycleDays || 300}.
+                                        <td colSpan={6} className="px-2 py-6 text-[#64748B]">
+                                            Not eligible yet. The first row opens when counted working days reach {annualWindows.cycleDays || 300}.
                                         </td>
                                     </tr>
                                 )}
