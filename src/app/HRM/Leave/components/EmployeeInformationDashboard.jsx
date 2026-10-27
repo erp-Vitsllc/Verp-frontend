@@ -1303,7 +1303,7 @@ function takenHoursOf(row, week, kind) {
     return dayHoursOf(week, row?.date);
 }
 
-function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
+function hourDeductionParts(row, week, kind, unauthTimes) {
     const approved = String(row?.hourAdjustStatus || '') === 'approved';
     const flexiblePunch = isFlexibleWeek(week) && (kind === 'early_go' || kind === 'late_arrived');
     const dayHours = flexiblePunch
@@ -1313,8 +1313,39 @@ function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
         ? (approved ? n(row.hoursApproved) : flexibleExactLossHoursOf(row, week))
         : (approved ? n(row.hoursApproved) : takenHoursOf(row, week, kind));
     const hours = approved ? missedHours : missedHours * unauthTimes;
+    return { dayHours, hours };
+}
+
+function hourDeductionAmount(row, week, daily, kind, unauthTimes) {
+    const { dayHours, hours } = hourDeductionParts(row, week, kind, unauthTimes);
     if (!(hours > 0) || !(daily > 0) || !(dayHours > 0)) return 0;
     return money2((hours / dayHours) * daily);
+}
+
+/** Hours the deduction money is taken from. A late or early day uses the missed punch time, doubled when it is not approved. */
+function chargedDeductionHours(record, week, policy) {
+    if (!record || record.deductionWaived === true) return 0;
+    const key = deductionKind(record);
+    const authTimes = policy?.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
+    const unauthTimes = policy?.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
+    if (key === 'early_go' || key === 'late_arrived') {
+        return hourDeductionParts(record, week, key, unauthTimes).hours;
+    }
+    if (key === 'on_leave') return dayHoursOf(week, record?.date) || 0;
+    if (key === 'authorized_leave' || key === 'unauthorized_leave') {
+        if (String(record?.hourAdjustStatus || '') === 'approved') {
+            return hourDeductionParts(record, week, key, 1).hours;
+        }
+        const times = key === 'authorized_leave' ? authTimes : unauthTimes;
+        const dayHours = dayHoursOf(week, record?.date) || 8;
+        return leaveDayWeight(record, key === 'authorized_leave') * times * dayHours;
+    }
+    const unmarked = key === 'not_marked' || key === 'absent' || key === '';
+    const punched = Boolean(String(record?.timeIn || '').trim() || String(record?.timeOut || '').trim());
+    if (unmarked && record?.date && !punched) {
+        return unauthTimes * (dayHoursOf(week, record.date) || 8);
+    }
+    return 0;
 }
 
 function deductionTimes(record, policy) {
@@ -1879,7 +1910,7 @@ function DayTip({
                     label="Time Out"
                     wrap={timeOutNextDay}
                     tone={timeOutTone}
-                    value={<NextDayCheckoutTime time={timeOut} nextDay={timeOutNextDay} className={timeOutTone} />}
+                    value={timeOutNextDay && timeOut && timeOut !== '—' ? `${timeOut} (next day)` : timeOut}
                 />
                 <TipMoney label="Total worked" value={workedText} />
                 {sideLabel ? <TipMoney label={sideLabel} value={sideHoursText || '—'} tone={sideTone} /> : <span />}
@@ -2064,9 +2095,12 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     const dayMinutes = scheduled > 0 ? scheduled : 10 * 60;
     const shortOfDay = worked != null && dayMinutes > 0 && worked + 1 < dayMinutes;
     const sideMode = (deduct > 0 || (shortOfDay && !(otHours > 0))) ? 'deduction' : (otHours > 0 ? 'ot' : '');
-    const deductionHoursText = balance > 0
-        ? formatHourlyGap(balance)
-        : (sideMode === 'deduction' ? formatHourlyGap(dayMinutes) : '');
+    const chargedHours = sideMode === 'deduction'
+        ? chargedDeductionHours(payRecord, ctx.scheduleWeek, ctx.leavePolicy || {})
+        : 0;
+    const deductionHoursText = sideMode === 'deduction'
+        ? (chargedHours > 0 ? formatHourlyGap(Math.round(chargedHours * 60)) : '0 Hours')
+        : '';
     const workedAmount = earnsDayRate ? dayRate : 0;
     const sideAmount = sideMode === 'deduction' ? (Number(deduct) || 0) : sideMode === 'ot' ? otPay : 0;
     const totalPay = payment == null && sideMode === ''
