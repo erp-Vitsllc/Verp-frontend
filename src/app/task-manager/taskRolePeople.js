@@ -54,7 +54,9 @@ export function taskRolePeople(tasks, role, titleOf = () => '') {
     tasks.forEach((task) => {
         if (role === 'assignee') {
             add(task.assigneeName);
+            add(task.mainAssigneeName);
             add(task.originalAssigneeName);
+            add(task.reassignedAssigneeName);
             return;
         }
         add(requesterEmployeeName(task));

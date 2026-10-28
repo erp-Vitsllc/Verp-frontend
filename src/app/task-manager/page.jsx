@@ -163,21 +163,37 @@ function taskIsMine(task, viewer) {
     return isMyTask(task, viewer);
 }
 
+function viewerNameHits(names, value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return false;
+    if (names.includes(raw)) return true;
+    const base = basePersonName(value).toLowerCase();
+    return Boolean(base && names.includes(base));
+}
+
 function isMyTask(task, viewer) {
     if (!viewer) return false;
     const ids = [viewer.employeeObjectId, viewer.empObjectId, viewer._id, viewer.id]
         .map((value) => String(value || ''))
         .filter(Boolean);
-    if (task.assigneeId && ids.includes(String(task.assigneeId))) return true;
+    const assigneeIds = [task.assigneeId, task.originalAssigneeId, task.reassignedAssigneeId]
+        .map((value) => String(value || ''))
+        .filter(Boolean);
+    if (assigneeIds.some((id) => ids.includes(id))) return true;
     const codes = [viewer.employeeId, viewer.empId]
         .map((value) => String(value || '').trim().toLowerCase())
         .filter(Boolean);
-    if (task.assigneeEmpId && codes.includes(String(task.assigneeEmpId).trim().toLowerCase())) return true;
+    const assigneeCodes = [task.assigneeEmpId, task.originalAssigneeEmpId]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean);
+    if (assigneeCodes.some((code) => codes.includes(code))) return true;
     const names = [viewer.name, viewer.username]
         .map((value) => String(value || '').trim().toLowerCase())
         .filter(Boolean);
+    if ([task.assigneeName, task.mainAssigneeName, task.originalAssigneeName, task.reassignedAssigneeName]
+        .some((value) => viewerNameHits(names, value))) return true;
+    if (task.reassignedAssigneeName) return false;
     const assignee = String(task.assigneeName || '').trim().toLowerCase();
-    if (assignee && names.includes(assignee)) return true;
     const paren = assignee.match(/\(([^)]+)\)\s*$/);
     if (!paren) return false;
     const lead = assignee.slice(0, assignee.lastIndexOf('(')).trim();
@@ -263,13 +279,19 @@ function timeValue(value) {
     return Number.isNaN(time) ? 0 : time;
 }
 
+/** Reassigned tasks use the latest reassign date. Every other task uses the assign date. */
+function listActivityDate(task) {
+    if (String(task?.reassignedAssigneeName || '').trim() && task?.reassignedAt) return task.reassignedAt;
+    return task?.requestDate;
+}
+
 function taskSortValue(task, key, titles) {
     if (key === 'taskNumber') {
         const sequence = taskSequence(task);
         return sequence || null;
     }
     if (key === 'requestDate') {
-        const time = timeValue(task?.requestDate);
+        const time = timeValue(listActivityDate(task));
         return time || null;
     }
     if (key === 'completionDate') {
@@ -284,7 +306,7 @@ function taskSortValue(task, key, titles) {
     if (key === 'type') return displayTaskType(task?.taskCategory) || null;
     if (key === 'name') return titles.get(task.actionId) || task?.taskName || null;
     if (key === 'requester') return task?.requesterName || null;
-    if (key === 'assignee') return task?.assigneeName || null;
+    if (key === 'assignee') return task?.mainAssigneeName || task?.assigneeName || null;
     if (key === 'status') return listStatus(task) || null;
     return null;
 }
@@ -295,7 +317,7 @@ function compareSortValues(left, right) {
 }
 
 function latestTaskFirst(left, right) {
-    const timeGap = timeValue(right?.requestDate) - timeValue(left?.requestDate);
+    const timeGap = timeValue(listActivityDate(right)) - timeValue(listActivityDate(left));
     if (timeGap) return timeGap;
     return taskSequence(right) - taskSequence(left);
 }
@@ -420,6 +442,26 @@ function pageList(current, total) {
     return out;
 }
 
+function AssigneeCell({ task }) {
+    const reassignedName = String(task.reassignedAssigneeName || '').trim();
+    const mainName = task.mainAssigneeName || task.assigneeName;
+    const mainPhoto = reassignedName ? task.mainAssigneePhoto : (task.mainAssigneePhoto || task.assigneePhoto);
+    const mainHint = reassignedName
+        ? mainName
+        : (task.assigneeEmpId ? `${mainName} (${task.assigneeEmpId})` : mainName);
+    return (
+        <div className="min-w-[190px]">
+            <PersonCell name={mainName} photo={mainPhoto} hint={mainHint} />
+            {reassignedName ? (
+                <div className="mt-1.5 ml-4 border-l border-slate-200 pl-2">
+                    <p className="text-[11px] font-medium leading-4 text-slate-400">Reassigned</p>
+                    <PersonCell name={reassignedName} photo={task.reassignedAssigneePhoto} hint={`Reassigned: ${reassignedName}`} />
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
 function PersonCell({ name, photo, hint }) {
     const [failed, setFailed] = useState(false);
     const label = name || '—';
@@ -483,7 +525,7 @@ function taskMatchesListFilters(task, options) {
         if (status !== 'All Status' && status !== 'Pending' && shown !== status) return false;
     }
     if (priority !== 'All Priority' && task.priority !== priority) return false;
-    const key = dateKey(task.requestDate);
+    const key = dateKey(listActivityDate(task));
     if ((activeRange.from || activeRange.to) && !key) return false;
     if (activeRange.from && key < activeRange.from) return false;
     if (activeRange.to && key > activeRange.to) return false;
@@ -491,7 +533,13 @@ function taskMatchesListFilters(task, options) {
     if (requesterNeedle && personKey(requesterEmployeeName(task)) !== requesterNeedle) return false;
     const assigneeNeedle = personKey(assigneeQuery);
     if (assigneeNeedle) {
-        const names = [task.assigneeName, task.assigneeEmpId, task.originalAssigneeName]
+        const names = [
+            task.assigneeName,
+            task.assigneeEmpId,
+            task.originalAssigneeName,
+            task.mainAssigneeName,
+            task.reassignedAssigneeName,
+        ]
             .map((value) => personKey(basePersonName(value)))
             .filter(Boolean);
         if (!names.includes(assigneeNeedle)) return false;
@@ -1303,8 +1351,11 @@ function TaskManagerContent() {
                                                     <td className="px-3 py-3.5 text-[13px] font-semibold text-slate-700">
                                                         {task.taskNumber}
                                                     </td>
-                                                    <td className="px-3 py-3.5 text-[13px] text-slate-600 whitespace-nowrap">
-                                                        {formatDisplayDate(task.requestDate) || '—'}
+                                                    <td
+                                                        className="px-3 py-3.5 text-[13px] text-slate-600 whitespace-nowrap"
+                                                        title={String(task.reassignedAssigneeName || '').trim() && task.reassignedAt ? 'Reassigned date' : 'Assigned date'}
+                                                    >
+                                                        {formatDisplayDate(listActivityDate(task)) || '—'}
                                                     </td>
                                                     <td className="px-3 py-3.5">
                                                         <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${TYPE_STYLE[displayTaskType(task.taskCategory)] || TYPE_STYLE[task.taskCategory] || 'bg-slate-100 text-slate-600'}`}>
@@ -1318,11 +1369,7 @@ function TaskManagerContent() {
                                                         <PersonCell name={task.requesterName} photo={task.requesterPhoto} />
                                                     </td>
                                                     <td className="px-3 py-3.5">
-                                                        <PersonCell
-                                                            name={task.assigneeName}
-                                                            photo={task.assigneePhoto}
-                                                            hint={task.assigneeEmpId ? `${task.assigneeName} (${task.assigneeEmpId})` : task.assigneeName}
-                                                        />
+                                                        <AssigneeCell task={task} />
                                                     </td>
                                                     <td className="px-3 py-3.5">
                                                         <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${PRIORITY_STYLE[task.priority] || ''}`}>

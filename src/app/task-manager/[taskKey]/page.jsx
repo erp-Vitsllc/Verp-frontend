@@ -631,7 +631,15 @@ function TaskDetailsPage() {
                     </div>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
                         <PersonFact label="Requester Name" name={task.requesterName} role={task.requesterRole} photo={task.requesterPhoto} />
-                        <PersonFact label="Assignee Name" name={task.assigneeName} role={task.assigneeRole} photo={task.assigneePhoto} />
+                        <PersonFact
+                            label="Assignee Name"
+                            name={task.mainAssigneeName || task.assigneeName}
+                            role={task.reassignedAssigneeName ? (task.mainAssigneeRole || 'Assignee') : task.assigneeRole}
+                            photo={task.reassignedAssigneeName ? task.mainAssigneePhoto : (task.mainAssigneePhoto || task.assigneePhoto)}
+                            extraName={task.reassignedAssigneeName}
+                            extraPhoto={task.reassignedAssigneePhoto}
+                            extraRole={task.reassignedAssigneeName ? task.assigneeRole : ''}
+                        />
                         <Fact label="Department" value={task.department || '—'} icon={Building2} />
                         <Fact label="Related To" value={task.relatedTo || task.moduleLabel || '—'} icon={Link2} />
                         <Fact label="Last Updated" value={`${formatWhen(task.updatedAt || task.requestDate)}${task.lastUpdatedBy ? ` by ${task.lastUpdatedBy}` : ''}`} icon={Calendar} />
@@ -914,7 +922,7 @@ function Fact({ label, value, pill, icon: Icon }) {
     );
 }
 
-function PersonFact({ label, name, role, photo }) {
+function PersonFact({ label, name, role, photo, extraName, extraPhoto, extraRole }) {
     return (
         <div>
             <p className="text-xs text-slate-400">{label}</p>
@@ -925,6 +933,18 @@ function PersonFact({ label, name, role, photo }) {
                     <p className="text-xs text-slate-500">{role || '—'}</p>
                 </div>
             </div>
+            {extraName ? (
+                <div className="mt-2 ml-4 border-l border-slate-200 pl-2">
+                    <p className="text-[11px] font-medium text-slate-400">Reassigned</p>
+                    <div className="mt-1 flex items-center gap-2">
+                        <Avatar name={extraName} photo={extraPhoto} size="h-7 w-7" />
+                        <div>
+                            <p className="text-sm font-semibold text-slate-800">{extraName}</p>
+                            {extraRole ? <p className="text-xs text-slate-500">{extraRole}</p> : null}
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }

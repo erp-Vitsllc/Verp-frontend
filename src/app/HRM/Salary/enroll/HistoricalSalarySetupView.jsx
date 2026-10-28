@@ -6,6 +6,7 @@ import {
     Calendar,
     CalendarDays,
     Check,
+    ChevronLeft,
     ChevronRight,
     ExternalLink,
     Eye,
@@ -1931,13 +1932,25 @@ function GhostButton({ children, ...props }) {
     );
 }
 
-function ModalShell({ open, title, onClose, children, width = 'max-w-md', zClass = 'z-[90]' }) {
+function ModalShell({ open, title, onClose, onBack, children, width = 'max-w-md', zClass = 'z-[90]' }) {
     if (!open) return null;
     return (
         <div className={`fixed inset-0 ${zClass} flex items-center justify-center p-4`}>
             <button type="button" className="absolute inset-0 bg-slate-900/30" onClick={onClose} aria-label="Close" />
             <div className={`relative w-full ${width} rounded-2xl bg-white p-5 shadow-2xl`}>
-                <h3 className="text-base font-bold text-slate-800">{title}</h3>
+                <div className="flex items-center gap-2">
+                    {onBack ? (
+                        <button
+                            type="button"
+                            onClick={onBack}
+                            className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-lg pr-1 text-sm font-semibold text-[#2563EB] hover:bg-slate-50"
+                        >
+                            <ChevronLeft size={16} />
+                            Back
+                        </button>
+                    ) : null}
+                    <h3 className="text-base font-bold text-slate-800">{title}</h3>
+                </div>
                 {children}
             </div>
         </div>
@@ -1948,6 +1961,44 @@ function leaveSourceKey(row) {
     const raw = String(row?.source || 'manual').trim().toLowerCase();
     if (raw === 'erp' || raw === 'system') return 'system';
     return 'manual';
+}
+
+function annualPeriodEntries(entries, historyRows) {
+    const history = Array.isArray(historyRows) ? historyRows : [];
+    return (Array.isArray(entries) ? entries : [])
+        .filter((entry) => String(entry?.source || 'manual').toLowerCase() !== 'system')
+        .map((entry, index) => {
+            const recordId = String(entry?.id || '');
+            const stored = history.find((row) => {
+                const id = String(row?.id || row?._id || '');
+                if (recordId && id === recordId) return true;
+                const from = String(row?.fromDate || row?.startDate || '');
+                const to = String(row?.toDate || row?.endDate || from);
+                return !recordId && from && from === entry?.recordFrom && to === entry?.recordTo;
+            });
+            const days = Math.max(0, Number(entry?.actualDays) || 0);
+            const multiplier = Number(stored?.multiplier ?? stored?.rule ?? entry?.multiplier) || 1;
+            return {
+                ...(stored || {}),
+                id: `${recordId || 'annual'}-${entry?.fromDate || index}-${index}`,
+                leaveType: 'annual',
+                source: stored?.source || 'manual',
+                fromDate: entry?.fromDate || '',
+                toDate: entry?.toDate || entry?.fromDate || '',
+                startDate: entry?.fromDate || '',
+                endDate: entry?.toDate || entry?.fromDate || '',
+                actualDays: days,
+                eligibleWorkingDays: days,
+                multiplier,
+                rule: multiplier,
+                deductionDays: days * multiplier,
+                deduction: days * multiplier,
+                storedIndex: Number.isInteger(stored?.storedIndex) ? stored.storedIndex : undefined,
+                recordFrom: entry?.recordFrom || '',
+                recordTo: entry?.recordTo || '',
+                remarks: stored?.remarks || '',
+            };
+        });
 }
 
 function leaveRowsForGroup(rows, type, source, from = '', to = '') {
@@ -3581,6 +3632,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         if (!leaveGroupModal) return [];
         const pool =
             leaveGroupModal.source === 'system' ? systemLeaveHistoryList : historicalLeaveHistoryRows;
+        if (Number.isInteger(leaveGroupModal.windowIndex)) {
+            const windowRow = (annualWindows?.windows || []).find((row) => row.index === leaveGroupModal.windowIndex);
+            if (windowRow && Array.isArray(windowRow.entries)) {
+                return annualPeriodEntries(windowRow.entries, pool);
+            }
+        }
         if (leaveGroupModal.includeHoliday) {
             return [
                 ...leaveRowsForGroup(pool, 'annual', leaveGroupModal.source, leaveGroupModal.from, leaveGroupModal.to),
@@ -3594,7 +3651,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             leaveGroupModal.from,
             leaveGroupModal.to,
         );
-    }, [historicalLeaveHistoryRows, leaveGroupModal, systemLeaveHistoryList]);
+    }, [annualWindows, historicalLeaveHistoryRows, leaveGroupModal, systemLeaveHistoryList]);
     useEffect(() => {
         if (!leaveGroupModal) return;
         if (leaveGroupModal.from || leaveGroupModal.to) return;
@@ -5480,6 +5537,11 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                         {leaveDeleteRow.fromDate || leaveDeleteRow.toDate
                             ? ` · ${prettyDate(leaveDeleteRow.fromDate)} — ${prettyDate(leaveDeleteRow.toDate)}`
                             : ''}
+                        {leaveDeleteRow.recordFrom &&
+                        (leaveDeleteRow.recordFrom !== leaveDeleteRow.fromDate ||
+                            leaveDeleteRow.recordTo !== leaveDeleteRow.toDate)
+                            ? `. This removes the full leave, ${prettyDate(leaveDeleteRow.recordFrom)} — ${prettyDate(leaveDeleteRow.recordTo)}.`
+                            : ''}
                     </p>
                 ) : null}
                 <div className="mt-5 flex justify-end gap-2">
@@ -5637,7 +5699,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 zClass="z-[80]"
             >
                 <p className="mt-1 text-[12px] text-[#64748B]">
-                    The first joining date is the contract joining date. Each later row starts the day after the previous leave eligible date. Used counts annual leave from that joining date through the next row&apos;s leave eligible date. Eligible days are {annualWindows?.allowedDays || 30} after the {annualWindows?.cycleDays || 300}-day cycle, and balance is that amount minus used. A row is Inactive until the cycle is complete, then Active, and Lapsed after the next leave eligible date. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
+                    The first joining date is the contract joining date. Each later row starts the day after the previous leave eligible date. Used counts annual leave from that joining date through the next row&apos;s leave eligible date, up to {annualWindows?.allowedDays || 30} days. Once that is full, the rest counts on the next row when the leave date is inside it, from that row&apos;s joining date through the following leave eligible date. Eligible days are {annualWindows?.allowedDays || 30} after the {annualWindows?.cycleDays || 300}-day cycle, and balance is that amount minus used. A row is Inactive until the cycle is complete, then Active, and Lapsed after the next leave eligible date. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
                 </p>
                 {annualWindows?.error ? (
                     <p className="mt-4 text-[13px] text-[#B45309]">{annualWindows.error}</p>
@@ -5671,6 +5733,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     source: 'manual',
                                                     from: row.startDate,
                                                     to: row.takeUntil || row.endDate,
+                                                    windowIndex: row.index,
                                                 });
                                             }}
                                         >
@@ -5767,6 +5830,14 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                           }`
                         : 'Leave records'
                 }
+                onBack={
+                    leaveGroupModal?.type === 'annual' && leaveGroupModal?.from && leaveGroupModal?.to
+                        ? () => {
+                              setLeaveGroupModal(null);
+                              setAnnualWindowsOpen(true);
+                          }
+                        : undefined
+                }
                 onClose={() => setLeaveGroupModal(null)}
                 width="max-w-5xl"
                 zClass="z-[80]"
@@ -5780,6 +5851,10 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                               leaveGroupModal?.from && leaveGroupModal?.to
                                   ? ` between ${prettyDate(leaveGroupModal.from)} and ${prettyDate(leaveGroupModal.to)}.`
                                   : '.'
+                          }${
+                              Number.isInteger(leaveGroupModal?.windowIndex)
+                                  ? ' Days shown here are the part counted on this row. Once the row reaches 30, the rest of that leave continues on the next row.'
+                                  : ''
                           }`}
                 </p>
                 <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">

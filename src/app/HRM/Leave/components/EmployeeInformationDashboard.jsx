@@ -1858,6 +1858,7 @@ function DayTip({
     timeOut,
     timeInTone = '',
     timeOutTone = '',
+    compOffStatus = '',
     timeOutNextDay = false,
     inSpot,
     outSpot,
@@ -1902,6 +1903,7 @@ function DayTip({
                 <span className={`h-2 w-2 rounded-full ${dotClass}`} />
                 <span className="font-medium text-[#64748B]">Status</span>
                 <span className={statusClass}>{statusText}</span>
+                {compOffStatus ? <span className="text-[#0F766E]">{compOffStatus}</span> : null}
                 {approvalText ? <span className={approvalClass}>· {approvalText}</span> : null}
             </p>
             <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
@@ -2070,13 +2072,28 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     const visibleLate = lateText && lateText !== '—' && lateText !== '0 Hours' ? lateText : '';
     const visibleEarly = earlyText && earlyText !== '—' && earlyText !== '0 Hours' ? earlyText : '';
     const punchKind = shownEventKind(record);
-    const missingIn = !String(record?.timeIn || '').trim();
-    const missingOut = !String(record?.timeOut || '').trim();
-    const timeInLabel = punchKind === 'mispunch' && missingIn ? 'Mispunched' : formatClock12(record?.timeIn);
-    const timeOutLabel = punchKind === 'mispunch' && missingOut ? 'Mispunched' : formatClock12(record?.timeOut);
+    const storedIn = String(record?.timeIn || '').trim();
+    const storedOut = String(record?.timeOut || '').trim();
+    const missingIn = !storedIn;
+    const missingOut = !storedOut;
+    const timeInLabel = punchKind === 'mispunch' && missingIn
+        ? 'Mispunched'
+        : storedIn === 'OT'
+            ? 'Comp Off'
+            : formatClock12(record?.timeIn);
+    const timeOutLabel = punchKind === 'mispunch' && missingOut
+        ? 'Mispunched'
+        : storedOut === 'OT'
+            ? 'Comp Off'
+            : formatClock12(record?.timeOut);
     const lateInk = 'text-[#DC2626]';
-    const timeInTone = punchKind === 'late_arrived' || visibleLate || (punchKind === 'mispunch' && missingIn) ? lateInk : '';
-    const timeOutTone = punchKind === 'early_go' || visibleEarly || (punchKind === 'mispunch' && missingOut) ? lateInk : '';
+    const compOffInk = 'text-[#0F766E]';
+    const timeInTone = timeInLabel === 'Comp Off'
+        ? compOffInk
+        : (punchKind === 'late_arrived' || visibleLate || (punchKind === 'mispunch' && missingIn) ? lateInk : '');
+    const timeOutTone = timeOutLabel === 'Comp Off'
+        ? compOffInk
+        : (punchKind === 'early_go' || visibleEarly || (punchKind === 'mispunch' && missingOut) ? lateInk : '');
     const typeLabel = sandwiched
         ? 'Weekly off · between leave'
         : forgiven
@@ -2084,6 +2101,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         : visibleLate && visibleEarly
             ? 'Late Arrival · Early Go'
             : (yellowLabel || kindLabel(kind));
+    const compOffStatus = syntheticOt && /^Present\b/.test(typeLabel) ? 'Comp Off' : '';
     const moreLines = [];
     if (ctx.holidayNamesByDate[dateKey]) moreLines.push({ label: 'Holiday', value: ctx.holidayNamesByDate[dateKey] });
     if (adjustmentText) moreLines.push({ label: 'Adjusted', value: adjustmentText });
@@ -2193,6 +2211,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                         dateLabel={format(day, 'd MMMM yyyy')}
                         statusText={typeLabel}
                         statusClass={(sandwichKind ? TIP_TONE[sandwichKind] : tone)?.text}
+                        compOffStatus={compOffStatus}
                         approvalText={approval}
                         dotClass={(sandwichKind ? TIP_TONE[sandwichKind] : tone)?.dot}
                         timeIn={timeInLabel}
@@ -3704,12 +3723,10 @@ export default function EmployeeInformationDashboard({
             })
             : reports[picked];
         mergeCalendar(selected?.calendar);
-        let offDayExtra = 0;
+        let overtimePay = 0;
         payByDate.forEach((amount, date) => {
             if (!countTo || date < countFrom || date > countTo) return;
-            const info = dayInfo(date);
-            if (!info.weeklyOff && !info.holiday) return;
-            offDayExtra = money2(offDayExtra + amount);
+            overtimePay = money2(overtimePay + amount);
         });
         const pay = selected?.balancePay || emptyWeeklySalaryAddition().balancePay;
         const rangeDates = [...(additionWeek?.dates || []), ...(additionWeek?.extraDates || [])]
@@ -3786,7 +3803,7 @@ export default function EmployeeInformationDashboard({
             report: selected || emptyWeeklySalaryAddition(),
             payByDate,
             calendarNotes,
-            offDayExtra,
+            overtimePay,
             statement,
         };
     }, [
@@ -4024,7 +4041,7 @@ export default function EmployeeInformationDashboard({
         }).length
         : 0;
     const monthDeduction = deductionRows.reduce((sum, row) => sum + (row.amount == null ? 0 : Number(row.amount) || 0), 0);
-    const earnedBeforeDeduction = money2(salaryBasis.daily * elapsedMonthDays + (additionBundle.offDayExtra || 0));
+    const earnedBeforeDeduction = money2(salaryBasis.daily * elapsedMonthDays + (additionBundle.overtimePay || 0));
     const accumulated = monthlySalary > 0
         ? Math.max(0, money2(earnedBeforeDeduction - monthDeduction))
         : 0;
@@ -4651,7 +4668,7 @@ export default function EmployeeInformationDashboard({
                                     </div>
                                     {monthlySalary > 0 ? (
                                         <p className="mt-1 text-[10px] leading-snug text-[#64748B]">
-                                            Salary per day {formatAed(salaryBasis.daily, 2)} ({formatAed(monthlySalary)} / {salaryBasis.calendarDays} days). Week offs and holidays in this month are paid. Work on those days pays as overtime up to 10 hours, or as comp off above 10 hours. Approved overtime or comp off follows that decision. Counted through yesterday. Suspension days are not included. Earned {formatAed(earnedBeforeDeduction, 2)} − deductions {formatAed(monthDeduction, 2)}.
+                                            Salary per day {formatAed(salaryBasis.daily, 2)} ({formatAed(monthlySalary)} / {salaryBasis.calendarDays} days). Week offs and holidays in this month are paid. Approved overtime from the 1st through yesterday is added at the hourly rate. Work on a week off or holiday pays as overtime up to 10 hours, or as comp off above 10 hours. Counted through yesterday. Suspension days are not included. Earned {formatAed(earnedBeforeDeduction, 2)} − deductions {formatAed(monthDeduction, 2)}.
                                         </p>
                                     ) : null}
                                 </div>

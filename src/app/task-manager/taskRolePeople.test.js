@@ -9,6 +9,8 @@ const tasks = [
         requesterName: 'Adarsh Sundaresan (Farsana Ashraf)',
         assigneeName: 'Raseel Muhammad (Raj Angadembe)',
         originalAssigneeName: 'Raj Angadembe',
+        mainAssigneeName: 'Raj Angadembe',
+        reassignedAssigneeName: 'Raseel Muhammad',
     },
     {
         taskName: 'Tool acknowledgement',
