@@ -41,7 +41,7 @@ export default function CompOffRequestModal({ open, onClose, onSent }) {
             onSent?.();
             onClose?.();
         } catch (err) {
-            setError(err?.response?.data?.message || 'Could not send the comp-off request.');
+            setError(err?.response?.data?.message || 'Could not save the comp-off leave.');
         } finally {
             setSaving(false);
         }
@@ -53,8 +53,8 @@ export default function CompOffRequestModal({ open, onClose, onSent }) {
             <form onSubmit={submit} className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
                 <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-100">
                     <div>
-                        <h2 className="text-lg font-semibold text-slate-900">Request comp-off leave</h2>
-                        <p className="text-sm text-slate-500 mt-1">Choose the date. Your primary reportee approves it.</p>
+                        <h2 className="text-lg font-semibold text-slate-900">Set comp-off leave</h2>
+                        <p className="text-sm text-slate-500 mt-1">The day is updated now. HR and your primary reportee receive an email.</p>
                     </div>
                     <button type="button" onClick={onClose} disabled={saving} className="p-2 rounded-lg text-slate-400 hover:bg-slate-50" aria-label="Close">
                         <X size={18} />
@@ -88,7 +88,7 @@ export default function CompOffRequestModal({ open, onClose, onSent }) {
                         Close
                     </button>
                     <button type="submit" disabled={saving} className="h-10 px-4 rounded-lg bg-violet-600 text-white text-sm font-semibold disabled:opacity-50">
-                        {saving ? 'Sending…' : 'Send request'}
+                        {saving ? 'Saving…' : 'Save'}
                     </button>
                 </div>
             </form>

@@ -31,7 +31,7 @@ import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
 import { basePersonName, personKey, requesterEmployeeName, taskRolePeople } from '@/app/task-manager/taskRolePeople';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
-import { clearPendingInboxCache } from '@/utils/pendingInboxFetch';
+import { refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
 
 const PAGE_SIZE_OPTIONS = [
     { id: '10', label: '10' },
@@ -55,8 +55,9 @@ const STATUSES = [
     { value: 'All Status', label: 'All Status' },
     { value: 'Pending', label: 'Pending' },
     { value: 'Overdue', label: 'Overdue' },
-    { value: 'Completed', label: 'Completed / Closed' },
+    { value: 'Completed', label: 'Completed' },
     { value: 'Cancelled', label: 'Cancelled' },
+    { value: 'Rejected', label: 'Rejected' },
 ];
 const PRIORITIES = ['All Priority', 'High', 'Medium', 'Low'];
 
@@ -74,7 +75,7 @@ const STATUS_STYLE = {
     Reopened: 'bg-sky-50 text-sky-700',
     Cancelled: 'bg-slate-100 text-slate-500',
     'On Hold': 'bg-amber-50 text-amber-700',
-    Rejected: 'bg-slate-100 text-slate-600',
+    Rejected: 'bg-rose-50 text-rose-600',
     Dismissed: 'bg-slate-100 text-slate-500',
 };
 
@@ -109,7 +110,9 @@ function listStatus(task) {
     const status = task?.displayStatus || '';
     if (status === 'Pending Due' || status === 'Overdue') return 'Overdue';
     if (status === 'Pending' || status === 'In Progress' || status === 'On Hold') return 'Pending';
-    if (status === 'Rejected' || status === 'Dismissed') return 'Cancelled';
+    if (status === 'Rejected') return 'Rejected';
+    if (status === 'Dismissed') return 'Cancelled';
+    if (status === 'Closed' || status === 'Completed') return 'Completed';
     return status || 'Pending';
 }
 
@@ -1385,6 +1388,21 @@ function TaskManagerContent() {
                                                         </span>
                                                     </td>
                                                     <td className="px-3 py-3.5 text-right">
+                                                        <div className="inline-flex items-center justify-end gap-1">
+                                                        {task.canDelete ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation();
+                                                                    event.preventDefault();
+                                                                    setOpenMenu(null);
+                                                                    setDeleteTask(task);
+                                                                }}
+                                                                className="inline-flex h-8 items-center rounded-lg border border-rose-200 px-2.5 text-[12px] font-semibold text-rose-600 hover:bg-rose-50"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        ) : null}
                                                         <button
                                                             type="button"
                                                             aria-label={`Actions for ${task.taskNumber}`}
@@ -1401,6 +1419,7 @@ function TaskManagerContent() {
                                                         >
                                                             <MoreHorizontal size={16} />
                                                         </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                                 </ListTableRowLink>
@@ -1488,7 +1507,6 @@ function TaskManagerContent() {
                 >
                     {[
                         { id: 'return', label: 'Return to assignee' },
-                        { id: 'delete', label: 'Delete' },
                         { id: 'edit', label: 'Edit' },
                         { id: 'reassign', label: 'Reassign' },
                         { id: 'workflow', label: 'Workflow' },
@@ -1496,22 +1514,18 @@ function TaskManagerContent() {
                         const task = tasks.find((row) => row.actionId === openMenu.id);
                         if (item.id === 'return' && !task?.canReturn) return null;
                         const closed = task?.displayStatus === 'Closed';
-                        const disabled = closed && (item.id === 'edit' || item.id === 'reassign' || item.id === 'delete')
-                            || (item.id === 'reassign' && task && !task.canReassign)
-                            || (item.id === 'delete' && task && !task.canDelete);
+                        const disabled = closed && (item.id === 'edit' || item.id === 'reassign')
+                            || (item.id === 'reassign' && task && !task.canReassign);
                         return (
                             <button
                                 key={item.id}
                                 type="button"
                                 disabled={disabled}
-                                title={disabled ? (closed ? 'This task is closed' : item.id === 'delete' ? 'Only the task creator or an admin super user can delete' : 'Only the current assignee, the original assignee, or an admin super user can reassign') : undefined}
+                                title={disabled ? (closed ? 'This task is closed' : 'Only the current assignee, the original assignee, or an admin super user can reassign') : undefined}
                                 onClick={() => {
                                     setOpenMenu(null);
                                     if (!task) return;
-                                    if (item.id === 'delete') {
-                                        if (!task.canDelete) return;
-                                        setDeleteTask(task);
-                                    } else if (item.id === 'edit') {
+                                    if (item.id === 'edit') {
                                         setEditTask(task);
                                     } else if (item.id === 'return') {
                                         const href = taskDetailsHref(task);
@@ -1522,9 +1536,7 @@ function TaskManagerContent() {
                                         openDetails(task, 'workflow');
                                     }
                                 }}
-                                className={`block w-full px-3 py-2 text-left text-[13px] hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 ${
-                                    item.id === 'delete' ? 'text-rose-600' : 'text-slate-700'
-                                }`}
+                                className="block w-full px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 {item.label}
                             </button>
@@ -1537,7 +1549,10 @@ function TaskManagerContent() {
                     <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
                         <h2 className="text-base font-semibold text-slate-800">Delete task</h2>
                         <p className="mt-2 text-sm text-slate-600">
-                            Delete {deleteTask.taskNumber ? `${deleteTask.taskNumber} — ` : ''}{deleteTask.taskName}? The task, its notification bells, alerts, and any approval it started are removed. An assignment goes back to Unassigned.
+                            Delete {deleteTask.taskNumber ? `${deleteTask.taskNumber} — ` : ''}{deleteTask.taskName}?{' '}
+                            {displayTaskType(deleteTask.taskCategory) === 'General Task'
+                                ? 'This removes the task and its notifications.'
+                                : 'This removes the task, its workflow, and its notifications. The record behind it stays.'}
                         </p>
                         <div className="mt-4 flex justify-end gap-2">
                             <button
@@ -1558,25 +1573,14 @@ function TaskManagerContent() {
                                             `/Employee/task-manager/tasks/${encodeURIComponent(deleteTask.actionId)}`,
                                             { skipToast: true },
                                         );
-                                        toast({ title: 'Task deleted', description: deleteTask.taskName });
+                                        toast({
+                                            title: 'Task deleted',
+                                            description: displayTaskType(deleteTask.taskCategory) === 'General Task'
+                                                ? 'The task and its notifications were removed.'
+                                                : 'The task, its workflow, and its notifications were removed.',
+                                        });
                                         setDeleteTask(null);
-                                        clearPendingInboxCache();
-                                        if (typeof window !== 'undefined') {
-                                            [
-                                                'leave-pending-inbox-changed',
-                                                'attendance-pending-inbox-changed',
-                                                'asset-pending-inbox-changed',
-                                                'fine-pending-inbox-changed',
-                                                'salary-pending-inbox-changed',
-                                                'payment-pending-inbox-changed',
-                                                'reward-pending-inbox-changed',
-                                                'loan-pending-inbox-changed',
-                                            ].forEach((name) => {
-                                                const event = new CustomEvent(name);
-                                                window.dispatchEvent(event);
-                                                document.dispatchEvent(event);
-                                            });
-                                        }
+                                        refreshAfterTaskDelete();
                                         load();
                                     } catch (err) {
                                         toast({

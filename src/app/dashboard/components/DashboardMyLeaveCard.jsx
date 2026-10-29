@@ -505,7 +505,7 @@ export default function DashboardMyLeaveCard() {
                     onClick={() => setCompOffOpen(true)}
                     className="h-8 px-3 rounded-full border border-violet-200 bg-violet-50 text-[11px] font-semibold text-violet-700"
                 >
-                    Request comp-off
+                    Set comp-off
                 </button>
             </div>
 

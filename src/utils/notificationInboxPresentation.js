@@ -234,6 +234,8 @@ export function resolveNotificationIconVariant(typeOrItem) {
             : String(typeOrItem?.type || typeOrItem?.requestType || '').trim();
 
     switch (type) {
+        case 'Attendance Off Day Work':
+            return 'attendance-calendar';
         case 'Employee Document Expiry Reminder':
             return 'expiry-idcard';
         case 'Document Expiry Reminder':
@@ -428,6 +430,11 @@ export function buildUnderstandableNotificationTitle(item = {}) {
             return 'Utility Bill Payment — Review / Pay';
         case 'Utility Entry Status Change':
             return 'Utility Activate / Deactivate Request';
+        case 'Attendance Off Day Work':
+            return (
+                sanitizeNotificationText(item.extra2 || item.message || '') ||
+                'Worked on a Sunday, weekly off, or holiday'
+            );
         case 'Salary Enrollment':
             return salaryEnrollmentInboxTitle(item);
         case 'Salary DMF Approval': {

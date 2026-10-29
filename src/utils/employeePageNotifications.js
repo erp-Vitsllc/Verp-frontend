@@ -1,6 +1,7 @@
 import {
     collectEmployeeLiveExpiryNotifications,
     mergeExpiryNotificationDedupe,
+    rememberSuppressedExpiryKeys,
 } from '@/utils/expiryNotificationFallbacks';
 import {
     filterMandatoryCardsNotificationsByProgress,
@@ -103,5 +104,6 @@ export function buildEmployeeListBellFromStats(statsData, employeesList = [], op
         options.mandatoryCardsHrLive != null
             ? Boolean(options.mandatoryCardsHrLive)
             : typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+    rememberSuppressedExpiryKeys(statsData?.deletedNoticeKeys);
     return buildEmployeePageNotifications(pendingItems, employeesList, hrLive, mandatoryCardsHrLive);
 }

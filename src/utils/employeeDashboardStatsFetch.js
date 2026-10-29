@@ -1,3 +1,5 @@
+import { rememberSuppressedExpiryKeys } from '@/utils/expiryNotificationFallbacks';
+
 let inFlightPromise = null;
 let cachedResponse = null;
 let cachedAt = 0;
@@ -31,6 +33,7 @@ export async function fetchEmployeeDashboardStats(axiosInstance, { force = false
         .then((res) => {
             cachedResponse = res;
             cachedAt = Date.now();
+            rememberSuppressedExpiryKeys(res?.data?.deletedNoticeKeys);
             return res;
         })
         .finally(() => {

@@ -121,6 +121,7 @@ export function resolveDashboardModuleCategory(item = {}) {
     if (type === 'Employee Leave Request') return 'Leave';
     if (
         type === 'Attendance Leave Request' ||
+        type === 'Attendance Off Day Work' ||
         type === 'Attendance Change Request' ||
         type === 'Flexible OT Request' ||
         type === 'Hour Approval Request'
@@ -337,6 +338,7 @@ export function formatCommandCenterSubtype(item = {}) {
     if (!type) return '';
     // Distinct labels so Company / Employees / Vehicle expiry does not look "cloned".
     if (type === 'Employee Leave Request') return 'Leave request';
+    if (type === 'Attendance Off Day Work') return 'Off-day work';
     if (type === 'Attendance Change Request') return 'Attendance change';
     if (type === 'Employee Fine Request') return 'Fine request';
     if (type === 'Employee Advance Request') return 'Advance request';

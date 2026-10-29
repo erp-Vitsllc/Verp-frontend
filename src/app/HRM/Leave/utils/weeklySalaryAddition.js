@@ -228,7 +228,7 @@ function clockToMinutes(value) {
 
 /**
  * Work on a week off or holiday is paid only after overtime or comp off is approved.
- * The holiday or weekly-off day amount stays on the salary statement either way.
+ * That day is not also paid as a holiday or weekly off, and it is not a worked day.
  */
 function settleOffDayWork(day, date, info) {
     if (!day || !(day.workedHours > 0)) return false;
@@ -254,6 +254,12 @@ function isOtPunchPlaceholder(row) {
     const inn = String(row?.timeIn || '').trim();
     const out = String(row?.timeOut || '').trim();
     return inn === 'OT' || out === 'OT';
+}
+
+/** The employee punched a holiday or weekly off. That day is not paid as the off day. */
+export function workedOffDay(record) {
+    if (!record || isOtPunchPlaceholder(record)) return false;
+    return Boolean(String(record.timeIn || '').trim() || String(record.timeOut || '').trim());
 }
 
 function isSyntheticOtDay(row) {
@@ -292,6 +298,30 @@ function preferRow(current, next) {
 
 function emptyInfo() {
     return { required: false, scheduledHours: 0, weeklyOff: false, holiday: false };
+}
+
+/** Waive, or an approval that clears the deduction, restores the day. */
+function deductionForgiven(row) {
+    if (!row) return false;
+    if (row.deductionWaived === true) return true;
+    return String(row.hourAdjustStatus || '') === 'approved' && !(Number(row.hoursApproved) > 0);
+}
+
+/**
+ * A green present day, including one whose deduction was waived.
+ * It is not a short day, so the missing hours are not deducted.
+ */
+function isPaidPresentDay(day) {
+    if (!day || day.synthetic) return false;
+    if (day.forgiven) return true;
+    const key = String(day.statusKey || '');
+    return key === 'on_office' || key === 'work_from_home';
+}
+
+/** The hours that count for the day. A green day gets the full day, and that day stops at 10 hours. */
+function countedDayHours(day, scheduledHours) {
+    if (isPaidPresentDay(day)) return dayCapHours({ scheduledHours });
+    return creditedDayHours(day?.workedHours, scheduledHours);
 }
 
 /** Present, late arrival, early go, and work from home. A real attendance day still counts when it is also a comp-off adjustment. */
@@ -424,6 +454,7 @@ export function buildWeeklySalaryAddition({
         day.fromDay = fromDay;
         day.attendanceId = String(row?._id || row?.id || row?.attendanceId || '');
         day.workedHours = measuredHours(row);
+        day.forgiven = !synthetic && deductionForgiven(row);
 
         if (status === 'compoff_leave') {
             const charge = String(row?.compOff?.chargeMonth || '').trim() || date.slice(0, 7);
@@ -567,31 +598,16 @@ export function buildWeeklySalaryAddition({
         const dayCap = info.scheduledHours > DAY_HOUR_CAP ? DAY_HOUR_CAP : roundHours(info.scheduledHours);
         requiredHours = roundHours(requiredHours + dayCap);
         const day = ledger.get(date);
-        if (isCompOffRemainder(day)) {
+        if (isCompOffRemainder(day) && !day?.forgiven) {
             compOffRemaining += 1;
             adjustedHours = roundHours(adjustedHours + dayCap);
             const lines = [...(day.compOffLinks || []), ...(day.coverLinks || [])];
             if (lines.length) lines.forEach((line) => addLink(compOffLines, line));
             else addLink(compOffLines, `${formatAdditionDay(date)} is comp off`);
-        } else if (countsAsWorked(day)) {
+        } else if (isPaidPresentDay(day) || countsAsWorked(day)) {
             workedDays += 1;
-            workedHours = roundHours(workedHours + creditedDayHours(day?.workedHours, info.scheduledHours));
+            workedHours = roundHours(workedHours + countedDayHours(day, info.scheduledHours));
         }
-    });
-    weekSet.forEach((date) => {
-        const info = infoOf(date);
-        if (!flexible || (!info.holiday && !info.weeklyOff)) return;
-        const day = ledger.get(date);
-        if (!day || day.synthetic) return;
-        if (!(day.payable > 0 || day.nextDayCount > 0 || day.compOffDays > 0)) return;
-        if (!countsAsWorked(day) && !(day.workedHours > 0)) return;
-        const alreadyPaid = roundHours(Math.max(0, day.payable - day.consumed));
-        const hours = roundHours(Math.max(0, Math.min(day.workedHours, DAY_HOUR_CAP) - alreadyPaid));
-        if (hours > 0) {
-            workedHours = roundHours(workedHours + hours);
-            day.holidayWorkedHours = hours;
-        }
-        workedDays += 1;
     });
 
     const dayRate = Number(daily) || 0;
@@ -806,22 +822,11 @@ function buildBalancePay({
             hours: capOf(date),
             attendanceId: day?.attendanceId || '',
         });
-        if (!countsAsWorked(day)) return;
+        if (!isPaidPresentDay(day) && !countsAsWorked(day)) return;
         workedRows.push({
             date,
             label: formatAdditionDay(date),
-            hours: creditedDayHours(day?.workedHours, info.scheduledHours),
-            attendanceId: day?.attendanceId || '',
-        });
-    });
-    [...weekSet].sort().forEach((date) => {
-        const day = ledger.get(date);
-        const hours = roundHours(day?.holidayWorkedHours);
-        if (!(hours > 0)) return;
-        workedRows.push({
-            date,
-            label: formatAdditionDay(date),
-            hours,
+            hours: countedDayHours(day, info.scheduledHours),
             attendanceId: day?.attendanceId || '',
         });
     });

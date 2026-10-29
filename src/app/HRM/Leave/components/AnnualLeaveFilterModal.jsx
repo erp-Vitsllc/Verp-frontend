@@ -21,10 +21,126 @@ function laterDateKey(a, b) {
     return a || b || '';
 }
 
+const LEAVE_MONTHS = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+];
+
 function formatDateLabel(value) {
     const date = dateKeyToLocalDate(value);
     if (!date) return value || '';
     return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function formatLeaveDate(value) {
+    const date = dateKeyToLocalDate(value);
+    if (!date) return value || '';
+    return `${date.getDate()} ${LEAVE_MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+function addDaysKey(key, days) {
+    const date = dateKeyToLocalDate(key);
+    if (!date) return '';
+    date.setDate(date.getDate() + (Number(days) || 0));
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function dateToKey(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function nextOpenFrom(spans, key) {
+    const sorted = (spans || [])
+        .filter((span) => span?.from && span?.to && span.to >= key)
+        .sort((left, right) => (left.from < right.from ? -1 : 1));
+    const upcoming = sorted.find((span) => span.from > key);
+    return (upcoming || sorted[0])?.from || '';
+}
+
+function describeAnnualLeaveRange({ calendar, from, to, processingStart = '' }) {
+    if (!calendar || !from || !to || to < from) return '';
+    const spans = calendar.openSpans || [];
+    const own = new Set(calendar.ownLeaveDates || []);
+    const capped = new Set(calendar.cappedDates || []);
+    const minimumDays = Number(calendar.minimumDays) || 5;
+    const remainingDays = Math.max(0, Number(calendar.remainingDays) || 0);
+    let cursor = from;
+    let steps = 0;
+    while (cursor && cursor <= to && steps < 400) {
+        if (processingStart && cursor < processingStart) {
+            return `Leave cannot start before this employee's salary processing date (${formatLeaveDate(processingStart)}).`;
+        }
+        const open = spans.some((span) => cursor >= span.from && cursor <= span.to);
+        if (!open) {
+            const openOn = nextOpenFrom(spans, cursor);
+            if (!openOn && remainingDays > 0 && remainingDays < minimumDays) {
+                const dayWord = remainingDays === 1 ? 'day' : 'days';
+                return `You have ${remainingDays} ${dayWord} of annual leave left. You need at least ${minimumDays} days remaining to apply.`;
+            }
+            if (openOn) {
+                return `${formatLeaveDate(cursor)} is closed. Choose a date on or after ${formatLeaveDate(openOn)}.`;
+            }
+            return `${formatLeaveDate(cursor)} is closed for annual leave.`;
+        }
+        if (own.has(cursor)) {
+            return `You already have leave on ${formatLeaveDate(cursor)}. Choose another day.`;
+        }
+        if (capped.has(cursor)) {
+            const max = calendar.maxAllowed;
+            const group = calendar.groupLabel || 'this group';
+            const pct = calendar.maxPercent;
+            const limit =
+                max == null
+                    ? ''
+                    : ` Only ${max} ${max === 1 ? 'employee' : 'employees'}${pct == null ? '' : ` (${pct}%)`} in ${group} can be on annual leave that day.`;
+            return `${formatLeaveDate(cursor)} is already at the group limit.${limit}`;
+        }
+        cursor = addDaysKey(cursor, 1);
+        steps += 1;
+    }
+    return '';
+}
+
+function mergeDisabled(parts) {
+    const list = parts.filter((part) => part != null);
+    if (!list.length) return undefined;
+    return list.length === 1 ? list[0] : list;
+}
+
+function LeaveShadeLegend({ className = '' }) {
+    return (
+        <div className={`flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-gray-600 ${className}`}>
+            <span className="inline-flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded-sm bg-[#e5e7eb]" />
+                Closed
+            </span>
+            <span className="inline-flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded-sm bg-[#dcfce7]" />
+                You can apply
+            </span>
+            <span className="inline-flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded-sm bg-[#fef9c3]" />
+                Within 2 days of leave
+            </span>
+        </div>
+    );
 }
 
 function disabledDaysBefore(dateKey) {
@@ -134,8 +250,9 @@ export default function AnnualLeaveFilterModal({
     const [blockersOpen, setBlockersOpen] = useState(false);
     const isApplyMode = applyLabel === 'Apply' && !showReject;
     const showHrOverride = isApplyMode && isDesignatedHr;
-    const showAnnualEligibility =
-        enableAnnualEligibilityGate && leaveMode === 'annual' && Boolean(employeeId);
+    const showAnnualEligibility = Boolean(
+        leaveMode === 'annual' && employeeId && (enableAnnualEligibilityGate || isApplyMode),
+    );
     const notEligible = Boolean(
         showAnnualEligibility && eligibility?.groupCap?.over && !hrOverride,
     );
@@ -156,6 +273,64 @@ export default function AnnualLeaveFilterModal({
         [employeeId, salaryVisibility, selectedEmployee?.employeeId],
     );
     const hrCanPickEarly = Boolean(showHrOverride && hrOverride);
+    const shade = useMemo(() => {
+        const calendar = eligibility?.calendar;
+        if (!isApplyMode || !showAnnualEligibility || !calendar) return null;
+        const capped = new Set(calendar.cappedDates || []);
+        const own = new Set(calendar.ownLeaveDates || []);
+        const toneOfKey = (key) => {
+            if (!key) return '';
+            if (!hrCanPickEarly && processingStartDate && key < processingStartDate) return 'grey';
+            const open = (calendar.openSpans || []).some((span) => key >= span.from && key <= span.to);
+            if (!open) return 'grey';
+            if (own.has(key) || capped.has(key)) return 'yellow';
+            if ((calendar.yellowSpans || []).some((span) => key >= span.from && key <= span.to)) return 'yellow';
+            return 'green';
+        };
+        return {
+            modifiers: {
+                leaveGrey: (date) => toneOfKey(dateToKey(date)) === 'grey',
+                leaveGreen: (date) => toneOfKey(dateToKey(date)) === 'green',
+                leaveYellow: (date) => toneOfKey(dateToKey(date)) === 'yellow',
+            },
+            modifiersStyles: {
+                leaveGrey: { backgroundColor: '#e5e7eb' },
+                leaveGreen: { backgroundColor: '#dcfce7' },
+                leaveYellow: { backgroundColor: '#fef9c3' },
+            },
+            calendarClassNames: { disabled: 'cursor-not-allowed opacity-100' },
+            disableDate: hrCanPickEarly
+                ? null
+                : (date) => {
+                      const key = dateToKey(date);
+                      const tone = toneOfKey(key);
+                      return tone === 'grey' || capped.has(key) || own.has(key);
+                  },
+        };
+    }, [eligibility, hrCanPickEarly, isApplyMode, processingStartDate, showAnnualEligibility]);
+    const rangeIssue =
+        shade && !hrCanPickEarly
+            ? describeAnnualLeaveRange({
+                  calendar: eligibility?.calendar,
+                  from: startDate,
+                  to: endDate,
+                  processingStart: processingStartDate,
+              })
+            : '';
+    const fetchedIssue =
+        !hrCanPickEarly && startDate && endDate && !rangeIssue
+            ? String(eligibility?.selectionMessage || '')
+            : '';
+    const guidance =
+        !rangeIssue && !fetchedIssue && (!startDate || !endDate)
+            ? String(eligibility?.calendar?.notice || '')
+            : '';
+    const redBody = rangeIssue || fetchedIssue || guidance;
+    const redText = redBody ? `${redBody}${isDesignatedHr ? '' : ' For more, contact HR.'}` : '';
+    const noOpenDays = Boolean(shade && !(eligibility?.calendar?.openSpans || []).length);
+    const calendarBlocking = Boolean(
+        shade && !hrCanPickEarly && (rangeIssue || fetchedIssue || noOpenDays),
+    );
     const activeWindow = eligibility?.allowance?.active || null;
     const allowanceEnd = activeWindow?.endDate || '';
     const earliestStartDate = hrCanPickEarly
@@ -245,6 +420,8 @@ export default function AnnualLeaveFilterModal({
                         allowanceBlock: data?.allowanceBlock || null,
                         allowance: data?.allowance && typeof data.allowance === 'object' ? data.allowance : null,
                         groupCap: data?.groupCap && typeof data.groupCap === 'object' ? data.groupCap : null,
+                        calendar: data?.calendar && typeof data.calendar === 'object' ? data.calendar : null,
+                        selectionMessage: String(data?.selectionMessage || ''),
                     });
                 }
             } catch {
@@ -259,6 +436,10 @@ export default function AnnualLeaveFilterModal({
     }, [employeeId, endDate, open, showAnnualEligibility, startDate]);
 
     useEffect(() => {
+        setEligibility(null);
+    }, [employeeId, leaveMode]);
+
+    useEffect(() => {
         if (!open) return undefined;
 
         const handleKeyDown = (event) => {
@@ -270,10 +451,20 @@ export default function AnnualLeaveFilterModal({
     }, [open, onClose]);
 
     useEffect(() => {
-        if (!open || !earliestStartDate || hrCanPickEarly) return;
+        if (!open || !earliestStartDate || hrCanPickEarly || shade) return;
         setStartDate((current) => (current && current < earliestStartDate ? '' : current));
         setEndDate((current) => (current && current < earliestStartDate ? '' : current));
-    }, [open, employeeId, hrCanPickEarly, earliestStartDate]);
+    }, [open, employeeId, hrCanPickEarly, earliestStartDate, shade]);
+
+    useEffect(() => {
+        if (!open || hrCanPickEarly || !shade?.disableDate) return;
+        const blocked = (value) => {
+            const date = dateKeyToLocalDate(value);
+            return Boolean(date && shade.disableDate(date));
+        };
+        setStartDate((current) => (blocked(current) ? '' : current));
+        setEndDate((current) => (blocked(current) ? '' : current));
+    }, [open, employeeId, hrCanPickEarly, shade]);
 
     const submitLeave = (sendToHr = false) => {
         if (submitting) return;
@@ -281,15 +472,15 @@ export default function AnnualLeaveFilterModal({
             setError('Please select an employee.');
             return;
         }
+        if (calendarBlocking && noOpenDays) return;
         if (!startDate || !endDate) {
             setError('Please select start and end dates.');
             return;
         }
-        if (earliestStartDate && startDate < earliestStartDate && !hrCanPickEarly) {
+        if (calendarBlocking) return;
+        if (earliestStartDate && startDate < earliestStartDate && !hrCanPickEarly && !shade) {
             setError(
-                eligibleOnDate && startDate < eligibleOnDate
-                    ? `Start date cannot be before ${formatDateLabel(eligibleOnDate)}. You are eligible after that date.`
-                    : `Start date cannot be before this employee's salary processing date (${formatDateLabel(processingStartDate)}).`,
+                `Start date cannot be before this employee's salary processing date (${formatDateLabel(processingStartDate)}).`,
             );
             return;
         }
@@ -481,10 +672,15 @@ export default function AnnualLeaveFilterModal({
                                 className="h-10 rounded-lg border-gray-200 bg-gray-50 text-sm"
                                 disabled={!employeeId}
                                 disabledDays={
-                                    hrCanPickEarly ? undefined : disabledDaysBefore(earliestStartDate)
+                                    shade?.disableDate ||
+                                    (hrCanPickEarly ? undefined : disabledDaysBefore(earliestStartDate))
                                 }
+                                modifiers={shade?.modifiers}
+                                modifiersStyles={shade?.modifiersStyles}
+                                calendarClassNames={shade?.calendarClassNames}
+                                footer={shade ? <LeaveShadeLegend className="px-1" /> : null}
                             />
-                            {employeeId && earliestStartDate ? (
+                            {employeeId && earliestStartDate && !shade ? (
                                 <p className="mt-1 text-[11px] text-slate-400">
                                     Available from {formatDateLabel(earliestStartDate)}
                                 </p>
@@ -503,19 +699,31 @@ export default function AnnualLeaveFilterModal({
                                 placeholder="End date"
                                 className="h-10 rounded-lg border-gray-200 bg-gray-50 text-sm"
                                 disabled={!employeeId}
-                                disabledDays={
-                                    hrCanPickEarly
-                                        ? disabledDaysBefore(startDate)
-                                        : {
-                                              ...(disabledDaysBefore(laterDateKey(earliestStartDate, startDate)) || {}),
-                                              ...(dateKeyToLocalDate(allowanceEnd)
-                                                  ? { after: dateKeyToLocalDate(allowanceEnd) }
-                                                  : {}),
-                                          }
-                                }
+                                disabledDays={mergeDisabled([
+                                    shade?.disableDate,
+                                    dateKeyToLocalDate(startDate)
+                                        ? { before: dateKeyToLocalDate(startDate) }
+                                        : null,
+                                    !shade && !hrCanPickEarly
+                                        ? disabledDaysBefore(laterDateKey(earliestStartDate, startDate))
+                                        : null,
+                                    !shade && dateKeyToLocalDate(allowanceEnd)
+                                        ? { after: dateKeyToLocalDate(allowanceEnd) }
+                                        : null,
+                                ])}
+                                modifiers={shade?.modifiers}
+                                modifiersStyles={shade?.modifiersStyles}
+                                calendarClassNames={shade?.calendarClassNames}
+                                footer={shade ? <LeaveShadeLegend className="px-1" /> : null}
                             />
                         </div>
                     </div>
+                    {shade ? <LeaveShadeLegend className="mt-2" /> : null}
+                    {redText ? (
+                        <p className="mt-2 text-left text-[11px] font-medium leading-snug text-red-600">
+                            {redText}
+                        </p>
+                    ) : null}
                 </div>
 
                 {showAnnualEligibility && eligibility ? (
@@ -530,7 +738,9 @@ export default function AnnualLeaveFilterModal({
                         ) : (
                             <p>No open annual leave period yet. It opens when counted working days complete a cycle.</p>
                         )}
-                        {eligibility.allowanceBlocked && eligibility.allowanceBlock?.message ? (
+                        {eligibility.allowanceBlocked &&
+                        eligibility.allowanceBlock?.message &&
+                        redBody !== eligibility.allowanceBlock.message ? (
                             <p className="mt-1 font-semibold">
                                 {eligibility.allowanceBlock.message}
                                 {isDesignatedHr ? ' Shown for review. HR can still apply.' : ''}
@@ -598,11 +808,8 @@ export default function AnnualLeaveFilterModal({
                             className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
                         />
                         <span>
-                            <span className="block text-sm font-semibold text-amber-900">
-                                Override validations
-                            </span>
-                            <span className="mt-0.5 block text-[11px] leading-tight text-amber-800">
-                                Add this leave without processing-date, balance, or existing-leave checks.
+                            <span className="block text-[12px] font-semibold leading-snug text-amber-800">
+                                HR can override the calendar and these checks. Other users cannot.
                             </span>
                         </span>
                     </label>
@@ -658,7 +865,9 @@ export default function AnnualLeaveFilterModal({
                                     !employeeId ||
                                     eligibilityLoading ||
                                     !startDate ||
-                                    !endDate
+                                    !endDate ||
+                                    Boolean(rangeIssue) ||
+                                    noOpenDays
                                 }
                                 className="min-w-[110px] flex-1 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
                             >
@@ -672,7 +881,8 @@ export default function AnnualLeaveFilterModal({
                             disabled={
                                 submitting ||
                                 !employeeId ||
-                                (showAnnualEligibility && eligibilityLoading)
+                                (showAnnualEligibility && eligibilityLoading) ||
+                                calendarBlocking
                             }
                             className="min-w-[110px] flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                         >

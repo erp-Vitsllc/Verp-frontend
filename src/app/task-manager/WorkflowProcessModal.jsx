@@ -82,7 +82,11 @@ export function WorkflowBoard({ actionId, onChanged }) {
             );
             setData(res.data || null);
             toast({
-                title: decision === 'approve' ? 'Step approved' : 'Step rejected',
+                title: decision === 'approve'
+                    ? 'Step approved'
+                    : res.data?.task?.status === 'Rejected'
+                        ? 'Task rejected'
+                        : 'Step rejected',
                 description: res.data?.message || 'The workflow was updated.',
             });
             onChanged?.();
@@ -149,16 +153,18 @@ export function WorkflowBoard({ actionId, onChanged }) {
                                     {step.at && <p className="text-xs text-slate-400">{formatWhen(step.at)}</p>}
                                 </div>
                             </div>
-                            {active && step.canAct && (
+                            {active && (step.canAct || step.canReject) && (
                                 <div className="mt-2 flex gap-2">
-                                    <button
-                                        type="button"
-                                        disabled={busy}
-                                        onClick={() => decide('approve')}
-                                        className="h-8 rounded-lg bg-emerald-500 px-3 text-xs font-semibold text-white disabled:opacity-60"
-                                    >
-                                        Approve
-                                    </button>
+                                    {step.canAct ? (
+                                        <button
+                                            type="button"
+                                            disabled={busy}
+                                            onClick={() => decide('approve')}
+                                            className="h-8 rounded-lg bg-emerald-500 px-3 text-xs font-semibold text-white disabled:opacity-60"
+                                        >
+                                            Approve
+                                        </button>
+                                    ) : null}
                                     <button
                                         type="button"
                                         disabled={busy}

@@ -10,6 +10,7 @@ import {
     formatHourMeasure,
     compOffReferenceLinks,
     leaveDatesTakenByOvertime,
+    workedOffDay,
 } from './weeklySalaryAddition.js';
 
 const DAILY = 1000;
@@ -457,9 +458,9 @@ describe('weekly salary addition counts', () => {
         assert.equal(result.workingDay.adjusted, 0);
         assert.equal(result.workingDay.balance, 3);
         assert.equal(result.workingHours.required, 40);
-        assert.equal(result.workingHours.worked, 14);
+        assert.equal(result.workingHours.worked, 16);
         assert.equal(result.workingHours.adjusted, 0);
-        assert.equal(result.workingHours.balance, 26);
+        assert.equal(result.workingHours.balance, 24);
         assert.equal(result.workingDay.required - result.workingDay.worked - result.workingDay.adjusted, result.workingDay.balance);
     });
 
@@ -510,6 +511,43 @@ describe('weekly salary addition counts', () => {
         assert.equal(result.overtime.balance, 4);
         assert.equal(result.total, 400);
         assert.equal(result.compOff.approved, 0);
+        assert.equal(result.balancePay.workedRows.some((row) => row.date === '2026-10-04'), false);
+        assert.equal(result.balancePay.otRows.some((row) => row.date === '2026-10-04' && row.hours === 4), true);
+    });
+
+    it('counts a worked Sunday only as comp off, not as a worked day as well', () => {
+        const week = weeks.find((item) => item.extraDates.includes('2026-10-18'));
+        const records = [
+            {
+                date: '2026-10-18',
+                statusKey: 'weekly_off',
+                timeIn: '08:00',
+                timeOut: '18:00',
+                flexibleWorkedHours: 10,
+                flexibleOtStatus: 'approved',
+                flexibleOtApprovedHours: 10,
+                flexibleOtNextDayDate: '2026-10-01',
+            },
+            {
+                date: '2026-10-01',
+                statusKey: 'on_office',
+                timeIn: 'OT',
+                timeOut: 'OT',
+                flexibleFromOtDate: '2026-10-18',
+            },
+        ];
+        const result = report(week, records);
+        const pay = result.balancePay;
+        assert.equal(pay.workedRows.some((row) => row.date === '2026-10-18'), false);
+        assert.equal(pay.otRows.some((row) => row.date === '2026-10-18'), false);
+        assert.equal(pay.compOffRows.some((row) => row.date === '2026-10-01' && /18-Oct-2026/.test(row.text)), true);
+        assert.equal(pay.workedHours, 0);
+    });
+
+    it('does not treat a punch on a weekly off as the off-day payment', () => {
+        assert.equal(workedOffDay({ timeIn: '08:00', timeOut: '18:00' }), true);
+        assert.equal(workedOffDay({ timeIn: 'OT', timeOut: 'OT' }), false);
+        assert.equal(workedOffDay(null), false);
     });
 
     it('does not show overtime hours until HR approves them', () => {
@@ -620,16 +658,37 @@ describe('weekly salary addition counts', () => {
         assert.match(result.workingDay.compOffTitle, /06-Oct-2026 adjusted with 30-Sep-2026/);
     });
 
-    it('keeps a short day at the hours worked and stops a long day at 10 hours', () => {
+    it('gives a green day the full day up to 10 hours and keeps overtime separate', () => {
         const records = [
             { date: '2026-10-05', statusKey: 'on_office', timeIn: '08:00', timeOut: '22:00' },
             { date: '2026-10-06', statusKey: 'on_office', timeIn: '08:00', timeOut: '15:00' },
+            {
+                date: '2026-10-07',
+                statusKey: 'late_arrived',
+                timeIn: '09:00',
+                timeOut: '17:00',
+                deductionWaived: true,
+            },
+            {
+                date: '2026-10-08',
+                statusKey: 'on_office',
+                timeIn: '08:00',
+                timeOut: '20:00',
+                flexibleOtStatus: 'approved',
+                flexibleOtApprovedHours: 2,
+            },
         ];
         const result = report(weeks[1], records, { scheduledHours: 12, countTo: '2026-10-10' });
+        const pay = result.balancePay;
         assert.equal(result.workingHours.required, 60);
-        assert.equal(result.workingHours.worked, 17);
-        assert.equal(result.workingHours.adjusted, 0);
-        assert.equal(result.workingHours.balance, 43);
+        assert.equal(result.workingHours.worked, 40);
+        assert.equal(result.workingHours.balance, 20);
+        assert.equal(pay.workedRows.find((row) => row.date === '2026-10-05').hours, 10);
+        assert.equal(pay.workedRows.find((row) => row.date === '2026-10-06').hours, 10);
+        assert.equal(pay.workedRows.find((row) => row.date === '2026-10-07').hours, 10);
+        assert.equal(pay.workedRows.find((row) => row.date === '2026-10-08').hours, 10);
+        assert.equal(pay.otRows.find((row) => row.date === '2026-10-08').hours, 2);
+        assert.equal(result.overtime.balance, 2);
     });
 
     it('counts an unapproved late arrival as a worked day, not unauthorized leave', () => {

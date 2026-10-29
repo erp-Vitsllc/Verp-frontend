@@ -63,6 +63,7 @@ import {
     compOffReferenceLinks,
     formatHourMeasure,
     leaveDatesTakenByOvertime,
+    workedOffDay,
 } from '../utils/weeklySalaryAddition';
 import { employeePendingRequests } from '../utils/pendingCalendarDays';
 import { punchAttendanceKind } from '../utils/punchAttendanceKind';
@@ -1708,7 +1709,8 @@ function dayKind(record, { isFuture, isToday, isHoliday, isWeeklyOff }) {
     if (key === 'authorized_leave') return 'authorized';
     if (key === 'on_leave') return 'annual';
     if (key === 'compoff_leave') return 'compoff';
-    // A punch on a holiday or weekly off does not change the day colour.
+    // A punch alone keeps the holiday or weekly-off colour. Approved overtime pay
+    // turns the cell green in the calendar. Comp off does not.
     if (key === 'holiday' || isHoliday) return 'holiday';
     if (key === 'weekly_off' || isWeeklyOff) return 'weekend';
     if (hoursForgiven(record)) return 'present';
@@ -1725,6 +1727,23 @@ function dayKind(record, { isFuture, isToday, isHoliday, isWeeklyOff }) {
 
 function kindLabel(kind) {
     return LEGEND.find((item) => item.key === kind)?.label || 'No mark';
+}
+
+function isOtPunchPlaceholder(record) {
+    const inn = String(record?.timeIn || '').trim();
+    const out = String(record?.timeOut || '').trim();
+    return inn === 'OT' || out === 'OT';
+}
+
+/** Overtime paid for this day. Hours placed as comp off are not overtime pay. */
+function paidOvertimeHours(record, note) {
+    const placedOn = String(record?.flexibleOtNextDayDate || '').trim() || String(note?.givenTo || '').trim();
+    if (placedOn || isOtPunchPlaceholder(record)) return 0;
+    const approved = String(record?.flexibleOtStatus || '') === 'approved'
+        ? Number(record?.flexibleOtApprovedHours) || 0
+        : 0;
+    if (approved > 0) return approved;
+    return Number(note?.otHours) || 0;
 }
 
 function attentionLabel(record) {
@@ -1864,10 +1883,12 @@ function DayTip({
     outSpot,
     workedText,
     workedAmountText,
+    workedAmountLabel = 'Worked amount',
     sideMode = '',
     sideHoursText = '',
     sideAmountText = '',
     totalText,
+    totalLabel = 'Total payment',
     totalTone = '',
     compOffDate = '',
     lateText = '',
@@ -1916,11 +1937,19 @@ function DayTip({
                 />
                 <TipMoney label="Total worked" value={workedText} />
                 {sideLabel ? <TipMoney label={sideLabel} value={sideHoursText || '—'} tone={sideTone} /> : <span />}
-                <TipMoney label="Worked amount" value={workedAmountText} tone="text-[#16A34A]" />
-                {sideAmountLabel ? <TipMoney label={sideAmountLabel} value={sideAmountText || '—'} tone={sideTone} /> : <span />}
+                {workedAmountLabel === 'Worked amount' ? (
+                    <TipMoney label="Worked amount" value={workedAmountText} tone="text-[#16A34A]" />
+                ) : (
+                    <TipMoney label={sideAmountLabel || 'OT amount'} value={sideAmountText || '—'} tone={sideTone} />
+                )}
+                {workedAmountLabel === 'Worked amount' ? (
+                    sideAmountLabel ? <TipMoney label={sideAmountLabel} value={sideAmountText || '—'} tone={sideTone} /> : <span />
+                ) : (
+                    <TipMoney label={workedAmountLabel} value={workedAmountText} tone="text-[#16A34A]" />
+                )}
             </div>
             <div className="mt-2 border-t border-[#EEF2F6] pt-2">
-                <TipMoney label="Total payment" value={totalText} tone={totalTone} />
+                <TipMoney label={totalLabel} value={totalText} tone={totalTone} />
             </div>
             {compOffDate ? (
                 <div className="mt-2">
@@ -2050,7 +2079,8 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         || Boolean(String(record?.flexibleFromOtDate || '').trim());
     const deductedLeave = payKind === 'authorized' || payKind === 'absent';
     const compOffDay = payKind === 'compoff' || syntheticOt || String(record?.statusKey || '') === 'compoff_leave';
-    const earnsDayRate = counted && !sandwiched && !deductedLeave && payKind !== 'annual' && payKind !== 'future' && payKind !== 'suspended';
+    const offDayWorked = !sandwiched && (isHoliday || isWeeklyOff) && workedOffDay(record);
+    const earnsDayRate = counted && !sandwiched && !offDayWorked && !deductedLeave && payKind !== 'annual' && payKind !== 'future' && payKind !== 'suspended';
     const dayRate = Number(ctx.salaryDaily) || 0;
     const hourRate = dayRate / 10;
     const payment = !counted && !(extraPay > 0)
@@ -2094,36 +2124,56 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     const timeOutTone = timeOutLabel === 'Comp Off'
         ? compOffInk
         : (punchKind === 'early_go' || visibleEarly || (punchKind === 'mispunch' && missingOut) ? lateInk : '');
-    const typeLabel = sandwiched
+    const dayNote = ctx.calendarNotes[dateKey] || null;
+    const offDayOtHours = offDayWorked
+        ? paidOvertimeHours(record, dayNote)
+        : 0;
+    const typeLabel = offDayOtHours > 0
+        ? 'Present'
+        : sandwiched
         ? 'Weekly off · between leave'
         : forgiven
         ? 'Present (on time)'
         : visibleLate && visibleEarly
             ? 'Late Arrival · Early Go'
             : (yellowLabel || kindLabel(kind));
-    const compOffStatus = syntheticOt && /^Present\b/.test(typeLabel) ? 'Comp Off' : '';
+    const compOffStatus = !offDayOtHours && syntheticOt && /^Present\b/.test(typeLabel) ? 'Comp Off' : '';
     const moreLines = [];
     if (ctx.holidayNamesByDate[dateKey]) moreLines.push({ label: 'Holiday', value: ctx.holidayNamesByDate[dateKey] });
     if (adjustmentText) moreLines.push({ label: 'Adjusted', value: adjustmentText });
     if (description) moreLines.push({ label: 'Description', value: description });
-    const dayNote = ctx.calendarNotes[dateKey] || null;
-    const otHours = Number(dayNote?.otHours) || 0;
+    const otHours = offDayOtHours > 0 ? offDayOtHours : (Number(dayNote?.otHours) || 0);
     const otText = otHours > 0 ? formatHourMeasure(otHours) : '';
     const otPay = otHours > 0 ? money2(otHours * hourRate) : 0;
     const dayMinutes = scheduled > 0 ? scheduled : 10 * 60;
     const shortOfDay = worked != null && dayMinutes > 0 && worked + 1 < dayMinutes;
-    const sideMode = (deduct > 0 || (shortOfDay && !(otHours > 0))) ? 'deduction' : (otHours > 0 ? 'ot' : '');
+    let sideMode = (deduct > 0 || (shortOfDay && !(otHours > 0))) ? 'deduction' : (otHours > 0 ? 'ot' : '');
     const chargedHours = sideMode === 'deduction'
         ? chargedDeductionHours(payRecord, ctx.scheduleWeek, ctx.leavePolicy || {})
         : 0;
     const deductionHoursText = sideMode === 'deduction'
         ? (chargedHours > 0 ? formatHourlyGap(Math.round(chargedHours * 60)) : '0 Hours')
         : '';
-    const workedAmount = earnsDayRate ? dayRate : 0;
-    const sideAmount = sideMode === 'deduction' ? (Number(deduct) || 0) : sideMode === 'ot' ? otPay : 0;
-    const totalPay = payment == null && sideMode === ''
+    let workedAmount = earnsDayRate ? dayRate : 0;
+    let sideAmount = sideMode === 'deduction' ? (Number(deduct) || 0) : sideMode === 'ot' ? otPay : 0;
+    let totalPay = payment == null && sideMode === ''
         ? null
         : money2(workedAmount + (sideMode === 'ot' ? sideAmount : 0) - (sideMode === 'deduction' ? sideAmount : 0));
+    if (offDayOtHours > 0) {
+        sideMode = 'ot';
+        workedAmount = 0;
+        sideAmount = money2(offDayOtHours * hourRate);
+        totalPay = sideAmount;
+    }
+    const cellKind = offDayOtHours > 0 ? 'present' : payKind;
+    const tipTone = offDayOtHours > 0 ? TIP_TONE.present : (sandwichKind ? TIP_TONE[sandwichKind] : tone);
+    if (cellKind === 'present' && sideMode === 'deduction') {
+        sideMode = otHours > 0 ? 'ot' : '';
+        sideAmount = sideMode === 'ot' ? otPay : 0;
+        totalPay = payment == null && sideMode === ''
+            ? null
+            : money2(workedAmount + sideAmount);
+    }
     const compOffSource = dayNote?.takenFrom || String(record?.flexibleFromOtDate || '').trim();
     const compOffLines = [];
     if (dayNote?.givenTo) compOffLines.push(formatDayLabel(dayNote.givenTo));
@@ -2191,10 +2241,10 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                 className={`${compact
                 ? 'flex h-8 w-full items-center justify-center rounded-[7px] text-[11px] font-semibold tabular-nums leading-none'
                 : 'flex min-h-12 w-full flex-col items-center justify-center rounded-[9px] px-0.5 py-1 text-[13px] font-semibold tabular-nums leading-none'
-            } ${DAY_STYLE[payKind] || DAY_STYLE.empty}${requestPending ? ' attendance-request-blink' : ''}`}>
+            } ${DAY_STYLE[cellKind] || DAY_STYLE.empty}${requestPending ? ' attendance-request-blink' : ''}`}>
                 <span>{format(day, 'd')}</span>
                 {!compact && adjustmentText ? (
-                    <span className={`mt-0.5 text-center text-[8px] font-bold leading-tight ${adjInk(kind)}`}>
+                    <span className={`mt-0.5 text-center text-[8px] font-bold leading-tight ${adjInk(cellKind)}`}>
                         {adjustmentText}
                     </span>
                 ) : null}
@@ -2210,10 +2260,10 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                     <DayTip
                         dateLabel={format(day, 'd MMMM yyyy')}
                         statusText={typeLabel}
-                        statusClass={(sandwichKind ? TIP_TONE[sandwichKind] : tone)?.text}
+                        statusClass={tipTone?.text}
                         compOffStatus={compOffStatus}
                         approvalText={approval}
-                        dotClass={(sandwichKind ? TIP_TONE[sandwichKind] : tone)?.dot}
+                        dotClass={tipTone?.dot}
                         timeIn={timeInLabel}
                         timeOut={timeOutLabel}
                         timeInTone={timeInTone}
@@ -2227,7 +2277,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                         inSpot={punchSpot(record?.checkInLocation)}
                         outSpot={punchSpot(record?.checkOutLocation)}
                         workedText={worked == null ? '—' : formatHourlyGap(worked)}
-                        workedAmountText={payment == null && !earnsDayRate ? '—' : formatAed(workedAmount, 2)}
+                        workedAmountText={offDayWorked ? '—' : (earnsDayRate || payment != null ? formatAed(workedAmount, 2) : '—')}
                         sideMode={sideMode}
                         sideHoursText={sideMode === 'ot' ? (otText || '—') : deductionWaived ? 'Waived' : deductionHoursText}
                         sideAmountText={deductionWaived && sideMode === 'deduction'
@@ -2777,12 +2827,14 @@ const ADDITION_LISTS = {
     requiredHours: { title: 'Required working hours', rows: 'requiredRows', empty: 'No required working hours in this range.' },
     workedDays: { title: 'Actual worked days', rows: 'workedRows', empty: 'No days worked in this range.' },
     workedHours: { title: 'Actual worked hours', rows: 'workedRows', empty: 'No hours worked in this range.' },
+    totalDays: { title: 'Worked and comp off days', rows: 'workedRows', includeCompOff: true, empty: 'No worked or comp off days in this range.' },
+    totalHours: { title: 'Worked and comp off hours', rows: 'workedRows', includeCompOff: true, empty: 'No worked or comp off hours in this range.' },
     compOff: { title: 'Comp off', rows: 'compOffRows', empty: 'No approved comp off in this range.' },
     overtime: { title: 'Overtime', rows: 'otRows', empty: 'No approved overtime in this range.' },
     amount: { title: 'Amount to pay', rows: '', empty: '' },
 };
 
-function AdditionPayCount({ label, value, valueClass = 'text-[#1B2A4A]', onClick }) {
+function AdditionPayCount({ label, value, valueClass = 'text-[#1B2A4A]', onClick, wrap = false }) {
     return (
         <button
             type="button"
@@ -2790,7 +2842,7 @@ function AdditionPayCount({ label, value, valueClass = 'text-[#1B2A4A]', onClick
             className="min-w-0 rounded-lg border border-[#E6EDF5] bg-white px-2 py-1.5 text-left hover:border-[#93C5FD] hover:bg-[#F8FAFC]"
         >
             <span className="block text-[10px] font-medium leading-none text-[#94A3B8]">{label}</span>
-            <span className={`mt-1 block truncate text-[14px] font-bold leading-none tabular-nums ${valueClass}`}>{value}</span>
+            <span className={`mt-1 block text-[13px] font-bold leading-tight tabular-nums ${wrap ? 'whitespace-normal' : 'truncate'} ${valueClass}`}>{value}</span>
         </button>
     );
 }
@@ -2813,9 +2865,13 @@ function compOffWorkedRows(pay) {
 
 function AdditionPayBoxes({ ready, pay, statement, onOpen }) {
     const row = pay || {};
-    const compOffWorked = compOffWorkedRows(row);
-    const workedDays = (Number(row.workedDays) || 0) + compOffWorked.length;
-    const workedHours = (Number(row.workedHours) || 0) + compOffWorked.reduce((sum, item) => sum + (Number(item.hours) || 0), 0);
+    const compOffTaken = compOffWorkedRows(row);
+    const workedDays = Number(row.workedDays) || 0;
+    const compOffDays = compOffTaken.length;
+    const totalDays = workedDays + compOffDays;
+    const workedHours = Number(row.workedHours) || 0;
+    const compOffHours = compOffTaken.reduce((sum, item) => sum + (Number(item.hours) || 0), 0);
+    const totalHours = workedHours + compOffHours;
     const daysText = (value) => (ready ? measureLabel(value, 'Day', 'Days') : '—');
     const hoursText = (value) => (ready ? formatHourMeasure(value) : '—');
     const amount = ready && statement ? Number(statement.actual) || 0 : Number(row.amount) || 0;
@@ -2830,9 +2886,17 @@ function AdditionPayBoxes({ ready, pay, statement, onOpen }) {
                     <AdditionPayCount label="Days" value={daysText(row.requiredDays)} onClick={() => onOpen('requiredDays')} />
                     <AdditionPayCount label="Hours" value={hoursText(row.requiredHours)} onClick={() => onOpen('requiredHours')} />
                 </AdditionPayCard>
-                <AdditionPayCard title="Actual worked" columns="grid-cols-2">
-                    <AdditionPayCount label="Days" value={daysText(workedDays)} onClick={() => onOpen('workedDays')} />
-                    <AdditionPayCount label="Hours" value={hoursText(workedHours)} onClick={() => onOpen('workedHours')} />
+                <AdditionPayCard title="Actual worked" columns="grid-cols-1">
+                    <div className="grid grid-cols-3 gap-1.5">
+                        <AdditionPayCount label="Worked days" value={daysText(workedDays)} onClick={() => onOpen('workedDays')} wrap />
+                        <AdditionPayCount label="Comp off" value={daysText(compOffDays)} onClick={() => onOpen('compOff')} wrap />
+                        <AdditionPayCount label="Total days" value={daysText(totalDays)} onClick={() => onOpen('totalDays')} wrap />
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                        <AdditionPayCount label="Worked hours" value={hoursText(workedHours)} onClick={() => onOpen('workedHours')} wrap />
+                        <AdditionPayCount label="Comp off" value={hoursText(compOffHours)} onClick={() => onOpen('compOff')} wrap />
+                        <AdditionPayCount label="Total hours" value={hoursText(totalHours)} onClick={() => onOpen('totalHours')} wrap />
+                    </div>
                 </AdditionPayCard>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -2948,7 +3012,7 @@ function SalaryAdditionListModal({ mode, ready, pay, statement, staffType, emplo
     const spec = ADDITION_LISTS[mode];
     if (!spec) return null;
     const rows = spec.rows
-        ? (mode === 'workedDays' || mode === 'workedHours'
+        ? (spec.includeCompOff
             ? [...(pay?.[spec.rows] || []), ...compOffWorkedRows(pay)]
             : (pay?.[spec.rows] || []))
         : [];
@@ -3745,7 +3809,8 @@ export default function EmployeeInformationDashboard({
         const offDayCount = rangeDates.filter((date) => {
             if (enclosedOff.has(date)) return false;
             const info = dayInfo(date);
-            return info.holiday || info.weeklyOff;
+            if (!info.holiday && !info.weeklyOff) return false;
+            return !workedOffDay(recordsByDate[date]);
         }).length;
         const policy = profile?.leavePolicy || {};
         const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
@@ -3763,6 +3828,7 @@ export default function EmployeeInformationDashboard({
         monthRecords.forEach((row) => {
             const date = String(row?.date || '');
             if (!range.has(date)) return;
+            if (row?.deductionWaived === true || hoursForgiven(row)) return;
             const key = deductionKind(row);
             if (key === 'late_arrived' || key === 'early_go') {
                 const hours = deductionLossHours(row, scheduleWeek);
@@ -4668,7 +4734,7 @@ export default function EmployeeInformationDashboard({
                                     </div>
                                     {monthlySalary > 0 ? (
                                         <p className="mt-1 text-[10px] leading-snug text-[#64748B]">
-                                            Salary per day {formatAed(salaryBasis.daily, 2)} ({formatAed(monthlySalary)} / {salaryBasis.calendarDays} days). Week offs and holidays in this month are paid. Approved overtime from the 1st through yesterday is added at the hourly rate. Work on a week off or holiday pays as overtime up to 10 hours, or as comp off above 10 hours. Counted through yesterday. Suspension days are not included. Earned {formatAed(earnedBeforeDeduction, 2)} − deductions {formatAed(monthDeduction, 2)}.
+                                            Salary per day {formatAed(salaryBasis.daily, 2)} ({formatAed(monthlySalary)} / {salaryBasis.calendarDays} days). Week offs and holidays that were not worked are paid. If the employee worked one, that day is not added. After approval it is overtime or comp off only. Approved overtime from the 1st through yesterday is added at the hourly rate. Counted through yesterday. Suspension days are not included. Earned {formatAed(earnedBeforeDeduction, 2)} − deductions {formatAed(monthDeduction, 2)}.
                                         </p>
                                     ) : null}
                                 </div>

@@ -294,6 +294,7 @@ function DashboardContent() {
                 const rawItems = mergeExpiryNotificationDedupe(
                     Array.isArray(payload.items) ? payload.items : [],
                     [],
+                    { suppressedKeys: payload.deletedNoticeKeys },
                 );
                 const paintItems = stripModuleNotificationCopies(rawItems);
 

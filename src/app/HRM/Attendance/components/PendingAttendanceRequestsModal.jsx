@@ -21,6 +21,13 @@ import { notifyAttendancePendingInboxChanged } from '../utils/attendancePendingI
 import { attendanceRequestMarkHref } from '../utils/markAttendanceHref';
 import AttendanceLeaveDecideModal from '@/app/dashboard/components/AttendanceLeaveDecideModal';
 
+function isOffDayWorkItem(row) {
+    return (
+        String(row?.leaveRequestKind || '') === 'off_day_work' ||
+        String(row?.requestType || row?.type || '') === 'Attendance Off Day Work'
+    );
+}
+
 function isAttendanceChangeItem(row) {
     const raw = row?.raw || row || {};
     return (
@@ -87,6 +94,20 @@ function buildAttendancePath(row) {
 
 /** Shape attendance inbox API rows like Fine/Reward for the shared notification tab. */
 function normalizeAttendanceInboxItem(row = {}) {
+    if (isOffDayWorkItem(row)) {
+        const sentence = row.extra2 || row.message || 'Worked on a Sunday, weekly off, or holiday';
+        return {
+            ...row,
+            requestType: 'Attendance Off Day Work',
+            type: 'Attendance Off Day Work',
+            leaveRequestKind: 'off_day_work',
+            subjectName: row.subjectName || row.employeeName || 'Employee',
+            status: 'Pending',
+            extra1: row.extra1 || 'Give OT or Comp Off',
+            extra2: sentence,
+            message: sentence,
+        };
+    }
     if (isAttendanceChangeItem(row)) {
         const summary = row.extra2 || row.message || 'Attendance change waiting for approval';
         return {
@@ -295,7 +316,7 @@ export default function PendingAttendanceRequestsModal({
                 isOpen={isOpen}
                 onClose={onClose}
                 title="Attendance notifications"
-                subtitle="Pending attendance requests assigned to you."
+                subtitle="Pending requests, and Sunday, weekly off, or holiday work that still needs OT or comp off."
                 items={notificationRows}
                 loading={loading && items.length === 0}
                 refreshing={refreshing}

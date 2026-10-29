@@ -687,6 +687,101 @@ const shouldKeepExpiryNotification = (item) => {
     return isExpiryHrTaskDueForDoc(days, { isCertificate: isCertificateExpiryLabel(label) });
 };
 
+const OWNER_EXPIRY_BODY =
+    /\s[-\u2013\u2014]\s(Passport|Visa|Visit Visa|Employment Visa|Spouse Visa|Emirates ID|Medical Insurance|Driving License|Labour Card)\s*\(/i;
+
+let suppressedExpiryKeys = new Set();
+
+function workflowNoticeType(type) {
+    if (type === 'Fine' || type === 'Group Fine Request') return 'Fine';
+    if (type === 'Employee Leave Request' || type === 'Attendance Leave Request') return 'Leave';
+    return type;
+}
+
+/** Keep in step with VERP_backend/utils/deletedTaskNotice.js */
+function deletedNoticeKeysForItem(item) {
+    const type = String(item?.type || item?.requestType || '').trim();
+    if (!type || type === 'Task Manager') return [];
+    const trimmed = String(item?.extra1 || '').trim();
+    const raw = trimmed.replace(/\s+/g, ' ');
+    const lower = raw.toLowerCase();
+    const id = String(item?.requestId || item?.id || '').trim();
+    const code = String(item?.targetEmployeeId ?? item?.subjectEmployeeId ?? '').trim();
+    let owner = false;
+    let serviceId = '';
+    if (item?.extra3) {
+        try {
+            const meta = typeof item.extra3 === 'string' ? JSON.parse(item.extra3) : item.extra3;
+            owner = meta?.ownerExpiryDedupe === true;
+            serviceId = String(meta?.serviceRecordId || '').trim();
+        } catch {
+            owner = false;
+        }
+    }
+    const keys = [];
+    if (type === 'Employee Document Expiry Reminder') {
+        if (!raw) return [];
+        if (code) keys.push(`EDE|${code}|${lower}`);
+        if (id && id !== code) keys.push(`EDE|${id}|${lower}`);
+    } else if (type === 'Vehicle Document Expiry Reminder') {
+        if (!raw) return [];
+        if (id) keys.push(`VDE|${id}|${lower}`);
+        if (code && code !== id) keys.push(`VDE|${code}|${lower}`);
+    } else if (type === 'Document Expiry Reminder') {
+        if (!raw) return [];
+        if (id) {
+            keys.push(`Document Expiry Reminder|${id}|${trimmed || raw}`);
+            if (raw !== trimmed) keys.push(`Document Expiry Reminder|${id}|${raw}`);
+            keys.push(`CDE|${id}|${lower}`);
+        }
+        if (owner || OWNER_EXPIRY_BODY.test(raw)) keys.push(`CDE|OWNER|${lower}`);
+    } else if (/expiry/i.test(type)) {
+        if (id && raw) keys.push(`TASK|${type}|${id}|${lower}`);
+        else if (id) keys.push(`TASK|${type}|${id}`);
+    } else if (type === 'Vehicle Service Request') {
+        if (id && serviceId) keys.push(`TASK|${type}|${id}|${serviceId}`);
+        else if (id) keys.push(`TASK|${type}|${id}`);
+    } else if (!/expiry/i.test(type)) {
+        const noticeType = workflowNoticeType(type);
+        const ids = [...new Set([id, String(item?.id || '').trim()].filter(Boolean))];
+        for (const noticeId of ids) {
+            keys.push(`TASK|${noticeType}|${noticeId}`);
+            if (raw) keys.push(`TASK|${noticeType}|${noticeId}|${lower}`);
+        }
+        if (!ids.length && code && raw) keys.push(`TASK|${noticeType}|${code}|${lower}`);
+        if (type === 'Salary Enrollment') {
+            let employeeCode = code;
+            if (item?.extra3) {
+                try {
+                    const meta = typeof item.extra3 === 'string' ? JSON.parse(item.extra3) : item.extra3;
+                    employeeCode = employeeCode || meta?.employeeId || '';
+                } catch {
+                    employeeCode = code;
+                }
+            }
+            const normalized = String(employeeCode || '').trim().replace(/\s+/g, '').toUpperCase();
+            if (normalized) {
+                keys.push(`TASK|Salary Enrollment|${normalized}`);
+                keys.push(`SAL|${normalized}|pending enrollment`);
+            }
+        }
+    }
+    return keys;
+}
+
+export function rememberSuppressedExpiryKeys(keys) {
+    if (!Array.isArray(keys)) return;
+    suppressedExpiryKeys = new Set(keys.map((key) => String(key || '').trim()).filter(Boolean));
+}
+
+function expiryNoticeWasDeleted(item) {
+    if (!suppressedExpiryKeys.size) return false;
+    const keys = deletedNoticeKeysForItem(item);
+    const primary = mergeDedupeKey(item);
+    if (primary) keys.push(primary);
+    return keys.some((key) => suppressedExpiryKeys.has(key));
+}
+
 /**
  * Merge API expiry rows with live scans.
  * When entity lists are provided, drop reminders whose live card is no longer within ≤10 days.
@@ -697,7 +792,9 @@ export function mergeExpiryNotificationDedupe(apiItems = [], fallbackItems = [],
         employees = null,
         companies = null,
         preferLiveForTypes = [],
+        suppressedKeys = null,
     } = options || {};
+    rememberSuppressedExpiryKeys(suppressedKeys);
 
     const preferTypes = new Set(
         (Array.isArray(preferLiveForTypes) ? preferLiveForTypes : [])
@@ -705,14 +802,14 @@ export function mergeExpiryNotificationDedupe(apiItems = [], fallbackItems = [],
             .filter(Boolean),
     );
 
-    let apiFiltered = (apiItems || []).filter(shouldKeepExpiryNotification);
+    let apiFiltered = (apiItems || []).filter(shouldKeepExpiryNotification).filter((item) => !expiryNoticeWasDeleted(item));
     apiFiltered = filterExpiryRemindersAgainstLiveEntities(apiFiltered, { employees, companies });
     if (preferTypes.size > 0) {
         apiFiltered = apiFiltered.filter((item) => !preferTypes.has(String(item?.type || '').trim()));
     }
 
     const liveFiltered = filterExpiryRemindersAgainstLiveEntities(
-        (fallbackItems || []).filter(shouldKeepExpiryNotification),
+        (fallbackItems || []).filter(shouldKeepExpiryNotification).filter((item) => !expiryNoticeWasDeleted(item)),
         { employees, companies },
     );
 

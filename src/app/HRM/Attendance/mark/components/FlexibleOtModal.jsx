@@ -264,7 +264,7 @@ export default function FlexibleOtModal({
                     ? presentCopy
                     : response.data?.message || 'Sent to the primary reportee. It is applied after HR approves.',
             });
-            if (!appliedNow) notifyAttendancePendingInboxChanged();
+            notifyAttendancePendingInboxChanged();
             onSaved?.();
             onClose?.();
         } catch (error) {

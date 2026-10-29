@@ -6,7 +6,7 @@ import { Calendar as CalendarIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
+import { Calendar, CalendarDayButton } from "@/components/ui/calendar"
 import {
     Popover,
     PopoverContent,
@@ -14,14 +14,49 @@ import {
 } from "@/components/ui/popover"
 import { MonthYearPicker } from "@/components/ui/month-year-picker"
 
+function isSameDay(left, right) {
+    return (
+        left instanceof Date &&
+        right instanceof Date &&
+        left.getFullYear() === right.getFullYear() &&
+        left.getMonth() === right.getMonth() &&
+        left.getDate() === right.getDate()
+    )
+}
+
 function isDateDisabled(checkDate, disabledDays) {
-    if (!checkDate || !disabledDays) return false
-    if (disabledDays instanceof Date) {
-        return checkDate.getTime() === disabledDays.getTime()
-    }
+    if (!checkDate || disabledDays == null) return false
+    if (typeof disabledDays === "function") return Boolean(disabledDays(checkDate))
+    if (Array.isArray(disabledDays)) return disabledDays.some((item) => isDateDisabled(checkDate, item))
+    if (disabledDays instanceof Date) return isSameDay(checkDate, disabledDays)
     if (disabledDays.after && checkDate > disabledDays.after) return true
     if (disabledDays.before && checkDate < disabledDays.before) return true
+    if (disabledDays.from && disabledDays.to && checkDate >= disabledDays.from && checkDate <= disabledDays.to) {
+        return true
+    }
     return false
+}
+
+function ShadedDayButton({ className, modifiers, ...props }) {
+    const tone = modifiers?.leaveYellow
+        ? "!bg-[#fef9c3] !text-yellow-900 hover:!bg-[#fef3c7]"
+        : modifiers?.leaveGreen
+          ? "!bg-[#dcfce7] !text-green-900 hover:!bg-[#bbf7d0]"
+          : modifiers?.leaveGrey
+            ? "!bg-[#e5e7eb] !text-gray-500 hover:!bg-[#e5e7eb]"
+            : ""
+    return (
+        <CalendarDayButton
+            modifiers={modifiers}
+            className={cn(
+                className,
+                tone,
+                tone && "disabled:!opacity-100",
+                tone && modifiers?.selected && "ring-2 ring-inset ring-blue-600",
+            )}
+            {...props}
+        />
+    )
 }
 
 /** Resolve day/month when user types dd/MM or MM/dd (e.g. 18/11 vs 11/18). */
@@ -106,6 +141,10 @@ export function DatePicker({
     disabledDays,
     quickAction,
     onOpenChange,
+    modifiers,
+    modifiersStyles,
+    calendarClassNames,
+    footer,
 }) {
     const [open, setOpen] = React.useState(false)
     const [date, setDate] = React.useState(undefined)
@@ -272,6 +311,11 @@ export function DatePicker({
                     toYear={new Date().getFullYear() + 20}
                     initialFocus
                     disabled={disabledDays}
+                    modifiers={modifiers}
+                    modifiersStyles={modifiersStyles}
+                    classNames={calendarClassNames}
+                    components={modifiers ? { DayButton: ShadedDayButton } : undefined}
+                    footer={footer}
                 />
                 {quickAction?.label ? (
                     <div className="border-t p-2">

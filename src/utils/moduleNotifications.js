@@ -30,6 +30,7 @@ import {
     loadCompanyNotificationBundle,
 } from '@/utils/companyPageNotifications';
 import { buildEmployeeListBellFromStats, isEmployeeNotificationHiddenType } from '@/utils/employeePageNotifications';
+import { rememberSuppressedExpiryKeys } from '@/utils/expiryNotificationFallbacks';
 import { isCardDeletedNotificationHiddenType } from '@/utils/cardDeletedNotifications';
 import {
     hiddenNotificationTypesFromMap,
@@ -231,6 +232,7 @@ export function buildCompanyListBellFromStats(statsData, companiesList = []) {
         (item) => !isCardDeletedNotificationHiddenType(item?.type),
     );
     const { liveExpiryHrView, mandatoryCardsHrLive } = resolveHrFlags(statsData);
+    rememberSuppressedExpiryKeys(statsData?.deletedNoticeKeys);
     return buildCompanyPageNotifications(
         pendingItems,
         companiesList,
@@ -646,6 +648,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
     const pendingItems = filterActionableDashboardItems(items).filter(
         (item) => !isCardDeletedNotificationHiddenType(item?.type),
     );
+    rememberSuppressedExpiryKeys(statsData?.deletedNoticeKeys);
 
     const company = buildCompanyPageNotifications(
         pendingItems,
@@ -901,6 +904,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         'Loan Request',
         'Advance',
         'Attendance Leave Request',
+        'Attendance Off Day Work',
         'Attendance Change Request',
         'Flexible OT Request',
         'Hour Approval Request',

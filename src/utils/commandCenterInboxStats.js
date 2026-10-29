@@ -214,6 +214,7 @@ export async function loadPreparedCommandCenterItems(
     const rawItems = mergeExpiryNotificationDedupe(
         Array.isArray(payload.items) ? payload.items : [],
         [],
+        { suppressedKeys: payload.deletedNoticeKeys },
     );
     const base = stripModuleNotificationCopies(rawItems);
 

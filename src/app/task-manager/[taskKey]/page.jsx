@@ -27,6 +27,7 @@ import { useListReturnBack } from '@/hooks/useListReturnBack';
 import { useRegisterErpBackHandler } from '@/contexts/ErpBackHandlerContext';
 import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
+import { refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
 
 const TABS = [
@@ -50,7 +51,7 @@ const STATUS_STYLE = {
     'Pending Review': 'bg-amber-50 text-amber-700',
     Cancelled: 'bg-slate-100 text-slate-500',
     'On Hold': 'bg-amber-50 text-amber-700',
-    Rejected: 'bg-slate-100 text-slate-600',
+    Rejected: 'bg-rose-50 text-rose-600',
 };
 
 const PRIORITY_STYLE = {
@@ -58,6 +59,11 @@ const PRIORITY_STYLE = {
     Medium: 'bg-amber-50 text-amber-700',
     Low: 'bg-emerald-50 text-emerald-700',
 };
+
+function statusLabel(value) {
+    if (value === 'Closed' || value === 'Completed') return 'Completed';
+    return value || '';
+}
 
 function formatWhen(value) {
     if (!value) return '—';
@@ -144,7 +150,36 @@ function EmailChips({ item }) {
 }
 
 
-function NoteModal({ title, hint, submitLabel, busy, onClose, onSubmit }) {
+function SourcePendingNotice({ notice, onNavigate }) {
+    if (!notice?.message) return null;
+    return (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            <p>{notice.message}</p>
+            {notice.link ? (
+                <a
+                    href={notice.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(event) => onNavigate?.(event, notice.link)}
+                    className="mt-1 inline-flex font-semibold text-[#2563EB]"
+                >
+                    Open the task
+                </a>
+            ) : null}
+        </div>
+    );
+}
+
+function pendingFromError(err, fallbackPath) {
+    const data = err?.response?.data;
+    if (!data?.sourcePending) return null;
+    return {
+        message: data.message || 'This task is already on Pending. You can go to the task.',
+        link: data.sourceLink || fallbackPath || '',
+    };
+}
+
+function NoteModal({ title, hint, submitLabel, busy, onClose, onSubmit, fieldLabel = 'Description', notice, onNavigate }) {
     const [text, setText] = useState('');
     const [error, setError] = useState('');
     return (
@@ -155,7 +190,7 @@ function NoteModal({ title, hint, submitLabel, busy, onClose, onSubmit }) {
                 onSubmit={(event) => {
                     event.preventDefault();
                     if (!text.trim()) {
-                        setError('Description is required.');
+                        setError(`${fieldLabel} is required.`);
                         return;
                     }
                     onSubmit(text.trim());
@@ -170,9 +205,10 @@ function NoteModal({ title, hint, submitLabel, busy, onClose, onSubmit }) {
                 </div>
                 <div className="space-y-3 px-5 py-4">
                     <p className="text-sm text-slate-500">{hint}</p>
+                    <SourcePendingNotice notice={notice} onNavigate={onNavigate} />
                     <label className="block">
                         <span className="mb-1.5 flex items-center justify-between text-[13px] font-semibold text-slate-800">
-                            <span>Description <span className="text-rose-500">*</span></span>
+                            <span>{fieldLabel} <span className="text-rose-500">*</span></span>
                             <span className="font-normal text-slate-400">{text.length}/500</span>
                         </span>
                         <textarea
@@ -183,7 +219,7 @@ function NoteModal({ title, hint, submitLabel, busy, onClose, onSubmit }) {
                                 setError('');
                             }}
                             rows={4}
-                            placeholder="Description is required"
+                            placeholder={`${fieldLabel} is required`}
                             className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
                         />
                     </label>
@@ -220,10 +256,14 @@ function TaskDetailsPage() {
     const [people, setPeople] = useState([]);
     const [mentionIds, setMentionIds] = useState([]);
     const [busy, setBusy] = useState(false);
+    const [sourceBlock, setSourceBlock] = useState(null);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [deleting, setDeleting] = useState(false);
 
     const load = useCallback(async () => {
         const res = await axiosInstance.get(`/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}`, { skipToast: true });
         setTask(res.data?.task || null);
+        setSourceBlock(null);
     }, [taskKey]);
 
     useEffect(() => {
@@ -390,7 +430,27 @@ function TaskDetailsPage() {
                 description: res.data?.message || 'Updated.',
             });
         } catch (err) {
+            const pending = pendingFromError(err, task?.accessPath);
+            if (pending) setSourceBlock(pending);
             toast({ title: 'Could not update the task', description: err?.response?.data?.message || 'Try again.' });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const reopenNow = async () => {
+        setBusy(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/reopen`,
+                {},
+                { skipToast: true },
+            );
+            setTask(res.data?.task || null);
+            setTab('updates');
+            toast({ title: 'Task reopened', description: res.data?.message || 'The task is open again.' });
+        } catch (err) {
+            toast({ title: 'Could not reopen the task', description: err?.response?.data?.message || 'Try again.' });
         } finally {
             setBusy(false);
         }
@@ -408,6 +468,8 @@ function TaskDetailsPage() {
             setTab('updates');
             toast({ title: 'Task approved', description: res.data?.message || 'The task is closed.' });
         } catch (err) {
+            const pending = pendingFromError(err, task?.accessPath);
+            if (pending) setSourceBlock(pending);
             toast({ title: 'Could not approve the task', description: err?.response?.data?.message || 'Try again.' });
         } finally {
             setBusy(false);
@@ -427,6 +489,8 @@ function TaskDetailsPage() {
             setTab('updates');
             toast({ title: 'Status updated', description: `Marked as ${status}.` });
         } catch (err) {
+            const pending = pendingFromError(err, task?.accessPath);
+            if (pending) setSourceBlock(pending);
             toast({ title: 'Could not update status', description: err?.response?.data?.message || 'Try again.' });
         } finally {
             setBusy(false);
@@ -445,8 +509,15 @@ function TaskDetailsPage() {
     }
 
     const notes = task.notifications || { workUpdate: true, comment: true };
+    const sourceNotice = sourceBlock || (task.sourcePending ? {
+        message: task.sourcePendingMessage,
+        link: task.sourceLink || task.accessPath || '',
+    } : null);
+    const openSource = (event, path) => handleNavigateFromTaskSectionClick(event, router, path);
     const nameLines = taskNameLines(task);
+    const shownStatus = statusLabel(task.displayStatus || task.status);
     const generalClosed = task.taskCategory === 'General Task' && (task.displayStatus === 'Closed' || task.status === 'Completed');
+    const taskFinished = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.closeScheduled;
     const updates = Array.isArray(task.updates) ? task.updates : [];
     const comments = Array.isArray(task.comments) ? task.comments : [];
     const number = taskNumber || task.taskNumber || '';
@@ -467,8 +538,8 @@ function TaskDetailsPage() {
                         <div>
                             <div className="flex flex-wrap items-center gap-2">
                                 <h1 className="text-lg font-bold text-slate-900">{number || 'Task'}</h1>
-                                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[task.displayStatus] || 'bg-slate-100 text-slate-600'}`}>
-                                    {task.displayStatus || task.status}
+                                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[shownStatus] || 'bg-slate-100 text-slate-600'}`}>
+                                    {shownStatus}
                                 </span>
                             </div>
                             <h2 className="mt-1 text-2xl font-bold text-slate-900">{nameLines[0]}</h2>
@@ -476,17 +547,22 @@ function TaskDetailsPage() {
                                 <p key={line} className="text-sm text-slate-500">{line}</p>
                             ))}
                             {task.closeMessage ? <p className="mt-1 text-sm text-slate-500">{task.closeMessage}</p> : null}
+                            {sourceNotice ? (
+                                <div className="mt-2">
+                                    <SourcePendingNotice notice={sourceNotice} onNavigate={openSource} />
+                                </div>
+                            ) : null}
                         </div>
                         <div className="flex items-center gap-2">
                             {task.canReopen && (
                                 <button
                                     type="button"
                                     disabled={busy}
-                                    title="Reopen this task"
-                                    onClick={() => setNoteAction('reopen')}
+                                    title={task.reopenNeedsReason ? 'Enter a reason to reopen this task' : 'Reopen this task'}
+                                    onClick={() => (task.reopenNeedsReason ? setNoteAction('reopen') : reopenNow())}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                                 >
-                                    <RefreshCw size={14} /> Reopen
+                                    <RefreshCw size={14} /> Re Open Task
                                 </button>
                             )}
                             {task.canReturn && (
@@ -619,6 +695,16 @@ function TaskDetailsPage() {
                                     Reject
                                 </button>
                             )}
+                            {task.canDelete && (
+                                <button
+                                    type="button"
+                                    disabled={busy || deleting}
+                                    onClick={() => setDeleteOpen(true)}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-40"
+                                >
+                                    Delete
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -627,7 +713,7 @@ function TaskDetailsPage() {
                         <Fact label="Task Priority" value={task.priority} pill={PRIORITY_STYLE[task.priority]} />
                         <Fact label="Request Date" value={formatWhen(task.requestDate)} icon={Calendar} />
                         <Fact label="Task Completion Date" value={formatDay(task.completionDate)} icon={Calendar} />
-                        <Fact label="Task Status" value={task.displayStatus || task.status} pill="bg-sky-50 text-sky-700" />
+                        <Fact label="Task Status" value={shownStatus} pill="bg-sky-50 text-sky-700" />
                     </div>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
                         <PersonFact label="Requester Name" name={task.requesterName} role={task.requesterRole} photo={task.requesterPhoto} />
@@ -682,8 +768,8 @@ function TaskDetailsPage() {
                         {tab === 'updates' && (
                             <div>
                                 <h3 className="mb-3 text-base font-semibold text-slate-800">Work Updates</h3>
-                                <div className={`mb-4 rounded-xl border border-slate-200 p-3 ${generalClosed ? 'opacity-60' : ''}`}>
-                                    <textarea value={updateText} onChange={(event) => setUpdateText(event.target.value)} rows={3} disabled={generalClosed} placeholder={generalClosed ? 'This task is closed. Only the requester can reopen it.' : 'Write the work update. Type @ and a name to email that person.'} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-slate-50" />
+                                <div className={`mb-4 rounded-xl border border-slate-200 p-3 ${taskFinished ? 'opacity-60' : ''}`}>
+                                    <textarea value={updateText} onChange={(event) => setUpdateText(event.target.value)} rows={3} disabled={taskFinished} placeholder={taskFinished ? 'This task is closed. An admin super user can reopen it. The requester of a general task can reopen it with a reason.' : 'Write the work update. Type @ and a name to email that person.'} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-slate-50" />
                                     {mentionChoices.length > 0 && (
                                         <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white">
                                             {mentionChoices.map((person) => (
@@ -700,7 +786,7 @@ function TaskDetailsPage() {
                                     )}
                                     <p className="mt-1 text-xs text-slate-500">Type @Name to email that person. With no @, the email goes to the current assignee.</p>
                                     <div className="mt-2 flex justify-end">
-                                        <button type="button" disabled={generalClosed || busy || !updateText.trim()} onClick={addUpdate} className="h-8 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-60">Post update</button>
+                                        <button type="button" disabled={taskFinished || busy || !updateText.trim()} onClick={addUpdate} className="h-8 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-60">Post update</button>
                                     </div>
                                 </div>
                                 <div className="space-y-4">
@@ -792,8 +878,8 @@ function TaskDetailsPage() {
                             title="Send email on work update"
                             hint="Notify a mentioned person, or the assignee"
                             checked={notes.workUpdate !== false}
-                            disabled={generalClosed}
-                            onChange={(workUpdate) => { if (!generalClosed) saveNotifications({ ...notes, workUpdate }); }}
+                            disabled={taskFinished}
+                            onChange={(workUpdate) => { if (!taskFinished) saveNotifications({ ...notes, workUpdate }); }}
                         />
                         <h3 className="mb-2 mt-4 text-sm font-semibold text-slate-800">Notification Recipients</h3>
                         <Recipient
@@ -822,6 +908,59 @@ function TaskDetailsPage() {
                     </div>
                 </aside>
             </div>
+            {deleteOpen && (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4">
+                    <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
+                        <h2 className="text-base font-semibold text-slate-800">Delete task</h2>
+                        <p className="mt-2 text-sm text-slate-600">
+                            Delete {number ? `${number} — ` : ''}{task.taskName}?{' '}
+                            {task.taskCategory === 'General Task'
+                                ? 'This removes the task and its notifications.'
+                                : 'This removes the task, its workflow, and its notifications. The record behind it stays.'}
+                        </p>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                disabled={deleting}
+                                onClick={() => setDeleteOpen(false)}
+                                className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={deleting}
+                                onClick={async () => {
+                                    setDeleting(true);
+                                    try {
+                                        await axiosInstance.delete(
+                                            `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}`,
+                                            { skipToast: true },
+                                        );
+                                        toast({
+                                            title: 'Task deleted',
+                                            description: task.taskCategory === 'General Task'
+                                                ? 'The task and its notifications were removed.'
+                                                : 'The task, its workflow, and its notifications were removed.',
+                                        });
+                                        refreshAfterTaskDelete();
+                                        router.push('/task-manager');
+                                    } catch (err) {
+                                        toast({
+                                            title: 'Could not delete the task',
+                                            description: err?.response?.data?.message || 'Try again.',
+                                        });
+                                        setDeleting(false);
+                                    }
+                                }}
+                                className="h-9 rounded-lg bg-rose-600 px-3 text-sm font-semibold text-white disabled:opacity-60"
+                            >
+                                {deleting ? 'Deleting...' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {editOpen && (
                 <CreateTaskModal
                     open
@@ -844,8 +983,9 @@ function TaskDetailsPage() {
             )}
             {noteAction && (
                 <NoteModal
+                    fieldLabel={noteAction === 'reopen' ? 'Reason' : 'Description'}
                     title={noteAction === 'reopen'
-                        ? 'Reopen Task'
+                        ? 'Re Open Task'
                         : noteAction === 'return'
                         ? 'Return Task'
                         : noteAction === 'reject' || noteAction === 'general-reject'
@@ -860,7 +1000,9 @@ function TaskDetailsPage() {
                                             ? 'Mark as Completed'
                                             : 'Confirm Close'}
                     hint={noteAction === 'reopen'
-                        ? 'A comment is required. The task becomes Reopened, returns to the last assignee, and they are emailed the task number, name, reason, and your details.'
+                        ? 'A reason is required. The task becomes Open again. The original assignee is emailed the task number and a link to this page.'
+                        : noteAction === 'reject' && ['System Task', 'Workflow Task', 'Work Flow Task'].includes(task?.taskCategory)
+                        ? 'A comment is required. The status becomes Rejected.'
                         : noteAction === 'reject' || noteAction === 'general-reject'
                         ? 'A comment is required. It is saved in Work Updates.'
                         : noteAction === 'hand-back'
@@ -873,9 +1015,11 @@ function TaskDetailsPage() {
                                         ? 'This returns the task to the original assignee. They receive the description by email and on their notification.'
                                         : noteAction === 'complete'
                                             ? 'The original assignee is emailed. The task stays open until they confirm close.'
-                                            : 'Confirming closes this task for both of you. It leaves the open task list.'}
+                                            : sourceNotice
+                                                ? 'This task is still Pending. Open the related task and finish it. It can be completed only when that status is Completed or Closed.'
+                                                : 'Confirming closes this task for both of you. It leaves the open task list.'}
                     submitLabel={noteAction === 'reopen'
-                        ? 'Reopen'
+                        ? 'Re Open Task'
                         : noteAction === 'reject' || noteAction === 'general-reject'
                         ? 'Reject'
                         : noteAction === 'hand-back'
@@ -890,6 +1034,8 @@ function TaskDetailsPage() {
                                             ? 'Send for confirmation'
                                             : 'Confirm Close'}
                     busy={busy}
+                    notice={sourceNotice}
+                    onNavigate={openSource}
                     onClose={() => { if (!busy) setNoteAction(null); }}
                     onSubmit={submitNoteAction}
                 />
@@ -1191,7 +1337,7 @@ function EmailPreview({ mode, task, number, item }) {
                     <dt className="text-slate-400">Task Name</dt><dd>{nameLines.map((line) => <span key={line} className="block">{line}</span>)}</dd>
                     <dt className="text-slate-400">{mode === 'update' ? 'Update By' : 'Comment By'}</dt><dd>{item?.authorName || '—'}</dd>
                     <dt className="text-slate-400">{mode === 'update' ? 'Update Details' : 'Comment'}</dt><dd>{body}</dd>
-                    <dt className="text-slate-400">Current Status</dt><dd>{task.displayStatus || task.status}</dd>
+                    <dt className="text-slate-400">Current Status</dt><dd>{statusLabel(task.displayStatus || task.status)}</dd>
                     <dt className="text-slate-400">Updated On</dt><dd>{formatWhen(item?.createdAt || task.updatedAt)}</dd>
                 </dl>
                 <p className="mt-4 text-xs text-slate-400">This is an automated notification from the Vega Digital Task Management System.</p>

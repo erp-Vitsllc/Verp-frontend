@@ -1006,7 +1006,10 @@ function otSortText(mark, ctx) {
         durationHours,
         requiredHours: mark?.flexibleRequiredHours,
         syntheticOt,
-        nonWorkingDay: Boolean(ctx.dayBaseline) && !syntheticOt && durationHours > 0,
+        nonWorkingDay:
+            (Boolean(ctx.dayBaseline) || weekdayKeyFromDate(mark?.date) === 'sunday') &&
+            !syntheticOt &&
+            durationHours > 0,
     });
     if (otText) return otText;
     if (!flexibleTiming || !showOtRequest) return null;
@@ -1543,6 +1546,13 @@ function EmployeeRow({
         String(shownMark?.key || ''),
     );
     const offDayWork = workedOffDay && !manualLeave;
+    const sundayWork =
+        !dayBaseline &&
+        weekdayKeyFromDate(dateKey) === 'sunday' &&
+        !syntheticOt &&
+        !manualLeave &&
+        ((timeIn && timeIn !== '—') || (timeOut && timeOut !== '—'));
+    const compensableOffWork = offDayWork || sundayWork;
     const statusText = formatStatusLabel(shownMark, timeIn, pastDay);
     const statusFull = statusHoverTitle(statusText);
     const duration = syntheticOt
@@ -1569,13 +1579,13 @@ function EmployeeRow({
         durationHours,
         requiredHours,
         syntheticOt,
-        nonWorkingDay: offDayWork && durationHours > 0,
+        nonWorkingDay: compensableOffWork && durationHours > 0,
     });
     const otText = otState.otText;
     const otHours = otState.otHours;
-    const showOtRequest = otState.showOtRequest && (flexibleTiming || offDayWork);
-    const showNextDayPresent = otState.showNextDayPresent && (flexibleTiming || offDayWork);
-    const showCompOff = offDayWork && otState.showOtRequest;
+    const showOtRequest = otState.showOtRequest && (flexibleTiming || compensableOffWork);
+    const showNextDayPresent = otState.showNextDayPresent && (flexibleTiming || compensableOffWork);
+    const showCompOff = compensableOffWork && otState.showOtRequest;
     const requestMark = markWithRequestableOt(mark, otHours);
     const otButtonLabel = otDirect ? 'Apply OT' : 'Req OT';
 
@@ -2313,8 +2323,11 @@ export default function MarkAttendanceTable({
     );
     const rowIsActionLocked = (employee) => dayMode === 'locked' || Boolean(employee?.attendanceSuspended);
     const filteredEmployees = useMemo(
-        () => employees.filter((employee) => employeeMatchesSearch(employee, searchQuery)),
-        [employees, searchQuery],
+        () => employees.filter((employee) =>
+            (blinkEmployeeId && String(employee.id) === String(blinkEmployeeId)) ||
+            employeeMatchesSearch(employee, searchQuery),
+        ),
+        [employees, searchQuery, blinkEmployeeId],
     );
     const rosterIndexById = useMemo(() => {
         const map = new Map();

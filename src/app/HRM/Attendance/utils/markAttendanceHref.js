@@ -41,13 +41,14 @@ export function attendanceRequestMarkHref({
     const id = String(attendanceId || '').trim();
     const typeKey = String(type || '').toLowerCase();
     const kindKey = String(kind || '').toLowerCase();
-    if (id && (typeKey.includes('flexible ot') || kindKey === 'flexible_ot')) {
+    const blinkOnly = kindKey === 'off_day_work' || typeKey.includes('off day work');
+    if (!blinkOnly && id && (typeKey.includes('flexible ot') || kindKey === 'flexible_ot')) {
         params.set('otAttendanceId', id);
-    } else if (id && (typeKey.includes('hour') || kindKey === 'hour_adjust')) {
+    } else if (!blinkOnly && id && (typeKey.includes('hour') || kindKey === 'hour_adjust')) {
         params.set('hourAttendanceId', id);
-    } else if (id && (typeKey.includes('change') || kindKey === 'attendance_change')) {
+    } else if (!blinkOnly && id && (typeKey.includes('change') || kindKey === 'attendance_change')) {
         params.set('changeRequestId', id);
-    } else if (id) {
+    } else if (!blinkOnly && id) {
         params.set('leaveAttendanceId', id);
     }
     const query = params.toString();

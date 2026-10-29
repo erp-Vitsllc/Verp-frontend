@@ -182,6 +182,10 @@ const NOTIFICATION_ICON_STYLES = {
         Icon: BookUser,
         shell: 'bg-gradient-to-br from-stone-50 via-amber-50 to-orange-50 border-stone-200/80 text-stone-700 shadow-sm shadow-stone-100/60',
     },
+    'attendance-calendar': {
+        Icon: CalendarDays,
+        shell: 'bg-gradient-to-br from-violet-50 via-purple-50 to-fuchsia-50 border-violet-200/80 text-violet-700 shadow-sm shadow-violet-100/60',
+    },
     'default-bell': {
         Icon: Bell,
         shell: 'bg-gradient-to-br from-slate-50 via-gray-50 to-zinc-50 border-slate-200/80 text-slate-500 shadow-sm shadow-slate-100/60',
