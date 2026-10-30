@@ -64,6 +64,7 @@ import {
     formatHourMeasure,
     leaveDatesTakenByOvertime,
     workedOffDay,
+    earnsOffDayPay,
 } from '../utils/weeklySalaryAddition';
 import { employeePendingRequests } from '../utils/pendingCalendarDays';
 import { punchAttendanceKind } from '../utils/punchAttendanceKind';
@@ -1937,16 +1938,8 @@ function DayTip({
                 />
                 <TipMoney label="Total worked" value={workedText} />
                 {sideLabel ? <TipMoney label={sideLabel} value={sideHoursText || '—'} tone={sideTone} /> : <span />}
-                {workedAmountLabel === 'Worked amount' ? (
-                    <TipMoney label="Worked amount" value={workedAmountText} tone="text-[#16A34A]" />
-                ) : (
-                    <TipMoney label={sideAmountLabel || 'OT amount'} value={sideAmountText || '—'} tone={sideTone} />
-                )}
-                {workedAmountLabel === 'Worked amount' ? (
-                    sideAmountLabel ? <TipMoney label={sideAmountLabel} value={sideAmountText || '—'} tone={sideTone} /> : <span />
-                ) : (
-                    <TipMoney label={workedAmountLabel} value={workedAmountText} tone="text-[#16A34A]" />
-                )}
+                <TipMoney label={workedAmountLabel} value={workedAmountText} tone="text-[#16A34A]" />
+                {sideAmountLabel ? <TipMoney label={sideAmountLabel} value={sideAmountText || '—'} tone={sideTone} /> : <span />}
             </div>
             <div className="mt-2 border-t border-[#EEF2F6] pt-2">
                 <TipMoney label={totalLabel} value={totalText} tone={totalTone} />
@@ -2155,15 +2148,17 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         ? (chargedHours > 0 ? formatHourlyGap(Math.round(chargedHours * 60)) : '0 Hours')
         : '';
     let workedAmount = earnsDayRate ? dayRate : 0;
+    let workedAmountLabel = 'Worked amount';
     let sideAmount = sideMode === 'deduction' ? (Number(deduct) || 0) : sideMode === 'ot' ? otPay : 0;
     let totalPay = payment == null && sideMode === ''
         ? null
         : money2(workedAmount + (sideMode === 'ot' ? sideAmount : 0) - (sideMode === 'deduction' ? sideAmount : 0));
     if (offDayOtHours > 0) {
         sideMode = 'ot';
-        workedAmount = 0;
+        workedAmount = dayRate;
+        workedAmountLabel = isHoliday ? 'Holiday amount' : 'Weekly off amount';
         sideAmount = money2(offDayOtHours * hourRate);
-        totalPay = sideAmount;
+        totalPay = money2(workedAmount + sideAmount);
     }
     const cellKind = offDayOtHours > 0 ? 'present' : payKind;
     const tipTone = offDayOtHours > 0 ? TIP_TONE.present : (sandwichKind ? TIP_TONE[sandwichKind] : tone);
@@ -2277,7 +2272,8 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                         inSpot={punchSpot(record?.checkInLocation)}
                         outSpot={punchSpot(record?.checkOutLocation)}
                         workedText={worked == null ? '—' : formatHourlyGap(worked)}
-                        workedAmountText={offDayWorked ? '—' : (earnsDayRate || payment != null ? formatAed(workedAmount, 2) : '—')}
+                        workedAmountLabel={workedAmountLabel}
+                        workedAmountText={offDayWorked && !(offDayOtHours > 0) ? '—' : (earnsDayRate || offDayOtHours > 0 || payment != null ? formatAed(workedAmount, 2) : '—')}
                         sideMode={sideMode}
                         sideHoursText={sideMode === 'ot' ? (otText || '—') : deductionWaived ? 'Waived' : deductionHoursText}
                         sideAmountText={deductionWaived && sideMode === 'deduction'
@@ -3810,7 +3806,7 @@ export default function EmployeeInformationDashboard({
             if (enclosedOff.has(date)) return false;
             const info = dayInfo(date);
             if (!info.holiday && !info.weeklyOff) return false;
-            return !workedOffDay(recordsByDate[date]);
+            return earnsOffDayPay(recordsByDate[date], calendarNotes[date]);
         }).length;
         const policy = profile?.leavePolicy || {};
         const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
@@ -4734,7 +4730,7 @@ export default function EmployeeInformationDashboard({
                                     </div>
                                     {monthlySalary > 0 ? (
                                         <p className="mt-1 text-[10px] leading-snug text-[#64748B]">
-                                            Salary per day {formatAed(salaryBasis.daily, 2)} ({formatAed(monthlySalary)} / {salaryBasis.calendarDays} days). Week offs and holidays that were not worked are paid. If the employee worked one, that day is not added. After approval it is overtime or comp off only. Approved overtime from the 1st through yesterday is added at the hourly rate. Counted through yesterday. Suspension days are not included. Earned {formatAed(earnedBeforeDeduction, 2)} − deductions {formatAed(monthDeduction, 2)}.
+                                            Salary per day {formatAed(salaryBasis.daily, 2)} ({formatAed(monthlySalary)} / {salaryBasis.calendarDays} days). Week offs and holidays are paid. If the employee worked one and overtime is approved, that day is still paid and the overtime is added. Hours moved to a comp off day are not overtime. Approved overtime from the 1st through yesterday is added at the hourly rate. Counted through yesterday. Suspension days are not included. Earned {formatAed(earnedBeforeDeduction, 2)} − deductions {formatAed(monthDeduction, 2)}.
                                         </p>
                                     ) : null}
                                 </div>

@@ -10,6 +10,7 @@ import {
     formatHourMeasure,
     compOffReferenceLinks,
     leaveDatesTakenByOvertime,
+    earnsOffDayPay,
     workedOffDay,
 } from './weeklySalaryAddition.js';
 
@@ -548,6 +549,20 @@ describe('weekly salary addition counts', () => {
         assert.equal(workedOffDay({ timeIn: '08:00', timeOut: '18:00' }), true);
         assert.equal(workedOffDay({ timeIn: 'OT', timeOut: 'OT' }), false);
         assert.equal(workedOffDay(null), false);
+    });
+
+    it('keeps the weekly off amount when overtime on that Sunday is approved', () => {
+        const sunday = {
+            date: '2026-10-18',
+            timeIn: '08:04',
+            timeOut: '18:39',
+            flexibleOtStatus: 'approved',
+            flexibleOtApprovedHours: 10,
+        };
+        assert.equal(earnsOffDayPay(sunday), true);
+        assert.equal(earnsOffDayPay({ ...sunday, flexibleOtStatus: 'pending' }), false);
+        assert.equal(earnsOffDayPay({ ...sunday, flexibleOtNextDayDate: '2026-10-19' }), false);
+        assert.equal(earnsOffDayPay(null), true);
     });
 
     it('does not show overtime hours until HR approves them', () => {

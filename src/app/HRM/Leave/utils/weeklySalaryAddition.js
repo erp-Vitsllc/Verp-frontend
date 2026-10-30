@@ -227,8 +227,8 @@ function clockToMinutes(value) {
 }
 
 /**
- * Work on a week off or holiday is paid only after overtime or comp off is approved.
- * That day is not also paid as a holiday or weekly off, and it is not a worked day.
+ * Work on a week off or holiday is settled once overtime or comp off is approved.
+ * It is not a normal worked day. Approved overtime still keeps the off-day pay.
  */
 function settleOffDayWork(day, date, info) {
     if (!day || !(day.workedHours > 0)) return false;
@@ -256,10 +256,26 @@ function isOtPunchPlaceholder(row) {
     return inn === 'OT' || out === 'OT';
 }
 
-/** The employee punched a holiday or weekly off. That day is not paid as the off day. */
+/** The employee punched a holiday or weekly off. */
 export function workedOffDay(record) {
     if (!record || isOtPunchPlaceholder(record)) return false;
     return Boolean(String(record.timeIn || '').trim() || String(record.timeOut || '').trim());
+}
+
+/**
+ * A week off or holiday is paid.
+ * Approved overtime on that day keeps the day pay, and the overtime is added.
+ * Hours already used as comp off are not paid again as overtime or as this day.
+ */
+export function earnsOffDayPay(record, note) {
+    if (!workedOffDay(record)) return true;
+    const placedOn = String(record?.flexibleOtNextDayDate || '').trim() || String(note?.givenTo || '').trim();
+    if (placedOn || isOtPunchPlaceholder(record)) return false;
+    const approved = String(record?.flexibleOtStatus || '') === 'approved'
+        ? Number(record?.flexibleOtApprovedHours) || 0
+        : 0;
+    if (approved > 0) return true;
+    return Number(note?.otHours) > 0;
 }
 
 function isSyntheticOtDay(row) {
