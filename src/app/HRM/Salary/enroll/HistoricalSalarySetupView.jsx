@@ -54,6 +54,8 @@ import {
     overtimeHoursToDays,
     overtimeHoursRemainder,
     scheduledTotalWorkedDays,
+    overallWorkedDays,
+    leaveTakenDayCount,
     OVERTIME_HOURS_PER_DAY,
     roundMoney,
 } from '../utils/salaryHistoricalCalculations';
@@ -164,6 +166,40 @@ function formatDeductionDays(value) {
     return `− ${n}`;
 }
 
+function dateCountRows(dates, type) {
+    return (Array.isArray(dates) ? dates : [])
+        .map((date) => String(date || '').trim())
+        .filter((date) => ISO.test(date))
+        .map((date) => ({
+            key: `${type}-${date}`,
+            date: prettyDate(date),
+            type,
+            count: 1,
+        }));
+}
+
+function liveLeaveCountRows(records, { signed = false } = {}) {
+    return (Array.isArray(records) ? records : []).flatMap((row, index) => {
+        const type = String(row?.leaveType || '').toLowerCase();
+        if (type === 'holiday') return [];
+        const count = Number(row?.eligibleWorkingDays ?? row?.actualDays ?? row?.calendarDays) || 0;
+        if (!count) return [];
+        const from = String(row?.fromDate || row?.startDate || '').trim();
+        const to = String(row?.toDate || row?.endDate || from).trim();
+        const date = ISO.test(from)
+            ? to && to !== from
+                ? `${prettyDate(from)} — ${prettyDate(to)}`
+                : prettyDate(from)
+            : '—';
+        return [{
+            key: `live-leave-${from || index}-${index}`,
+            date,
+            type: leaveMeta(leaveTypeKey(row)).label,
+            count: signed ? -count : count,
+        }];
+    });
+}
+
 function eligibilityLeaveDetailRows(rows) {
     return (Array.isArray(rows) ? rows : []).map((row, index) => {
         const from = row.fromDate || row.startDate || '';
@@ -211,17 +247,21 @@ function formatDayCount(value) {
     return `${n} ${n === 1 ? 'day' : 'days'}`;
 }
 
+function formatOvertimeValue(hours, days, remainder) {
+    const base = `${formatHoursLabel(hours)} = ${formatDayCount(days)}`;
+    if ((Number(remainder) || 0) > 0) return `${base} · ${formatHoursLabel(remainder)} left`;
+    return base;
+}
+
 function eligibilityTowardNextRows({
     historicalWorkingDays,
-    liveWorkingDays,
-    overtimeDays,
+    overallWorked = 0,
     liveEnabled,
     historicalFrom,
     historicalTo,
     liveFrom,
     liveTo,
     historicalLeave,
-    attendanceLeave,
     reservedDays,
     reservedCount,
     cycleDays,
@@ -244,20 +284,11 @@ function eligibilityTowardNextRows({
     ];
     if (liveEnabled) {
         rows.push({
-            key: 'live-wd',
+            key: 'live-overall',
             date: liveDate,
-            type: 'Working days since VERP start',
-            count: Number(liveWorkingDays) || 0,
+            type: 'Overall worked',
+            count: Number(overallWorked) || 0,
         });
-        const otDays = Number(overtimeDays) || 0;
-        if (otDays > 0) {
-            rows.push({
-                key: 'live-ot',
-                date: liveDate,
-                type: 'Overtime days',
-                count: otDays,
-            });
-        }
     }
     rows.push({
         key: 'hist-leave',
@@ -265,14 +296,6 @@ function eligibilityTowardNextRows({
         type: 'Historical leave deduction',
         count: -(Number(historicalLeave) || 0),
     });
-    if (liveEnabled) {
-        rows.push({
-            key: 'att-leave',
-            date: liveDate,
-            type: 'Attendance leave (policy)',
-            count: -(Number(attendanceLeave) || 0),
-        });
-    }
     if (Number(reservedCount) > 0) {
         rows.push({
             key: 'reserved',
@@ -3698,34 +3721,47 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const liveOvertimeDays = overtimeHoursToDays(liveOvertimeHours);
     const liveOvertimeRemainderHours = overtimeHoursRemainder(liveOvertimeHours);
     const liveScheduledWorkingDays = Number(data?.liveAttendance?.scheduledWorkingDays) || 0;
+    const liveScheduledDates = Array.isArray(data?.liveAttendance?.scheduledWorkingDates)
+        ? data.liveAttendance.scheduledWorkingDates
+        : [];
+    const livePresentDates = Array.isArray(data?.liveAttendance?.presentWorkingDates)
+        ? data.liveAttendance.presentWorkingDates
+        : [];
+    const liveCompOffRecords = data?.liveAttendance?.showOvertime && Array.isArray(data?.liveAttendance?.compOffRecords)
+        ? data.liveAttendance.compOffRecords
+        : [];
     const liveHolidayDays = Number(data?.liveAttendance?.holidayDays) || 0;
     const liveWeeklyOffDays = Number(data?.liveAttendance?.weeklyOffDays) || 0;
     const liveHolidaysAndWeekOff = liveHolidayDays + liveWeeklyOffDays;
     const liveCompOffDays = data?.liveAttendance?.showOvertime
-        ? Number(data?.liveAttendance?.compOffDays) || 0
+        ? liveCompOffRecords.length || Number(data?.liveAttendance?.compOffDays) || 0
         : 0;
-    const livePresentDays = Number(data?.liveAttendance?.workingDays) || 0;
-    const liveWorkedDays = Math.max(0, livePresentDays - liveCompOffDays);
-    const liveLeaveTaken = (liveLeaveRecords || []).reduce((sum, row) => {
-        const type = String(row?.leaveType || '').toLowerCase();
-        if (type === 'holiday') return sum;
-        return sum + (Number(row?.eligibleWorkingDays ?? row?.actualDays ?? row?.calendarDays) || 0);
-    }, 0);
+    const liveWorkedDays = Array.isArray(data?.liveAttendance?.presentWorkingDates)
+        ? livePresentDates.length
+        : Math.max(
+            0,
+            (Number(data?.liveAttendance?.workingDays) || 0) -
+                (data?.liveAttendance?.showOvertime ? Number(data?.liveAttendance?.compOffDays) || 0 : 0),
+        );
+    const liveLeaveTaken = leaveTakenDayCount(liveLeaveRecords);
     const liveOvertimeDayCount = data?.liveAttendance?.showOvertime ? liveOvertimeDays : 0;
     const liveTotalWorkedDays = scheduledTotalWorkedDays({
         scheduledWorkingDays: liveScheduledWorkingDays,
         leaveTaken: liveLeaveTaken,
         compOffDays: liveCompOffDays,
+    });
+    const liveOverallWorkedDays = overallWorkedDays({
+        scheduledWorkingDays: liveScheduledWorkingDays,
+        leaveTaken: liveLeaveTaken,
+        compOffDays: liveCompOffDays,
         overtimeDays: liveOvertimeDayCount,
     });
-    const livePresentDayCount = liveTotalWorkedDays;
+    const liveAttendanceEnabled = Boolean(data?.liveAttendance?.enabled);
     const calc = calculateHistoricalEligibility({
         workingDays:
-            (Number(data?.workingDays) || 0) +
-            (Number(data?.liveAttendance?.workingDays) || 0) +
-            liveOvertimeDays,
+            (Number(data?.workingDays) || 0) + (liveAttendanceEnabled ? liveOverallWorkedDays : 0),
         calendarDays: Number(data?.calendarDays) || 0,
-        leaveRecords: [...(splitLeave.leaveRecords || []), ...liveLeaveRecords],
+        leaveRecords: splitLeave.leaveRecords,
         annualLeaveRecords: splitLeave.annualLeaveRecords,
         paymentCycles,
         cycleDays,
@@ -3733,7 +3769,17 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     });
     const attendanceLeaveDeduction = Math.max(
         0,
-        (Number(calc.totalLeaveDeduction) || 0) - (Number(historicalCalc.totalLeaveDeduction) || 0),
+        Number(
+            calculateHistoricalEligibility({
+                workingDays: 0,
+                calendarDays: 0,
+                leaveRecords: liveLeaveRecords,
+                annualLeaveRecords: [],
+                paymentCycles: [],
+                cycleDays,
+                leaveMultipliers,
+            }).totalLeaveDeduction,
+        ) || 0,
     );
     const annualLeaveHistory = useMemo(
         () => [
@@ -3778,21 +3824,18 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         ],
         ticketRate,
     });
-    const liveAttendanceEnabled = Boolean(data?.liveAttendance?.enabled);
     const reservedLeaveDays =
         Number(leaveSalaryEntitlement.availableEntitlements) *
         Number(leaveSalaryEntitlement.requiredDaysPerEntitlement || 0);
     const towardNextRows = eligibilityTowardNextRows({
         historicalWorkingDays: historicalCalc.workingDays,
-        liveWorkingDays: Number(data?.liveAttendance?.workingDays) || 0,
-        overtimeDays: liveOvertimeDays,
+        overallWorked: liveOverallWorkedDays,
         liveEnabled: liveAttendanceEnabled,
         historicalFrom: data?.historicalFrom || joiningDate,
         historicalTo: data?.historicalTo || historicalTo,
         liveFrom: data?.liveAttendance?.from || toMonthStartDate(verpStartDate),
         liveTo: data?.liveAttendance?.to || '',
         historicalLeave: historicalCalc.totalLeaveDeduction,
-        attendanceLeave: attendanceLeaveDeduction,
         reservedDays: reservedLeaveDays,
         reservedCount: leaveSalaryEntitlement.availableEntitlements,
         cycleDays: leaveSalaryEntitlement.requiredDaysPerEntitlement,
@@ -3801,10 +3844,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         towardNextRows,
         leaveSalaryEntitlement.remainingDays,
     );
-    const livePeriodBalance =
-        (Number(data?.liveAttendance?.workingDays) || 0) +
-        liveOvertimeDays -
-        (Number(attendanceLeaveDeduction) || 0);
     const leaveSalaryPaid = cycleLeaveSalaryPaid(paymentCycles);
     const ticketPaid = cycleTicketPaid(paymentCycles);
     const leaveSalaryPayable = Number(leaveSalaryEntitlement.totalLeaveSalary) || 0;
@@ -3928,23 +3967,64 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         });
     }
 
-    function openLiveWorkingDaysDetail() {
+    function liveRangeSubtitle() {
         const from = data?.liveAttendance?.from || toMonthStartDate(verpStartDate);
         const to = data?.liveAttendance?.to || '';
-        const count = Number(data?.liveAttendance?.workingDays) || 0;
+        return from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from);
+    }
+
+    function openLiveScheduleDetail() {
         setEligibilityDetail({
-            title: 'Present working days',
-            subtitle: from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from),
-            rows: [
-                {
-                    key: 'live-working',
-                    date: from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from) || '—',
-                    type: 'Present days',
-                    count,
-                },
-            ],
-            total: count,
+            title: 'Total working days',
+            subtitle: `${liveRangeSubtitle()}. Days this group has to work.`,
+            rows: dateCountRows(liveScheduledDates, 'Working day'),
+            total: liveScheduledWorkingDays,
             totalLabel: 'Working days',
+        });
+    }
+
+    function openLivePresentDetail() {
+        setEligibilityDetail({
+            title: 'Days marked present',
+            subtitle: `${liveRangeSubtitle()}. Scheduled working days marked present. Holiday and weekly off work is not included.`,
+            rows: dateCountRows(livePresentDates, 'Present'),
+            total: liveWorkedDays,
+            totalLabel: 'Present days',
+        });
+    }
+
+    function openLiveCompOffDetail() {
+        setEligibilityDetail({
+            title: 'Comp off work days',
+            subtitle: `${liveRangeSubtitle()}. Only a next day that was marked.`,
+            rows: liveCompOffRecords.map((row, index) => ({
+                key: `comp-${row.date || index}`,
+                date: prettyDate(row.date),
+                type: row.sourceDate ? `From ${prettyDate(row.sourceDate)}` : 'Comp off',
+                count: 1,
+            })),
+            total: liveCompOffDays,
+            totalLabel: 'Comp off days',
+        });
+    }
+
+    function openLiveFormulaDetail(title, total) {
+        const rows = [
+            ...dateCountRows(liveScheduledDates, 'Working day'),
+            ...liveLeaveCountRows(liveLeaveRecords, { signed: true }),
+            ...liveCompOffRecords.map((row, index) => ({
+                key: `formula-comp-${row.date || index}`,
+                date: prettyDate(row.date),
+                type: row.sourceDate ? `Comp off from ${prettyDate(row.sourceDate)}` : 'Comp off',
+                count: 1,
+            })),
+        ];
+        setEligibilityDetail({
+            title,
+            subtitle: `${liveRangeSubtitle()}. Total worked = total working days − leave taken + comp off work days.`,
+            rows,
+            total,
+            totalLabel: 'Days',
         });
     }
 
@@ -3963,17 +4043,13 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     }
 
     function openAttendanceLeaveDetail() {
-        const rows = eligibilityLeaveDetailRows(liveLeaveRecords);
+        const rows = liveLeaveCountRows(liveLeaveRecords);
         setEligibilityDetail({
-            title: 'Attendance leave (policy)',
-            subtitle: data?.liveAttendance?.from
-                ? `${prettyDate(data.liveAttendance.from)}${
-                      data.liveAttendance.to ? ` — ${prettyDate(data.liveAttendance.to)}` : ''
-                  }`
-                : '',
+            title: 'Leave taken',
+            subtitle: `${liveRangeSubtitle()}. Holiday dates are not included.`,
             rows,
-            total: attendanceLeaveDeduction,
-            totalLabel: 'Deduction days',
+            total: liveLeaveTaken,
+            totalLabel: 'Leave days',
             footer: portalHref ? (
                 <button
                     type="button"
@@ -4060,41 +4136,26 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         });
     }
 
-    function openLivePeriodBalanceDetail() {
+    function openLiveOverallDetail() {
         const from = data?.liveAttendance?.from || toMonthStartDate(verpStartDate);
         const to = data?.liveAttendance?.to || '';
         const date = from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from) || '—';
         setEligibilityDetail({
-            title: 'Processing period balance',
-            subtitle: date,
+            title: 'Overall worked',
+            subtitle: `${date}. Processing start through yesterday. Overall worked = total worked days + overtime days.`,
             rows: [
+                { key: 'working', date, type: 'Total working days', count: liveScheduledWorkingDays },
+                { key: 'leave', date, type: 'Leave taken', count: -liveLeaveTaken },
+                { key: 'comp', date, type: 'Comp off work days', count: liveCompOffDays },
                 {
-                    key: 'live-wd',
+                    key: 'ot',
                     date,
-                    type: 'Working days',
-                    count: Number(data?.liveAttendance?.workingDays) || 0,
-                },
-                {
-                    key: 'live-ot-days',
-                    date,
-                    type: 'Overtime days',
-                    count: liveOvertimeDays,
-                },
-                {
-                    key: 'live-ot-hours',
-                    date,
-                    type: `Overtime hours (${OVERTIME_HOURS_PER_DAY} hr = 1 day)`,
-                    count: liveOvertimeHours,
-                },
-                {
-                    key: 'live-leave',
-                    date,
-                    type: 'Leave',
-                    count: -(Number(attendanceLeaveDeduction) || 0),
+                    type: `Overtime (${formatOvertimeValue(liveOvertimeHours, liveOvertimeDayCount, liveOvertimeRemainderHours)})`,
+                    count: liveOvertimeDayCount,
                 },
             ],
-            total: livePeriodBalance,
-            totalLabel: 'Period balance',
+            total: liveOverallWorkedDays,
+            totalLabel: 'Overall worked',
         });
     }
     const displayName = emp?.name ? toTitleName(emp.name) : employeeId;
@@ -5265,17 +5326,19 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             label="Total working days"
                                                             hint="Days this group has to work"
                                                             value={liveScheduledWorkingDays}
-                                                            onClick={openLiveWorkingDaysDetail}
+                                                            onClick={openLiveScheduleDetail}
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Total worked days"
-                                                            hint="Days marked present"
+                                                            hint="Scheduled working days marked present"
                                                             value={liveWorkedDays}
+                                                            onClick={openLivePresentDetail}
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Comp off work days"
-                                                            hint={data?.liveAttendance?.showOvertime ? 'Next day added' : 'Scheduled group'}
+                                                            hint={data?.liveAttendance?.showOvertime ? 'Next day marked' : 'Scheduled group'}
                                                             value={liveCompOffDays}
+                                                            onClick={openLiveCompOffDetail}
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Leave taken"
@@ -5286,27 +5349,33 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Total worked days"
-                                                            hint={`${liveScheduledWorkingDays} − (${liveLeaveTaken} − ${liveCompOffDays} − ${liveOvertimeDayCount})`}
+                                                            hint={`${liveScheduledWorkingDays} − ${liveLeaveTaken} + ${liveCompOffDays}`}
                                                             value={liveTotalWorkedDays}
                                                             strong
                                                             danger={liveTotalWorkedDays < 0}
+                                                            onClick={() => openLiveFormulaDetail('Total worked days', liveTotalWorkedDays)}
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Overtime hours"
-                                                            hint={data?.liveAttendance?.showOvertime ? '10 hours = 1 day. Comp off hours are not included' : 'Scheduled group'}
+                                                            hint="10 hours = 1 day. 20 hours = 2 days. 27 hours = 2 days"
                                                             value={
                                                                 data?.liveAttendance?.showOvertime
-                                                                    ? `${formatHoursLabel(liveOvertimeHours)} (${formatDayCount(liveOvertimeDayCount)})`
-                                                                    : `0 h (${formatDayCount(0)})`
+                                                                    ? formatOvertimeValue(
+                                                                          liveOvertimeHours,
+                                                                          liveOvertimeDayCount,
+                                                                          liveOvertimeRemainderHours,
+                                                                      )
+                                                                    : formatOvertimeValue(0, 0, 0)
                                                             }
-                                                            onClick={data?.liveAttendance?.showOvertime ? openLiveOvertimeHoursDetail : undefined}
+                                                            onClick={openLiveOvertimeHoursDetail}
                                                         />
                                                         <EligibilityCalcRow
-                                                            label="Present day count"
-                                                            hint="Comp off and overtime are already included"
-                                                            value={livePresentDayCount}
+                                                            label="Overall worked"
+                                                            hint={`${liveTotalWorkedDays} + ${liveOvertimeDayCount}`}
+                                                            value={liveOverallWorkedDays}
                                                             strong
-                                                            danger={livePresentDayCount < 0}
+                                                            danger={liveOverallWorkedDays < 0}
+                                                            onClick={openLiveOverallDetail}
                                                         />
                                                     </div>
                                                 </div>
@@ -5320,7 +5389,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 />
                                                 <p className="text-[9px] font-normal leading-[18px] text-[#6F7C8F]">
                                                     {data?.liveAttendance?.enabled
-                                                        ? `Counted from the processing date through yesterday. Today is not included. Total working days are the days this group has to work. The first total worked days are the days marked present, without the added comp-off days. Comp off work days are next days that were added and are still present. Leave taken is the loss in that range. Total worked days = total working days − (leave taken − comp off days − overtime days). Leave is taken off the days this group has to work, not off the days already marked present. Every 10 overtime hours count as 1 day. Those overtime days and comp off days reduce the leave before it is subtracted. Present day count is that total worked figure. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
+                                                        ? `Counted from the processing date through yesterday. Today is not included. Click a count to see its days. Total working days are the days this group has to work. Days marked present are those working days with a present mark. Holiday and weekly off work is not included there. If that day has a marked comp off next day, it shows as one comp off day. If it has approved overtime and no marked next day, it shows in overtime. Total worked days = total working days − leave taken + comp off work days. Every 10 overtime hours count as 1 day, so 10 hours is 1 day, 20 hours is 2 days, and 27 hours is 2 days. Overall worked = total worked days + those overtime days. That overall figure, from the processing date through yesterday, is what this live period adds toward the next entitlement. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
                                                         : `Earned eligible balance uses historical working days minus leave deductions. Historical overtime is already in those working days. After the VERP processing date is reached, this card shows required working days, approved comp off and overtime, leave taken, holidays and weekly off, and actual worked days.`}
                                                 </p>
                                             </div>
