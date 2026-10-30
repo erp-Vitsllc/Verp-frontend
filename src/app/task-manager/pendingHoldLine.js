@@ -57,9 +57,13 @@ function currentStep(steps) {
 /**
  * Sentence shown after the task number and status while the task is still open.
  * Example: "Task pending Admin Approval with Raseel Muhammad".
+ * A completed or closed task does not show this line.
  */
-export function pendingHold({ status, steps, assigneeName } = {}) {
-    if (!isWaitingTaskStatus(status)) return null;
+export function pendingHold({ status, steps, assigneeName, finished = false } = {}) {
+    if (finished) return null;
+    const label = String(status || '').trim();
+    if (label === 'Closed' || label === 'Completed' || label === 'Approved') return null;
+    if (!isWaitingTaskStatus(label)) return null;
     if (steps == null) return null;
     const step = currentStep(steps);
     const name = String(step?.personName || assigneeName || '').trim();

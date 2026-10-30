@@ -576,16 +576,16 @@ function TaskDetailsPage() {
     const openSource = (event, path) => handleNavigateFromTaskSectionClick(event, router, path);
     const nameLines = taskNameLines(task);
     const shownStatus = statusLabel(task.displayStatus || task.status);
-    const pendingWith = pendingHold({
+    const generalClosed = task.taskCategory === 'General Task' && (task.displayStatus === 'Closed' || task.status === 'Completed');
+    const taskFinished = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.status === 'Cancelled' || task.status === 'Rejected' || task.closeScheduled || task.completionPending || task.reviewPending;
+    const pendingWith = taskFinished ? null : pendingHold({
         status: shownStatus,
         steps: workflowSteps,
         assigneeName: task.reassignedAssigneeName || task.assigneeName || '',
     });
-    const generalClosed = task.taskCategory === 'General Task' && (task.displayStatus === 'Closed' || task.status === 'Completed');
-    const taskFinished = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.closeScheduled;
     const updates = Array.isArray(task.updates) ? task.updates : [];
     const comments = Array.isArray(task.comments) ? task.comments : [];
-    const number = taskNumber || task.taskNumber || '';
+    const number = task.taskNumber || taskNumber || '';
     const sentEmails = Array.isArray(task.emails) ? task.emails : [];
     const updateMails = sentEmails.length ? [] : [
         ...updates.filter((item) => item.emailSent).map((item) => ({ ...item, channel: 'Task updated' })),

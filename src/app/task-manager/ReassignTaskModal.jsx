@@ -8,7 +8,6 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
     const [employees, setEmployees] = useState([]);
     const [assigneeId, setAssigneeId] = useState('');
     const [reason, setReason] = useState('');
-    const [notifyRequester, setNotifyRequester] = useState(true);
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [pickerOpen, setPickerOpen] = useState(false);
@@ -68,7 +67,6 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
                     assigneeId,
                     reason: reason.trim(),
                     notifyAssignee: true,
-                    notifyRequester,
                 },
                 { skipToast: true },
             );
@@ -173,10 +171,6 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
                         />
                     </label>
                     <p className="text-xs text-slate-500">The new assignee receives this description by email.</p>
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
-                        <input type="checkbox" checked={notifyRequester} onChange={(event) => setNotifyRequester(event.target.checked)} />
-                        Notify requester{task.requesterName ? ` (${task.requesterName})` : ''}
-                    </label>
                     {error && <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
                 </div>
                 <div className="flex justify-end gap-3 border-t border-slate-100 px-5 py-4">

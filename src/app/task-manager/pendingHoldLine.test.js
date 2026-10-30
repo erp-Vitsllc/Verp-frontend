@@ -63,10 +63,12 @@ describe('pending hold line', () => {
     });
 
     it('stays hidden once the task is finished', () => {
-        const steps = [{ key: 'admin', status: 'In Progress', personName: 'Vishnu Prasad', approvalTitle: 'Admin Approval' }];
+        const steps = [{ key: 'reassigned', status: 'In Progress', personName: 'Raseel Muhammad', personId: 'a1' }];
         assert.equal(pendingHold({ status: 'Completed', steps }), null);
+        assert.equal(pendingHold({ status: 'Closed', steps }), null);
         assert.equal(pendingHold({ status: 'Cancelled', steps }), null);
         assert.equal(pendingHold({ status: 'Rejected', steps }), null);
+        assert.equal(pendingHold({ status: 'Pending', steps, finished: true }), null);
         assert.equal(pendingHold({ status: 'Pending', steps: null }), null);
     });
 });
