@@ -45,6 +45,32 @@ describe('missed punch salary deduction', () => {
         assert.equal(amounts.get('2026-10-08'), 100);
     });
 
+    it('does not charge a missed punch whose loss hours were waived to zero', () => {
+        const amounts = mispunchDayAmounts(
+            [
+                { date: '2026-10-17', hourAdjustStatus: 'approved', hoursApproved: 0 },
+                { date: '2026-10-24' },
+            ],
+            { missedPunchRule: { events: 0, deduct: 'half' } },
+            387.1,
+        );
+        assert.equal(amounts.get('2026-10-17'), undefined);
+        assert.equal(amounts.get('2026-10-24'), 193.55);
+    });
+
+    it('lets the next missed punch use the free count the waived day no longer takes', () => {
+        const amounts = mispunchDayAmounts(
+            [
+                { date: '2026-10-17', hourAdjustStatus: 'approved', hoursApproved: 0 },
+                { date: '2026-10-24' },
+            ],
+            { missedPunchRule: { events: 1, deduct: 'half' } },
+            400,
+        );
+        assert.equal(amounts.has('2026-10-17'), false);
+        assert.equal(amounts.get('2026-10-24'), 0);
+    });
+
     it('starts the free count again each month', () => {
         const amounts = mispunchDayAmounts(
             [{ date: '2026-10-03' }, { date: '2026-11-02' }],

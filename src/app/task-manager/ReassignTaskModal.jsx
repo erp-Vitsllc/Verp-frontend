@@ -172,7 +172,7 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
                             className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
                         />
                     </label>
-                    <p className="text-xs text-slate-500">The previous assignee and the new assignee both receive this description by email.</p>
+                    <p className="text-xs text-slate-500">The new assignee receives this description by email.</p>
                     <label className="flex items-center gap-2 text-sm text-slate-700">
                         <input type="checkbox" checked={notifyRequester} onChange={(event) => setNotifyRequester(event.target.checked)} />
                         Notify requester{task.requesterName ? ` (${task.requesterName})` : ''}

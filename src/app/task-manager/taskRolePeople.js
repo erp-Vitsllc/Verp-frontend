@@ -28,6 +28,38 @@ export function basePersonName(value) {
     return String(value || '').trim().replace(/\s+/g, ' ').replace(/\s*\([^)]*\)\s*$/, '').trim();
 }
 
+/** First name, then the first letter of the second name. "VISHNU PRASAD" is "VISHNU P". */
+export function employeeListName(value) {
+    const name = basePersonName(value);
+    const parts = name.split(' ').filter(Boolean);
+    if (parts.length < 2) return name;
+    const letter = parts[1].replace(/[^A-Za-z]/g, '').charAt(0);
+    if (!letter) return parts[0];
+    return `${parts[0]} ${letter.toUpperCase()}`;
+}
+
+const TASK_PERSON_FIELDS = [
+    'subjectName',
+    'requesterBaseName',
+    'requesterName',
+    'assigneeName',
+    'mainAssigneeName',
+    'originalAssigneeName',
+    'reassignedAssigneeName',
+];
+
+/** Shorten an employee name inside the task title lines. Dates, codes, and other lines stay as they are. */
+export function listedTaskNameLines(task, lines) {
+    const people = new Set(
+        TASK_PERSON_FIELDS
+            .map((field) => personKey(basePersonName(task?.[field])))
+            .filter(Boolean),
+    );
+    return (lines || []).map((line) => (
+        people.has(personKey(basePersonName(line))) ? employeeListName(line) : line
+    ));
+}
+
 export function requesterEmployeeName(task) {
     const base = basePersonName(task?.requesterBaseName);
     if (base) return base;

@@ -587,6 +587,24 @@ export function overtimeHoursRemainder(hours) {
     return Math.round((h - days * OVERTIME_HOURS_PER_DAY) * 100) / 100;
 }
 
+/**
+ * Days actually worked in the processing window.
+ * Leave comes off the scheduled working days, not off days already marked present.
+ * Comp off days and overtime days reduce that leave first.
+ * Total worked = working days − (leave taken − comp off − overtime days).
+ */
+export function scheduledTotalWorkedDays({
+    scheduledWorkingDays = 0,
+    leaveTaken = 0,
+    compOffDays = 0,
+    overtimeDays = 0,
+} = {}) {
+    const working = Number(scheduledWorkingDays) || 0;
+    const leave = Number(leaveTaken) || 0;
+    const credit = (Number(compOffDays) || 0) + (Number(overtimeDays) || 0);
+    return Math.round((working - (leave - credit)) * 100) / 100;
+}
+
 export function calculateHistoricalEligibility({
     workingDays = 0,
     calendarDays = 0,

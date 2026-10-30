@@ -28,7 +28,7 @@ import { useToast } from '@/hooks/use-toast';
 import { formatCommandCenterNotificationMessage } from '@/utils/dashboardCommandCenterInbox';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
-import { basePersonName, personKey, requesterEmployeeName, taskRolePeople } from '@/app/task-manager/taskRolePeople';
+import { basePersonName, employeeListName, listedTaskNameLines, personKey, requesterEmployeeName, taskRolePeople } from '@/app/task-manager/taskRolePeople';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
 import { refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
@@ -408,11 +408,12 @@ function notificationTitle(task) {
 
 function TaskNameList({ task, title }) {
     const lines = taskNameLines(task, title);
+    const shown = listedTaskNameLines(task, lines);
     return (
         <div title={lines.join('\n')}>
-            <p className="text-[13px] font-semibold leading-5 text-slate-800 break-words">{lines[0]}</p>
-            {lines.slice(1).map((line) => (
-                <p key={line} className="text-[12px] leading-4 text-slate-500 break-words">{line}</p>
+            <p className="text-[13px] font-semibold leading-5 text-slate-800 break-words">{shown[0]}</p>
+            {shown.slice(1).map((line, index) => (
+                <p key={`${lines[index + 1]}-${index}`} className="text-[12px] leading-4 text-slate-500 break-words">{line}</p>
             ))}
         </div>
     );
@@ -467,10 +468,11 @@ function AssigneeCell({ task }) {
 
 function PersonCell({ name, photo, hint }) {
     const [failed, setFailed] = useState(false);
-    const label = name || '—';
+    const full = name || '—';
+    const label = name ? employeeListName(name) : '—';
     const src = toNextImageProfileSrc(photo);
     return (
-        <div className="flex items-center gap-2.5 min-w-0" title={hint || label}>
+        <div className="flex items-center gap-2.5 min-w-0" title={hint || full}>
             {src && !failed ? (
                 <img
                     src={src}
@@ -481,9 +483,9 @@ function PersonCell({ name, photo, hint }) {
             ) : (
                 <span
                     className="h-8 w-8 rounded-full shrink-0 text-white text-[11px] font-semibold flex items-center justify-center"
-                    style={{ backgroundColor: colorFor(label) }}
+                    style={{ backgroundColor: colorFor(full) }}
                 >
-                    {initials(label)}
+                    {initials(full)}
                 </span>
             )}
             <span className="truncate text-[13px] font-medium text-slate-700">{label}</span>

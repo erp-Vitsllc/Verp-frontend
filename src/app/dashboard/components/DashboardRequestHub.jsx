@@ -838,6 +838,7 @@ export default function DashboardRequestHub() {
                             ? annualEligibleOn
                             : leaveEarliestDate
                     }
+                    employeeId={leaveVariant === 'annual' ? leaveSelfId : ''}
                     eligibilityNote={leaveVariant === 'annual' ? annualEligibilityNote : ''}
                     onEligibilityNoteClick={
                         leaveVariant === 'annual' && annualBlockers.length

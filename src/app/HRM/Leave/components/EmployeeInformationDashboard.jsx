@@ -68,7 +68,7 @@ import {
 } from '../utils/weeklySalaryAddition';
 import { employeePendingRequests } from '../utils/pendingCalendarDays';
 import { punchAttendanceKind } from '../utils/punchAttendanceKind';
-import { mispunchDayAmounts, mispunchPolicyRule } from '../utils/mispunchDeduction';
+import { isChargeableMispunch, mispunchDayAmounts, mispunchPolicyRule } from '../utils/mispunchDeduction';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -1371,6 +1371,8 @@ function attendanceDeductionAmount(record, week, daily, policy, mispunchAmounts)
     const authTimes = policy?.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
     const unauthTimes = policy?.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
     if (key === 'mispunch') {
+        const hoursWaived = String(record?.hourAdjustStatus || '') === 'approved' && !(n(record?.hoursApproved) > 0);
+        if (hoursWaived) return 0;
         return money2(mispunchAmounts?.get(String(record?.date || '')) || 0);
     }
     if (key === 'early_go' || key === 'late_arrived') {
@@ -3946,6 +3948,9 @@ export default function EmployeeInformationDashboard({
             return sum + attendanceDeductionAmount(row, scheduleWeek, daily, policy) * share;
         }, 0);
         const punchCountOf = (kind) => countedRecords.filter((row) => punchShare(row, kind) > 0).length;
+        const missedPunchCount = countedRecords.filter(
+            (row) => deductionKind(row) === 'mispunch' && isChargeableMispunch(row),
+        ).length;
         const punchAmount = money2([...mispunchAmounts.values()].reduce((sum, amount) => sum + amount, 0));
         const dayRate = formatAed(daily, 2);
         const hourNote = isFlexibleWeek(scheduleWeek)
@@ -3971,9 +3976,9 @@ export default function EmployeeInformationDashboard({
             {
                 key: 'mispunch',
                 type: 'Missed punch',
-                count: punchCountOf('mispunch'),
+                count: missedPunchCount,
                 amount: punchAmount,
-                note: eventPolicyNote(punchCountOf('mispunch'), missedRule, daily),
+                note: eventPolicyNote(missedPunchCount, missedRule, daily),
             },
             {
                 key: 'on_leave',

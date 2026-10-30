@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Paperclip, X } from 'lucide-react';
+import { DatePicker } from '@/components/ui/date-picker';
+import axiosInstance from '@/utils/axios';
 import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, readErpFileAsDataUrl, validateErpUploadFile } from '@/utils/uploadFileTypes';
+import { buildAnnualLeaveShade, describeAnnualLeaveRange, formatLeaveDate } from '@/app/HRM/Leave/utils/annualLeaveShade';
+import { LeaveShadeLegend } from '@/app/HRM/Leave/utils/LeaveShadeLegend';
+import { indexLeaveSalaryVisibility, processingStartForEmployee } from '@/app/HRM/Leave/utils/leaveSalaryVisibility';
 
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
@@ -31,6 +36,12 @@ function nextDateKey(dateKey) {
     const [year, month, day] = String(dateKey).split('-').map(Number);
     const dt = new Date(Date.UTC(year, month - 1, day + 1, 12, 0, 0));
     return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
+
+function dateKeyToLocalDate(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
+    const [year, month, day] = String(value).split('-').map(Number);
+    return new Date(year, month - 1, day);
 }
 
 function formatDisplayDate(dateKey) {
@@ -168,6 +179,7 @@ export default function AttendanceFutureRequestModal({
     heading = 'Request for a future day',
     eligibilityNote = '',
     onEligibilityNoteClick = null,
+    employeeId = '',
     eyebrow = '',
     icon = null,
     onClose,
@@ -185,11 +197,9 @@ export default function AttendanceFutureRequestModal({
     const todayKey = dubaiTodayKey();
     const currentMonth = todayKey.slice(0, 7);
     const isAuthorizedLeave = !isAnnualLeave && !isSickLeave && !isMispunch && !isFuturePunch;
-    const minimumDate = isMispunch || isAuthorizedLeave || isSickLeave || isFuturePunch
+    const minimumDate = isAnnualLeave || isMispunch || isAuthorizedLeave || isSickLeave || isFuturePunch
         ? ''
-        : isAnnualLeave
-          ? earliestDate || ''
-          : laterDateKey(earliestDate, dayAfterTomorrow);
+        : laterDateKey(earliestDate, dayAfterTomorrow);
     const [fromDate, setFromDate] = useState(dateKey || '');
     const [toDate, setToDate] = useState(dateKey || '');
     const [leaveDuration, setLeaveDuration] = useState('');
@@ -198,6 +208,9 @@ export default function AttendanceFutureRequestModal({
     const [reason, setReason] = useState('');
     const [attachment, setAttachment] = useState(null);
     const [localError, setLocalError] = useState('');
+    const [annualEligibility, setAnnualEligibility] = useState(null);
+    const [annualLoading, setAnnualLoading] = useState(false);
+    const [processingStart, setProcessingStart] = useState('');
     const isPreviousDate = isAuthorizedLeave && leaveDuration === 'previous';
     const usesDateList = isMispunch || isPreviousDate || isSickLeave;
 
@@ -287,6 +300,95 @@ export default function AttendanceFutureRequestModal({
         if (isAnnualLeave && dayPart !== 'full') setDayPart('full');
     }, [isAnnualLeave, dayPart]);
 
+    useEffect(() => {
+        if (!isOpen || !isAnnualLeave || !employeeId) {
+            setProcessingStart('');
+            return undefined;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const response = await axiosInstance.get('/Leave/salary-visibility', { skipToast: true });
+                if (cancelled) return;
+                const items = Array.isArray(response.data?.items) ? response.data.items : [];
+                setProcessingStart(processingStartForEmployee(indexLeaveSalaryVisibility(items), employeeId, ''));
+            } catch {
+                if (!cancelled) setProcessingStart('');
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, isAnnualLeave, employeeId]);
+
+    useEffect(() => {
+        if (!isOpen || !isAnnualLeave || !employeeId) {
+            setAnnualEligibility(null);
+            return undefined;
+        }
+        let cancelled = false;
+        setAnnualLoading(true);
+        (async () => {
+            try {
+                const { data } = await axiosInstance.get(
+                    `/Leave/employees/${employeeId}/annual-eligibility`,
+                    {
+                        skipToast: true,
+                        params: fromDate && toDate ? { from: fromDate, to: toDate } : {},
+                    },
+                );
+                if (cancelled) return;
+                setAnnualEligibility({
+                    allowance: data?.allowance && typeof data.allowance === 'object' ? data.allowance : null,
+                    calendar: data?.calendar && typeof data.calendar === 'object' ? data.calendar : null,
+                    selectionMessage: String(data?.selectionMessage || ''),
+                });
+            } catch {
+                if (!cancelled) setAnnualEligibility(null);
+            } finally {
+                if (!cancelled) setAnnualLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, isAnnualLeave, employeeId, fromDate, toDate]);
+
+    const annualShade = useMemo(() => {
+        if (!isAnnualLeave || !annualEligibility?.calendar) return null;
+        return buildAnnualLeaveShade(annualEligibility.calendar, { processingStart });
+    }, [isAnnualLeave, annualEligibility, processingStart]);
+
+    const annualRangeIssue = annualShade
+        ? describeAnnualLeaveRange({
+            calendar: annualEligibility?.calendar,
+            from: fromDate,
+            to: toDate,
+            processingStart,
+        })
+        : '';
+    const annualFetchedIssue = annualShade && fromDate && toDate && !annualRangeIssue
+        ? String(annualEligibility?.selectionMessage || '')
+        : '';
+    const annualNotice = annualShade && !annualRangeIssue && !annualFetchedIssue && (!fromDate || !toDate)
+        ? String(annualEligibility?.calendar?.notice || '')
+        : '';
+    const annualRed = annualRangeIssue || annualFetchedIssue || annualNotice;
+    const annualNoOpen = Boolean(annualShade && !(annualEligibility?.calendar?.openSpans || []).length);
+    const annualBlocked = Boolean(annualShade && (annualRangeIssue || annualFetchedIssue || annualNoOpen));
+    const annualWindow = annualEligibility?.allowance?.active || null;
+
+    useEffect(() => {
+        if (!isOpen || !annualShade?.disableDate) return;
+        const blocked = (value) => {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
+            const [year, month, day] = String(value).split('-').map(Number);
+            return annualShade.disableDate(new Date(year, month - 1, day));
+        };
+        setFromDate((current) => (blocked(current) ? '' : current));
+        setToDate((current) => (blocked(current) ? '' : current));
+    }, [isOpen, employeeId, annualShade]);
+
     if (!isOpen) return null;
 
     const isPartial = !isAnnualLeave && leaveDuration === 'single' && (dayPart === 'half' || dayPart === 'quarter');
@@ -320,7 +422,9 @@ export default function AttendanceFutureRequestModal({
                 : dayPart === 'quarter' && leaveDuration === 'single'
                   ? 'Quarter day leave'
                   : 'Authorized Leave';
-    const durationName = isMispunch
+    const durationName = isAnnualLeave
+        ? 'Annual leave request'
+        : isMispunch
         ? 'Mispunch request'
         : isSickLeave
           ? 'Sick leave request'
@@ -405,8 +509,12 @@ export default function AttendanceFutureRequestModal({
             setLocalError('Mispunch can only be requested for today or a past day.');
             return;
         }
-        if (!isMispunch && !isFuturePunch && !isAuthorizedLeave && !isSickLeave && minimumDate && fromDate < minimumDate) {
+        if (!isMispunch && !isFuturePunch && !isAuthorizedLeave && !isSickLeave && !isAnnualLeave && minimumDate && fromDate < minimumDate) {
             setLocalError(`The earliest date you can request is ${minimumDate}.`);
+            return;
+        }
+        if (isAnnualLeave && (annualBlocked || annualLoading || !annualShade)) {
+            setLocalError(annualRed || 'Choose dates on the open annual leave calendar.');
             return;
         }
         const effectiveDayPart = isMultiDay || isAnnualLeave || isSickLeave || isSingleDate ? 'full' : dayPart;
@@ -602,6 +710,22 @@ export default function AttendanceFutureRequestModal({
                                         <option key={day} value={day}>{formatDisplayDate(day)}</option>
                                     ))}
                                 </select>
+                            ) : isAnnualLeave ? (
+                            <DatePicker
+                                value={fromDate}
+                                onChange={(value) => {
+                                    handleFromDateChange(value);
+                                    setLocalError('');
+                                }}
+                                placeholder="Start date"
+                                className="h-11 rounded-xl border-slate-200 bg-slate-50/80 text-sm"
+                                disabled={submitting || annualLoading}
+                                disabledDays={annualShade?.disableDate || undefined}
+                                modifiers={annualShade?.modifiers}
+                                modifiersStyles={annualShade?.modifiersStyles}
+                                calendarClassNames={annualShade?.calendarClassNames}
+                                footer={annualShade ? <LeaveShadeLegend className="px-1" /> : null}
+                            />
                             ) : (
                             <input
                                 type="date"
@@ -624,6 +748,26 @@ export default function AttendanceFutureRequestModal({
                         {isSingleDate || isPreviousDate || isSickLeave ? null : (
                         <label className="block">
                             <span className={labelClass}>End date</span>
+                            {isAnnualLeave ? (
+                            <DatePicker
+                                value={toDate}
+                                onChange={(value) => {
+                                    setLocalError('');
+                                    setToDate(value);
+                                    if (fromDate && value && fromDate !== value) setDayPart('full');
+                                }}
+                                placeholder="End date"
+                                className="h-11 rounded-xl border-slate-200 bg-slate-50/80 text-sm"
+                                disabled={submitting || annualLoading}
+                                disabledDays={annualShade?.disableDate
+                                    ? [annualShade.disableDate, dateKeyToLocalDate(fromDate) ? { before: dateKeyToLocalDate(fromDate) } : null].filter(Boolean)
+                                    : undefined}
+                                modifiers={annualShade?.modifiers}
+                                modifiersStyles={annualShade?.modifiersStyles}
+                                calendarClassNames={annualShade?.calendarClassNames}
+                                footer={annualShade ? <LeaveShadeLegend className="px-1" /> : null}
+                            />
+                            ) : (
                             <input
                                 type="date"
                                 value={toDate}
@@ -648,9 +792,31 @@ export default function AttendanceFutureRequestModal({
                                 disabled={submitting}
                                 className={fieldClass}
                             />
+                            )}
                         </label>
                         )}
                     </div>
+                    {isAnnualLeave && annualShade ? <LeaveShadeLegend className="mt-1" /> : null}
+                    {isAnnualLeave && annualRed ? (
+                        <p className="text-left text-[11px] font-medium leading-snug text-red-600">{annualRed}</p>
+                    ) : null}
+                    {isAnnualLeave && annualEligibility ? (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-left text-xs text-amber-950">
+                            {annualWindow ? (
+                                <p>
+                                    Open period {formatLeaveDate(annualWindow.startDate)} — {formatLeaveDate(annualWindow.endDate)}
+                                    {' · '}allowed {annualWindow.allowedDays}
+                                    {' · '}taken {annualWindow.takenDays}
+                                    {' · '}remaining {annualWindow.remainingDays}
+                                </p>
+                            ) : (
+                                <p>No open annual leave period yet. It opens when counted working days complete a cycle.</p>
+                            )}
+                        </div>
+                    ) : null}
+                    {isAnnualLeave && annualLoading && !annualEligibility ? (
+                        <p className="text-[11px] text-slate-400">Checking annual leave eligibility...</p>
+                    ) : null}
 
                     {authorizedBlock ? (
                         <p className="text-sm font-medium text-rose-600">{authorizedBlock}</p>
@@ -775,7 +941,7 @@ export default function AttendanceFutureRequestModal({
                         </button>
                         <button
                             type="submit"
-                            disabled={submitting || Boolean(authorizedBlock)}
+                            disabled={submitting || Boolean(authorizedBlock) || annualBlocked || (isAnnualLeave && annualLoading)}
                             className="flex-1 h-11 rounded-xl text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50"
                         >
                             {submitting ? 'Sending…' : 'Send to reportee'}

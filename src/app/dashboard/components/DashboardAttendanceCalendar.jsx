@@ -1393,6 +1393,7 @@ export default function DashboardAttendanceCalendar({
                         ? annualFloor.date
                         : earliestFutureDate || ''
                 }
+                employeeId={dayRequest?.variant === 'annual' ? selfEmployeeId : ''}
                 eligibilityNote={dayRequest?.variant === 'annual' ? annualFloor.note : ''}
                 onEligibilityNoteClick={
                     dayRequest?.variant === 'annual' && annualFloor.blockers?.length

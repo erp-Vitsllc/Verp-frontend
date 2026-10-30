@@ -27,6 +27,7 @@ import { useListReturnBack } from '@/hooks/useListReturnBack';
 import { useRegisterErpBackHandler } from '@/contexts/ErpBackHandlerContext';
 import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
+import { pendingHold } from '@/app/task-manager/pendingHoldLine';
 import { refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
 
@@ -247,6 +248,7 @@ function TaskDetailsPage() {
     const [taskNumber, setTaskNumber] = useState('');
     const [tab, setTab] = useState('overview');
     const [task, setTask] = useState(null);
+    const [workflowSteps, setWorkflowSteps] = useState(null);
     const [error, setError] = useState('');
     const [editOpen, setEditOpen] = useState(false);
     const [reassignOpen, setReassignOpen] = useState(false);
@@ -259,10 +261,16 @@ function TaskDetailsPage() {
     const [sourceBlock, setSourceBlock] = useState(null);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
+    const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
 
     const load = useCallback(async () => {
+        const workflowRequest = axiosInstance
+            .get(`/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/workflow`, { skipToast: true })
+            .catch(() => null);
         const res = await axiosInstance.get(`/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}`, { skipToast: true });
+        const workflowRes = await workflowRequest;
         setTask(res.data?.task || null);
+        setWorkflowSteps(Array.isArray(workflowRes?.data?.steps) ? workflowRes.data.steps : []);
         setSourceBlock(null);
     }, [taskKey]);
 
@@ -283,6 +291,7 @@ function TaskDetailsPage() {
     useEffect(() => {
         let cancelled = false;
         setError('');
+        setWorkflowSteps(null);
         load().catch((err) => {
             if (!cancelled) setError(err?.response?.data?.message || 'Could not load this task.');
         });
@@ -389,18 +398,22 @@ function TaskDetailsPage() {
             ? 'return'
             : action === 'reject'
                 ? 'status'
-                : action === 'complete' || action === 'general-complete' || action === 'close-now' || action === 'hand-back'
-                    ? 'completion'
-                    : action === 'general-reject'
-                        ? 'review'
-                        : action === 'reopen'
-                            ? 'reopen'
-                            : 'confirm-completion';
+                : action === 'reject-completion'
+                    ? 'confirm-completion'
+                    : action === 'complete' || action === 'general-complete' || action === 'close-now' || action === 'hand-back'
+                        ? 'completion'
+                        : action === 'general-reject'
+                            ? 'review'
+                            : action === 'reopen'
+                                ? 'reopen'
+                                : 'confirm-completion';
         const body = action === 'general-reject'
             ? { decision: 'reject', description }
-            : action === 'reject'
-                ? { status: 'Rejected', description }
-                : { description };
+            : action === 'reject-completion'
+                ? { decision: 'reject', description }
+                : action === 'reject'
+                    ? { status: 'Rejected', description }
+                    : { description };
         setBusy(true);
         try {
             const res = await axiosInstance.post(
@@ -414,7 +427,7 @@ function TaskDetailsPage() {
             toast({
                 title: action === 'return'
                     ? 'Task returned'
-                    : action === 'reject' || action === 'general-reject'
+                    : action === 'reject' || action === 'general-reject' || action === 'reject-completion'
                         ? 'Task rejected'
                         : action === 'reopen'
                             ? 'Task reopened'
@@ -425,7 +438,7 @@ function TaskDetailsPage() {
                                     : action === 'general-complete'
                                         ? 'Sent for review'
                                         : action === 'complete'
-                                            ? 'Sent for confirmation'
+                                            ? 'Sent for approval'
                                             : 'Task closed',
                 description: res.data?.message || 'Updated.',
             });
@@ -451,6 +464,45 @@ function TaskDetailsPage() {
             toast({ title: 'Task reopened', description: res.data?.message || 'The task is open again.' });
         } catch (err) {
             toast({ title: 'Could not reopen the task', description: err?.response?.data?.message || 'Try again.' });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const approveCompletion = async () => {
+        setBusy(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/confirm-completion`,
+                { decision: 'approve' },
+                { skipToast: true },
+            );
+            setTask(res.data?.task || null);
+            setTab('updates');
+            toast({ title: 'Approved', description: res.data?.message || 'The reassigned employee is no longer an assignee.' });
+        } catch (err) {
+            toast({ title: 'Could not approve', description: err?.response?.data?.message || 'Try again.' });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const confirmCloseTask = async () => {
+        setBusy(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/completion`,
+                { confirmClose: true },
+                { skipToast: true },
+            );
+            setTask(res.data?.task || null);
+            setConfirmCloseOpen(false);
+            setTab('updates');
+            toast({ title: 'Task closed', description: res.data?.message || 'The requester was emailed.' });
+        } catch (err) {
+            const pending = pendingFromError(err, task?.accessPath);
+            if (pending) setSourceBlock(pending);
+            toast({ title: 'Could not close the task', description: err?.response?.data?.message || 'Try again.' });
         } finally {
             setBusy(false);
         }
@@ -509,13 +561,26 @@ function TaskDetailsPage() {
     }
 
     const notes = task.notifications || { workUpdate: true, comment: true };
-    const sourceNotice = sourceBlock || (task.sourcePending ? {
-        message: task.sourcePendingMessage,
-        link: task.sourceLink || task.accessPath || '',
-    } : null);
+    const generalTask = task.taskCategory === 'General Task';
+    const sourceApplies = !generalTask && (
+        task.taskCategory === 'Workflow Task'
+        || task.taskCategory === 'Work Flow Task'
+        || task.taskCategory === 'System Task'
+    );
+    const sourceNotice = sourceApplies
+        ? (sourceBlock || (task.sourcePending ? {
+            message: task.sourcePendingMessage,
+            link: task.sourceLink || task.accessPath || '',
+        } : null))
+        : null;
     const openSource = (event, path) => handleNavigateFromTaskSectionClick(event, router, path);
     const nameLines = taskNameLines(task);
     const shownStatus = statusLabel(task.displayStatus || task.status);
+    const pendingWith = pendingHold({
+        status: shownStatus,
+        steps: workflowSteps,
+        assigneeName: task.reassignedAssigneeName || task.assigneeName || '',
+    });
     const generalClosed = task.taskCategory === 'General Task' && (task.displayStatus === 'Closed' || task.status === 'Completed');
     const taskFinished = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.closeScheduled;
     const updates = Array.isArray(task.updates) ? task.updates : [];
@@ -541,6 +606,9 @@ function TaskDetailsPage() {
                                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[shownStatus] || 'bg-slate-100 text-slate-600'}`}>
                                     {shownStatus}
                                 </span>
+                                {pendingWith?.text ? (
+                                    <span className="text-sm font-semibold text-amber-800">{pendingWith.text}</span>
+                                ) : null}
                             </div>
                             <h2 className="mt-1 text-2xl font-bold text-slate-900">{nameLines[0]}</h2>
                             {nameLines.slice(1).map((line) => (
@@ -562,7 +630,7 @@ function TaskDetailsPage() {
                                     onClick={() => (task.reopenNeedsReason ? setNoteAction('reopen') : reopenNow())}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                                 >
-                                    <RefreshCw size={14} /> Re Open Task
+                                    <RefreshCw size={14} /> Reopen the task
                                 </button>
                             )}
                             {task.canReturn && (
@@ -612,17 +680,37 @@ function TaskDetailsPage() {
                                     onClick={() => setNoteAction('complete')}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
                                 >
-                                    <Check size={14} /> Close
+                                    <Check size={14} /> Complete my task
                                 </button>
                             )}
-                            {task.canConfirmComplete && (
+                            {task.canApproveCompletion && (
                                 <button
                                     type="button"
                                     disabled={busy}
-                                    onClick={() => setNoteAction('confirm')}
+                                    onClick={approveCompletion}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
                                 >
-                                    <Check size={14} /> {task.taskCategory === 'System Task' || task.taskCategory === 'Workflow Task' || task.taskCategory === 'Work Flow Task' ? 'Approve' : 'Confirm Close'}
+                                    <Check size={14} /> Approve
+                                </button>
+                            )}
+                            {task.canRejectCompletion && (
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => setNoteAction('reject-completion')}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-40"
+                                >
+                                    Reject
+                                </button>
+                            )}
+                            {task.canCloseNow && (
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => setConfirmCloseOpen(true)}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
+                                >
+                                    <Check size={14} /> Close task
                                 </button>
                             )}
                             {task.canRequestClose && (
@@ -663,16 +751,6 @@ function TaskDetailsPage() {
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                     <Pencil size={14} /> Edit
-                                </button>
-                            )}
-                            {task.canCloseNow && (
-                                <button
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={() => setNoteAction('close-now')}
-                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
-                                >
-                                    <Check size={14} /> Complete
                                 </button>
                             )}
                             {task.canHandBackToOriginal && (
@@ -981,14 +1059,37 @@ function TaskDetailsPage() {
                     }}
                 />
             )}
+            {confirmCloseOpen && (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={(event) => {
+                    if (event.target === event.currentTarget && !busy) setConfirmCloseOpen(false);
+                }}>
+                    <section className="w-full max-w-[480px] rounded-xl bg-white shadow-2xl">
+                        <div className="flex items-center justify-between rounded-t-xl bg-[#2563EB] px-5 py-3.5 text-white">
+                            <h2 className="text-[16px] font-semibold">Close task</h2>
+                            <button type="button" aria-label="Close" onClick={() => { if (!busy) setConfirmCloseOpen(false); }} className="rounded-md p-1 hover:bg-white/15">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <p className="px-5 py-4 text-sm text-slate-600">
+                            Close this task and email the requester? They can reopen it, and the task returns to the stage it was in before it closed.
+                        </p>
+                        <div className="flex justify-end gap-3 border-t border-slate-100 px-5 py-4">
+                            <button type="button" disabled={busy} onClick={() => setConfirmCloseOpen(false)} className="h-10 rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-700">Cancel</button>
+                            <button type="button" disabled={busy} onClick={confirmCloseTask} className="h-10 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white disabled:opacity-60">
+                                {busy ? 'Closing...' : 'Close task'}
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            )}
             {noteAction && (
                 <NoteModal
-                    fieldLabel={noteAction === 'reopen' ? 'Reason' : 'Description'}
+                    fieldLabel={noteAction === 'reopen' || noteAction === 'reject-completion' ? 'Reason' : 'Description'}
                     title={noteAction === 'reopen'
-                        ? 'Re Open Task'
+                        ? 'Reopen the task'
                         : noteAction === 'return'
                         ? 'Return Task'
-                        : noteAction === 'reject' || noteAction === 'general-reject'
+                        : noteAction === 'reject' || noteAction === 'general-reject' || noteAction === 'reject-completion'
                             ? 'Reject Task'
                             : noteAction === 'hand-back'
                                 ? 'Complete Task'
@@ -997,10 +1098,12 @@ function TaskDetailsPage() {
                                     : noteAction === 'general-complete'
                                         ? 'Complete Task'
                                         : noteAction === 'complete'
-                                            ? 'Mark as Completed'
+                                            ? 'Complete my task'
                                             : 'Confirm Close'}
                     hint={noteAction === 'reopen'
                         ? 'A reason is required. The task becomes Open again. The original assignee is emailed the task number and a link to this page.'
+                        : noteAction === 'reject-completion'
+                        ? 'A reason is required. It is emailed to the reassigned employee, saved in Emails, and shown in Work Updates. They get Complete my task again.'
                         : noteAction === 'reject' && ['System Task', 'Workflow Task', 'Work Flow Task'].includes(task?.taskCategory)
                         ? 'A comment is required. The status becomes Rejected.'
                         : noteAction === 'reject' || noteAction === 'general-reject'
@@ -1014,13 +1117,13 @@ function TaskDetailsPage() {
                                     : noteAction === 'return'
                                         ? 'This returns the task to the original assignee. They receive the description by email and on their notification.'
                                         : noteAction === 'complete'
-                                            ? 'The original assignee is emailed. The task stays open until they confirm close.'
+                                            ? 'This sends the completed task to the original assignee. They can approve or reject it. Your note is saved in Work Updates.'
                                             : sourceNotice
                                                 ? 'This task is still Pending. Open the related task and finish it. It can be completed only when that status is Completed or Closed.'
                                                 : 'Confirming closes this task for both of you. It leaves the open task list.'}
                     submitLabel={noteAction === 'reopen'
-                        ? 'Re Open Task'
-                        : noteAction === 'reject' || noteAction === 'general-reject'
+                        ? 'Reopen the task'
+                        : noteAction === 'reject' || noteAction === 'general-reject' || noteAction === 'reject-completion'
                         ? 'Reject'
                         : noteAction === 'hand-back'
                             ? 'Send to original assignee'
@@ -1031,10 +1134,10 @@ function TaskDetailsPage() {
                                     : noteAction === 'return'
                                         ? 'Return'
                                         : noteAction === 'complete'
-                                            ? 'Send for confirmation'
+                                            ? 'Complete my task'
                                             : 'Confirm Close'}
                     busy={busy}
-                    notice={sourceNotice}
+                    notice={generalTask ? null : sourceNotice}
                     onNavigate={openSource}
                     onClose={() => { if (!busy) setNoteAction(null); }}
                     onSubmit={submitNoteAction}

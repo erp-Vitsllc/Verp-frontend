@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { personKey, requesterEmployeeName, taskRolePeople } from './taskRolePeople.js';
+import { employeeListName, listedTaskNameLines, personKey, requesterEmployeeName, taskRolePeople } from './taskRolePeople.js';
 
 const tasks = [
     {
@@ -41,6 +41,21 @@ describe('task role dropdown people', () => {
     it('matches a requester filter to the employee who requested, not the display label', () => {
         assert.equal(personKey(requesterEmployeeName(tasks[0])), 'farsana ashraf');
         assert.equal(personKey(requesterEmployeeName(tasks[2])), 'melvin shijo tharsis');
+    });
+
+    it('shows a first name and the first letter of the second name', () => {
+        assert.equal(employeeListName('VISHNU PRASAD'), 'VISHNU P');
+        assert.equal(employeeListName('Raseel Muhammad'), 'Raseel M');
+        assert.equal(employeeListName('Akash Mohanan Pillai'), 'Akash M');
+        assert.equal(employeeListName('NESMI'), 'NESMI');
+    });
+
+    it('shortens only the employee name under the task title', () => {
+        const shown = listedTaskNameLines(
+            { subjectName: 'ZEESHAN MUHAMMAD', requesterName: 'NESMI SHAMSUDEEN' },
+            ['Hour Approval Request', 'Oct 29, 2026', 'ZEESHAN MUHAMMAD', 'VEGA-HR-00078'],
+        );
+        assert.deepEqual(shown, ['Hour Approval Request', 'Oct 29, 2026', 'ZEESHAN M', 'VEGA-HR-00078']);
     });
 
     it('hides an employee who has no task in that role', () => {

@@ -117,14 +117,8 @@ export function mergeSalaryInboxWithPendingMonths(inboxItems, months) {
     return [...inbox, ...extra];
 }
 
-export function buildSalaryBellInbox(
-    inboxItems,
-    { overview = null, includePendingEnrollments = false, months = [] } = {},
-) {
-    let list = Array.isArray(inboxItems) ? inboxItems : [];
-    if (includePendingEnrollments) {
-        list = mergeSalaryInboxWithPendingEnrollments(list, overview);
-    }
+export function buildSalaryBellInbox(inboxItems, { months = [] } = {}) {
+    const list = Array.isArray(inboxItems) ? inboxItems : [];
     return mergeSalaryInboxWithPendingMonths(list, months);
 }
 

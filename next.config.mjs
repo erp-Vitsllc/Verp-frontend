@@ -10,8 +10,9 @@ const lanDevHost = process.env.LAN_DEV_HOST || '192.168.100.200';
 
 const cpuCount = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
 // Default webpack parallelism (~100) blew the Windows heap on large ERP pages.
-// Forcing 1 worker made every localhost navigation recompile in series. 4 is the middle.
-const devCompileWorkers = Math.max(2, Math.min(4, cpuCount || 2));
+// One worker compiled every screen in series. Leave two cores for Windows and the API.
+const devCompileWorkers = Math.max(2, Math.min(6, Math.max(2, (cpuCount || 2) - 2)));
+const isDevServer = process.env.NODE_ENV !== "production";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -25,15 +26,16 @@ const nextConfig = {
   // Required when opening dev server as http://<LAN-IP>:3000 (not localhost) — otherwise blank page
   allowedDevOrigins: [lanDevHost, `${lanDevHost}:3000`],
 
-  // Performance optimizations
-  compress: true,
-  reactStrictMode: true,
+  // Gzip every dev bundle on Windows adds delay and does not help local testing.
+  compress: !isDevServer,
+  // Dev strict mode runs every effect twice, so the dashboard hits the API twice.
+  reactStrictMode: !isDevServer,
   productionBrowserSourceMaps: false,
 
-  // Keep recently opened screens compiled. A 15s / 2-page buffer recompiled almost every click.
+  // A short buffer disposed screens during a test pass and forced another 20s compile.
   onDemandEntries: {
-    maxInactiveAge: 3 * 60 * 1000,
-    pagesBufferLength: 6,
+    maxInactiveAge: 30 * 60 * 1000,
+    pagesBufferLength: 20,
   },
 
   // Image optimization
@@ -127,7 +129,14 @@ const nextConfig = {
   // Experimental optimizations
   experimental: {
     optimizeCss: false, // Disabled due to 'unsupported color function lab' error
-    optimizePackageImports: ['lucide-react', 'react-phone-input-2', 'recharts', 'date-fns'],
+    optimizePackageImports: [
+      'lucide-react',
+      'react-phone-input-2',
+      'recharts',
+      'date-fns',
+      'motion',
+      'chart.js',
+    ],
     webpackMemoryOptimizations: true,
     cpus: devCompileWorkers,
     preloadEntriesOnStart: false,
@@ -141,6 +150,14 @@ const nextConfig = {
     config.parallelism = dev ? devCompileWorkers : 1;
 
     if (dev) {
+      // Next installs a full eval-source-map plugin. On this app that map pass
+      // is most of the 20–30s first compile. Cheap maps still show the file and line.
+      config.plugins = (config.plugins || []).filter((plugin) => {
+        const name = plugin?.constructor?.name || '';
+        return name !== 'EvalSourceMapDevToolPlugin';
+      });
+      config.devtool = 'eval-cheap-module-source-map';
+
       config.watchOptions = {
         ignored: ['**/node_modules/**', '**/.git/**', '**/.next/**'],
         aggregateTimeout: 300,
@@ -149,7 +166,7 @@ const nextConfig = {
         config.cache = {
           ...config.cache,
           compression: false,
-          maxMemoryGenerations: 1,
+          maxMemoryGenerations: 2,
         };
       }
     }

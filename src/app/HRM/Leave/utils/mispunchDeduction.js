@@ -38,15 +38,22 @@ function policyTotal(daily, count, rule) {
     return money2((Number(daily) || 0) * fraction * chargeableBundles(count, rule?.events));
 }
 
+/** Waived loss hours, or an explicit deduction waive, are not a missed-punch charge. */
+export function isChargeableMispunch(row) {
+    if (!row || row.deductionWaived === true) return false;
+    return !(String(row.hourAdjustStatus || '') === 'approved' && !(Number(row.hoursApproved) > 0));
+}
+
 /**
  * One amount per missed-punch date, from the salary-policy missed punch rule only.
  * A free event count deducts nothing. The next punch deducts full, half, or quarter of one day.
- * Unauthorized leave days are not applied.
+ * Unauthorized leave days are not applied. A day whose loss hours were waived does not count.
  */
 export function mispunchDayAmounts(records, policy, daily) {
     const rule = mispunchPolicyRule(policy);
     const byMonth = new Map();
     (records || []).forEach((row) => {
+        if (!isChargeableMispunch(row)) return;
         const date = String(row?.date || '');
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
         const month = date.slice(0, 7);
