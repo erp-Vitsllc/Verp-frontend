@@ -598,30 +598,30 @@ export function leaveTakenDayCount(leaveRecords = []) {
 
 /**
  * Days worked in the processing window.
- * Total worked = total working days − leave taken + comp off work days.
- * Leave comes off the scheduled working days. Overtime stays in hours.
+ * Total worked = total worked days (marked present) − leave taken + comp off work days.
+ * Overtime stays in hours until it is added as whole days on overall worked.
  */
 export function scheduledTotalWorkedDays({
-    scheduledWorkingDays = 0,
+    workedDays = 0,
     leaveTaken = 0,
     compOffDays = 0,
 } = {}) {
-    const working = Number(scheduledWorkingDays) || 0;
+    const worked = Number(workedDays) || 0;
     const leave = Number(leaveTaken) || 0;
     const compOff = Number(compOffDays) || 0;
-    return Math.round((working - leave + compOff) * 100) / 100;
+    return Math.round((worked - leave + compOff) * 100) / 100;
 }
 
 /** Overall worked = total worked days + overtime days. 10 hours = 1 day, 27 hours = 2 days. */
 export function overallWorkedDays({
-    scheduledWorkingDays = 0,
+    workedDays = 0,
     leaveTaken = 0,
     compOffDays = 0,
     overtimeDays = 0,
 } = {}) {
     return (
         Math.round(
-            (scheduledTotalWorkedDays({ scheduledWorkingDays, leaveTaken, compOffDays }) +
+            (scheduledTotalWorkedDays({ workedDays, leaveTaken, compOffDays }) +
                 (Number(overtimeDays) || 0)) *
             100,
         ) / 100

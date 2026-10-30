@@ -3746,12 +3746,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const liveLeaveTaken = leaveTakenDayCount(liveLeaveRecords);
     const liveOvertimeDayCount = data?.liveAttendance?.showOvertime ? liveOvertimeDays : 0;
     const liveTotalWorkedDays = scheduledTotalWorkedDays({
-        scheduledWorkingDays: liveScheduledWorkingDays,
+        workedDays: liveWorkedDays,
         leaveTaken: liveLeaveTaken,
         compOffDays: liveCompOffDays,
     });
     const liveOverallWorkedDays = overallWorkedDays({
-        scheduledWorkingDays: liveScheduledWorkingDays,
+        workedDays: liveWorkedDays,
         leaveTaken: liveLeaveTaken,
         compOffDays: liveCompOffDays,
         overtimeDays: liveOvertimeDayCount,
@@ -4010,7 +4010,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
 
     function openLiveFormulaDetail(title, total) {
         const rows = [
-            ...dateCountRows(liveScheduledDates, 'Working day'),
+            ...dateCountRows(livePresentDates, 'Worked day'),
             ...liveLeaveCountRows(liveLeaveRecords, { signed: true }),
             ...liveCompOffRecords.map((row, index) => ({
                 key: `formula-comp-${row.date || index}`,
@@ -4021,7 +4021,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         ];
         setEligibilityDetail({
             title,
-            subtitle: `${liveRangeSubtitle()}. Total worked = total working days − leave taken + comp off work days.`,
+            subtitle: `${liveRangeSubtitle()}. Total worked = total worked days − leave taken + comp off work days.`,
             rows,
             total,
             totalLabel: 'Days',
@@ -4144,7 +4144,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             title: 'Overall worked',
             subtitle: `${date}. Processing start through yesterday. Overall worked = total worked days + overtime days.`,
             rows: [
-                { key: 'working', date, type: 'Total working days', count: liveScheduledWorkingDays },
+                { key: 'worked', date, type: 'Total worked days', count: liveWorkedDays },
                 { key: 'leave', date, type: 'Leave taken', count: -liveLeaveTaken },
                 { key: 'comp', date, type: 'Comp off work days', count: liveCompOffDays },
                 {
@@ -5349,7 +5349,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Total worked days"
-                                                            hint={`${liveScheduledWorkingDays} − ${liveLeaveTaken} + ${liveCompOffDays}`}
+                                                            hint={`${liveWorkedDays} − ${liveLeaveTaken} + ${liveCompOffDays}`}
                                                             value={liveTotalWorkedDays}
                                                             strong
                                                             danger={liveTotalWorkedDays < 0}
@@ -5389,7 +5389,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 />
                                                 <p className="text-[9px] font-normal leading-[18px] text-[#6F7C8F]">
                                                     {data?.liveAttendance?.enabled
-                                                        ? `Counted from the processing date through yesterday. Today is not included. Click a count to see its days. Total working days are the days this group has to work. Days marked present are those working days with a present mark. Holiday and weekly off work is not included there. If that day has a marked comp off next day, it shows as one comp off day. If it has approved overtime and no marked next day, it shows in overtime. Total worked days = total working days − leave taken + comp off work days. Every 10 overtime hours count as 1 day, so 10 hours is 1 day, 20 hours is 2 days, and 27 hours is 2 days. Overall worked = total worked days + those overtime days. That overall figure, from the processing date through yesterday, is what this live period adds toward the next entitlement. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
+                                                        ? `Counted from the processing date through yesterday. Today is not included. Click a count to see its days. Total working days are the days this group has to work. Days marked present are those working days with a present mark. Holiday and weekly off work is not included there. If that day has a marked comp off next day, it shows as one comp off day. If it has approved overtime and no marked next day, it shows in overtime. Total worked days = total worked days − leave taken + comp off work days. Every 10 overtime hours count as 1 day, so 10 hours is 1 day, 20 hours is 2 days, and 27 hours is 2 days. Overall worked = total worked days + those overtime days. That overall figure, from the processing date through yesterday, is what this live period adds toward the next entitlement. Each time counted days reach ${calc.cycleDays}, a leave salary row is reserved and the remainder restarts toward the next ${calc.cycleDays}.`
                                                         : `Earned eligible balance uses historical working days minus leave deductions. Historical overtime is already in those working days. After the VERP processing date is reached, this card shows required working days, approved comp off and overtime, leave taken, holidays and weekly off, and actual worked days.`}
                                                 </p>
                                             </div>

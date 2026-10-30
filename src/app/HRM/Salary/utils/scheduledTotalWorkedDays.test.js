@@ -3,34 +3,30 @@ import { describe, it } from 'node:test';
 import { overallWorkedDays, overtimeHoursToDays, scheduledTotalWorkedDays } from './salaryHistoricalCalculations.js';
 
 describe('scheduledTotalWorkedDays', () => {
-    it('takes leave off the scheduled working days, not off days already marked present', () => {
+    it('takes leave off days marked present, then adds comp off work days', () => {
         assert.equal(
             scheduledTotalWorkedDays({
-                scheduledWorkingDays: 25,
+                workedDays: 21,
                 leaveTaken: 15,
                 compOffDays: 0,
-                overtimeDays: 0,
             }),
-            10,
+            6,
         );
-    });
-
-    it('adds comp off work days and does not turn overtime hours into extra days', () => {
         assert.equal(
             scheduledTotalWorkedDays({
-                scheduledWorkingDays: 25,
+                workedDays: 21,
                 leaveTaken: 0,
                 compOffDays: 4,
             }),
-            29,
+            25,
         );
         assert.equal(
             scheduledTotalWorkedDays({
-                scheduledWorkingDays: 25,
+                workedDays: 21,
                 leaveTaken: 15,
                 compOffDays: 2,
             }),
-            12,
+            8,
         );
     });
 
@@ -40,21 +36,21 @@ describe('scheduledTotalWorkedDays', () => {
         assert.equal(overtimeHoursToDays(27), 2);
         assert.equal(
             overallWorkedDays({
-                scheduledWorkingDays: 25,
+                workedDays: 21,
                 leaveTaken: 0,
                 compOffDays: 4,
                 overtimeDays: overtimeHoursToDays(15),
             }),
-            30,
+            26,
         );
         assert.equal(
             overallWorkedDays({
-                scheduledWorkingDays: 25,
+                workedDays: 21,
                 leaveTaken: 0,
                 compOffDays: 4,
                 overtimeDays: overtimeHoursToDays(27),
             }),
-            31,
+            27,
         );
     });
 });
