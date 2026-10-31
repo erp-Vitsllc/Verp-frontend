@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isNextDayCheckout, NextDayCheckoutTime } from '@/app/HRM/Attendance/utils/nextDayCheckout';
-import { formatPayMoney, payCurrencyCode, useAedRates } from '@/utils/workPayLocation';
+import { aedEquivalent, formatPayMoney, payCurrencyCode, useAedRates } from '@/utils/workPayLocation';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -2865,7 +2865,7 @@ function compOffWorkedRows(pay) {
     ));
 }
 
-function AdditionPayBoxes({ ready, pay, statement, onOpen }) {
+function AdditionPayBoxes({ ready, pay, statement, onOpen, formatMoney }) {
     const row = pay || {};
     const compOffTaken = compOffWorkedRows(row);
     const workedDays = Number(row.workedDays) || 0;
@@ -2880,7 +2880,7 @@ function AdditionPayBoxes({ ready, pay, statement, onOpen }) {
     const short = ready && amount < -0.004;
     const extra = ready && amount > 0.004;
     const amountClass = short ? 'text-[#DC2626]' : 'text-[#16A34A]';
-    const amountText = ready ? formatAedNumber(amount) : '—';
+    const amountText = ready ? (formatMoney ? formatMoney(amount, 2) : formatAedNumber(amount)) : '—';
     return (
         <div className="space-y-2 px-3 pb-3">
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -2909,16 +2909,16 @@ function AdditionPayBoxes({ ready, pay, statement, onOpen }) {
                     <AdditionPayCount label="Hours" value={hoursText(row.otHours)} onClick={() => onOpen('overtime')} />
                 </AdditionPayCard>
                 <AdditionPayCard title="Amount to pay" columns="grid-cols-1">
-                    <AdditionPayCount label="AED" value={amountText} valueClass={amountClass} onClick={() => onOpen('amount')} />
+                    <AdditionPayCount label={formatMoney ? 'Amount' : 'AED'} value={amountText} valueClass={amountClass} onClick={() => onOpen('amount')} />
                 </AdditionPayCard>
             </div>
         </div>
     );
 }
 
-function PayStatementTable({ statement }) {
+function PayStatementTable({ statement, formatMoney }) {
     if (!statement) return <p className="py-6 text-center text-[13px] text-[#94A3B8]">No amount to show for this range.</p>;
-    const money = (value) => formatAedNumber(value);
+    const money = (value) => (formatMoney ? formatMoney(value, 2) : `AED ${formatAedNumber(value)}`);
     const rowClass = 'border-b border-[#F4F7FB] text-[13px] text-[#1B2A4A]';
     const section = (label) => (
         <tr key={label} className="bg-[#F8FAFC]">
@@ -2931,7 +2931,7 @@ function PayStatementTable({ statement }) {
                 <tr className="border-b border-[#E6EDF5] text-[11px] font-semibold uppercase tracking-wide text-[#94A3B8]">
                     <th className="px-2 py-2 font-semibold">Description</th>
                     <th className="px-2 py-2 font-semibold">Calculation</th>
-                    <th className="px-2 py-2 text-right font-semibold">Amount (AED)</th>
+                    <th className="px-2 py-2 text-right font-semibold">{formatMoney ? 'Amount' : 'Amount (AED)'}</th>
                 </tr>
             </thead>
             <tbody>
@@ -3000,7 +3000,7 @@ function PayStatementTable({ statement }) {
     );
 }
 
-function SalaryAdditionListModal({ mode, ready, pay, statement, staffType, employeeId, onClose }) {
+function SalaryAdditionListModal({ mode, ready, pay, statement, staffType, employeeId, onClose, formatMoney }) {
     const router = useRouter();
     useEffect(() => {
         if (!mode) return undefined;
@@ -3043,7 +3043,7 @@ function SalaryAdditionListModal({ mode, ready, pay, statement, staffType, emplo
                 </div>
                 <div className="overflow-auto px-5 py-3">
                     {mode === 'amount' ? (
-                        ready ? <PayStatementTable statement={statement} /> : (
+                        ready ? <PayStatementTable statement={statement} formatMoney={formatMoney} /> : (
                             <p className="py-6 text-center text-[13px] text-[#94A3B8]">No amount to show for this range.</p>
                         )
                     ) : rows.length && ready ? (
@@ -3953,7 +3953,7 @@ export default function EmployeeInformationDashboard({
             (row) => deductionKind(row) === 'mispunch' && isChargeableMispunch(row),
         ).length;
         const punchAmount = money2([...mispunchAmounts.values()].reduce((sum, amount) => sum + amount, 0));
-        const dayRate = formatAed(daily, 2);
+        const dayRate = payMoney(daily, 2);
         const hourNote = isFlexibleWeek(scheduleWeek)
             ? 'Flexible time deducts only the missed hours. Late arrival and early go do not use the salary policy.'
             : 'Until approval this uses the unauthorized leave rate. After approval, only the approved hours are deducted.';
@@ -4021,7 +4021,7 @@ export default function EmployeeInformationDashboard({
                     : 'A weekly off or holiday between leave days deducts 1 day.',
             },
         ].filter((row) => row.key !== 'on_leave' || Number(row.count) > 0);
-    }, [countedRecords, monthRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts, holidayDates, offWeekdays, countFrom, countTo]);
+    }, [countedRecords, monthRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts, holidayDates, offWeekdays, countFrom, countTo, payRates, employee.workLocation, employee.salaryCurrency]);
     const deductionDetailRows = useMemo(() => {
         const enclosedOff = sandwichLeaveByDate({
             records: detailRecords,
@@ -4097,7 +4097,21 @@ export default function EmployeeInformationDashboard({
         { key: 'loan_recovery', type: 'Loan Recovery', count: null, amount: loanOutstanding },
         { key: 'advance_recovery', type: 'Advance Recovery', count: null, amount: advanceOutstanding },
     ];
-    const deductionTotal = salaryTableRows.reduce((sum, row) => sum + (row.amount == null ? 0 : row.amount), 0);
+    const companyDeductionKeys = new Set(['fine', 'utility', 'loan_recovery', 'advance_recovery']);
+    const salaryDeductionTotal = deductionRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+    const companyDeductionTotal = salaryTableRows.reduce(
+        (sum, row) => sum + (companyDeductionKeys.has(row.key) ? (Number(row.amount) || 0) : 0),
+        0,
+    );
+    const salaryDeductionAed = payCurrencyCode(employee) === 'AED'
+        ? salaryDeductionTotal
+        : aedEquivalent(salaryDeductionTotal, payCurrencyCode(employee), payRates);
+    const deductionTotalLabel = salaryDeductionAed == null
+        ? payMoney(salaryDeductionTotal, 2)
+        : formatAed((Number(salaryDeductionAed) || 0) + companyDeductionTotal, 2);
+    const deductionAmountText = (row) => (
+        companyDeductionKeys.has(row.key) ? formatAed(row.amount, 2) : payMoney(row.amount, 2)
+    );
 
     const elapsedMonthDays = countFrom && countTo
         ? days.filter((day) => {
@@ -4860,6 +4874,7 @@ export default function EmployeeInformationDashboard({
                                 pay={salaryAddition.balancePay}
                                 statement={payStatement}
                                 onOpen={setAdditionModal}
+                                formatMoney={payMoney}
                             />
                         </div>
                         ) : null}
@@ -4883,7 +4898,7 @@ export default function EmployeeInformationDashboard({
                                         <th className={`${TH} w-8`}>#</th>
                                         <th className={TH}>Deduction Type</th>
                                         <th className={TH}>Count / Days</th>
-                                        <th className="whitespace-nowrap px-2.5 py-2 text-right text-[11px] font-medium text-[#94A3B8]">Amount (AED)</th>
+                                        <th className="whitespace-nowrap px-2.5 py-2 text-right text-[11px] font-medium text-[#94A3B8]">Amount</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -4902,14 +4917,14 @@ export default function EmployeeInformationDashboard({
                                                 <td className={TD}>{row.type}</td>
                                                 <td className={`${TD} tabular-nums`}>{countText}</td>
                                                 <td className={`${TD} text-right font-medium tabular-nums`}>
-                                                    {salaryLock.locked ? '—' : formatAedNumber(row.amount)}
+                                                    {salaryLock.locked ? '—' : deductionAmountText(row)}
                                                 </td>
                                             </tr>
                                         );
                                     })}
                                     <tr className="border-t border-[#E2E8F0]">
                                         <td className={`${TD} font-bold`} colSpan={3}>Total Deduction</td>
-                                        <td className={`${TD} text-right font-bold tabular-nums text-[#DC2626]`}>{salaryLock.locked ? '—' : formatAedNumber(deductionTotal)}</td>
+                                        <td className={`${TD} text-right font-bold tabular-nums text-[#DC2626]`}>{salaryLock.locked ? '—' : deductionTotalLabel}</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -5403,6 +5418,7 @@ export default function EmployeeInformationDashboard({
                 statement={payStatement}
                 staffType={staffType}
                 employeeId={employeeMongoId}
+                formatMoney={payMoney}
                 onClose={() => setAdditionModal('')}
             />
         </div>

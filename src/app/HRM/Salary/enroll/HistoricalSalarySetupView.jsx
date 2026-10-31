@@ -32,6 +32,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO, isValid } from 'date-fns';
 import { hasPermission } from '@/utils/permissions';
+import { formatPayMoney, payCurrencyCode, useAedRates } from '@/utils/workPayLocation';
 import {
     addDays,
     calculateAnnualLeaveEntitlement,
@@ -1012,8 +1013,10 @@ function EntitlementAllocationTable({
     selectedKey = '',
     onSelectRow,
     disabled = false,
+    formatAmount,
 }) {
     const title = kind === 'ticket' ? 'Ticket' : 'Leave salary';
+    const showMoney = formatAmount || aedMoney;
     const visibleRows = (Array.isArray(rows) ? rows : []).filter((row) => {
         const remainingBefore = roundMoney(
             (Number(row.balance) || 0) + (Number(row.thisPay) || 0),
@@ -1067,11 +1070,11 @@ function EntitlementAllocationTable({
                                     {title} {row.entitlementNo || '—'}
                                 </td>
                                 <td className="px-3 py-2 text-[13px] text-[#334155]">{prettyDate(row.date)}</td>
-                                <td className="px-3 py-2 text-[13px] tabular-nums text-[#334155]">{aedMoney(row.total)}</td>
+                                <td className="px-3 py-2 text-[13px] tabular-nums text-[#334155]">{showMoney(row.total)}</td>
                                 <td className="px-3 py-2 text-[13px] font-semibold tabular-nums text-[#0F172A]">
-                                    {aedMoney(row.paid)}
+                                    {showMoney(row.paid)}
                                 </td>
-                                <td className="px-3 py-2 text-[13px] tabular-nums text-[#334155]">{aedMoney(row.balance)}</td>
+                                <td className="px-3 py-2 text-[13px] tabular-nums text-[#334155]">{showMoney(row.balance)}</td>
                                 <td className="px-3 py-2">
                                     <EntitlementStatusBadge status={row.status} clickable={selectable} />
                                 </td>
@@ -1082,7 +1085,7 @@ function EntitlementAllocationTable({
             </table>
             {leftover > 0 ? (
                 <p className="border-t border-[#EEF2F6] px-3 py-2 text-[12px] text-amber-700">
-                    Amount above unpaid total {aedMoney(leftover)}
+                    Amount above unpaid total {showMoney(leftover)}
                 </p>
             ) : null}
         </div>
@@ -1136,6 +1139,7 @@ function PaymentKindCard({
     onEdit,
     onDelete,
     onModeClick,
+    formatAmount,
 }) {
     const list = Array.isArray(rows) ? rows : [];
     const totalPayment = roundMoney(
@@ -1193,7 +1197,7 @@ function PaymentKindCard({
                                         {prettyDate(row.paymentDate)}
                                     </td>
                                     <td className="px-3 py-2.5 text-[13px] font-semibold tabular-nums text-[#0F172A]">
-                                        {aed(row.amount, row.currency)}
+                                        {formatAmount ? formatAmount(row.amount) : aed(row.amount, row.currency)}
                                     </td>
                                     <td className="px-3 py-2.5">
                                         <button
@@ -1338,8 +1342,9 @@ function EntitlementStatusBadge({ status, clickable = false }) {
     );
 }
 
-function EntitlementDetailsModal({ open, entitlement, cycleDays, policyLabel, onClose }) {
+function EntitlementDetailsModal({ open, entitlement, cycleDays, policyLabel, onClose, formatLeave }) {
     if (!open || !entitlement) return null;
+    const leaveMoney = formatLeave || aedMoney;
     const leaveTaken = entitlement.leaveTaken || {};
     const breakdown = Array.isArray(entitlement.monthlyBreakdown) ? entitlement.monthlyBreakdown : [];
     return (
@@ -1360,7 +1365,7 @@ function EntitlementDetailsModal({ open, entitlement, cycleDays, policyLabel, on
                     <DetailStat label="Leave start" value={leaveTaken.startDate ? prettyDate(leaveTaken.startDate) : '—'} />
                     <DetailStat label="Leave end" value={leaveTaken.endDate ? prettyDate(leaveTaken.endDate) : '—'} />
                     <DetailStat label="Leave days taken" value={leaveTaken.days ? String(leaveTaken.days) : '—'} />
-                    <DetailStat label="Leave salary" value={aedMoney(entitlement.leaveSalary)} />
+                    <DetailStat label="Leave salary" value={leaveMoney(entitlement.leaveSalary)} />
                     <DetailStat label="Ticket" value={aedMoney(entitlement.ticketAmount)} />
                     <DetailStat label="Salary policy" value={policyLabel || 'Applicable salary policy'} />
                 </div>
@@ -1390,12 +1395,12 @@ function EntitlementDetailsModal({ open, entitlement, cycleDays, policyLabel, on
                                                         </span>
                                                     </td>
                                                     <td className="px-3 py-2 text-[13px] tabular-nums text-[#334155]">
-                                                        {aedMoney(segment.basicSalary)}
+                                                        {leaveMoney(segment.basicSalary)}
                                                     </td>
                                                     <td className="px-3 py-2 text-[13px] text-[#334155]">{segment.days} days</td>
                                                     <td className="px-3 py-2 text-[12px] text-[#64748B]">{segment.calculation}</td>
                                                     <td className="px-3 py-2 text-right text-[13px] font-semibold tabular-nums text-[#0F172A]">
-                                                        {aedMoney(segment.accrual)}
+                                                        {leaveMoney(segment.accrual)}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -1406,12 +1411,12 @@ function EntitlementDetailsModal({ open, entitlement, cycleDays, policyLabel, on
                                     <tr key={row.month} className="border-b border-[#F1F5F9]">
                                         <td className="px-3 py-2 text-[13px] text-[#334155]">{prettyMonth(row.month)}</td>
                                         <td className="px-3 py-2 text-[13px] tabular-nums text-[#334155]">
-                                            {row.basicSalary == null ? '—' : aedMoney(row.basicSalary)}
+                                            {row.basicSalary == null ? '—' : leaveMoney(row.basicSalary)}
                                         </td>
                                         <td className="px-3 py-2 text-[13px] text-[#334155]">{row.applicableDays || '—'}</td>
                                         <td className="px-3 py-2 text-[12px] text-[#64748B]">{row.calculation || '—'}</td>
                                         <td className="px-3 py-2 text-right text-[13px] font-semibold tabular-nums text-[#0F172A]">
-                                            {aedMoney(row.leaveSalaryAccrual)}
+                                            {leaveMoney(row.leaveSalaryAccrual)}
                                         </td>
                                     </tr>
                                 );
@@ -1420,7 +1425,7 @@ function EntitlementDetailsModal({ open, entitlement, cycleDays, policyLabel, on
                     </table>
                 </div>
                 <p className="text-right text-[13px] font-semibold text-[#0F172A]">
-                    Total: {aedMoney(entitlement.leaveSalary)}
+                    Total: {leaveMoney(entitlement.leaveSalary)}
                 </p>
             </div>
             <div className="mt-4 flex justify-end">
@@ -2929,12 +2934,14 @@ function PaymentCycleKindFields({
     disabled = false,
     pendingAmount = 0,
     selectedLabel = '',
+    formatAmount,
 }) {
     const pending = roundMoney(Math.max(0, Number(pendingAmount) || 0));
+    const showMoney = formatAmount || aedMoney;
     const pendingHint = selectedLabel
-        ? `Selected ${selectedLabel} · ${aedMoney(pending)}`
+        ? `Selected ${selectedLabel} · ${showMoney(pending)}`
         : pending > 0
-          ? `Pending ${aedMoney(pending)} · enter this or less`
+          ? `Pending ${showMoney(pending)} · enter this or less`
           : 'No pending amount';
     return (
         <div className="space-y-3 rounded-[10px] border border-[#E6EAF0] bg-[#F8FAFC] p-3">
@@ -2985,6 +2992,7 @@ function AddCycleModal({
     entitlements,
     leaveDueTotal = 0,
     ticketDueTotal = 0,
+    formatLeave,
 }) {
     const options = Array.isArray(annualLeaves) ? annualLeaves : [];
     const dateOptions = entitlementDateOptions(entitlements);
@@ -3219,6 +3227,7 @@ function AddCycleModal({
                         disabled={fieldsDisabled}
                         pendingAmount={leavePending}
                         selectedLabel={selectedLeaveLabel}
+                        formatAmount={formatLeave}
                     />
                 ) : (
                     <PaymentCycleKindFields
@@ -3241,6 +3250,7 @@ function AddCycleModal({
                         selectedKey={selectedLeaveKey}
                         disabled={fieldsDisabled}
                         onSelectRow={(row) => selectPayableRow('leave', row)}
+                        formatAmount={formatLeave}
                     />
                 ) : (
                     <EntitlementAllocationTable
@@ -3256,7 +3266,9 @@ function AddCycleModal({
                     <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
                         Total (leave salary + ticket)
                     </p>
-                    <p className="text-[14px] font-semibold tabular-nums text-[#0F172A]">{aedMoney(combinedTotal)}</p>
+                    <p className="text-[14px] font-semibold tabular-nums text-[#0F172A]">
+                        {formatLeave ? `${formatLeave(saveLeave ? leaveAmt : 0)} + ${aedMoney(saveTicket ? ticketAmt : 0)}` : aedMoney(combinedTotal)}
+                    </p>
                 </div>
                 <textarea
                     value={remarks}
@@ -3366,6 +3378,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [data, setData] = useState(null);
+    const payRates = useAedRates();
     const [joiningDate, setJoiningDate] = useState('');
     const [joiningDateReason, setJoiningDateReason] = useState('');
     const [joiningDatePrompt, setJoiningDatePrompt] = useState('');
@@ -3855,6 +3868,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const leaveSalaryPaid = cycleLeaveSalaryPaid(paymentCycles);
     const ticketPaid = cycleTicketPaid(paymentCycles);
     const leaveSalaryPayable = Number(leaveSalaryEntitlement.totalLeaveSalary) || 0;
+    const payMoney = (value) => formatPayMoney(value, payCurrencyCode(data?.employee), payRates, 2);
     const ticketPayable = Number(leaveSalaryEntitlement.totalTicketAmount) || 0;
     const leaveSalaryBalance = payableBalance(leaveSalaryPayable, leaveSalaryPaid);
     const ticketBalance = payableBalance(ticketPayable, ticketPaid);
@@ -5116,17 +5130,17 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                             <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
                                                 <SplitKindStat
                                                     label="Payable"
-                                                    leaveValue={aedMoney(leaveSalaryPayable)}
+                                                    leaveValue={payMoney(leaveSalaryPayable)}
                                                     ticketValue={aedMoney(ticketPayable)}
                                                 />
                                                 <SplitKindStat
                                                     label="Paid"
-                                                    leaveValue={aedMoney(leaveSalaryPaid)}
+                                                    leaveValue={payMoney(leaveSalaryPaid)}
                                                     ticketValue={aedMoney(ticketPaid)}
                                                 />
                                                 <SplitKindStat
                                                     label="Balance"
-                                                    leaveValue={aedMoney(leaveSalaryBalance)}
+                                                    leaveValue={payMoney(leaveSalaryBalance)}
                                                     ticketValue={aedMoney(ticketBalance)}
                                                     tone={leaveSalaryBalance > 0 || ticketBalance > 0 ? 'danger' : 'default'}
                                                 />
@@ -5137,7 +5151,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     rows={leavePaymentRows}
                                                     emptyMessage="No leave payments yet."
                                                     eligibleLabel="Leave salary balance"
-                                                    eligibleValue={aedMoney(leaveSalaryBalance)}
+                                                    eligibleValue={payMoney(leaveSalaryBalance)}
+                                                    formatAmount={payMoney}
                                                     canManage={canManagePayments}
                                                     onAdd={() =>
                                                         openPaymentCycle({ viewOnly: false, tab: 'leave' })
@@ -5499,6 +5514,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 entitlement={entitlementDetail}
                 cycleDays={cycleDays}
                 policyLabel={data?.employee?.staffType || ''}
+                formatLeave={payMoney}
                 onClose={() => setEntitlementDetail(null)}
             />
             <AddHolidaysModal
@@ -5575,6 +5591,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 entitlements={leaveSalaryEntitlement}
                 leaveDueTotal={leaveSalaryPayable}
                 ticketDueTotal={ticketPayable}
+                formatLeave={payMoney}
                 onClose={() => {
                     setCycleModal(false);
                     setCycleDraft(null);
