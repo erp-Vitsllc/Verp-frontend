@@ -27,6 +27,13 @@ function clockInputValue(value) {
     return `${match[1].padStart(2, '0')}:${match[2]}`;
 }
 
+function storedDeductionChoice(value) {
+    const key = String(value || '').trim().toLowerCase();
+    if (key === 'waived' || key === 'waive' || key === 'waive_off' || key === 'waiveoff') return 'waived';
+    if (key === 'authorized' || key === 'authorised') return 'authorized';
+    return '';
+}
+
 export default function AttendanceLeaveDecideModal({
     isOpen,
     dateKey,
@@ -52,6 +59,8 @@ export default function AttendanceLeaveDecideModal({
     deciding = false,
     readOnly = false,
     rejectFirst = false,
+    deductionChoice: requestedDeductionChoice = '',
+    requestedHours: requestedDeductionHours = '',
     error = '',
     onClose,
     onDecide,
@@ -76,11 +85,26 @@ export default function AttendanceLeaveDecideModal({
         setEditingTimes(false);
         setRejecting(Boolean(rejectFirst));
         setRejectReason('');
-        setDeductionChoice('authorized');
-        setRequestedHours('0');
+        const asked = storedDeductionChoice(requestedDeductionChoice);
+        setDeductionChoice(asked || 'authorized');
+        setRequestedHours(
+            asked === 'waived' && requestedDeductionHours != null && requestedDeductionHours !== ''
+                ? String(requestedDeductionHours)
+                : '0',
+        );
         setEditIn(clockInputValue(timeIn || requestTimeIn));
         setEditOut(clockInputValue(timeOut || requestTimeOut));
-    }, [isOpen, dateKey, rejectFirst, timeIn, timeOut, requestTimeIn, requestTimeOut]);
+    }, [
+        isOpen,
+        dateKey,
+        rejectFirst,
+        timeIn,
+        timeOut,
+        requestTimeIn,
+        requestTimeOut,
+        requestedDeductionChoice,
+        requestedDeductionHours,
+    ]);
 
     useEffect(() => {
         if (!isOpen || !isSickRequest || !employeeMongoId) {
@@ -220,7 +244,9 @@ export default function AttendanceLeaveDecideModal({
     }
 
     const lateEarly = isLateEarlyRequest(kindKey, requestedStatusKey);
+    const employeeAsked = storedDeductionChoice(requestedDeductionChoice);
     const handleApprove = () => {
+        if (rejecting) return;
         if (readOnly) return;
         setLocalError('');
         if (lateEarly && deductionChoice === 'waived') {
@@ -292,6 +318,11 @@ export default function AttendanceLeaveDecideModal({
                     ) : lateEarly ? (
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Deduction type</p>
+                            {employeeAsked ? (
+                                <p className="mt-1 text-xs font-semibold text-slate-700">
+                                    Employee requested {employeeAsked === 'waived' ? 'Waive off' : 'Authorized'}.
+                                </p>
+                            ) : null}
                             <div className="mt-1 grid grid-cols-2 gap-2">
                                 <button type="button" disabled={readOnly} onClick={() => setDeductionChoice('authorized')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${deductionChoice === 'authorized' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}>Authorized</button>
                                 <button type="button" disabled={readOnly} onClick={() => setDeductionChoice('waived')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${deductionChoice === 'waived' ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-slate-200 text-slate-600'}`}>Waive off</button>
@@ -321,7 +352,7 @@ export default function AttendanceLeaveDecideModal({
                             {rejecting ? 'Confirm reject' : 'Reject'}
                         </button>
                         <button type="button" disabled={deciding || readOnly || editingTimes} onClick={() => setEditingTimes(false)} className="hidden" />
-                        <button type="button" disabled={deciding || readOnly} onClick={handleApprove} className="flex-1 h-10 rounded-xl text-sm font-semibold text-white bg-[#EA3D2F] disabled:opacity-50">
+                        <button type="button" disabled={deciding || readOnly || rejecting} onClick={handleApprove} className="flex-1 h-10 rounded-xl text-sm font-semibold text-white bg-[#EA3D2F] disabled:opacity-50">
                             {deciding ? 'Saving…' : 'Approve'}
                         </button>
                     </div>

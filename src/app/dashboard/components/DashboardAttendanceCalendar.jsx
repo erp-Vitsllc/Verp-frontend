@@ -956,19 +956,25 @@ export default function DashboardAttendanceCalendar({
         setDecideSubmitting(true);
         setDecideError('');
         try {
+            const outcome = decision === 'rejected' ? 'rejected' : 'approved';
             await axiosInstance.post(
                 '/Attendance/me/leave-request/decide',
                 {
                     attendanceId: decideModal.record?._id,
                     date: decideModal.dateKey,
                     employeeMongoId: decideModal.record?.employeeMongoId || viewEmployeeId,
-                    decision,
-                    approvedStatusKey: approvedStatusKey || '',
-                    leavePayType: leavePayType || '',
-                    ...(edits?.timeIn ? { timeIn: edits.timeIn } : {}),
-                    ...(edits?.timeOut ? { timeOut: edits.timeOut } : {}),
-                    ...(edits?.deductionChoice ? { deductionChoice: edits.deductionChoice, requestedHours: edits.requestedHours } : {}),
-                    ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
+                    decision: outcome,
+                    ...(outcome === 'rejected'
+                        ? { rejectReason: String(edits?.rejectReason || '').trim() }
+                        : {
+                            approvedStatusKey: approvedStatusKey || '',
+                            leavePayType: leavePayType || '',
+                            ...(edits?.timeIn ? { timeIn: edits.timeIn } : {}),
+                            ...(edits?.timeOut ? { timeOut: edits.timeOut } : {}),
+                            ...(edits?.deductionChoice
+                                ? { deductionChoice: edits.deductionChoice, requestedHours: edits.requestedHours }
+                                : {}),
+                        }),
                 },
                 { skipToast: true },
             );
@@ -1465,6 +1471,8 @@ export default function DashboardAttendanceCalendar({
                 requestTimeOut={decideModal?.record?.leaveRequestTimeOut || ''}
                 timeIn={decideModal?.record?.timeIn || ''}
                 timeOut={decideModal?.record?.timeOut || ''}
+                deductionChoice={decideModal?.record?.leaveDeductionChoice || ''}
+                requestedHours={decideModal?.record?.leaveRequestedHours ?? ''}
                 changedBy={employeeName}
                 deciding={decideSubmitting}
                 error={decideError}

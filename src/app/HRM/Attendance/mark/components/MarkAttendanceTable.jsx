@@ -566,6 +566,8 @@ function applyDayRecordsToState(employees, records) {
             previousStatusLabel: rec.previousStatusLabel || '',
             requestedStatusKey: rec.requestedStatusKey || '',
             requestedStatusLabel: rec.requestedStatusLabel || '',
+            leaveDeductionChoice: rec.leaveDeductionChoice === 'waived' ? 'waived' : rec.leaveDeductionChoice === 'authorized' ? 'authorized' : '',
+            leaveRequestedHours: rec.leaveRequestedHours == null || rec.leaveRequestedHours === '' ? '' : rec.leaveRequestedHours,
             leaveApprovalStage: rec.leaveApprovalStage || '',
             hourAdjustStatus: rec.hourAdjustStatus || '',
             hourAdjustKind: rec.hourAdjustKind || '',
@@ -1695,6 +1697,11 @@ function EmployeeRow({
                     {pendingLeaveLabel ? (
                         <span className="text-[10px] font-semibold text-amber-700 whitespace-nowrap" title={pendingLeaveLabel}>
                             {pendingLeaveLabel} pending
+                            {mark?.leaveDeductionChoice === 'waived'
+                                ? ' · Waive off'
+                                : mark?.leaveDeductionChoice === 'authorized'
+                                  ? ' · Authorized'
+                                  : ''}
                         </span>
                     ) : rowDecision?.kind === 'waiting' ? (
                         <PendingApprovalLink
@@ -2713,15 +2720,20 @@ export default function MarkAttendanceTable({
                         : {}),
                     ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
                 })
-                : await axiosInstance.post('/Leave/pending-requests/decide', {
-                attendanceId,
-                decision: choice,
-                approvedStatusKey: approvedStatusKey || leaveDecide?.mark?.requestedStatusKey || '',
-                ...(edits?.timeIn ? { timeIn: edits.timeIn } : {}),
-                ...(edits?.timeOut ? { timeOut: edits.timeOut } : {}),
-                ...(edits?.deductionChoice ? { deductionChoice: edits.deductionChoice, requestedHours: edits.requestedHours } : {}),
-                ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
-            });
+                : await axiosInstance.post('/Leave/pending-requests/decide', choice === 'rejected'
+                ? {
+                    attendanceId,
+                    decision: 'rejected',
+                    rejectReason: String(edits?.rejectReason || '').trim(),
+                }
+                : {
+                    attendanceId,
+                    decision: 'approved',
+                    approvedStatusKey: approvedStatusKey || leaveDecide?.mark?.requestedStatusKey || '',
+                    ...(edits?.timeIn ? { timeIn: edits.timeIn } : {}),
+                    ...(edits?.timeOut ? { timeOut: edits.timeOut } : {}),
+                    ...(edits?.deductionChoice ? { deductionChoice: edits.deductionChoice, requestedHours: edits.requestedHours } : {}),
+                });
             toast({
                 title: choice === 'approved' ? 'Approved' : 'Rejected',
                 description: res.data?.message || 'Leave request updated.',
@@ -3310,6 +3322,8 @@ export default function MarkAttendanceTable({
                 requestTimeOut={leaveDecide?.mark?.leaveRequestTimeOut || ''}
                 timeIn={leaveDecide?.mark?.rawTimeIn || ''}
                 timeOut={leaveDecide?.mark?.rawTimeOut || ''}
+                deductionChoice={leaveDecide?.mark?.leaveDeductionChoice || ''}
+                requestedHours={leaveDecide?.mark?.leaveRequestedHours ?? ''}
                 changedBy={leaveDecide?.employee?.name || ''}
                 hrReview={isFlowchartHr || canApproveLeave}
                 deciding={leaveDeciding}
