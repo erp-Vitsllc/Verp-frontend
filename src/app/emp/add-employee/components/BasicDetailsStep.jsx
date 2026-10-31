@@ -24,6 +24,9 @@ export default function BasicDetailsStep({
     whatsappRegistered = false,
     whatsappInvalid = false,
     onValidateWhatsApp,
+    countryOptions = [],
+    onWorkLocationChange,
+    onWorkingFromChange,
 }) {
     const fieldsLocked = Boolean(checkingWhatsApp);
     return (
@@ -225,6 +228,88 @@ export default function BasicDetailsStep({
                         <p className="text-xs text-red-500 mt-1">{fieldErrors.whatsappNumber}</p>
                     )}
                 </div>
+                <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Work Location <span className="text-red-500">*</span>
+                    </label>
+                    <div className="flex flex-wrap gap-3">
+                        {[
+                            { value: 'uae', label: 'UAE' },
+                            { value: 'outside_uae', label: 'Outside UAE' },
+                        ].map((option) => (
+                            <label
+                                key={option.value}
+                                className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm cursor-pointer ${
+                                    basicDetails.workLocation === option.value
+                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                        : 'border-gray-300 text-gray-700'
+                                }`}
+                            >
+                                <input
+                                    type="radio"
+                                    name="workLocation"
+                                    value={option.value}
+                                    checked={basicDetails.workLocation === option.value}
+                                    onChange={() => onWorkLocationChange?.(option.value)}
+                                    disabled={fieldsLocked}
+                                    className="text-blue-600 focus:ring-blue-500"
+                                />
+                                {option.label}
+                            </label>
+                        ))}
+                    </div>
+                    {basicDetails.workLocation !== 'outside_uae' && (
+                        <p className="text-xs text-gray-500 mt-2">Salary stays in Dirhams (AED).</p>
+                    )}
+                </div>
+                {basicDetails.workLocation === 'outside_uae' && (
+                    <>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Working From <span className="text-red-500">*</span>
+                            </label>
+                            <select
+                                value={basicDetails.workingFromCountryCode || ''}
+                                onChange={(e) => onWorkingFromChange?.(e.target.value)}
+                                disabled={fieldsLocked}
+                                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                                    fieldErrors?.workingFromCountry ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
+                                }`}
+                            >
+                                <option value="">Select country</option>
+                                {countryOptions.map((country) => (
+                                    <option key={country.value} value={country.value}>
+                                        {country.label}
+                                    </option>
+                                ))}
+                            </select>
+                            {fieldErrors?.workingFromCountry && (
+                                <p className="text-xs text-red-500 mt-1">{fieldErrors.workingFromCountry}</p>
+                            )}
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Salary Paying Currency
+                            </label>
+                            <input
+                                type="text"
+                                readOnly
+                                value={
+                                    basicDetails.salaryCurrency
+                                        ? `${basicDetails.salaryCurrencyName || basicDetails.salaryCurrency} (${basicDetails.salaryCurrency})`
+                                        : ''
+                                }
+                                className={`w-full px-4 py-2 border rounded-lg bg-gray-50 text-gray-700 ${
+                                    fieldErrors?.salaryCurrency ? 'border-red-500' : 'border-gray-300'
+                                }`}
+                                placeholder="Select a country"
+                            />
+                            {fieldErrors?.salaryCurrency && (
+                                <p className="text-xs text-red-500 mt-1">{fieldErrors.salaryCurrency}</p>
+                            )}
+                        </div>
+                    </>
+                )}
             </div>
             <div className="mt-6 space-y-4">
                 <label className="flex items-center gap-2">

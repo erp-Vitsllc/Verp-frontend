@@ -13,6 +13,20 @@ const INBOX_EVENTS = [
     'loan-pending-inbox-changed',
 ];
 
+export function deletedTaskToastDescription(category, data) {
+    const base = category === 'General Task'
+        ? 'The task and its notifications were removed.'
+        : 'The task, its workflow, and its notifications were removed.';
+    const name = String(data?.assigneeName || '').trim();
+    if (data?.emailSent && name) {
+        return `${base} ${name} was emailed that admin deleted this task and they no longer need to work on it.`;
+    }
+    if (data?.emailAttempted && name) {
+        return `${base} ${name} could not be emailed.`;
+    }
+    return base;
+}
+
 export function refreshAfterTaskDelete() {
     clearPendingInboxCache();
     clearEmployeeDashboardStatsCache();

@@ -5,7 +5,7 @@ import { Paperclip, X } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
 import axiosInstance from '@/utils/axios';
 import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, readErpFileAsDataUrl, validateErpUploadFile } from '@/utils/uploadFileTypes';
-import { buildAnnualLeaveShade, describeAnnualLeaveRange, formatLeaveDate } from '@/app/HRM/Leave/utils/annualLeaveShade';
+import { buildAnnualLeaveShade, buildAnnualLeaveValidationLines, describeAnnualLeaveRange } from '@/app/HRM/Leave/utils/annualLeaveShade';
 import { LeaveShadeLegend } from '@/app/HRM/Leave/utils/LeaveShadeLegend';
 import { indexLeaveSalaryVisibility, processingStartForEmployee } from '@/app/HRM/Leave/utils/leaveSalaryVisibility';
 
@@ -128,6 +128,85 @@ function formatDurationMinutes(minutes) {
     return mins ? `${hourLabel} ${mins} min` : hourLabel;
 }
 
+function punchClockMinutes(value) {
+    const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour > 23 || minute > 59) return null;
+    return hour * 60 + minute;
+}
+
+function minutesFromReason(reason, variant) {
+    const pattern = variant === 'early' ? /(\d+)\s*minutes?\s+early/i : /(\d+)\s*minutes?\s+late/i;
+    const match = String(reason || '').match(pattern);
+    return match ? Number(match[1]) : null;
+}
+
+function flexibleRequiredHours(scheduleWeek, dateKey, row) {
+    const stored = Number(row?.flexibleRequiredHours);
+    if (stored > 0) return Math.min(24, stored);
+    const day = scheduleWeek?.[weekdayKeyFromDateKey(dateKey)] || null;
+    const dayHours = Number(day?.workingHours);
+    if (dayHours > 0) return Math.min(24, dayHours);
+    const weekHours = Number(scheduleWeek?.hoursPerDay);
+    if (weekHours > 0) return Math.min(24, weekHours);
+    return 9;
+}
+
+function workedHoursOnRecord(row) {
+    const inn = punchClockMinutes(row?.timeIn);
+    const out = punchClockMinutes(row?.timeOut);
+    if (inn != null && out != null) {
+        let diff = out - inn;
+        const date = String(row?.date || '').slice(0, 10);
+        const outDate = String(row?.timeOutDate || '').trim();
+        if (outDate && date && outDate > date) {
+            const from = new Date(`${date}T12:00:00.000Z`);
+            const to = new Date(`${outDate}T12:00:00.000Z`);
+            const days = Math.round((to.getTime() - from.getTime()) / 86400000);
+            if (days > 0) diff += days * 24 * 60;
+        } else if (diff <= 0) {
+            diff += 24 * 60;
+        }
+        return diff / 60;
+    }
+    const stored = Number(row?.flexibleWorkedHours);
+    return stored > 0 ? stored : null;
+}
+
+/** Hours short on a late-arrival or early-go day. */
+function missedHoursForRecord(row, scheduleWeek, variant) {
+    if (!row || (variant !== 'late' && variant !== 'early')) return null;
+    const date = String(row.date || '').slice(0, 10);
+    if (String(scheduleWeek?.timingMode || '').toLowerCase() === 'flexible') {
+        const required = flexibleRequiredHours(scheduleWeek, date, row);
+        const worked = workedHoursOnRecord(row);
+        if (!(required > 0) || worked == null) return null;
+        return Math.max(0, required - worked);
+    }
+    const shift = resolveShift(scheduleWeek, date);
+    if (variant === 'late') {
+        const arrived = punchClockMinutes(row.timeIn);
+        if (shift && arrived != null) return Math.max(0, arrived - shift.startMinutes) / 60;
+        const fromReason = minutesFromReason(row.reason, 'late');
+        return fromReason == null ? null : fromReason / 60;
+    }
+    const outDate = String(row.timeOutDate || '').trim();
+    if (outDate && date && outDate > date) return 0;
+    const left = punchClockMinutes(row.timeOut);
+    if (shift && left != null) return Math.max(0, shift.endMinutes - left) / 60;
+    const fromReason = minutesFromReason(row.reason, 'early');
+    return fromReason == null ? null : fromReason / 60;
+}
+
+function missedDurationMessage(hours) {
+    const value = Math.round((Number(hours) || 0) * 100) / 100;
+    if (!(value > 0)) return '';
+    const label = value.toFixed(2).replace(/\.?0+$/, '');
+    return `You have ${label} hr missed`;
+}
+
 function partialLeaveMessage(scheduleWeek, dateKey, dayPart, session) {
     if (dayPart !== 'half' && dayPart !== 'quarter') return '';
     if (session !== 'am' && session !== 'pm') return '';
@@ -206,13 +285,14 @@ export default function AttendanceFutureRequestModal({
     const [dayPart, setDayPart] = useState('full');
     const [session, setSession] = useState('');
     const [reason, setReason] = useState('');
+    const [deductionChoice, setDeductionChoice] = useState('authorized');
     const [attachment, setAttachment] = useState(null);
     const [localError, setLocalError] = useState('');
     const [annualEligibility, setAnnualEligibility] = useState(null);
     const [annualLoading, setAnnualLoading] = useState(false);
     const [processingStart, setProcessingStart] = useState('');
     const isPreviousDate = isAuthorizedLeave && leaveDuration === 'previous';
-    const usesDateList = isMispunch || isPreviousDate || isSickLeave;
+    const usesDateList = isMispunch || isPreviousDate || isSickLeave || isFuturePunch;
 
     const dateOptions = useMemo(() => {
         if (!usesDateList) return [];
@@ -269,6 +349,14 @@ export default function AttendanceFutureRequestModal({
         return [...new Set(rows)].sort();
     }, [attendanceRecords, currentMonth, todayKey, usesDateList, isMispunch, isPreviousDate, variant, holidayDates, offWeekdays]);
 
+    const missedNotice = useMemo(() => {
+        if (!isFuturePunch || !fromDate) return '';
+        const row = (Array.isArray(attendanceRecords) ? attendanceRecords : []).find(
+            (item) => String(item?.date || '').slice(0, 10) === fromDate,
+        );
+        return missedDurationMessage(missedHoursForRecord(row, scheduleWeek, variant));
+    }, [isFuturePunch, fromDate, attendanceRecords, scheduleWeek, variant]);
+
     useEffect(() => {
         if (!isOpen) return;
         const listed = usesDateList
@@ -283,6 +371,7 @@ export default function AttendanceFutureRequestModal({
         setDayPart('full');
         setSession('');
         setReason('');
+        setDeductionChoice('authorized');
         setAttachment(null);
         setLocalError('');
     }, [isOpen, dateKey, minimumDate, isMispunch, todayKey]);
@@ -341,6 +430,7 @@ export default function AttendanceFutureRequestModal({
                 setAnnualEligibility({
                     allowance: data?.allowance && typeof data.allowance === 'object' ? data.allowance : null,
                     calendar: data?.calendar && typeof data.calendar === 'object' ? data.calendar : null,
+                    groupCap: data?.groupCap && typeof data.groupCap === 'object' ? data.groupCap : null,
                     selectionMessage: String(data?.selectionMessage || ''),
                 });
             } catch {
@@ -370,13 +460,18 @@ export default function AttendanceFutureRequestModal({
     const annualFetchedIssue = annualShade && fromDate && toDate && !annualRangeIssue
         ? String(annualEligibility?.selectionMessage || '')
         : '';
-    const annualNotice = annualShade && !annualRangeIssue && !annualFetchedIssue && (!fromDate || !toDate)
-        ? String(annualEligibility?.calendar?.notice || '')
-        : '';
-    const annualRed = annualRangeIssue || annualFetchedIssue || annualNotice;
     const annualNoOpen = Boolean(annualShade && !(annualEligibility?.calendar?.openSpans || []).length);
-    const annualBlocked = Boolean(annualShade && (annualRangeIssue || annualFetchedIssue || annualNoOpen));
-    const annualWindow = annualEligibility?.allowance?.active || null;
+    const annualLines = isAnnualLeave && annualEligibility?.calendar
+        ? buildAnnualLeaveValidationLines({
+            calendar: annualEligibility.calendar,
+            allowance: annualEligibility.allowance,
+            otherLeaves: annualEligibility.groupCap?.otherLeaves,
+            from: fromDate,
+            to: toDate,
+        })
+        : [];
+    const annualCoworker = annualLines.some((line) => line.code === 'coworker');
+    const annualBlocked = Boolean(annualShade && (annualRangeIssue || annualFetchedIssue || annualNoOpen || annualCoworker));
 
     useEffect(() => {
         if (!isOpen || !annualShade?.disableDate) return;
@@ -495,6 +590,10 @@ export default function AttendanceFutureRequestModal({
             setLocalError(
                 isPreviousDate
                     ? 'Choose an unauthorized leave date from this month.'
+                    : variant === 'late'
+                      ? 'Choose a late arrival day.'
+                      : variant === 'early'
+                        ? 'Choose an early go day.'
                     : isSingleDate
                       ? 'Choose a date.'
                       : 'Choose a start date and an end date.',
@@ -514,7 +613,10 @@ export default function AttendanceFutureRequestModal({
             return;
         }
         if (isAnnualLeave && (annualBlocked || annualLoading || !annualShade)) {
-            setLocalError(annualRed || 'Choose dates on the open annual leave calendar.');
+            setLocalError(
+                annualLines.find((line) => line.tone === 'red')?.text
+                    || 'Choose dates on the open annual leave calendar.',
+            );
             return;
         }
         const effectiveDayPart = isMultiDay || isAnnualLeave || isSickLeave || isSingleDate ? 'full' : dayPart;
@@ -548,6 +650,7 @@ export default function AttendanceFutureRequestModal({
             timeIn: '',
             timeOut: '',
             reason: trimmed,
+            deductionChoice: isFuturePunch && deductionChoice === 'waived' ? 'waived' : 'authorized',
             previousDay: leaveDuration === 'previous',
             attachmentName: attachment?.name || '',
             attachmentData: attachment ? await readErpFileAsDataUrl(attachment) : '',
@@ -588,9 +691,13 @@ export default function AttendanceFutureRequestModal({
                                 <p className="text-xs text-slate-400 mt-1">
                                     Choose an unauthorized or mispunched day from this month. Reason is required.
                                 </p>
-                            ) : variant === 'late' || variant === 'early' ? (
+                            ) : variant === 'late' ? (
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Past or future working days. Reason is required.
+                                    Choose a late arrival day. Reason is required.
+                                </p>
+                            ) : variant === 'early' ? (
+                                <p className="text-xs text-slate-400 mt-1">
+                                    Choose an early go day. Reason is required.
                                 </p>
                             ) : isFuturePunch ? (
                                 <p className="text-xs text-slate-400 mt-1">
@@ -694,6 +801,7 @@ export default function AttendanceFutureRequestModal({
                         <label className="block">
                             <span className={labelClass}>{isPreviousDate || isSickLeave ? 'Unauthorized leave this month' : isSingleDate ? 'Date' : 'Start date'}</span>
                             {usesDateList ? (
+                                <>
                                 <select
                                     value={fromDate}
                                     onChange={(e) => {
@@ -705,11 +813,23 @@ export default function AttendanceFutureRequestModal({
                                     disabled={submitting || !dateOptions.length}
                                     className={fieldClass}
                                 >
-                                    <option value="">{dateOptions.length ? 'Select a date' : 'No dates this month'}</option>
+                                    <option value="">
+                                        {dateOptions.length
+                                            ? 'Select a date'
+                                            : variant === 'late'
+                                              ? 'No late arrival days'
+                                              : variant === 'early'
+                                                ? 'No early go days'
+                                                : 'No dates this month'}
+                                    </option>
                                     {dateOptions.map((day) => (
                                         <option key={day} value={day}>{formatDisplayDate(day)}</option>
                                     ))}
                                 </select>
+                                {isFuturePunch && missedNotice ? (
+                                    <p className="mt-2 text-sm font-medium text-rose-600">{missedNotice}</p>
+                                ) : null}
+                                </>
                             ) : isAnnualLeave ? (
                             <DatePicker
                                 value={fromDate}
@@ -797,21 +917,16 @@ export default function AttendanceFutureRequestModal({
                         )}
                     </div>
                     {isAnnualLeave && annualShade ? <LeaveShadeLegend className="mt-1" /> : null}
-                    {isAnnualLeave && annualRed ? (
-                        <p className="text-left text-[11px] font-medium leading-snug text-red-600">{annualRed}</p>
-                    ) : null}
-                    {isAnnualLeave && annualEligibility ? (
-                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-left text-xs text-amber-950">
-                            {annualWindow ? (
-                                <p>
-                                    Open period {formatLeaveDate(annualWindow.startDate)} — {formatLeaveDate(annualWindow.endDate)}
-                                    {' · '}allowed {annualWindow.allowedDays}
-                                    {' · '}taken {annualWindow.takenDays}
-                                    {' · '}remaining {annualWindow.remainingDays}
+                    {isAnnualLeave && annualLines.length ? (
+                        <div className="space-y-1 text-left text-[11px] font-medium leading-snug">
+                            {annualLines.map((line) => (
+                                <p
+                                    key={line.code}
+                                    className={line.tone === 'red' ? 'text-red-600' : 'text-amber-600'}
+                                >
+                                    {line.text}
                                 </p>
-                            ) : (
-                                <p>No open annual leave period yet. It opens when counted working days complete a cycle.</p>
-                            )}
+                            ))}
                         </div>
                     ) : null}
                     {isAnnualLeave && annualLoading && !annualEligibility ? (
@@ -875,6 +990,43 @@ export default function AttendanceFutureRequestModal({
                             {partialMessage ? (
                                 <p className="mt-2 text-sm font-medium text-rose-600">{partialMessage}</p>
                             ) : null}
+                        </div>
+                    ) : null}
+
+                    {isFuturePunch ? (
+                        <div>
+                            <span className={labelClass}>Deduction type</span>
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { key: 'authorized', label: 'Authorized' },
+                                    { key: 'waived', label: 'Waive off' },
+                                ].map((option) => {
+                                    const selected = deductionChoice === option.key;
+                                    return (
+                                        <button
+                                            key={option.key}
+                                            type="button"
+                                            disabled={submitting}
+                                            onClick={() => {
+                                                setDeductionChoice(option.key);
+                                                setLocalError('');
+                                            }}
+                                            className={`h-11 rounded-xl border text-sm font-semibold transition-colors ${
+                                                selected
+                                                    ? 'border-slate-900 bg-slate-900 text-white'
+                                                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="mt-1.5 text-xs text-slate-500">
+                                {deductionChoice === 'waived'
+                                    ? 'Waive off sets the deduction hours and amount to 0. Your reportee and HR can change this.'
+                                    : 'Authorized keeps the deduction from the salary policy. Your reportee and HR can change this.'}
+                            </p>
                         </div>
                     ) : null}
 

@@ -27,8 +27,9 @@ import { useListReturnBack } from '@/hooks/useListReturnBack';
 import { useRegisterErpBackHandler } from '@/contexts/ErpBackHandlerContext';
 import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
-import { pendingHold } from '@/app/task-manager/pendingHoldLine';
-import { refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
+import { taskWaitingText } from '@/app/task-manager/pendingHoldLine';
+import { deletedTaskToastDescription, refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
+import { isSystemSuperUser } from '@/utils/permissions';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
 
 const TABS = [
@@ -248,7 +249,6 @@ function TaskDetailsPage() {
     const [taskNumber, setTaskNumber] = useState('');
     const [tab, setTab] = useState('overview');
     const [task, setTask] = useState(null);
-    const [workflowSteps, setWorkflowSteps] = useState(null);
     const [error, setError] = useState('');
     const [editOpen, setEditOpen] = useState(false);
     const [reassignOpen, setReassignOpen] = useState(false);
@@ -264,13 +264,8 @@ function TaskDetailsPage() {
     const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
 
     const load = useCallback(async () => {
-        const workflowRequest = axiosInstance
-            .get(`/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/workflow`, { skipToast: true })
-            .catch(() => null);
         const res = await axiosInstance.get(`/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}`, { skipToast: true });
-        const workflowRes = await workflowRequest;
         setTask(res.data?.task || null);
-        setWorkflowSteps(Array.isArray(workflowRes?.data?.steps) ? workflowRes.data.steps : []);
         setSourceBlock(null);
     }, [taskKey]);
 
@@ -291,7 +286,6 @@ function TaskDetailsPage() {
     useEffect(() => {
         let cancelled = false;
         setError('');
-        setWorkflowSteps(null);
         load().catch((err) => {
             if (!cancelled) setError(err?.response?.data?.message || 'Could not load this task.');
         });
@@ -469,6 +463,24 @@ function TaskDetailsPage() {
         }
     };
 
+    const recallCompletion = async () => {
+        setBusy(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/recall`,
+                {},
+                { skipToast: true },
+            );
+            setTask(res.data?.task || null);
+            setTab('updates');
+            toast({ title: 'Task recalled', description: res.data?.message || 'The task is back with the reassigned employee.' });
+        } catch (err) {
+            toast({ title: 'Could not recall the task', description: err?.response?.data?.message || 'Try again.' });
+        } finally {
+            setBusy(false);
+        }
+    };
+
     const approveCompletion = async () => {
         setBusy(true);
         try {
@@ -578,11 +590,7 @@ function TaskDetailsPage() {
     const shownStatus = statusLabel(task.displayStatus || task.status);
     const generalClosed = task.taskCategory === 'General Task' && (task.displayStatus === 'Closed' || task.status === 'Completed');
     const taskFinished = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.status === 'Cancelled' || task.status === 'Rejected' || task.closeScheduled || task.completionPending || task.reviewPending;
-    const pendingWith = taskFinished ? null : pendingHold({
-        status: shownStatus,
-        steps: workflowSteps,
-        assigneeName: task.reassignedAssigneeName || task.assigneeName || '',
-    });
+    const pendingWith = taskWaitingText(task);
     const updates = Array.isArray(task.updates) ? task.updates : [];
     const comments = Array.isArray(task.comments) ? task.comments : [];
     const number = task.taskNumber || taskNumber || '';
@@ -603,12 +611,9 @@ function TaskDetailsPage() {
                         <div>
                             <div className="flex flex-wrap items-center gap-2">
                                 <h1 className="text-lg font-bold text-slate-900">{number || 'Task'}</h1>
-                                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[shownStatus] || 'bg-slate-100 text-slate-600'}`}>
-                                    {shownStatus}
+                                <span className={`max-w-full whitespace-normal rounded-full px-2 py-0.5 text-xs font-semibold leading-5 ${STATUS_STYLE[shownStatus] || 'bg-slate-100 text-slate-600'}`}>
+                                    {pendingWith?.text || shownStatus}
                                 </span>
-                                {pendingWith?.text ? (
-                                    <span className="text-sm font-semibold text-amber-800">{pendingWith.text}</span>
-                                ) : null}
                             </div>
                             <h2 className="mt-1 text-2xl font-bold text-slate-900">{nameLines[0]}</h2>
                             {nameLines.slice(1).map((line) => (
@@ -681,6 +686,16 @@ function TaskDetailsPage() {
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
                                 >
                                     <Check size={14} /> Complete my task
+                                </button>
+                            )}
+                            {task.canRecallCompletion && (
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={recallCompletion}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                                >
+                                    <RefreshCw size={14} /> Recall the task
                                 </button>
                             )}
                             {task.canApproveCompletion && (
@@ -791,7 +806,7 @@ function TaskDetailsPage() {
                         <Fact label="Task Priority" value={task.priority} pill={PRIORITY_STYLE[task.priority]} />
                         <Fact label="Request Date" value={formatWhen(task.requestDate)} icon={Calendar} />
                         <Fact label="Task Completion Date" value={formatDay(task.completionDate)} icon={Calendar} />
-                        <Fact label="Task Status" value={shownStatus} pill="bg-sky-50 text-sky-700" />
+                        <Fact label="Task Status" value={pendingWith?.text || shownStatus} pill={STATUS_STYLE[shownStatus] || 'bg-slate-100 text-slate-600'} />
                     </div>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
                         <PersonFact label="Requester Name" name={task.requesterName} role={task.requesterRole} photo={task.requesterPhoto} />
@@ -995,6 +1010,9 @@ function TaskDetailsPage() {
                             {task.taskCategory === 'General Task'
                                 ? 'This removes the task and its notifications.'
                                 : 'This removes the task, its workflow, and its notifications. The record behind it stays.'}
+                            {isSystemSuperUser()
+                                ? ' The assignee will be emailed that admin deleted this task and they no longer need to work on it.'
+                                : ''}
                         </p>
                         <div className="mt-4 flex justify-end gap-2">
                             <button
@@ -1011,15 +1029,13 @@ function TaskDetailsPage() {
                                 onClick={async () => {
                                     setDeleting(true);
                                     try {
-                                        await axiosInstance.delete(
+                                        const deleted = await axiosInstance.delete(
                                             `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}`,
                                             { skipToast: true },
                                         );
                                         toast({
                                             title: 'Task deleted',
-                                            description: task.taskCategory === 'General Task'
-                                                ? 'The task and its notifications were removed.'
-                                                : 'The task, its workflow, and its notifications were removed.',
+                                            description: deletedTaskToastDescription(task.taskCategory, deleted?.data),
                                         });
                                         refreshAfterTaskDelete();
                                         router.push('/task-manager');
@@ -1165,7 +1181,7 @@ function Fact({ label, value, pill, icon: Icon }) {
             <p className="text-xs text-slate-400">{label}</p>
             <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-slate-800">
                 {Icon ? <Icon size={14} className="text-slate-400" /> : null}
-                {pill ? <span className={`rounded-full px-2 py-0.5 text-xs ${pill}`}>{value || '—'}</span> : value || '—'}
+                {pill ? <span className={`max-w-full whitespace-normal rounded-full px-2 py-0.5 text-xs leading-5 ${pill}`}>{value || '—'}</span> : value || '—'}
             </p>
         </div>
     );
@@ -1440,7 +1456,7 @@ function EmailPreview({ mode, task, number, item }) {
                     <dt className="text-slate-400">Task Name</dt><dd>{nameLines.map((line) => <span key={line} className="block">{line}</span>)}</dd>
                     <dt className="text-slate-400">{mode === 'update' ? 'Update By' : 'Comment By'}</dt><dd>{item?.authorName || '—'}</dd>
                     <dt className="text-slate-400">{mode === 'update' ? 'Update Details' : 'Comment'}</dt><dd>{body}</dd>
-                    <dt className="text-slate-400">Current Status</dt><dd>{statusLabel(task.displayStatus || task.status)}</dd>
+                    <dt className="text-slate-400">Current Status</dt><dd>{taskWaitingText(task)?.text || statusLabel(task.displayStatus || task.status)}</dd>
                     <dt className="text-slate-400">Updated On</dt><dd>{formatWhen(item?.createdAt || task.updatedAt)}</dd>
                 </dl>
                 <p className="mt-4 text-xs text-slate-400">This is an automated notification from the Vega Digital Task Management System.</p>

@@ -9,6 +9,7 @@ import ListReturnBackButton from '@/components/ListReturnBackButton';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
+import { useInheritedTaskAction } from '@/app/task-manager/useInheritedTaskAction';
 import { useToast } from '@/hooks/use-toast';
 import { ClipboardList, Loader2 } from 'lucide-react';
 import VehicleOilServiceDetailHeaderCards from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceDetailHeaderCards';
@@ -248,11 +249,15 @@ function VehicleOilServiceDetailPageContent() {
         return !!(rowCode && myCode && rowCode === myCode);
     }, [currentUser, flowchartRows]);
 
+    const inheritedService = useInheritedTaskAction(vehicleId, { serviceId });
+    const canActAsHr = isFlowchartHr || inheritedService.canAct;
+    const canActAsAccounts = isFlowchartAccounts || inheritedService.canAct;
+
     /** Draft: create/initiate actors. After Send until Zoho billed: flowchart HR only. */
     const canEditAssignment = canEditVehicleServiceInitiate({
         assignmentPending,
         canCreateOrInitiate,
-        isFlowchartHr,
+        isFlowchartHr: canActAsHr,
         service,
         asset,
     });
@@ -351,7 +356,7 @@ function VehicleOilServiceDetailPageContent() {
                         </div>
                     ) : null}
 
-                    {!assignmentPending && !canAdminOilSteps && !isFlowchartHr && !isFlowchartAccounts ? (
+                    {!assignmentPending && !canAdminOilSteps && !canActAsHr && !canActAsAccounts ? (
                         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                             Schedule, Reschedule, and Complete Service are actioned by the flowchart Admin
                             Officer. HR and Accounts handle their approval and payment steps.
@@ -369,8 +374,8 @@ function VehicleOilServiceDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
-                                isFlowchartHr={isFlowchartHr}
-                                isFlowchartAccounts={isFlowchartAccounts}
+                                isFlowchartHr={canActAsHr}
+                                isFlowchartAccounts={canActAsAccounts}
                                 workflowStage={oilWorkflowStage}
                                 canEditServiceDates={canEditServiceDates}
                                 onSaved={refreshAfterMutation}
@@ -397,8 +402,8 @@ function VehicleOilServiceDetailPageContent() {
                                 service={service}
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
-                                canActHr={isFlowchartHr}
-                                canActAccounts={isFlowchartAccounts}
+                                canActHr={canActAsHr}
+                                canActAccounts={canActAsAccounts}
                                 workflowStage={oilWorkflowStage}
                                 onUpdated={refreshAfterMutation}
                                 className="w-full shrink-0"
@@ -421,8 +426,8 @@ function VehicleOilServiceDetailPageContent() {
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
-                                    canActHr={isFlowchartHr}
-                                    canActAccounts={isFlowchartAccounts}
+                                    canActHr={canActAsHr}
+                                    canActAccounts={canActAsAccounts}
                                     workflowStage={oilWorkflowStage}
                                     onUpdated={refreshAfterMutation}
                                     className="w-full shrink-0"

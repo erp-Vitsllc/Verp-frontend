@@ -6,6 +6,7 @@ import {
     buildMonthAdditionChoices,
     buildMonthWorkWeeks,
     buildWeeklySalaryAddition,
+    hourApprovalRestoresPay,
     defaultWorkWeekIndex,
     formatHourMeasure,
     compOffReferenceLinks,
@@ -416,6 +417,34 @@ describe('weekly salary addition counts', () => {
         assert.match(result.workingDay.compOffTitle, /09-Oct-2026 is comp off/);
     });
 
+    it('does not pay authorized leave when the hour approval stored zero hours', () => {
+        assert.equal(hourApprovalRestoresPay({
+            statusKey: 'authorized_leave',
+            hourAdjustStatus: 'approved',
+            hourAdjustKind: 'authorized_leave',
+            hoursApproved: 0,
+        }), false);
+        assert.equal(hourApprovalRestoresPay({
+            statusKey: 'late_arrived',
+            hourAdjustStatus: 'approved',
+            hoursApproved: 0,
+        }), true);
+        const records = [
+            { date: '2026-10-05', statusKey: 'on_office', timeIn: '08:00', timeOut: '16:00' },
+            {
+                date: '2026-10-06',
+                statusKey: 'authorized_leave',
+                statusLabel: 'Authorized Leave',
+                hourAdjustStatus: 'approved',
+                hourAdjustKind: 'authorized_leave',
+                hoursApproved: 0,
+            },
+        ];
+        const result = report(weeks[1], records, { countTo: '2026-10-09', flexible: false });
+        assert.equal(result.workingDay.worked, 1);
+        assert.equal(result.balancePay.workedRows.some((row) => row.date === '2026-10-06'), false);
+    });
+
     it('leaves both leave days in the balance when one of them is comp off', () => {
         const all = buildMonthAdditionChoices('2026-10', '2026-10-10')[0];
         const records = [
@@ -551,7 +580,7 @@ describe('weekly salary addition counts', () => {
         assert.equal(workedOffDay(null), false);
     });
 
-    it('keeps the weekly off amount when overtime on that Sunday is approved', () => {
+    it('keeps the weekly off amount when the Sunday is worked, pending, or used as comp off', () => {
         const sunday = {
             date: '2026-10-18',
             timeIn: '08:04',
@@ -560,8 +589,8 @@ describe('weekly salary addition counts', () => {
             flexibleOtApprovedHours: 10,
         };
         assert.equal(earnsOffDayPay(sunday), true);
-        assert.equal(earnsOffDayPay({ ...sunday, flexibleOtStatus: 'pending' }), false);
-        assert.equal(earnsOffDayPay({ ...sunday, flexibleOtNextDayDate: '2026-10-19' }), false);
+        assert.equal(earnsOffDayPay({ ...sunday, flexibleOtStatus: 'pending' }), true);
+        assert.equal(earnsOffDayPay({ ...sunday, flexibleOtNextDayDate: '2026-10-19' }), true);
         assert.equal(earnsOffDayPay(null), true);
     });
 

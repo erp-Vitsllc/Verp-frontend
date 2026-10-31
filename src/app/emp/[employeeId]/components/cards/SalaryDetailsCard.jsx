@@ -4,6 +4,7 @@ import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/u
 import { getEffectiveSalaryFields, getActiveSalaryOfferLetter } from '../../utils/salaryDisplay';
 import { isSalaryDetailsPending } from '@/utils/employeeActivationSections';
 import { resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
+import { formatPayMoney, payCurrencyCode, useAedRates } from '@/utils/workPayLocation';
 
 const SALARY_PERM = EMPLOYEE_SALARY_CARD_MODULES.salary;
 
@@ -19,6 +20,9 @@ export default function SalaryDetailsCard({
 }) {
     const access = employeeProfileCardCrudAccess(SALARY_PERM);
     const canEdit = resolveEmployeeCardCanEdit(employee, undefined, access.edit);
+    const rates = useAedRates();
+    const currency = payCurrencyCode(employee);
+    const money = (amount, digits = 2) => formatPayMoney(amount, currency, rates, digits);
 
     if (!access.view) {
         return null;
@@ -98,21 +102,17 @@ export default function SalaryDetailsCard({
             </div>
             <div>
                 {[
-                    { label: 'Basic Salary', value: salaryFields.basic ? `AED ${salaryFields.basic.toFixed(2)}` : 'AED 0.00' },
-                    { label: 'Home Rent Allowance', value: salaryFields.houseRentAllowance ? `AED ${salaryFields.houseRentAllowance.toFixed(1)}` : 'AED 0.0' },
+                    { label: 'Basic Salary', value: money(salaryFields.basic) },
+                    { label: 'Home Rent Allowance', value: money(salaryFields.houseRentAllowance) },
                     {
                         label: 'Vehicle Allowance',
-                        value: salaryFields.vehicleAllowance
-                            ? `AED ${salaryFields.vehicleAllowance.toFixed(2)}`
-                            : 'AED 0.00'
+                        value: money(salaryFields.vehicleAllowance),
                     },
                     {
                         label: 'Fuel Allowance',
-                        value: salaryFields.fuelAllowance
-                            ? `AED ${salaryFields.fuelAllowance.toFixed(2)}`
-                            : 'AED 0.00'
+                        value: money(salaryFields.fuelAllowance),
                     },
-                    { label: 'Other Allowance', value: salaryFields.otherAllowance ? `AED ${salaryFields.otherAllowance.toFixed(2)}` : 'AED 0.00' },
+                    { label: 'Other Allowance', value: money(salaryFields.otherAllowance) },
                     {
                         label: 'Total Salary',
                         value: (() => {
@@ -125,7 +125,7 @@ export default function SalaryDetailsCard({
                                 .filter(item => !item.type?.toLowerCase().includes('vehicle') && !item.type?.toLowerCase().includes('fuel'))
                                 .reduce((sum, item) => sum + (item.amount || 0), 0);
                             const total = basic + hra + other + vehicle + fuel + otherAdditional;
-                            return `AED ${total.toFixed(2)}`;
+                            return money(total);
                         })(),
                         isTotal: true
                     }

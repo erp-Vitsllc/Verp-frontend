@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { groupCalendarDayKind } from './groupCalendarDay.js';
+import { attendanceCellTag, groupCalendarDayKind } from './groupCalendarDay.js';
 
 describe('groupCalendarDayKind', () => {
     it('uses the attendance status before the weekday', () => {
@@ -33,5 +33,55 @@ describe('groupCalendarDayKind', () => {
         assert.equal(groupCalendarDayKind('', { isToday: true }), 'future');
         assert.equal(groupCalendarDayKind('', { isFuture: true }), 'future');
         assert.equal(groupCalendarDayKind(''), 'absent');
+    });
+});
+
+describe('attendanceCellTag', () => {
+    it('shows OT for approved overtime that stays overtime', () => {
+        assert.equal(attendanceCellTag({
+            statusKey: 'on_office',
+            timeIn: '08:00',
+            timeOut: '19:00',
+            flexibleOtStatus: 'approved',
+            flexibleOtApprovedHours: 2,
+        }), 'OT');
+        assert.equal(attendanceCellTag(
+            { statusKey: 'on_office', timeIn: '08:00', timeOut: '18:00' },
+            { otHours: 1.5, givenTo: '', takenFrom: '' },
+        ), 'OT');
+    });
+
+    it('shows COMPOFF when that overtime was marked on the next day', () => {
+        assert.equal(attendanceCellTag({
+            statusKey: 'on_office',
+            timeIn: '08:00',
+            timeOut: '19:00',
+            flexibleOtStatus: 'approved',
+            flexibleOtApprovedHours: 2,
+            flexibleOtNextDayDate: '2026-10-10',
+        }), 'COMPOFF');
+        assert.equal(attendanceCellTag(
+            { statusKey: 'on_office', timeIn: '08:00', timeOut: '19:00', flexibleOtStatus: 'approved', flexibleOtApprovedHours: 2 },
+            { otHours: 0, givenTo: '2026-10-10', takenFrom: '' },
+        ), 'COMPOFF');
+    });
+
+    it('shows COMPOFF on a comp-off day or the next-day attendance mark', () => {
+        assert.equal(attendanceCellTag({
+            statusKey: 'on_office',
+            timeIn: 'OT',
+            timeOut: 'OT',
+            flexibleFromOtDate: '2026-10-09',
+        }), 'COMPOFF');
+        assert.equal(attendanceCellTag({ statusKey: 'compoff_leave' }), 'COMPOFF');
+        assert.equal(attendanceCellTag(
+            { statusKey: 'on_office', timeIn: '09:00', timeOut: '18:00' },
+            { otHours: 0, givenTo: '', takenFrom: '2026-10-09' },
+        ), 'COMPOFF');
+    });
+
+    it('leaves a normal day blank', () => {
+        assert.equal(attendanceCellTag({ statusKey: 'on_office', timeIn: '08:00', timeOut: '17:00' }), '');
+        assert.equal(attendanceCellTag(null), '');
     });
 });

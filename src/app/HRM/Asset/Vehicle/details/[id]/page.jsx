@@ -11,6 +11,7 @@ import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
+import { useInheritedTaskAction } from '@/app/task-manager/useInheritedTaskAction';
 import {
     ArrowLeft,
     Truck,
@@ -1730,17 +1731,27 @@ function VehicleDetailsPageContent() {
         setCarWashModalService(null);
     }, []);
 
+    const carWashServiceId = normalizeMongoId(carWashModalService?._id || carWashModalService?.id);
+    const inheritedCarWash = useInheritedTaskAction(params?.id, { serviceId: carWashServiceId });
     const carWashModalCanApprove = useMemo(
-        () =>
-            carWashModalService
-                ? canUserValidateCarWashAccounts(
+        () => {
+            if (!carWashModalService) return false;
+            const inherited =
+                Boolean(carWashServiceId) &&
+                inheritedCarWash.matches.some(
+                    (row) => String(row?.meta?.serviceRecordId || '') === carWashServiceId,
+                );
+            return (
+                inherited ||
+                canUserValidateCarWashAccounts(
                     carWashModalService,
                     asset,
                     isFlowchartAccounts,
                     currentUser,
                 )
-                : false,
-        [carWashModalService, asset, isFlowchartAccounts, currentUser],
+            );
+        },
+        [carWashModalService, carWashServiceId, inheritedCarWash.matches, asset, isFlowchartAccounts, currentUser],
     );
 
     const openCarWashRow = useCallback((row) => {
@@ -1870,6 +1881,10 @@ function VehicleDetailsPageContent() {
             setDocumentInnerTab('live');
         }
     }, [permissionsMounted, activeTab, documentInnerTab]);
+
+    const inheritedDisposition = useInheritedTaskAction(params?.id, {
+        requestType: 'Vehicle Disposition Request',
+    });
 
     if (loading && !asset) {
         return (
@@ -2500,17 +2515,25 @@ function VehicleDetailsPageContent() {
             ? 'Sold'
             : 'Total loss';
 
-    const canReviewDispositionHr = !!asset && dispositionWorkflowStage === 'pending_hr' && isFlowchartHr;
+    const inheritedDispositionRoles = new Set(
+        (inheritedDisposition.matches || []).map((row) =>
+            String(row?.meta?.dispositionViewerRole || '').trim().toLowerCase(),
+        ),
+    );
+    const canReviewDispositionHr =
+        !!asset &&
+        dispositionWorkflowStage === 'pending_hr' &&
+        (isFlowchartHr || inheritedDispositionRoles.has('hr'));
     const canSubmitDispositionAccounts =
         !!asset &&
         dispositionWorkflowStage === 'pending_finance' &&
         !asset.vehicleDispositionWorkflow?.accountsCompletedAt &&
-        isFlowchartAccounts;
+        (isFlowchartAccounts || inheritedDispositionRoles.has('accounts'));
     const canSubmitDispositionManagement =
         !!asset &&
         dispositionWorkflowStage === 'pending_finance' &&
         !asset.vehicleDispositionWorkflow?.managementCompletedAt &&
-        isFlowchartManagement;
+        (isFlowchartManagement || inheritedDispositionRoles.has('management'));
     const showDispositionReviewControl =
         canReviewDispositionHr || canSubmitDispositionAccounts || canSubmitDispositionManagement;
 

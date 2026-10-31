@@ -13,6 +13,12 @@ export function isAttendanceClarificationRequest(row) {
     return kind === 'yellow' || kind === 'future_late' || kind === 'future_early' || kind === 'past_late';
 }
 
+function isLateEarlyRequest(row) {
+    const kind = String(row?.leaveRequestKind || '').trim();
+    const key = String(row?.requestedStatusKey || '').trim();
+    return kind === 'future_late' || kind === 'future_early' || kind === 'past_late' || key === 'late_arrived' || key === 'early_go';
+}
+
 export default function LeaveRequestDecisionCard({
     row,
     submitting = false,
@@ -28,6 +34,8 @@ export default function LeaveRequestDecisionCard({
     const [editOut, setEditOut] = useState('');
     const [rejecting, setRejecting] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
+    const [deductionChoice, setDeductionChoice] = useState('authorized');
+    const [requestedHours, setRequestedHours] = useState('0');
 
     useEffect(() => {
         setEditing(Boolean(startEditing));
@@ -35,12 +43,20 @@ export default function LeaveRequestDecisionCard({
         setRejectReason('');
         setEditIn(clockInputValue(row?.timeIn));
         setEditOut(clockInputValue(row?.timeOut));
-    }, [row?.id, row?.timeIn, row?.timeOut, startEditing]);
+        const waived = row?.leaveDeductionChoice === 'waived';
+        setDeductionChoice(waived ? 'waived' : 'authorized');
+        setRequestedHours(
+            waived && row?.leaveRequestedHours != null && row.leaveRequestedHours !== ''
+                ? String(row.leaveRequestedHours)
+                : '0',
+        );
+    }, [row?.id, row?.timeIn, row?.timeOut, row?.leaveDeductionChoice, row?.leaveRequestedHours, startEditing]);
 
     if (!row) return null;
     const pendingWith = String(row.pendingWithName || '').trim();
     const canDecide = row.canDecide === true && String(row.statusKey || 'pending') === 'pending';
     const clarification = isAttendanceClarificationRequest(row);
+    const lateEarly = isLateEarlyRequest(row);
     const showDecide = canDecide;
     const showEdit = canDecide || (clarification && canEdit);
     const dateLabel =
@@ -88,6 +104,47 @@ export default function LeaveRequestDecisionCard({
                     <p className="mt-2 text-xs text-[#475467]">
                         Time: {row.timeIn || '—'} – {row.timeOut || '—'}
                     </p>
+                ) : null}
+                {lateEarly && showDecide ? (
+                    <div className="mt-3 text-left">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#667085]">Deduction type</p>
+                        <div className="mt-1 grid grid-cols-2 gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setDeductionChoice('authorized')}
+                                className={`rounded-lg border px-3 py-2 text-sm font-semibold ${deductionChoice === 'authorized' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-[#DDE3EA] bg-white text-[#475467]'}`}
+                            >
+                                Authorized
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDeductionChoice('waived')}
+                                className={`rounded-lg border px-3 py-2 text-sm font-semibold ${deductionChoice === 'waived' ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-[#DDE3EA] bg-white text-[#475467]'}`}
+                            >
+                                Waive off
+                            </button>
+                        </div>
+                        {deductionChoice === 'waived' ? (
+                            <label className="mt-2 block text-[11px] text-[#667085]">
+                                Custom hours
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={requestedHours}
+                                    onChange={(event) => setRequestedHours(event.target.value)}
+                                    className="mt-1 h-9 w-full rounded-lg border border-[#DDE3EA] bg-white px-2 text-sm text-[#111827]"
+                                />
+                            </label>
+                        ) : (
+                            <p className="mt-2 text-[11px] text-[#667085]">Authorized uses the salary policy hours.</p>
+                        )}
+                        <p className="mt-1 text-[11px] text-[#667085]">
+                            {deductionChoice === 'waived'
+                                ? '0 hours waives the amount. You can change the hours before the last HR approval.'
+                                : 'HR gives the last approval and can still change this.'}
+                        </p>
+                    </div>
                 ) : null}
                 {clarification && editing ? (
                     <div className="mt-3 grid grid-cols-2 gap-2 text-left">
@@ -170,12 +227,15 @@ export default function LeaveRequestDecisionCard({
                                 type="button"
                                 disabled={submitting}
                                 onClick={() =>
-                                    onAccept?.(
-                                        row,
-                                        clarification && editing
-                                            ? { timeIn: editIn, timeOut: editOut }
-                                            : undefined,
-                                    )
+                                    onAccept?.(row, {
+                                        ...(clarification && editing ? { timeIn: editIn, timeOut: editOut } : {}),
+                                        ...(lateEarly
+                                            ? {
+                                                deductionChoice,
+                                                requestedHours: deductionChoice === 'waived' ? requestedHours : '',
+                                            }
+                                            : {}),
+                                    })
                                 }
                                 className="min-w-[110px] flex-1 rounded-lg bg-[#16A34A] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#15803D] disabled:opacity-60"
                             >

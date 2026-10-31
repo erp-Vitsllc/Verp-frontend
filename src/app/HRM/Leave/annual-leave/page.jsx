@@ -641,6 +641,9 @@ function AnnualLeavePageContent() {
                         approvedStatusKey: row.requestedStatusKey || '',
                         ...(decision !== 'rejected' && edits?.timeIn ? { timeIn: edits.timeIn } : {}),
                         ...(decision !== 'rejected' && edits?.timeOut ? { timeOut: edits.timeOut } : {}),
+                        ...(decision !== 'rejected' && edits?.deductionChoice
+                            ? { deductionChoice: edits.deductionChoice, requestedHours: edits.requestedHours }
+                            : {}),
                         ...(decision === 'rejected' && edits?.rejectReason
                             ? { rejectReason: edits.rejectReason }
                             : {}),

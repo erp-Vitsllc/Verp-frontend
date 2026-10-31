@@ -263,19 +263,13 @@ export function workedOffDay(record) {
 }
 
 /**
- * A week off or holiday is paid.
- * Approved overtime on that day keeps the day pay, and the overtime is added.
- * Hours already used as comp off are not paid again as overtime or as this day.
+ * A week off or holiday keeps its day amount.
+ * A punch, pending overtime, approved overtime, or comp off does not remove it.
+ * Sandwich leave is excluded by the caller.
+ * Approved overtime is extra pay on top, and hours used as comp off are not paid again as overtime.
  */
-export function earnsOffDayPay(record, note) {
-    if (!workedOffDay(record)) return true;
-    const placedOn = String(record?.flexibleOtNextDayDate || '').trim() || String(note?.givenTo || '').trim();
-    if (placedOn || isOtPunchPlaceholder(record)) return false;
-    const approved = String(record?.flexibleOtStatus || '') === 'approved'
-        ? Number(record?.flexibleOtApprovedHours) || 0
-        : 0;
-    if (approved > 0) return true;
-    return Number(note?.otHours) > 0;
+export function earnsOffDayPay() {
+    return true;
 }
 
 function isSyntheticOtDay(row) {
@@ -316,19 +310,30 @@ function emptyInfo() {
     return { required: false, scheduledHours: 0, weeklyOff: false, holiday: false };
 }
 
-/** Waive, or an approval that clears the deduction, restores the day. */
-function deductionForgiven(row) {
+/**
+ * A zero-hour approval restores a late, early, or missed punch.
+ * Authorized leave stays a leave day and still deducts, even when that approval stored 0 hours.
+ */
+export function hourApprovalRestoresPay(row) {
     if (!row) return false;
+    if (String(row.statusKey || '') === 'authorized_leave') return false;
     if (row.deductionWaived === true) return true;
     return String(row.hourAdjustStatus || '') === 'approved' && !(Number(row.hoursApproved) > 0);
+}
+
+/** Waive, or an approval that clears the deduction, restores the day. */
+function deductionForgiven(row) {
+    return hourApprovalRestoresPay(row);
 }
 
 /**
  * A green present day, including one whose deduction was waived.
  * It is not a short day, so the missing hours are not deducted.
+ * Authorized leave is never paid as a present day.
  */
 function isPaidPresentDay(day) {
     if (!day || day.synthetic) return false;
+    if (String(day.statusKey || '') === 'authorized_leave') return false;
     if (day.forgiven) return true;
     const key = String(day.statusKey || '');
     return key === 'on_office' || key === 'work_from_home';

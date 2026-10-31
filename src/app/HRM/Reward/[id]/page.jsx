@@ -34,6 +34,7 @@ import { formatRewardStatusLabel, formatRewardPaymentStatusLabel } from '../util
 import { canEditRewardCertificate } from '../utils/rewardPermissionAccess';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 import PermissionGuard from '@/components/PermissionGuard';
+import { useInheritedTaskAction } from '@/app/task-manager/useInheritedTaskAction';
 
 function toTitleCase(str) {
     if (!str) return '';
@@ -273,6 +274,9 @@ export default function RewardDetailsPage() {
         }
     }, [currentUser, reward]);
 
+    const inheritedReward = useInheritedTaskAction([id, reward?._id]);
+    const inheritedRewardAction = inheritedReward.canAct;
+
     const canPerformAction = () => {
         if (!currentUser || !employee || !reward) return false;
 
@@ -300,6 +304,13 @@ export default function RewardDetailsPage() {
         }
 
         if (isPortalAdmin) return true;
+
+        if (
+            inheritedRewardAction &&
+            !['Approved', 'Approved (Paid)', 'Paid', 'Rejected', 'Completed', 'Cancelled', 'Withdrawn'].includes(status)
+        ) {
+            return true;
+        }
 
         // 1. Strict Assignment Check (current submittedTo)
         if (assignedUserId) {
@@ -1184,7 +1195,8 @@ export default function RewardDetailsPage() {
                                 const canFixFailedZoho =
                                     !hasZoho &&
                                     syncErr &&
-                                    (status === 'Pending Accounts' ||
+                                    (inheritedRewardAction ||
+                                        status === 'Pending Accounts' ||
                                         status === 'Approved (Paid)' ||
                                         status === 'Paid');
                                 const atAccounts =

@@ -9,7 +9,7 @@ import {
     processingStartForEmployee,
     useLeaveSalaryVisibility,
 } from '../utils/leaveSalaryVisibility';
-import { buildAnnualLeaveShade, describeAnnualLeaveRange } from '../utils/annualLeaveShade';
+import { buildAnnualLeaveShade, buildAnnualLeaveValidationLines, describeAnnualLeaveRange } from '../utils/annualLeaveShade';
 import { LeaveShadeLegend } from '../utils/LeaveShadeLegend';
 
 function dateKeyToLocalDate(value) {
@@ -139,7 +139,6 @@ export default function AnnualLeaveFilterModal({
     const [dateEditMode, setDateEditMode] = useState(false);
     const [rejecting, setRejecting] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
-    const [blockersOpen, setBlockersOpen] = useState(false);
     const isApplyMode = applyLabel === 'Apply' && !showReject;
     const showHrOverride = isApplyMode && isDesignatedHr;
     const showAnnualEligibility = Boolean(
@@ -185,15 +184,23 @@ export default function AnnualLeaveFilterModal({
         !hrCanPickEarly && startDate && endDate && !rangeIssue
             ? String(eligibility?.selectionMessage || '')
             : '';
-    const guidance =
-        !rangeIssue && !fetchedIssue && (!startDate || !endDate)
-            ? String(eligibility?.calendar?.notice || '')
-            : '';
-    const redBody = rangeIssue || fetchedIssue || guidance;
-    const redText = redBody ? `${redBody}${isDesignatedHr ? '' : ' For more, contact HR.'}` : '';
     const noOpenDays = Boolean(shade && !(eligibility?.calendar?.openSpans || []).length);
+    const validationLines = showAnnualEligibility
+        ? buildAnnualLeaveValidationLines({
+              calendar: eligibility?.calendar,
+              allowance: eligibility?.allowance,
+              otherLeaves: eligibility?.groupCap?.otherLeaves,
+              from: startDate,
+              to: endDate,
+          })
+        : [];
+    const coworkerBlocking = Boolean(
+        !hrCanPickEarly && validationLines.some((line) => line.code === 'coworker'),
+    );
     const calendarBlocking = Boolean(
-        isApplyMode && shade && !hrCanPickEarly && (rangeIssue || fetchedIssue || noOpenDays),
+        isApplyMode &&
+            !hrCanPickEarly &&
+            ((shade && (rangeIssue || fetchedIssue || noOpenDays)) || coworkerBlocking),
     );
     const activeWindow = eligibility?.allowance?.active || null;
     const allowanceEnd = activeWindow?.endDate || '';
@@ -583,72 +590,19 @@ export default function AnnualLeaveFilterModal({
                         </div>
                     </div>
                     {shade ? <LeaveShadeLegend className="mt-2" /> : null}
-                    {redText ? (
-                        <p className="mt-2 text-left text-[11px] font-medium leading-snug text-red-600">
-                            {redText}
-                        </p>
+                    {validationLines.length ? (
+                        <div className="mt-2 space-y-1 text-left text-[11px] font-medium leading-snug">
+                            {validationLines.map((line) => (
+                                <p
+                                    key={line.code}
+                                    className={line.tone === 'red' ? 'text-red-600' : 'text-amber-600'}
+                                >
+                                    {line.text}
+                                </p>
+                            ))}
+                        </div>
                     ) : null}
                 </div>
-
-                {showAnnualEligibility && eligibility ? (
-                    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-left text-xs text-amber-950">
-                        {activeWindow ? (
-                            <p>
-                                Open period {formatDateLabel(activeWindow.startDate)} — {formatDateLabel(activeWindow.endDate)}
-                                {' · '}allowed {activeWindow.allowedDays}
-                                {' · '}taken {activeWindow.takenDays}
-                                {' · '}remaining {activeWindow.remainingDays}
-                            </p>
-                        ) : (
-                            <p>No open annual leave period yet. It opens when counted working days complete a cycle.</p>
-                        )}
-                        {eligibility.allowanceBlocked &&
-                        eligibility.allowanceBlock?.message &&
-                        redBody !== eligibility.allowanceBlock.message ? (
-                            <p className="mt-1 font-semibold">
-                                {eligibility.allowanceBlock.message}
-                                {isDesignatedHr ? ' Shown for review. HR can still apply.' : ''}
-                            </p>
-                        ) : null}
-                        {eligibility.groupCap?.enabled ? (
-                            <>
-                                <p className="mt-1">
-                                    {eligibility.groupCap.groupLabel || 'Group'} group:{' '}
-                                    {eligibility.groupCap.employeeCount} employee
-                                    {eligibility.groupCap.employeeCount === 1 ? '' : 's'}
-                                    {eligibility.groupCap.minPercent != null
-                                        ? ` · min allowed ${eligibility.groupCap.minAllowed} (${eligibility.groupCap.minPercent}%)`
-                                        : ''}
-                                    {eligibility.groupCap.maxPercent != null
-                                        ? ` · max allowed ${eligibility.groupCap.maxAllowed} (${eligibility.groupCap.maxPercent}%)`
-                                        : ''}
-                                </p>
-                                {startDate && endDate ? (
-                                    <p className="mt-1">
-                                        Annual leave already requested or approved in this group
-                                        on the selected days:{' '}
-                                        <button
-                                            type="button"
-                                            onClick={() => setBlockersOpen(true)}
-                                            className="font-semibold text-amber-950 underline"
-                                        >
-                                            {eligibility.groupCap.taken}
-                                        </button>
-                                    </p>
-                                ) : null}
-                                {eligibility.groupCap.over ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => setBlockersOpen(true)}
-                                        className="mt-1 block text-left font-semibold underline"
-                                    >
-                                        {eligibility.groupCap.message || 'Group limit reached.'} See who is on leave.
-                                    </button>
-                                ) : null}
-                            </>
-                        ) : null}
-                    </div>
-                ) : null}
 
                 {showAnnualEligibility && eligibilityLoading && !eligibility ? (
                     <p className="mt-3 text-center text-[11px] text-slate-400">
@@ -755,44 +709,6 @@ export default function AnnualLeaveFilterModal({
                     )}
                 </div>
             </div>
-            {blockersOpen ? (
-                <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-                    <button
-                        type="button"
-                        aria-label="Close who is on leave"
-                        className="absolute inset-0 bg-black/40"
-                        onClick={() => setBlockersOpen(false)}
-                    />
-                    <div className="relative z-[121] w-full max-w-md rounded-xl border border-gray-200 bg-white p-4 shadow-2xl">
-                        <h4 className="text-sm font-semibold text-gray-900">Who is on annual leave</h4>
-                        <p className="mt-1 text-xs text-gray-500">
-                            These people already requested or took annual leave on the selected days, so the group limit blocks this request.
-                        </p>
-                        <ul className="mt-3 max-h-64 space-y-2 overflow-auto text-left text-xs text-gray-800">
-                            {(eligibility?.groupCap?.blockers || []).length ? (
-                                eligibility.groupCap.blockers.map((person) => (
-                                    <li key={person.employeeMongoId} className="rounded-lg border border-gray-100 px-2 py-1.5">
-                                        <span className="font-semibold">{person.name}</span>
-                                        {person.employeeId ? ` (${person.employeeId})` : ''}
-                                        <span className="mt-0.5 block text-gray-500">
-                                            {person.status || 'leave'} · {(person.dates || []).map(formatDateLabel).join(', ')}
-                                        </span>
-                                    </li>
-                                ))
-                            ) : (
-                                <li>No one else is recorded on these days.</li>
-                            )}
-                        </ul>
-                        <button
-                            type="button"
-                            onClick={() => setBlockersOpen(false)}
-                            className="mt-3 w-full rounded-lg border border-gray-200 py-2 text-sm font-semibold text-gray-700"
-                        >
-                            Close
-                        </button>
-                    </div>
-                </div>
-            ) : null}
             <style>{`
                 @keyframes leave-date-blink {
                     0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); background-color: transparent; }

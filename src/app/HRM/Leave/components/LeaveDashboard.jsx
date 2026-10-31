@@ -770,7 +770,7 @@ export default function LeaveDashboard({
                 ? `${row.startDate} to ${row.endDate}`
                 : row.startDate || 'this day';
             const confirmed = window.confirm(
-                `Return ${row.name || 'this employee'}'s ${leaveLabel} (${when}) to a request? Attendance for those days goes back, and it shows again in requests and the notification bell.`,
+                `Return ${row.name || 'this employee'}'s ${leaveLabel} (${when}) to a request? Attendance for those days goes back and the existing task opens again. No email is sent.`,
             );
             if (!confirmed) return;
             setDecidingId(row.id);

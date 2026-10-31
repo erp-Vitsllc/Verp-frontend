@@ -51,14 +51,14 @@ export function buildFineVendorPaymentPrefill(fine, overrides = {}) {
     };
 }
 
-export function canAccountsPayFineVendorBill(fine, user, flowchartRows = []) {
+export function canAccountsPayFineVendorBill(fine, user, flowchartRows = [], inherited = false) {
     if (!fine || !user) return false;
     const status = String(fine.fineStatus || '');
     if (status !== 'Approved' && status !== 'Active') return false;
     if (String(fine.vendorBillStatus || '').toLowerCase() === 'paid') return false;
     if (!String(fine.zohoBillId || '').trim()) return false;
 
-    return isAccountsFinanceUser(user, flowchartRows) || matchesAccountsHod(fine, user);
+    return inherited || isAccountsFinanceUser(user, flowchartRows) || matchesAccountsHod(fine, user);
 }
 
 export function isFineAccountsPaymentPending(fine) {
@@ -72,9 +72,9 @@ export function isFineAccountsPaymentPending(fine) {
 }
 
 /** Accounts may pick Enter in Zoho or Paid by employee after Management approve. */
-export function canAccountsSettleApprovedFine(fine, user, flowchartRows = []) {
+export function canAccountsSettleApprovedFine(fine, user, flowchartRows = [], inherited = false) {
     if (!isFineAccountsPaymentPending(fine) || !user) return false;
-    return isAccountsFinanceUser(user, flowchartRows) || matchesAccountsHod(fine, user);
+    return inherited || isAccountsFinanceUser(user, flowchartRows) || matchesAccountsHod(fine, user);
 }
 
 /** True when the viewer holds the Active Accounts row in Settings > FlowChart. */
@@ -123,7 +123,7 @@ function matchesAccountsHod(fine, user) {
     return Boolean(accountsEmpId && userEmpId && accountsEmpId === userEmpId);
 }
 
-export function canAccountsPayFineEmployeeShare(fine, user, balance = null, flowchartRows = []) {
+export function canAccountsPayFineEmployeeShare(fine, user, balance = null, flowchartRows = [], inherited = false) {
     if (!fine || !user) return false;
     const status = String(fine.fineStatus || '');
     const bal =
@@ -137,7 +137,7 @@ export function canAccountsPayFineEmployeeShare(fine, user, balance = null, flow
     if (bal <= 0.01) return false;
     // Approved workflow (or Paid with leftover balance) — still collectible until balance clears.
     if (!['Approved', 'Active', 'Paid', 'Completed'].includes(status)) return false;
-    return isAccountsFinanceUser(user, flowchartRows) || matchesAccountsHod(fine, user);
+    return inherited || isAccountsFinanceUser(user, flowchartRows) || matchesAccountsHod(fine, user);
 }
 
 /**

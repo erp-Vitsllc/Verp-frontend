@@ -46,6 +46,16 @@ function BasicDetailsCard({
             { label: 'Email', value: employee.email || employee.workEmail },
             { label: 'Contact Number', value: employee.contactNumber },
             { label: 'WhatsApp Number', value: employee.whatsappNumber },
+            {
+                label: 'Work Location',
+                value: employee.workLocation === 'outside_uae' ? 'Outside UAE' : 'UAE',
+            },
+            ...(employee.workLocation === 'outside_uae'
+                ? [
+                    { label: 'Working From', value: employee.workingFromCountry },
+                    { label: 'Salary Currency', value: employee.salaryCurrency },
+                ]
+                : []),
 
             { label: 'Date of Birth', value: dateOfBirthValue },
             {

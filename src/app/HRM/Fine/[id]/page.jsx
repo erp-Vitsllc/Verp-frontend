@@ -59,6 +59,7 @@ import {
     resolveEmployeeFinePayableAmount,
 } from '@/utils/finePayableAmount';
 import { canUserActOnFineStage } from '@/utils/fineStageAuth';
+import { useInheritedTaskAction } from '@/app/task-manager/useInheritedTaskAction';
 import { notifyFinePendingInboxChanged } from '../utils/finePendingInboxCount';
 import { resolveFinePartiesZohoGate } from '../utils/finePartiesZohoGate';
 import { APPROVED_FINE_STATUSES, deriveFineScheduleMonthYears } from '../utils/fineScheduleUtils';
@@ -1652,6 +1653,9 @@ function FineDetailsPageContent() {
         } : null);
     }, [showGroupPlaceholder, employeeDetails, fine, mainEmployee]);
 
+    const inheritedFine = useInheritedTaskAction([id, fine?._id]);
+    const inheritedFineAction = inheritedFine.canAct;
+
     // Permission Logic — only the assignee on the current workflow step may act (+ portal admin)
     const canPerformAction = () => {
         if (!currentUser || !fine) return false;
@@ -1666,6 +1670,13 @@ function FineDetailsPageContent() {
             return isPortalAdmin;
         }
 
+        if (
+            inheritedFineAction &&
+            !['Approved', 'Active', 'Paid', 'Completed', 'Rejected', 'Cancelled', 'Withdrawn'].includes(status)
+        ) {
+            return true;
+        }
+
         return canUserActOnFineStage({
             user: currentUser,
             fine,
@@ -1674,12 +1685,12 @@ function FineDetailsPageContent() {
     };
 
     const canPayVendorFineBill = useMemo(() => {
-        return canAccountsPayFineVendorBill(fine, currentUser, flowchartRows);
-    }, [fine, currentUser, flowchartRows]);
+        return canAccountsPayFineVendorBill(fine, currentUser, flowchartRows, inheritedFineAction);
+    }, [fine, currentUser, flowchartRows, inheritedFineAction]);
 
     const canSettleApprovedPayment = useMemo(() => {
-        return canAccountsSettleApprovedFine(fine, currentUser, flowchartRows);
-    }, [fine, currentUser, flowchartRows]);
+        return canAccountsSettleApprovedFine(fine, currentUser, flowchartRows, inheritedFineAction);
+    }, [fine, currentUser, flowchartRows, inheritedFineAction]);
 
     const accountsPaymentPending = isFineAccountsPaymentPending(fine);
 
@@ -1711,6 +1722,7 @@ function FineDetailsPageContent() {
         approvedAssetControllerOnlyEdit,
         isGroup,
         isGroupOverviewActive,
+        inheritedFineAction,
     ]);
 
     const isCompanyFine =
@@ -2550,6 +2562,7 @@ function FineDetailsPageContent() {
                                         computeFinePayableTotal(fine) - (Number(fine?.paidAmount) || 0),
                                     ),
                                     flowchartRows,
+                                    inheritedFineAction,
                                 )}
                                 onPay={() => setFinePayChoiceOpen(true)}
                                 onPaymentSuccess={async () => {

@@ -39,11 +39,11 @@ function isDateDisabled(checkDate, disabledDays) {
 
 function ShadedDayButton({ className, modifiers, ...props }) {
     const tone = modifiers?.leaveYellow
-        ? "!bg-[#fef9c3] !text-yellow-900 hover:!bg-[#fef3c7]"
+        ? "!bg-[rgba(245,158,11,0.16)] !text-amber-900/85 hover:!bg-[rgba(245,158,11,0.26)] !shadow-[inset_0_0_0_1px_rgba(245,158,11,0.28)]"
         : modifiers?.leaveGreen
-          ? "!bg-[#dcfce7] !text-green-900 hover:!bg-[#bbf7d0]"
+          ? "!bg-[rgba(16,185,129,0.13)] !text-emerald-900/85 hover:!bg-[rgba(16,185,129,0.22)] !shadow-[inset_0_0_0_1px_rgba(16,185,129,0.24)]"
           : modifiers?.leaveGrey
-            ? "!bg-[#e5e7eb] !text-gray-500 hover:!bg-[#e5e7eb]"
+            ? "!bg-[rgba(148,163,184,0.18)] !text-slate-500 hover:!bg-[rgba(148,163,184,0.26)] !shadow-[inset_0_0_0_1px_rgba(148,163,184,0.28)]"
             : ""
     return (
         <CalendarDayButton
@@ -51,8 +51,9 @@ function ShadedDayButton({ className, modifiers, ...props }) {
             className={cn(
                 className,
                 tone,
-                tone && "disabled:!opacity-100",
-                tone && modifiers?.selected && "ring-2 ring-inset ring-blue-600",
+                tone &&
+                    "disabled:!opacity-100 !size-auto !h-full !w-full !min-h-0 !min-w-0 !rounded-md !border-2 !border-transparent !bg-clip-padding !p-0 !text-[11px]",
+                tone && modifiers?.selected && "!ring-2 !ring-inset !ring-blue-500/75",
             )}
             {...props}
         />
@@ -286,8 +287,12 @@ export function DatePicker({
                     {date ? format(date, "PPP") : <span>{placeholder}</span>}
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-                <div className="p-3 border-b">
+            <PopoverContent
+                className="w-auto p-0"
+                align="start"
+                collisionPadding={modifiers ? 16 : undefined}
+            >
+                <div className={cn("border-b", modifiers ? "px-2 py-1.5" : "p-3")}>
                     <input
                         type="text"
                         placeholder="dd/MM/yyyy"
@@ -298,6 +303,7 @@ export function DatePicker({
                     />
                 </div>
                 <Calendar
+                    className={modifiers ? "p-1.5" : undefined}
                     mode="single"
                     selected={date}
                     onSelect={(selectedDate) => {

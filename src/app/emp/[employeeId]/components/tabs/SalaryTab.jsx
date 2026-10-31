@@ -11,6 +11,7 @@ import { isOldestSalaryHistoryEntry } from '@/utils/employeeSalaryValidation';
 import { formatSalaryMonthYear, salaryHistoryToDateLabel, sortSalaryHistoryDesc } from '@/utils/salaryHistoryUtils';
 import { monthKeyFromDate } from '@/utils/employeeSalaryValidation';
 import { getActiveSalaryOfferLetter } from '../../utils/salaryDisplay';
+import { formatPayMoney, payCurrencyCode, useAedRates } from '@/utils/workPayLocation';
 import Select from 'react-select';
 // Import cards directly to test if DynamicCards re-exports are causing issues
 import SalaryDetailsCard from '../cards/SalaryDetailsCard';
@@ -337,6 +338,8 @@ export default function SalaryTab({
     }, [selectedSalaryAction, setSelectedSalaryAction, canSeeSalaryActionButton]);
 
     const [accountsFlowchartRows, setAccountsFlowchartRows] = useState([]);
+    const payRates = useAedRates();
+    const payMoney = (amount, digits = 2) => formatPayMoney(amount, payCurrencyCode(employee), payRates, digits);
 
     useEffect(() => {
         let cancelled = false;
@@ -3746,18 +3749,17 @@ export default function SalaryTab({
                                                     <td className="py-3 px-4 text-sm text-gray-500">
                                                         {salaryHistoryToDateLabel(entry)}
                                                     </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.basic?.toFixed(2) || '0.00'}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.vehicleAllowance?.toFixed(2) || '0.00'}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {(() => {
+                                                    <td className="py-3 px-4 text-sm text-gray-500">{payMoney(entry.basic)}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">{payMoney(entry.otherAllowance)}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">{payMoney(entry.houseRentAllowance)}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">{payMoney(entry.vehicleAllowance)}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">{payMoney((() => {
                                                         if (entry.fuelAllowance !== undefined && entry.fuelAllowance !== null) {
-                                                            return entry.fuelAllowance.toFixed(2);
+                                                            return entry.fuelAllowance;
                                                         }
-                                                        const fuelFromAdditional = entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
-                                                        return fuelFromAdditional.toFixed(2);
-                                                    })()}</td>
-                                                    <td className="py-3 px-4 text-sm font-semibold text-gray-500">AED {(() => {
+                                                        return entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
+                                                    })())}</td>
+                                                    <td className="py-3 px-4 text-sm font-semibold text-gray-500">{payMoney((() => {
                                                         const basic = entry.basic || 0;
                                                         const hra = entry.houseRentAllowance || 0;
                                                         const vehicle = entry.vehicleAllowance || 0;
@@ -3765,9 +3767,8 @@ export default function SalaryTab({
                                                         const fuel = entry.fuelAllowance !== undefined && entry.fuelAllowance !== null
                                                             ? entry.fuelAllowance
                                                             : (entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
-                                                        const recalculatedTotal = basic + hra + vehicle + fuel + other;
-                                                        return recalculatedTotal.toFixed(2);
-                                                    })()}</td>
+                                                        return basic + hra + vehicle + fuel + other;
+                                                    })())}</td>
                                                     <td className="py-3 px-4 text-sm">
                                                         {(() => {
                                                             const hasOfferLetter = !!(entry.offerLetter &&

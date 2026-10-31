@@ -66,24 +66,24 @@ function matchesLoanAccountsAssignee(loan, user) {
 /**
  * Accounts may disburse after Management approval (Loan detail / Accounts Payments).
  */
-export function canAccountsPayLoan(loan, user) {
+export function canAccountsPayLoan(loan, user, inherited = false) {
     if (!loan || !user) return false;
     if (!isLoanAwaitingEmployeePayment(loan)) return false;
     const amount = Number(loan.amount) || 0;
     const paid = Number(loan.paidAmount) || 0;
     if (amount <= 0 || amount - paid <= 0.01) return false;
 
-    return isAccountsFinanceUser(user) || matchesLoanAccountsAssignee(loan, user);
+    return inherited || isAccountsFinanceUser(user) || matchesLoanAccountsAssignee(loan, user);
 }
 
 /**
  * Employee profile Pay: collect loan/advance repayment (Expense Refund → Zoho Banking).
  */
-export function canAccountsCollectLoanRepayment(loan, user) {
+export function canAccountsCollectLoanRepayment(loan, user, inherited = false) {
     if (!loan || !user) return false;
     if (!isLoanPostManagementStatus(loan)) return false;
     if (getLoanRepaymentBalance(loan) <= 0.01) return false;
-    return isAccountsFinanceUser(user) || matchesLoanAccountsAssignee(loan, user);
+    return inherited || isAccountsFinanceUser(user) || matchesLoanAccountsAssignee(loan, user);
 }
 
 export function buildLoanPaymentPrefill(loan, { returnTo = '', companyId = '' } = {}) {

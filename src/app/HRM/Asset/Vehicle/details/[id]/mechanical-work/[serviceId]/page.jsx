@@ -9,6 +9,7 @@ import ListReturnBackButton from '@/components/ListReturnBackButton';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
+import { useInheritedTaskAction } from '@/app/task-manager/useInheritedTaskAction';
 import { useToast } from '@/hooks/use-toast';
 import { ClipboardList, Loader2 } from 'lucide-react';
 import VehicleMechanicalWorkDetailHeaderCards from '@/app/HRM/Asset/Vehicle/components/VehicleMechanicalWorkDetailHeaderCards';
@@ -228,6 +229,10 @@ function VehicleMechanicalWorkDetailPageContent() {
         return !!(rowCode && myCode && rowCode === myCode);
     }, [currentUser, flowchartRows]);
 
+    const inheritedService = useInheritedTaskAction(vehicleId, { serviceId });
+    const canActAsHr = isFlowchartHr || inheritedService.canAct;
+    const canActAsAccounts = isFlowchartAccounts || inheritedService.canAct;
+
     const mechanicalWorkflowStage = useMemo(
         () => resolveMechanicalWorkWorkflowStage(asset, serviceId, service),
         [asset, serviceId, service],
@@ -235,14 +240,14 @@ function VehicleMechanicalWorkDetailPageContent() {
 
     const canRespondToMechanicalWorkflow = useMemo(() => {
         if (!asset || mechanicalWorkflowStage !== MECHANICAL_WORK_WORKFLOW_STAGES.HR) return false;
-        return asset.canRespondToServiceWorkflow === true;
-    }, [asset, mechanicalWorkflowStage]);
+        return asset.canRespondToServiceWorkflow === true || inheritedService.canAct;
+    }, [asset, mechanicalWorkflowStage, inheritedService.canAct]);
 
     /** Draft: create/initiate actors. After Send until Zoho billed: flowchart HR only. */
     const canEditAssignment = canEditVehicleServiceInitiate({
         assignmentPending,
         canCreateOrInitiate,
-        isFlowchartHr,
+        isFlowchartHr: canActAsHr,
         service,
         asset,
     });
@@ -340,7 +345,7 @@ function VehicleMechanicalWorkDetailPageContent() {
                         </div>
                     ) : null}
 
-                    {!assignmentPending && !canManageMechanicalWork ? (
+                    {!assignmentPending && !canManageMechanicalWork && !canActAsHr && !canActAsAccounts ? (
                         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                             Only the Super User, Admin Officer, or assigned user can submit service details.
                         </div>
@@ -354,8 +359,8 @@ function VehicleMechanicalWorkDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
-                                isFlowchartHr={isFlowchartHr}
-                                isFlowchartAccounts={isFlowchartAccounts}
+                                isFlowchartHr={canActAsHr}
+                                isFlowchartAccounts={canActAsAccounts}
                                 workflowStage={mechanicalWorkflowStage}
                                 liveHrReview={liveHrReview}
                                 onSaved={() => {
@@ -388,7 +393,7 @@ function VehicleMechanicalWorkDetailPageContent() {
                                         service={service}
                                         vehicleId={vehicleId}
                                         serviceId={serviceId}
-                                        canActHr={isFlowchartHr}
+                                        canActHr={canActAsHr}
                                         canRespondToWorkflow={canRespondToMechanicalWorkflow}
                                         canManageMechanicalWork={canManageMechanicalWork}
                                         workflowStage={mechanicalWorkflowStage}
@@ -407,7 +412,7 @@ function VehicleMechanicalWorkDetailPageContent() {
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
-                                    canActAccounts={isFlowchartAccounts}
+                                    canActAccounts={canActAsAccounts}
                                     assignmentPending={assignmentPending}
                                     workflowStage={mechanicalWorkflowStage}
                                     serviceTypeLabel="Mechanical Work"
@@ -439,8 +444,8 @@ function VehicleMechanicalWorkDetailPageContent() {
                                 service={service}
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
-                                canActAccounts={isFlowchartAccounts}
-                                canEditInvoiceValue={isFlowchartHr}
+                                canActAccounts={canActAsAccounts}
+                                canEditInvoiceValue={canActAsHr}
                                 workflowStage={mechanicalWorkflowStage}
                                 serviceTypeLabel="Mechanical Work"
                                 onUpdated={(updatedAsset) => {

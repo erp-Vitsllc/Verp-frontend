@@ -9,6 +9,7 @@ import ListReturnBackButton from '@/components/ListReturnBackButton';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
+import { useInheritedTaskAction } from '@/app/task-manager/useInheritedTaskAction';
 import { useToast } from '@/hooks/use-toast';
 import { ClipboardList, Loader2 } from 'lucide-react';
 import VehicleTireChangeDetailHeaderCards from '@/app/HRM/Asset/Vehicle/components/VehicleTireChangeDetailHeaderCards';
@@ -228,6 +229,10 @@ function VehicleTireChangeDetailPageContent() {
         return !!(rowCode && myCode && rowCode === myCode);
     }, [currentUser, flowchartRows]);
 
+    const inheritedService = useInheritedTaskAction(vehicleId, { serviceId });
+    const canActAsHr = isFlowchartHr || inheritedService.canAct;
+    const canActAsAccounts = isFlowchartAccounts || inheritedService.canAct;
+
     const tireWorkflowStage = useMemo(
         () => resolveTireChangeWorkflowStage(asset, serviceId, service),
         [asset, service, serviceId],
@@ -235,14 +240,14 @@ function VehicleTireChangeDetailPageContent() {
 
     const canRespondToTireWorkflow = useMemo(() => {
         if (!asset || tireWorkflowStage !== TIRE_CHANGE_WORKFLOW_STAGES.HR) return false;
-        return asset.canRespondToServiceWorkflow === true;
-    }, [asset, tireWorkflowStage]);
+        return asset.canRespondToServiceWorkflow === true || inheritedService.canAct;
+    }, [asset, tireWorkflowStage, inheritedService.canAct]);
 
     /** Draft: create/initiate actors. After Send until Zoho billed: flowchart HR only. */
     const canEditAssignment = canEditVehicleServiceInitiate({
         assignmentPending,
         canCreateOrInitiate,
-        isFlowchartHr,
+        isFlowchartHr: canActAsHr,
         service,
         asset,
     });
@@ -340,7 +345,7 @@ function VehicleTireChangeDetailPageContent() {
                         </div>
                     ) : null}
 
-                    {!assignmentPending && !canManageTireChange ? (
+                    {!assignmentPending && !canManageTireChange && !canActAsHr && !canActAsAccounts ? (
                         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                             Only the Super User, Admin Officer, or assigned user can submit service details.
                         </div>
@@ -354,8 +359,8 @@ function VehicleTireChangeDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
-                                isFlowchartHr={isFlowchartHr}
-                                isFlowchartAccounts={isFlowchartAccounts}
+                                isFlowchartHr={canActAsHr}
+                                isFlowchartAccounts={canActAsAccounts}
                                 workflowStage={tireWorkflowStage}
                                 liveHrReview={liveHrReview}
                                 onSaved={() => {
@@ -388,7 +393,7 @@ function VehicleTireChangeDetailPageContent() {
                                         service={service}
                                         vehicleId={vehicleId}
                                         serviceId={serviceId}
-                                        canActHr={isFlowchartHr}
+                                        canActHr={canActAsHr}
                                         canRespondToWorkflow={canRespondToTireWorkflow}
                                         canManageTireChange={canManageTireChange}
                                         workflowStage={tireWorkflowStage}
@@ -407,7 +412,7 @@ function VehicleTireChangeDetailPageContent() {
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
-                                    canActAccounts={isFlowchartAccounts}
+                                    canActAccounts={canActAsAccounts}
                                     assignmentPending={assignmentPending}
                                     workflowStage={tireWorkflowStage}
                                     serviceTypeLabel="Tire Change"
@@ -439,8 +444,8 @@ function VehicleTireChangeDetailPageContent() {
                                 service={service}
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
-                                canActAccounts={isFlowchartAccounts}
-                                canEditInvoiceValue={isFlowchartHr}
+                                canActAccounts={canActAsAccounts}
+                                canEditInvoiceValue={canActAsHr}
                                 workflowStage={tireWorkflowStage}
                                 serviceTypeLabel="Tire Change"
                                 onUpdated={(updatedAsset) => {

@@ -5,6 +5,14 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Country, State, City } from 'country-state-city';
 import Select from 'react-select';
 import BasicDetailsStep from './components/BasicDetailsStep';
+import {
+    UAE_PAY,
+    aedEquivalent,
+    countryPay,
+    useAedRates,
+    workingFromOptions,
+    formatPayMoney,
+} from '@/utils/workPayLocation';
 
 const normalizeForSort = (value = '') => (value || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
 // const generateEmployeeId = () => Math.floor(10000 + Math.random() * 90000).toString();
@@ -36,6 +44,18 @@ const getSelectedCountry = (countryVal) => {
         option.label.toLowerCase() === val
     ) || null;
 };
+
+const workingCountryOptions = workingFromOptions();
+
+function AedHint({ amount, currency, rates }) {
+    const aed = aedEquivalent(amount, currency, rates);
+    if (aed == null) return null;
+    return (
+        <p className="mt-1 text-xs font-medium text-slate-500 tabular-nums">
+            AED {aed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </p>
+    );
+}
 
 const getCountryCode = (countryVal) => {
     const found = getSelectedCountry(countryVal);
@@ -160,7 +180,12 @@ export default function AddEmployee({ id }) {
         whatsappNumber: '',
         enablePortalAccess: false,
         company: '',
+        ...UAE_PAY,
     });
+    const aedRates = useAedRates();
+    const payCode = basicDetails.workLocation === 'outside_uae'
+        ? (basicDetails.salaryCurrency || 'AED')
+        : 'AED';
 
     const fetchNextId = async () => {
         // if (!basicDetails.company) {
@@ -221,6 +246,14 @@ export default function AddEmployee({ id }) {
                         whatsappNumber: emp.whatsappNumber || '',
                         enablePortalAccess: emp.enablePortalAccess || false,
                         company: emp.company?._id || emp.company || '',
+                        workLocation: emp.workLocation === 'outside_uae' ? 'outside_uae' : 'uae',
+                        workingFromCountry: emp.workLocation === 'outside_uae' ? (emp.workingFromCountry || '') : UAE_PAY.workingFromCountry,
+                        workingFromCountryCode: emp.workLocation === 'outside_uae' ? (emp.workingFromCountryCode || '') : 'AE',
+                        salaryCurrency: emp.workLocation === 'outside_uae' ? (emp.salaryCurrency || '') : 'AED',
+                        salaryCurrencyName: emp.workLocation === 'outside_uae'
+                            ? (countryPay(emp.workingFromCountryCode)?.currencyName || emp.salaryCurrency || '')
+                            : 'Dirham',
+                        workTimeZone: emp.workLocation === 'outside_uae' ? (emp.workTimeZone || '') : UAE_PAY.workTimeZone,
                     });
                     setWhatsappRegistered(Boolean(String(emp.whatsappNumber || '').trim()));
                     setWhatsappInvalid(false);
@@ -365,6 +398,54 @@ export default function AddEmployee({ id }) {
                 }
             }));
         }
+    };
+
+    const handleWorkLocationChange = (value) => {
+        if (value === 'outside_uae') {
+            setBasicDetails((prev) => ({
+                ...prev,
+                workLocation: 'outside_uae',
+                workingFromCountry: '',
+                workingFromCountryCode: '',
+                salaryCurrency: '',
+                salaryCurrencyName: '',
+                workTimeZone: '',
+            }));
+        } else {
+            setBasicDetails((prev) => ({ ...prev, ...UAE_PAY }));
+        }
+        setFieldErrors((prev) => ({
+            ...prev,
+            basic: { ...prev.basic, workingFromCountry: '', salaryCurrency: '' },
+        }));
+    };
+
+    const handleWorkingFromChange = (isoCode) => {
+        const country = countryPay(isoCode);
+        if (!country || country.value === 'AE') {
+            setBasicDetails((prev) => ({
+                ...prev,
+                workingFromCountry: '',
+                workingFromCountryCode: '',
+                salaryCurrency: '',
+                salaryCurrencyName: '',
+                workTimeZone: '',
+            }));
+            return;
+        }
+        setBasicDetails((prev) => ({
+            ...prev,
+            workLocation: 'outside_uae',
+            workingFromCountry: country.label,
+            workingFromCountryCode: country.value,
+            salaryCurrency: country.currency,
+            salaryCurrencyName: country.currencyName,
+            workTimeZone: country.timeZone,
+        }));
+        setFieldErrors((prev) => ({
+            ...prev,
+            basic: { ...prev.basic, workingFromCountry: '', salaryCurrency: '' },
+        }));
     };
 
     const setBasicFieldError = (field, error) => {
@@ -1409,6 +1490,9 @@ export default function AddEmployee({ id }) {
                                     whatsappRegistered={whatsappRegistered}
                                     whatsappInvalid={whatsappInvalid}
                                     onValidateWhatsApp={handleValidateWhatsApp}
+                                    countryOptions={workingCountryOptions.filter((country) => country.value !== 'AE')}
+                                    onWorkLocationChange={handleWorkLocationChange}
+                                    onWorkingFromChange={handleWorkingFromChange}
                                 />
                             )}
 
@@ -1420,7 +1504,7 @@ export default function AddEmployee({ id }) {
                                             Salary (Monthly)
                                         </label>
                                         <div className="relative flex items-center">
-                                            <span className="absolute left-4 text-gray-500 text-sm pointer-events-none" style={{ lineHeight: '2.5rem' }}>AED</span>
+                                            <span className="absolute left-4 text-gray-500 text-sm pointer-events-none" style={{ lineHeight: '2.5rem' }}>{payCode}</span>
                                             <input
                                                 type="number"
                                                 step="1"
@@ -1459,6 +1543,7 @@ export default function AddEmployee({ id }) {
                                                     }`}
                                                 placeholder="0"
                                             />
+                                            <AedHint amount={salaryDetails.monthlySalary} currency={payCode} rates={aedRates} />
                                             <div className="min-h-[20px] mt-1">
                                                 {fieldErrors.salary.monthlySalary && (
                                                     <p className="text-xs text-red-500">{fieldErrors.salary.monthlySalary}</p>
@@ -1536,7 +1621,7 @@ export default function AddEmployee({ id }) {
                                                         <span className="absolute right-12 top-1/2 -translate-y-1/2 text-gray-500">%</span>
                                                     </div>
                                                     <div className="flex-1 relative">
-                                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">AED</span>
+                                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{payCode}</span>
                                                         <input
                                                             type="number"
                                                             step="1"
@@ -1562,6 +1647,7 @@ export default function AddEmployee({ id }) {
                                                             className="w-full pl-16 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                             placeholder="0"
                                                         />
+                                                        <AedHint amount={salaryDetails.basic} currency={payCode} rates={aedRates} />
                                                     </div>
                                                 </div>
                                                 {fieldErrors.salary.basic && (
@@ -1636,7 +1722,7 @@ export default function AddEmployee({ id }) {
                                                             <span className="absolute right-12 top-1/2 -translate-y-1/2 text-gray-500">%</span>
                                                         </div>
                                                         <div className="flex-1 relative">
-                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">AED</span>
+                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{payCode}</span>
                                                             <input
                                                                 type="number"
                                                                 step="1"
@@ -1662,6 +1748,7 @@ export default function AddEmployee({ id }) {
                                                                 className="w-full pl-16 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                                 placeholder="0"
                                                             />
+                                                            <AedHint amount={salaryDetails.otherAllowance} currency={payCode} rates={aedRates} />
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1734,7 +1821,7 @@ export default function AddEmployee({ id }) {
                                                             <span className="absolute right-12 top-1/2 -translate-y-1/2 text-gray-500">%</span>
                                                         </div>
                                                         <div className="flex-1 relative">
-                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">AED</span>
+                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{payCode}</span>
                                                             <input
                                                                 type="number"
                                                                 step="1"
@@ -1760,6 +1847,7 @@ export default function AddEmployee({ id }) {
                                                                 className="w-full pl-16 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                                 placeholder="0"
                                                             />
+                                                            <AedHint amount={salaryDetails.houseRentAllowance} currency={payCode} rates={aedRates} />
                                                             <button
                                                                 onClick={() => {
                                                                     setVisibleAllowances(prev => ({ ...prev, houseRent: false }));
@@ -1841,7 +1929,7 @@ export default function AddEmployee({ id }) {
                                                             <span className="absolute right-12 top-1/2 -translate-y-1/2 text-gray-500">%</span>
                                                         </div>
                                                         <div className="flex-1 relative">
-                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">AED</span>
+                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{payCode}</span>
                                                             <input
                                                                 type="number"
                                                                 step="1"
@@ -1867,6 +1955,7 @@ export default function AddEmployee({ id }) {
                                                                 className="w-full pl-16 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                                 placeholder="0"
                                                             />
+                                                            <AedHint amount={salaryDetails.vehicleAllowance} currency={payCode} rates={aedRates} />
                                                             <button
                                                                 onClick={() => {
                                                                     setVisibleAllowances(prev => ({ ...prev, vehicle: false }));
@@ -1948,7 +2037,7 @@ export default function AddEmployee({ id }) {
                                                             <span className="absolute right-12 top-1/2 -translate-y-1/2 text-gray-500">%</span>
                                                         </div>
                                                         <div className="flex-1 relative">
-                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">AED</span>
+                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{payCode}</span>
                                                             <input
                                                                 type="number"
                                                                 step="1"
@@ -1974,6 +2063,7 @@ export default function AddEmployee({ id }) {
                                                                 className="w-full pl-16 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                                 placeholder="0"
                                                             />
+                                                            <AedHint amount={salaryDetails.fuelAllowance} currency={payCode} rates={aedRates} />
                                                             <button
                                                                 onClick={() => {
                                                                     setVisibleAllowances(prev => ({ ...prev, fuel: false }));
@@ -2016,7 +2106,7 @@ export default function AddEmployee({ id }) {
                                                             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500">%</span>
                                                         </div>
                                                         <div className="flex-1 relative">
-                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">AED</span>
+                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{payCode}</span>
                                                             <input
                                                                 type="number"
                                                                 step="0.01"
@@ -2035,6 +2125,7 @@ export default function AddEmployee({ id }) {
                                                                 className="w-full pl-16 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                                 placeholder="0.00"
                                                             />
+                                                            <AedHint amount={allowance.amount} currency={payCode} rates={aedRates} />
                                                             <button
                                                                 onClick={() => {
                                                                     const newAllowances = salaryDetails.additionalAllowances.filter((_, i) => i !== index);
@@ -2153,7 +2244,7 @@ export default function AddEmployee({ id }) {
                                             <div className="flex justify-between items-center">
                                                 <span className="text-lg font-semibold text-gray-700">Total:</span>
                                                 <span className="text-2xl font-bold text-gray-800">
-                                                    AED {calculateTotal().toFixed(2)}
+                                                    {formatPayMoney(calculateTotal(), payCode, aedRates, 2)}
                                                 </span>
                                             </div>
                                         </div>

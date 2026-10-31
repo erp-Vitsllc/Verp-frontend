@@ -1992,6 +1992,13 @@ function leaveSourceKey(row) {
     return 'manual';
 }
 
+function annualWindowSplitFull(row, allowedDays) {
+    const cap = Math.max(0, Number(allowedDays) || 30);
+    const used = Number(row?.takenDays) || 0;
+    if (used < cap) return false;
+    return (row?.entries || []).some((entry) => entry?.split);
+}
+
 function annualPeriodEntries(entries, historyRows) {
     const history = Array.isArray(historyRows) ? historyRows : [];
     return (Array.isArray(entries) ? entries : [])
@@ -2022,6 +2029,7 @@ function annualPeriodEntries(entries, historyRows) {
                 rule: multiplier,
                 deductionDays: days * multiplier,
                 deduction: days * multiplier,
+                split: Boolean(entry?.split),
                 storedIndex: Number.isInteger(stored?.storedIndex) ? stored.storedIndex : undefined,
                 recordFrom: entry?.recordFrom || '',
                 recordTo: entry?.recordTo || '',
@@ -5324,32 +5332,27 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     <div className="mt-2">
                                                         <EligibilityCalcRow
                                                             label="Total working days"
-                                                            hint="Days this group has to work"
                                                             value={liveScheduledWorkingDays}
                                                             onClick={openLiveScheduleDetail}
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Total worked days"
-                                                            hint="Scheduled working days marked present"
                                                             value={liveWorkedDays}
                                                             onClick={openLivePresentDetail}
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Comp off work days"
-                                                            hint={data?.liveAttendance?.showOvertime ? 'Next day marked' : 'Scheduled group'}
                                                             value={liveCompOffDays}
                                                             onClick={openLiveCompOffDetail}
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Leave taken"
-                                                            hint="Loss hours"
                                                             value={formatDeductionDays(liveLeaveTaken)}
                                                             danger={liveLeaveTaken > 0}
                                                             onClick={openAttendanceLeaveDetail}
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Total worked days"
-                                                            hint={`${liveWorkedDays} − ${liveLeaveTaken} + ${liveCompOffDays}`}
                                                             value={liveTotalWorkedDays}
                                                             strong
                                                             danger={liveTotalWorkedDays < 0}
@@ -5357,7 +5360,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Overtime hours"
-                                                            hint="10 hours = 1 day. 20 hours = 2 days. 27 hours = 2 days"
                                                             value={
                                                                 data?.liveAttendance?.showOvertime
                                                                     ? formatOvertimeValue(
@@ -5371,7 +5373,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         />
                                                         <EligibilityCalcRow
                                                             label="Overall worked"
-                                                            hint={`${liveTotalWorkedDays} + ${liveOvertimeDayCount}`}
                                                             value={liveOverallWorkedDays}
                                                             strong
                                                             danger={liveOverallWorkedDays < 0}
@@ -5838,7 +5839,10 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                             <td className="px-2 py-2">{prettyDate(row.endDate)}</td>
                                             <td className="px-2 py-2">{inactive ? 'Not eligible' : row.allowedDays || annualWindows.allowedDays || 30}</td>
                                             <td className="px-2 py-2">{row.takenDays} days</td>
-                                            <td className="px-2 py-2">{row.balance}</td>
+                                            <td className="px-2 py-2">
+                                                {row.balance}
+                                                {annualWindowSplitFull(row, annualWindows?.allowedDays) ? ' (splitted)' : ''}
+                                            </td>
                                             <td className="px-2 py-2">{row.status}</td>
                                         </tr>
                                         );
@@ -5939,21 +5943,37 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 width="max-w-5xl"
                 zClass="z-[80]"
             >
-                <p className="mt-1 text-[12px] text-[#64748B]">
-                    {leaveGroupModal?.includeHoliday
-                        ? 'Holidays in this period, and the annual leave days taken inside it. The period allowance is 30 days.'
-                        : `${leaveGroupRows.length} ${
-                              leaveGroupRows.length === 1 ? 'record' : 'records'
-                          } for this leave type and source${
-                              leaveGroupModal?.from && leaveGroupModal?.to
-                                  ? ` between ${prettyDate(leaveGroupModal.from)} and ${prettyDate(leaveGroupModal.to)}.`
-                                  : '.'
-                          }${
-                              Number.isInteger(leaveGroupModal?.windowIndex)
-                                  ? ' Days shown here are the part counted on this row. Once the row reaches 30, the rest of that leave continues on the next row.'
-                                  : ''
-                          }`}
-                </p>
+                <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <p className="text-[12px] text-[#64748B]">
+                        {leaveGroupModal?.includeHoliday
+                            ? 'Holidays in this period, and the annual leave days taken inside it. The period allowance is 30 days.'
+                            : `${leaveGroupRows.length} ${
+                                  leaveGroupRows.length === 1 ? 'record' : 'records'
+                              } for this leave type and source${
+                                  leaveGroupModal?.from && leaveGroupModal?.to
+                                      ? ` between ${prettyDate(leaveGroupModal.from)} and ${prettyDate(leaveGroupModal.to)}.`
+                                      : '.'
+                              }${
+                                  Number.isInteger(leaveGroupModal?.windowIndex)
+                                      ? ' Days shown here are the part counted on this row. Once the row reaches 30, the rest of that leave continues on the next row.'
+                                      : ''
+                              }`}
+                    </p>
+                    {leaveGroupModal?.type === 'annual' && Number.isInteger(leaveGroupModal?.windowIndex) ? (
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setLeaveGroupModal({
+                                    type: 'annual',
+                                    source: leaveGroupModal.source || 'manual',
+                                })
+                            }
+                            className="inline-flex h-9 shrink-0 items-center rounded-lg border border-[#E2E8F0] bg-white px-3 text-[13px] font-semibold text-[#2563EB] hover:bg-slate-50"
+                        >
+                            List all annual leave
+                        </button>
+                    ) : null}
+                </div>
                 <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
                     <LeaveTable
                         rows={leaveGroupRows}
@@ -6494,9 +6514,11 @@ function LeaveTable({
                                 </td>
                                 <td className="px-2 py-3 text-[13px] tabular-nums text-[#334155]">
                                     {actual} days
+                                    {row.split ? ' (splitted)' : ''}
                                 </td>
                                 <td className="px-2 py-3 text-[13px] text-[#64748B]">
                                     x {formatLeaveMultiplier(row.multiplier ?? row.rule)}
+                                    {row.split ? ' (splitted)' : ''}
                                 </td>
                                 <td className="px-2 py-3 text-[13px] font-bold tabular-nums text-[#0F172A]">
                                     {deduction} days

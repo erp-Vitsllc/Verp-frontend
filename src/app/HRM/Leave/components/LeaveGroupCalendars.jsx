@@ -169,13 +169,22 @@ function EmployeeMonthCalendar({ employee, monthKey, todayKey, holidayDates, off
                               beforeStart,
                           });
                     const label = inMonth ? groupCalendarDayLabel(kind) : '';
+                    const tag = inMonth && !beforeStart ? String(employee.tags?.[dateKey] || '') : '';
+                    const title = label
+                        ? `${format(day, 'd MMMM yyyy')} · ${label}${tag ? ` · ${tag}` : ''}`
+                        : undefined;
                     return (
                         <div
                             key={dateKey}
-                            title={label ? `${format(day, 'd MMMM yyyy')} · ${label}` : undefined}
-                            className={`flex h-9 items-center justify-center rounded-[8px] text-[12px] font-semibold tabular-nums ${GROUP_CALENDAR_DAY_STYLE[kind] || GROUP_CALENDAR_DAY_STYLE.empty}`}
+                            title={title}
+                            className={`flex flex-col items-center justify-center rounded-[8px] text-[12px] font-semibold tabular-nums leading-none ${tag ? 'h-10' : 'h-9'} ${GROUP_CALENDAR_DAY_STYLE[kind] || GROUP_CALENDAR_DAY_STYLE.empty}`}
                         >
-                            {format(day, 'd')}
+                            <span>{format(day, 'd')}</span>
+                            {tag ? (
+                                <span className="mt-0.5 max-w-full truncate px-px text-[6px] font-bold tracking-tight">
+                                    {tag}
+                                </span>
+                            ) : null}
                         </div>
                     );
                 })}

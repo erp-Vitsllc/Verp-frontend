@@ -100,6 +100,7 @@ export default function FlexibleOtModal({
     mark,
     dayHours = 0,
     hrName = '',
+    appliesNow = false,
     viewerIsReportee = false,
     rejectFirst = false,
     readOnly = false,
@@ -222,7 +223,9 @@ export default function FlexibleOtModal({
           ? 'Approve'
           : nextDayIntent
             ? 'Set present'
-            : 'Submit';
+            : appliesNow
+              ? 'Apply'
+              : 'Submit';
 
     const submitRequest = async () => {
         if (readOnly) return;
@@ -259,9 +262,11 @@ export default function FlexibleOtModal({
                 ? `${choiceLabel(targetDate)} is Present for ${dayHourLabel(creditedDay)} hr. Apply OT stays on that day for the remaining ${remainderHours} hr.`
                 : `${choiceLabel(targetDate)} is Present for ${dayHourLabel(creditedDay)} hr.`;
             toast({
-                title: appliedNow ? 'Present set on the selected day' : 'Request sent',
+                title: appliedNow
+                    ? (nextDayIntent ? 'Present set on the selected day' : 'Overtime applied')
+                    : 'Request sent',
                 description: appliedNow
-                    ? presentCopy
+                    ? (nextDayIntent ? presentCopy : response.data?.message || 'Overtime is applied. No further approval is needed.')
                     : response.data?.message || 'Sent to the primary reportee. It is applied after HR approves.',
             });
             notifyAttendancePendingInboxChanged();
@@ -347,10 +352,17 @@ export default function FlexibleOtModal({
                             when={formatTrailDate(change.decidedAtReportee)}
                         />
                     ) : null}
-                    <p className="text-sm text-slate-700">
-                        <span className="text-slate-500">Pending on: </span>
-                        <span className="font-semibold text-slate-900">{pendingName}</span>
-                    </p>
+                    {appliesNow && !review ? (
+                        <p className="text-sm text-slate-700">
+                            <span className="font-semibold text-slate-900">Applies now.</span>
+                            <span className="text-slate-500"> No approval is needed.</span>
+                        </p>
+                    ) : (
+                        <p className="text-sm text-slate-700">
+                            <span className="text-slate-500">Pending on: </span>
+                            <span className="font-semibold text-slate-900">{pendingName}</span>
+                        </p>
+                    )}
                 </div>
                 <div className="mt-4 space-y-2 border-t border-slate-100 pt-3 text-sm text-slate-700">
                     <p>

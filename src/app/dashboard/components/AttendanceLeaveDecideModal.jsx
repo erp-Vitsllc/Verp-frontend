@@ -9,6 +9,12 @@ function isPunchCorrectionKind(kind) {
     return key === 'yellow' || key === 'past_late' || key === 'future_late' || key === 'future_early';
 }
 
+function isLateEarlyRequest(kind, requestedStatusKey) {
+    const key = String(kind || '');
+    const status = String(requestedStatusKey || '');
+    return key === 'future_late' || key === 'future_early' || key === 'past_late' || status === 'late_arrived' || status === 'early_go';
+}
+
 function displayRequestDate(value) {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
     if (!match) return String(value || '').trim() || '—';
@@ -57,6 +63,8 @@ export default function AttendanceLeaveDecideModal({
     const [editOut, setEditOut] = useState('');
     const [rejecting, setRejecting] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
+    const [deductionChoice, setDeductionChoice] = useState('authorized');
+    const [requestedHours, setRequestedHours] = useState('0');
     const [sickAllowance, setSickAllowance] = useState(null);
 
     const isSickRequest =
@@ -68,6 +76,8 @@ export default function AttendanceLeaveDecideModal({
         setEditingTimes(false);
         setRejecting(Boolean(rejectFirst));
         setRejectReason('');
+        setDeductionChoice('authorized');
+        setRequestedHours('0');
         setEditIn(clockInputValue(timeIn || requestTimeIn));
         setEditOut(clockInputValue(timeOut || requestTimeOut));
     }, [isOpen, dateKey, rejectFirst, timeIn, timeOut, requestTimeIn, requestTimeOut]);
@@ -209,14 +219,30 @@ export default function AttendanceLeaveDecideModal({
         );
     }
 
+    const lateEarly = isLateEarlyRequest(kindKey, requestedStatusKey);
     const handleApprove = () => {
         if (readOnly) return;
         setLocalError('');
+        if (lateEarly && deductionChoice === 'waived') {
+            const hours = String(requestedHours ?? '').trim();
+            if (hours !== '' && !/^\d+(\.\d{1,2})?$/.test(hours)) {
+                setLocalError('Enter custom hours as 0 or more.');
+                return;
+            }
+        }
         onDecide?.(
             'approved',
             requestedStatusKey || '',
             '',
-            isPunchCorrectionKind(kindKey) && (editIn || editOut) ? { timeIn: editIn, timeOut: editOut } : undefined,
+            {
+                ...(isPunchCorrectionKind(kindKey) && !lateEarly && (editIn || editOut) ? { timeIn: editIn, timeOut: editOut } : {}),
+                ...(lateEarly
+                    ? {
+                        deductionChoice,
+                        requestedHours: deductionChoice === 'waived' ? requestedHours : '',
+                    }
+                    : {}),
+            },
         );
     };
 
@@ -262,6 +288,21 @@ export default function AttendanceLeaveDecideModal({
                             <div className="text-xs text-slate-500">Check out
                                 <p className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-sm font-semibold text-slate-800">{clockInputValue(timeOut) || 'Misspunched'}</p>
                             </div>
+                        </div>
+                    ) : lateEarly ? (
+                        <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Deduction type</p>
+                            <div className="mt-1 grid grid-cols-2 gap-2">
+                                <button type="button" disabled={readOnly} onClick={() => setDeductionChoice('authorized')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${deductionChoice === 'authorized' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}>Authorized</button>
+                                <button type="button" disabled={readOnly} onClick={() => setDeductionChoice('waived')} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${deductionChoice === 'waived' ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-slate-200 text-slate-600'}`}>Waive off</button>
+                            </div>
+                            {deductionChoice === 'waived' ? (
+                                <label className="mt-2 block text-xs text-slate-500">Custom hours
+                                    <input type="number" min="0" step="0.01" value={requestedHours} disabled={readOnly} onChange={(event) => setRequestedHours(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm" />
+                                </label>
+                            ) : (
+                                <p className="mt-2 text-xs text-slate-500">Authorized keeps the salary policy deduction. Waive off sets hours and amount to 0 unless you enter custom hours.</p>
+                            )}
                         </div>
                     ) : isPunchCorrectionKind(kindKey) ? (
                         <div className="grid grid-cols-2 gap-2">

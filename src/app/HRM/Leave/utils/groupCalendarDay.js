@@ -52,3 +52,25 @@ export const GROUP_CALENDAR_LEGEND = [
 export function groupCalendarDayLabel(kind) {
     return GROUP_CALENDAR_LEGEND.find((item) => item.key === kind)?.label || 'No mark';
 }
+
+/**
+ * Short label inside a calendar cell.
+ * Approved overtime stays OT. A comp-off day, or the next day marked from that overtime, is COMPOFF.
+ */
+export function attendanceCellTag(record, note = null) {
+    if (!record && !note) return '';
+    const timeIn = String(record?.timeIn || '').trim();
+    const timeOut = String(record?.timeOut || '').trim();
+    const placeholder = timeIn === 'OT' || timeOut === 'OT';
+    const status = String(record?.statusKey || '');
+    const takenFrom = String(note?.takenFrom || record?.flexibleFromOtDate || '').trim();
+    const givenTo = String(note?.givenTo || record?.flexibleOtNextDayDate || '').trim();
+    const compOff = status === 'compoff_leave' || placeholder || Boolean(takenFrom) || Boolean(givenTo);
+    const noteHours = Number(note?.otHours) || 0;
+    const approvedHours = String(record?.flexibleOtStatus || '') === 'approved'
+        ? Number(record?.flexibleOtApprovedHours) || 0
+        : 0;
+    if ((noteHours > 0 || approvedHours > 0) && !compOff) return 'OT';
+    if (compOff) return 'COMPOFF';
+    return '';
+}

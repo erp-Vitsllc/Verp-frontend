@@ -27,11 +27,13 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { formatCommandCenterNotificationMessage } from '@/utils/dashboardCommandCenterInbox';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
+import { taskWaitingText } from '@/app/task-manager/pendingHoldLine';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
 import { basePersonName, employeeListName, listedTaskNameLines, personKey, requesterEmployeeName, taskRolePeople } from '@/app/task-manager/taskRolePeople';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
-import { refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
+import { deletedTaskToastDescription, refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
+import { isSystemSuperUser } from '@/utils/permissions';
 
 const PAGE_SIZE_OPTIONS = [
     { id: '10', label: '10' },
@@ -444,6 +446,16 @@ function pageList(current, total) {
         prev = n;
     }
     return out;
+}
+
+function StatusCell({ task }) {
+    const badge = listStatus(task);
+    const waiting = taskWaitingText(task);
+    return (
+        <span className={`inline-flex max-w-[260px] whitespace-normal rounded-full px-2.5 py-1 text-left text-[12px] font-semibold leading-4 ${STATUS_STYLE[badge] || 'bg-slate-100 text-slate-600'}`}>
+            {waiting?.text || badge}
+        </span>
+    );
 }
 
 function AssigneeCell({ task }) {
@@ -1385,9 +1397,7 @@ function TaskManagerContent() {
                                                         {formatDisplayDate(task.completionDate) || '—'}
                                                     </td>
                                                     <td className="px-3 py-3.5">
-                                                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${STATUS_STYLE[listStatus(task)] || 'bg-slate-100 text-slate-600'}`}>
-                                                            {listStatus(task)}
-                                                        </span>
+                                                        <StatusCell task={task} />
                                                     </td>
                                                     <td className="px-3 py-3.5 text-right">
                                                         <div className="inline-flex items-center justify-end gap-1">
@@ -1555,6 +1565,9 @@ function TaskManagerContent() {
                             {displayTaskType(deleteTask.taskCategory) === 'General Task'
                                 ? 'This removes the task and its notifications.'
                                 : 'This removes the task, its workflow, and its notifications. The record behind it stays.'}
+                            {isSystemSuperUser()
+                                ? ' The assignee will be emailed that admin deleted this task and they no longer need to work on it.'
+                                : ''}
                         </p>
                         <div className="mt-4 flex justify-end gap-2">
                             <button
@@ -1571,15 +1584,16 @@ function TaskManagerContent() {
                                 onClick={async () => {
                                     setDeleting(true);
                                     try {
-                                        await axiosInstance.delete(
+                                        const deleted = await axiosInstance.delete(
                                             `/Employee/task-manager/tasks/${encodeURIComponent(deleteTask.actionId)}`,
                                             { skipToast: true },
                                         );
                                         toast({
                                             title: 'Task deleted',
-                                            description: displayTaskType(deleteTask.taskCategory) === 'General Task'
-                                                ? 'The task and its notifications were removed.'
-                                                : 'The task, its workflow, and its notifications were removed.',
+                                            description: deletedTaskToastDescription(
+                                                displayTaskType(deleteTask.taskCategory),
+                                                deleted?.data,
+                                            ),
                                         });
                                         setDeleteTask(null);
                                         refreshAfterTaskDelete();

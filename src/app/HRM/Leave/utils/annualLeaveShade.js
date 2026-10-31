@@ -116,11 +116,17 @@ export function buildAnnualLeaveShade(calendar, { processingStart = '', allowEar
             leaveYellow: (date) => toneOfKey(dateToKey(date)) === 'yellow',
         },
         modifiersStyles: {
-            leaveGrey: { backgroundColor: '#e5e7eb' },
-            leaveGreen: { backgroundColor: '#dcfce7' },
-            leaveYellow: { backgroundColor: '#fef9c3' },
+            leaveGrey: { backgroundColor: 'transparent' },
+            leaveGreen: { backgroundColor: 'transparent' },
+            leaveYellow: { backgroundColor: 'transparent' },
         },
-        calendarClassNames: { disabled: 'cursor-not-allowed opacity-100' },
+        calendarClassNames: {
+            disabled: 'cursor-not-allowed opacity-100',
+            root: 'rdp-root w-[236px]',
+            month: 'rdp-month flex w-full flex-col gap-1',
+            week: 'rdp-week mt-0.5 flex w-full',
+            weekday: 'rdp-weekday flex-1 select-none text-center text-[0.65rem] font-normal text-muted-foreground',
+        },
         disableDate: allowEarly
             ? null
             : (date) => {
@@ -129,4 +135,125 @@ export function buildAnnualLeaveShade(calendar, { processingStart = '', allowEar
                   return tone === 'grey' || capped.has(key) || own.has(key);
               },
     };
+}
+
+const NEARBY_LEAVE_DAYS = 2;
+
+function isDateKey(value) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+}
+
+function dubaiTodayKey() {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Dubai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date());
+}
+
+function rangesOverlap(from, to, otherFrom, otherTo) {
+    return from <= otherTo && to >= otherFrom;
+}
+
+function nextOpenDate(calendar, allowance, todayKey) {
+    const spanFrom = String(calendar?.eligibleOn || calendar?.openSpans?.[0]?.from || '');
+    if (isDateKey(spanFrom) && spanFrom > todayKey) return spanFrom;
+    const dates = (allowance?.windows || [])
+        .map((row) => String(row?.eligibleOn || ''))
+        .filter((date) => isDateKey(date) && date > todayKey)
+        .sort();
+    return dates[0] || '';
+}
+
+function balanceIsShort(allowance, calendar) {
+    if ((calendar?.openSpans || []).length > 0) return false;
+    const minimum = Math.max(1, Number(calendar?.minimumDays) || 5);
+    const allowed = Number(allowance?.allowedDays || calendar?.allowedDays) || 30;
+    const windows = allowance?.windows || [];
+    const active = windows.filter((row) => row.status === 'Active');
+    if (active.length) {
+        return Math.max(...active.map((row) => Number(row.remainingDays) || 0)) < minimum;
+    }
+    const upcoming = windows.find((row) => row.status === 'Inactive');
+    if (upcoming) {
+        return Math.max(0, allowed - (Number(upcoming.takenDays) || 0)) < minimum;
+    }
+    const left = Number(calendar?.remainingDays) || 0;
+    return left > 0 && left < minimum;
+}
+
+function joinNames(names) {
+    if (names.length <= 1) return names[0] || '';
+    if (names.length === 2) return `${names[0]} and ${names[1]}`;
+    return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+export function coworkerLeaveNames({ otherLeaves = [], from = '', to = '' } = {}) {
+    const start = String(from || to || '');
+    const end = String(to || from || '');
+    if (!isDateKey(start) || !isDateKey(end) || end < start) return [];
+    const names = [];
+    for (const person of otherLeaves || []) {
+        const hit = (person?.dates || []).some((date) => {
+            if (!isDateKey(date)) return false;
+            return rangesOverlap(start, end, addDaysKey(date, -NEARBY_LEAVE_DAYS), addDaysKey(date, NEARBY_LEAVE_DAYS));
+        });
+        const name = String(person?.name || '').trim();
+        if (hit && name && !names.includes(name)) names.push(name);
+    }
+    return names;
+}
+
+/** Same-size validation lines. Yellow is information. Red blocks the request. */
+export function buildAnnualLeaveValidationLines({
+    calendar,
+    allowance,
+    otherLeaves = [],
+    from = '',
+    to = '',
+    today = '',
+} = {}) {
+    if (!calendar) return [];
+    const todayKey = isDateKey(today) ? today : dubaiTodayKey();
+    const lines = [];
+    const openOn = nextOpenDate(calendar, allowance, todayKey);
+    const short = balanceIsShort(allowance, calendar);
+    if (openOn) {
+        lines.push({
+            tone: 'yellow',
+            code: 'opens',
+            text: `Annual leave opens on ${formatLeaveDate(openOn)}. Days before that stay closed.`,
+        });
+    } else if (!(calendar.openSpans || []).length && !short) {
+        lines.push({
+            tone: 'yellow',
+            code: 'opens',
+            text: 'Annual leave is not open yet. Days before it opens stay closed.',
+        });
+    }
+    if (short) {
+        const minimum = Math.max(1, Number(calendar.minimumDays) || 5);
+        lines.push({
+            tone: 'red',
+            code: 'minimum',
+            text: `You need at least ${minimum} days remaining to apply.`,
+        });
+    }
+    const names = coworkerLeaveNames({ otherLeaves, from, to });
+    if (names.length) {
+        lines.push({
+            tone: 'red',
+            code: 'coworker',
+            text: `You can't go because ${joinNames(names)} already took leave on that.`,
+        });
+    }
+    if (lines.length) {
+        lines.push({
+            tone: 'yellow',
+            code: 'contact',
+            text: 'For more info, contact HR.',
+        });
+    }
+    return lines;
 }

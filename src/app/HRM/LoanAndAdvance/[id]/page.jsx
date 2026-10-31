@@ -41,6 +41,7 @@ import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
+import { useInheritedTaskAction } from '@/app/task-manager/useInheritedTaskAction';
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 
 
@@ -341,6 +342,9 @@ export default function LoanRequestDetails() {
         };
     }, [employee, loan]);
 
+    const inheritedLoan = useInheritedTaskAction([id, loan?._id]);
+    const inheritedLoanAction = inheritedLoan.canAct;
+
     if (loading) {
         return <div className="p-8">Loading...</div>;
     }
@@ -386,6 +390,8 @@ export default function LoanRequestDetails() {
         if (!loan || !currentUser) return false;
         const status = loan.approvalStatus || loan.status;
         if (['Approved', 'Pending Payment to Employee', 'Paid', 'Rejected', 'Cancelled'].includes(status)) return false;
+
+        if (inheritedLoanAction) return true;
 
         if (isAdmin()) return true;
 
@@ -1136,7 +1142,7 @@ export default function LoanRequestDetails() {
                                     canApproveLoan={canApproveLoan}
                                     canSubmitDraft={canSubmitDraft}
                                     canResubmit={canResubmit}
-                                    canPayLoan={canAccountsPayLoan(loan, currentUser)}
+                                    canPayLoan={canAccountsPayLoan(loan, currentUser, inheritedLoanAction)}
                                     onDownload={handleDownloadPDF}
                                     onApprove={handleApprove}
                                     onReject={handleReject}
@@ -1239,12 +1245,12 @@ export default function LoanRequestDetails() {
                                         !hasZoho &&
                                         (status === 'Pending Payment to Employee' ||
                                             (status === 'Approved' && unpaid)) &&
-                                        canAccountsPayLoan(loan, currentUser);
+                                        canAccountsPayLoan(loan, currentUser, inheritedLoanAction);
 
                                     // 3) Zoho failed / live Paid without Zoho — allow fix COA + Retry Zoho
                                     const fixFailedZoho =
                                         !hasZoho &&
-                                        isFinanceUser &&
+                                        (isFinanceUser || inheritedLoanAction) &&
                                         (Boolean(syncErr) ||
                                             status === 'Paid' ||
                                             (Number(loan?.amount) > 0 &&
@@ -1273,7 +1279,7 @@ export default function LoanRequestDetails() {
                                 onRetryZohoSuccess={() => fetchLoanDetails()}
                                 onPaymentSuccess={() => fetchLoanDetails()}
                                 allowPay={
-                                    isAdmin() || canAccountsCollectLoanRepayment(loan, currentUser)
+                                    isAdmin() || canAccountsCollectLoanRepayment(loan, currentUser, inheritedLoanAction)
                                 }
                                 onPay={() => setLoanPayChoiceOpen(true)}
                             />

@@ -36,6 +36,7 @@ import DashboardSalaryEnrollLock, {
     salaryLockFromAttendancePayload,
 } from './DashboardSalaryEnrollLock';
 import { dashboardHover, dashboardItem, DASH_EASE } from './dashboardMotion';
+import { employeeClockShift, shiftClockLabel } from '@/utils/workPayLocation';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -512,6 +513,7 @@ export default function DashboardAttendanceCalendar({
     const [employeeName, setEmployeeName] = useState('');
     const [staffType, setStaffType] = useState('office');
     const [scheduleWeek, setScheduleWeek] = useState(null);
+    const [punchShift, setPunchShift] = useState(0);
     const [offWeekdays, setOffWeekdays] = useState(() => new Set(['saturday', 'sunday']));
     const [selfEmployeeId, setSelfEmployeeId] = useState('');
     const [annualFloor, setAnnualFloor] = useState({ date: '', note: '', blockers: [] });
@@ -594,7 +596,9 @@ export default function DashboardAttendanceCalendar({
             setEmployeeName(res.data?.employee?.name || '');
             const nextStaffType = normalizeWorkLocationKey(res.data?.employee?.staffType);
             setStaffType(nextStaffType);
-            setScheduleWeek(weekForStaffType(res.data?.workingTime, nextStaffType) || null);
+            const nextWeek = weekForStaffType(res.data?.workingTime, nextStaffType) || res.data?.scheduleWeek || null;
+            setScheduleWeek(nextWeek);
+            setPunchShift(employeeClockShift(res.data?.employee, nextWeek?.timingMode));
             setOffWeekdays(new Set(Array.isArray(res.data?.offWeekdays) ? res.data.offWeekdays : []));
             setIsSelf(res.data?.isSelf !== false);
             if (!viewEmployeeId && res.data?.employee?.id) {
@@ -686,8 +690,8 @@ export default function DashboardAttendanceCalendar({
     }, [monthAnchor]);
 
     const leadingBlanks = getDay(startOfMonth(monthAnchor));
-    const timeInLabel = formatClock(todayRecord?.timeIn);
-    const timeOutLabel = formatClock(todayRecord?.timeOut);
+    const timeInLabel = formatClock(shiftClockLabel(todayRecord?.timeIn, punchShift));
+    const timeOutLabel = formatClock(shiftClockLabel(todayRecord?.timeOut, punchShift));
     const todayOutNextDay = isNextDayCheckout({
         date: todayRecord?.date,
         timeIn: todayRecord?.timeIn,
@@ -879,6 +883,7 @@ export default function DashboardAttendanceCalendar({
         reason,
         attachmentName,
         attachmentData,
+        deductionChoice,
         previousDay,
     }) => {
         const requestDate = fromDate || futureModal?.dateKey || dayRequest?.dateKey;
@@ -924,6 +929,7 @@ export default function DashboardAttendanceCalendar({
                         timeIn: timeIn || '',
                         timeOut: timeOut || '',
                         reason,
+                        deductionChoice: deductionChoice === 'waived' ? 'waived' : 'authorized',
                         attachmentName: attachmentName || '',
                         attachmentData: attachmentData || '',
                     },
@@ -961,6 +967,7 @@ export default function DashboardAttendanceCalendar({
                     leavePayType: leavePayType || '',
                     ...(edits?.timeIn ? { timeIn: edits.timeIn } : {}),
                     ...(edits?.timeOut ? { timeOut: edits.timeOut } : {}),
+                    ...(edits?.deductionChoice ? { deductionChoice: edits.deductionChoice, requestedHours: edits.requestedHours } : {}),
                     ...(edits?.rejectReason ? { rejectReason: edits.rejectReason } : {}),
                 },
                 { skipToast: true },
@@ -1197,10 +1204,10 @@ export default function DashboardAttendanceCalendar({
                                     const payWord = payType === 'paid' ? 'Paid' : payType === 'unpaid' ? 'Unpaid' : '';
                                     const statusLabel =
                                         isAuthorizedLeave && payWord ? `${baseLabel} (${payWord})` : baseLabel;
-                                    const punchedIn = formatClock(record?.timeIn);
-                                    const punchedOut = formatClock(record?.timeOut);
-                                    const requestedIn = formatClock(record?.leaveRequestTimeIn);
-                                    const requestedOut = formatClock(record?.leaveRequestTimeOut);
+                                    const punchedIn = formatClock(shiftClockLabel(record?.timeIn, punchShift));
+                                    const punchedOut = formatClock(shiftClockLabel(record?.timeOut, punchShift));
+                                    const requestedIn = formatClock(shiftClockLabel(record?.leaveRequestTimeIn, punchShift));
+                                    const requestedOut = formatClock(shiftClockLabel(record?.leaveRequestTimeOut, punchShift));
                                     // Future days have no punches yet, so the approved request window
                                     // is the only timing to show.
                                     const showExpected =

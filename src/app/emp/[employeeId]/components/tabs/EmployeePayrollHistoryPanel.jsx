@@ -6,11 +6,7 @@ import { ChevronDown } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { crudAccess } from '@/utils/permissions';
 import { navigateFromList } from '@/utils/listReturnNavigation';
-
-function formatAed(value) {
-    const n = Number(value) || 0;
-    return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-}
+import { formatPayMoney, payCurrencyCode, useAedRates } from '@/utils/workPayLocation';
 
 const COLUMNS = [
     { key: 'slNo', label: 'SL' },
@@ -25,6 +21,8 @@ const COLUMNS = [
 export default function EmployeePayrollHistoryPanel({ employee }) {
     const router = useRouter();
     const employeeId = String(employee?.employeeId || '').trim();
+    const payRates = useAedRates();
+    const payMoney = (amount) => formatPayMoney(amount, payCurrencyCode(employee), payRates, 2);
     const [months, setMonths] = useState([]);
     const [years, setYears] = useState([]);
     const [year, setYear] = useState('');
@@ -153,19 +151,19 @@ export default function EmployeePayrollHistoryPanel({ employee }) {
                                         {row.month || row.monthKey}
                                     </td>
                                     <td className="py-3 px-4 text-sm text-gray-500 tabular-nums">
-                                        AED {formatAed(row.monthlySalary)}
+                                        {payMoney(row.monthlySalary)}
                                     </td>
                                     <td className="py-3 px-4 text-sm font-semibold text-gray-700 tabular-nums">
-                                        AED {formatAed(row.actualSalary)}
+                                        {payMoney(row.actualSalary)}
                                     </td>
                                     <td className="py-3 px-4 text-sm text-gray-500 tabular-nums">
-                                        AED {formatAed(row.basicSalary)}
+                                        {payMoney(row.basicSalary)}
                                     </td>
                                     <td className="py-3 px-4 text-sm text-gray-500 tabular-nums">
-                                        AED {formatAed(row.ot)}
+                                        {payMoney(row.ot)}
                                     </td>
                                     <td className="py-3 px-4 text-sm text-gray-500 tabular-nums">
-                                        AED {formatAed(row.deduction)}
+                                        {payMoney(row.deduction)}
                                     </td>
                                 </tr>
                             ))}

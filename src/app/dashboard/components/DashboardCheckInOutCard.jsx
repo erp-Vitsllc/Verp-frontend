@@ -20,6 +20,7 @@ import {
     isLocationRequiredError,
     promptSystemLocation,
 } from '@/utils/dashboardPunchMeta';
+import { employeeClockShift, shiftClockLabel, shiftMeridiemClock } from '@/utils/workPayLocation';
 
 export const ATTENDANCE_CHECK_CHANGED = 'verp:attendance-check-changed';
 
@@ -125,14 +126,7 @@ function weekdayKeyFromDateKey(dateKey) {
     return WEEKDAY_KEYS[new Date(`${dateKey}T12:00:00.000Z`).getUTCDay()] || null;
 }
 
-function formatMeridiemClock(hour, minute, meridiem) {
-    const h = String(hour || '09').padStart(2, '0');
-    const m = String(minute || '00').padStart(2, '0');
-    const mer = String(meridiem || 'AM').toUpperCase() === 'PM' ? 'PM' : 'AM';
-    return `${Number(h)}:${m} ${mer}`;
-}
-
-function resolveTodayHours(week, dateKey) {
+function resolveTodayHours(week, dateKey, shiftMinutes = 0) {
     const dayKey = weekdayKeyFromDateKey(dateKey);
     const day = dayKey ? week?.[dayKey] : null;
     if (!day) return { isOffDay: false, range: '' };
@@ -149,7 +143,7 @@ function resolveTodayHours(week, dateKey) {
     }
     return {
         isOffDay: false,
-        range: `${formatMeridiemClock(day.startHour, day.startMinute, day.startMeridiem)} – ${formatMeridiemClock(day.endHour, day.endMinute, day.endMeridiem)}`,
+        range: `${shiftMeridiemClock(day.startHour, day.startMinute, day.startMeridiem, shiftMinutes)} – ${shiftMeridiemClock(day.endHour, day.endMinute, day.endMeridiem, shiftMinutes)}`,
     };
 }
 
@@ -174,6 +168,8 @@ export default function DashboardCheckInOutCard() {
     const [punchDate, setPunchDate] = useState('');
     const [officeHours, setOfficeHours] = useState({ isOffDay: false, range: '' });
     const [siteHours, setSiteHours] = useState({ isOffDay: false, range: '' });
+    const [punchShift, setPunchShift] = useState(0);
+    const [payCountry, setPayCountry] = useState('');
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
     const [contactLock, setContactLock] = useState('');
     const [attendanceSuspended, setAttendanceSuspended] = useState(false);
@@ -187,6 +183,8 @@ export default function DashboardCheckInOutCard() {
     const checkedIn = Boolean(timeIn);
     const checkedOut = Boolean(timeOut);
     const running = checkedIn && !checkedOut;
+    const shownIn = shiftClockLabel(timeIn, punchShift);
+    const shownOut = shiftClockLabel(timeOut, punchShift);
 
     const loadToday = useCallback(async ({ soft = false } = {}) => {
         if (!soft) setLoading(true);
@@ -220,8 +218,21 @@ export default function DashboardCheckInOutCard() {
             setPunchDate(record?.date || today);
             setOpenFlexiblePunch(Boolean(res.data?.openFlexiblePunch));
             setStaffType(nextStaff);
-            setOfficeHours(resolveTodayHours(res.data?.workingTime?.office, today));
-            setSiteHours(resolveTodayHours(res.data?.workingTime?.site, today));
+            const payEmployee = res.data?.employee || {};
+            const weeks = res.data?.workingTime || {};
+            const scheduleWeek = res.data?.scheduleWeek;
+            setPunchShift(employeeClockShift(payEmployee, scheduleWeek?.timingMode));
+            setPayCountry(payEmployee.workLocation === 'outside_uae' ? (payEmployee.workingFromCountry || '') : '');
+            setOfficeHours(resolveTodayHours(
+                weeks.office,
+                today,
+                employeeClockShift(payEmployee, weeks.office?.timingMode),
+            ));
+            setSiteHours(resolveTodayHours(
+                weeks.site,
+                today,
+                employeeClockShift(payEmployee, weeks.site?.timingMode),
+            ));
             setContactLock(contactLockFromPayload(res.data));
             setAttendanceSuspended(Boolean(res.data?.employee?.attendanceSuspended || res.data?.todayRecord?.attendanceSuspended));
             setError('');
@@ -435,9 +446,9 @@ export default function DashboardCheckInOutCard() {
 
     const checkInButtonLabel = useMemo(() => {
         if (saving && !running) return 'Saving…';
-        if (running) return `In ${formatClock(timeIn) || '—'}`;
+        if (running) return `In ${formatClock(shownIn) || '—'}`;
         return 'Check In';
-    }, [saving, running, timeIn]);
+    }, [saving, running, shownIn]);
 
     const checkoutNextDay = isNextDayCheckout({
         date: punchDate || dateKey,
@@ -449,11 +460,11 @@ export default function DashboardCheckInOutCard() {
     const checkOutButtonLabel = useMemo(() => {
         if (saving && checkedIn && !checkedOut) return 'Saving…';
         if (checkedOut) {
-            const clock = formatClock(timeOut) || '—';
+            const clock = formatClock(shownOut) || '—';
             return checkoutNextDay ? `Out ${clock} (next day)` : `Out ${clock}`;
         }
         return 'Check Out';
-    }, [saving, checkedIn, checkedOut, timeOut, checkoutNextDay]);
+    }, [saving, checkedIn, checkedOut, shownOut, checkoutNextDay]);
 
     return (
         <motion.div
@@ -474,6 +485,9 @@ export default function DashboardCheckInOutCard() {
                         Site hrs{' '}
                         <span className="font-semibold text-slate-600">· {hoursText(siteHours)}</span>
                     </p>
+                    {payCountry && punchShift ? (
+                        <p className="font-medium text-slate-500">{payCountry} time</p>
+                    ) : null}
                 </div>
                 <p className="text-slate-400 text-[10px] sm:text-xs mt-1 sm:mt-2 leading-relaxed">
                     If you forget to check out, the day is auto-marked as mispunched. Check out to
@@ -503,12 +517,12 @@ export default function DashboardCheckInOutCard() {
                     {timeIn ? (
                         <p className="text-xs sm:text-sm text-slate-600 tabular-nums">
                             <span className="text-slate-400 font-medium">In</span>{' '}
-                            <span className="font-semibold">{formatClock(timeIn)}</span>
+                            <span className="font-semibold">{formatClock(shownIn)}</span>
                             {timeOut ? (
                                 <>
                                     <span className="text-slate-300 mx-1.5">·</span>
                                     <span className="text-slate-400 font-medium">Out</span>{' '}
-                                    <NextDayCheckoutTime time={formatClock(timeOut)} nextDay={checkoutNextDay} />
+                                    <NextDayCheckoutTime time={formatClock(shownOut)} nextDay={checkoutNextDay} />
                                 </>
                             ) : (
                                 <span className="text-amber-600 text-[11px] ml-1.5 font-medium">
@@ -544,7 +558,7 @@ export default function DashboardCheckInOutCard() {
                     disabled={attendanceSuspended || salaryLock.locked || Boolean(contactLock) || saving || loading || running}
                     onClick={() => setConfirmAction('in')}
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0B7A3E] hover:bg-[#086433] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#0B7A3E] disabled:hover:translate-y-0 disabled:!text-white"
-                    title={attendanceSuspended ? 'Suspended account' : running ? `Checked in at ${formatClock(timeIn)}` : 'Check in'}
+                    title={attendanceSuspended ? 'Suspended account' : running ? `Checked in at ${formatClock(shownIn)}` : 'Check in'}
                 >
                     {running ? (
                         <Check className="w-4 h-4 shrink-0 !text-white" strokeWidth={2.5} />
@@ -562,7 +576,7 @@ export default function DashboardCheckInOutCard() {
                         attendanceSuspended
                             ? 'Suspended account'
                             : checkedOut
-                            ? `Checked out at ${formatClock(timeOut)}${checkoutNextDay ? ' (next day)' : ''}`
+                            ? `Checked out at ${formatClock(shownOut)}${checkoutNextDay ? ' (next day)' : ''}`
                             : checkedIn
                                 ? 'Check out'
                                 : 'Check in first'

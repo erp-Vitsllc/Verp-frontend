@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useCallback, Suspense } from 'react';
+import { formatPayMoney, payCurrencyCode, useAedRates } from '@/utils/workPayLocation';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -344,6 +345,7 @@ function EmployeeProfilePageContent() {
     const DEFAULT_PHONE_COUNTRY = 'AE';
 
     const [employee, setEmployee] = useState(null);
+    const payRates = useAedRates();
     const [loading, setLoading] = useState(true);
     const [pageLoadError, setPageLoadError] = useState(false);
     const [error, setError] = useState('');
@@ -9279,7 +9281,7 @@ function EmployeeProfilePageContent() {
 
         statusItems.push({
             type: 'salary',
-            text: `Last Salary: AED ${activeSalary.toLocaleString()}`
+            text: `Last Salary: ${formatPayMoney(activeSalary, payCurrencyCode(employee), payRates, 2)}`
         });
 
         // 2. Total Fines

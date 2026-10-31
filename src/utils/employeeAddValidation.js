@@ -475,6 +475,14 @@ export function validateBasicStep({
             }),
         ],
     ];
+    if (basicDetails.workLocation === 'outside_uae') {
+        if (!basicDetails.workingFromCountryCode) {
+            errors.workingFromCountry = 'Select the country the employee is working from';
+        }
+        if (!basicDetails.salaryCurrency) {
+            errors.salaryCurrency = 'Salary paying currency is required';
+        }
+    }
     checks.forEach(([field, r]) => {
         if (!r.isValid) errors[field] = r.error;
     });

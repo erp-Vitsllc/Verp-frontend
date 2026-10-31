@@ -610,6 +610,7 @@ export default function DashboardRequestHub() {
         reason,
         attachmentName,
         attachmentData,
+        deductionChoice,
         previousDay,
     }) => {
         setSubmitting(true);
@@ -655,6 +656,7 @@ export default function DashboardRequestHub() {
                               timeIn: timeIn || '',
                               timeOut: timeOut || '',
                               reason,
+                              deductionChoice: deductionChoice === 'waived' ? 'waived' : 'authorized',
                               attachmentName: attachmentName || '',
                               attachmentData: attachmentData || '',
                           },
