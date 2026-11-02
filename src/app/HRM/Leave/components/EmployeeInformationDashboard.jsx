@@ -1728,7 +1728,8 @@ function dayKind(record, { isFuture, isToday, isHoliday, isWeeklyOff }) {
     // turns the cell green in the calendar. Comp off does not.
     if (key === 'holiday' || isHoliday) return 'holiday';
     if (key === 'weekly_off' || isWeeklyOff) return 'weekend';
-    if (hoursForgiven(record) && !/\(Waived off\)/i.test(String(record?.statusLabel || ''))) return 'present';
+    // A waived late, early, or missed punch is paid, so the day is green.
+    if (hoursForgiven(record)) return 'present';
     // A future day stays blank until leave is approved. Unauthorized leave is only a past day.
     const unapprovedFuture = Boolean(isFuture) && !requestApproved(record);
     if (shownEventKind(record) && !unapprovedFuture) return 'attention';
@@ -1768,6 +1769,14 @@ function attentionLabel(record) {
     if (kind === 'mispunch') return 'Missed Punch';
     if (kind === 'early_go') return 'Early Go';
     if (kind === 'late_arrived') return 'Late Arrival';
+    return '';
+}
+
+function approvedPunchLabel(record) {
+    const kind = shownEventKind(record);
+    if (kind === 'late_arrived') return 'Late Arrival (Approved)';
+    if (kind === 'early_go') return 'Early Go (Approved)';
+    if (kind === 'mispunch') return 'Mispunch (Approved)';
     return '';
 }
 
@@ -2054,7 +2063,8 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     const description = dayDescription(record);
     const adjustment = inMonth && !beforeStart && !ctx.salaryLock?.locked ? ctx.adjustmentByDate.get(dateKey) : null;
     const adjustmentText = adjustmentNote(adjustment ? { date: dateKey, ...adjustment } : null);
-    const approval = kind === 'future' ? '' : dayApprovalLabel(record);
+    const waivedPunchLabel = forgiven ? approvedPunchLabel(record) : '';
+    const approval = (waivedPunchLabel || kind === 'future') ? '' : dayApprovalLabel(record);
     const scheduled = flowchartMinutes(ctx.scheduleWeek, dateKey, record);
     const rawShort = flexibleDay ? flexibleShortMinutes(record, ctx.scheduleWeek) : (worked == null || !(scheduled > 0) ? null : scheduled - worked);
     const deductionMinutes = forgiven
@@ -2125,6 +2135,8 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
         ? 'Present'
         : sandwiched
         ? 'Weekly off · between leave'
+        : waivedPunchLabel
+        ? waivedPunchLabel
         : forgiven && !leaveStatus
         ? 'Present (on time)'
         : visibleLate && visibleEarly
@@ -2163,7 +2175,7 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     }
     const cellKind = offDayOtHours > 0 ? 'present' : payKind;
     const tipTone = offDayOtHours > 0 ? TIP_TONE.present : (sandwichKind ? TIP_TONE[sandwichKind] : tone);
-    if (cellKind === 'present' && sideMode === 'deduction') {
+    if (cellKind === 'present' && sideMode === 'deduction' && !deductionWaived) {
         sideMode = otHours > 0 ? 'ot' : '';
         sideAmount = sideMode === 'ot' ? otPay : 0;
         totalPay = payment == null && sideMode === ''

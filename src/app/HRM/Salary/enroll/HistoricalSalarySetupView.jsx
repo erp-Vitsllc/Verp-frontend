@@ -1966,24 +1966,15 @@ function GhostButton({ children, ...props }) {
     );
 }
 
-function ModalShell({ open, title, onClose, onBack, children, width = 'max-w-md', zClass = 'z-[90]' }) {
+function ModalShell({ open, title, onClose, headerAction, children, width = 'max-w-md', zClass = 'z-[90]' }) {
     if (!open) return null;
     return (
         <div className={`fixed inset-0 ${zClass} flex items-center justify-center p-4`}>
             <button type="button" className="absolute inset-0 bg-slate-900/30" onClick={onClose} aria-label="Close" />
             <div className={`relative w-full ${width} rounded-2xl bg-white p-5 shadow-2xl`}>
                 <div className="flex items-center gap-2">
-                    {onBack ? (
-                        <button
-                            type="button"
-                            onClick={onBack}
-                            className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-lg pr-1 text-sm font-semibold text-[#2563EB] hover:bg-slate-50"
-                        >
-                            <ChevronLeft size={16} />
-                            Back
-                        </button>
-                    ) : null}
-                    <h3 className="text-base font-bold text-slate-800">{title}</h3>
+                    <h3 className="min-w-0 flex-1 text-base font-bold text-slate-800">{title}</h3>
+                    {headerAction ? <div className="shrink-0">{headerAction}</div> : null}
                 </div>
                 {children}
             </div>
@@ -2433,12 +2424,45 @@ function newLeaveRecordId() {
 }
 
 function leaveCountFromRow(row) {
-    const n = Number(row?.eligibleWorkingDays ?? row?.actualDays ?? row?.calendarDays);
-    if (Number.isFinite(n) && n > 0) return String(n);
     const from = row?.fromDate || row?.startDate || '';
     const to = row?.toDate || row?.endDate || from;
+    if (String(row?.leaveType || '').toLowerCase() === 'annual') {
+        const days = inclusiveCalendarDays(from, to);
+        const stored = Number(row?.eligibleWorkingDays ?? row?.actualDays);
+        if (days > 0) {
+            if (Number.isFinite(stored) && stored > 0) return String(Math.min(stored, days));
+            return String(days);
+        }
+    }
+    const n = Number(row?.eligibleWorkingDays ?? row?.actualDays ?? row?.calendarDays);
+    if (Number.isFinite(n) && n > 0) return String(n);
     const days = inclusiveCalendarDays(from, to);
     return days > 0 ? String(days) : '';
+}
+
+function annualCalendarCount(row, leaveMultipliers) {
+    if (leaveTypeKey(row) !== 'annual') return null;
+    const from = String(row?.fromDate || row?.startDate || '').slice(0, 10);
+    const to = String(row?.toDate || row?.endDate || from).slice(0, 10);
+    const span = inclusiveCalendarDays(from, to);
+    if (span <= 0) return null;
+    const storedDays = Math.max(0, Number(row?.eligibleWorkingDays ?? row?.actualDays) || 0);
+    const days = storedDays > 0 ? Math.min(storedDays, span) : span;
+    const multiplier = leaveMultiplier('annual', row?.multiplier ?? row?.rule, leaveMultipliers);
+    const deduction = days * multiplier;
+    return {
+        fromDate: from,
+        toDate: to,
+        startDate: from,
+        endDate: to,
+        calendarDays: span,
+        actualDays: days,
+        eligibleWorkingDays: days,
+        multiplier,
+        rule: multiplier,
+        deductionDays: deduction,
+        deduction,
+    };
 }
 
 function AddLeaveModal({
@@ -2474,20 +2498,21 @@ function AddLeaveModal({
 
     const countNum = Math.max(0, Number(daysCount) || 0);
     const isAnnual = String(leaveType).toLowerCase() === 'annual';
+    const countedDays = isAnnual && autoDays > 0 ? Math.min(countNum > 0 ? countNum : autoDays, autoDays) : countNum;
     const datesRequired = isDatedLeaveType(leaveType);
     const showDates = datesRequired || isOptionalDateLeaveType(leaveType);
     const multiplier = leaveMultiplier(leaveType, null, leaveMultipliers);
     const existingAttachmentName = initial?.attachment?.name || '';
     const dateError = showDates
         ? validateLeaveDates(
-              { leaveType, fromDate, toDate, eligibleWorkingDays: Math.max(countNum, 1) },
+              { leaveType, fromDate, toDate, eligibleWorkingDays: Math.max(countedDays, 1) },
               periodStart,
               periodEnd,
           )
         : '';
     const startDisabledDays = leaveDateDisabledDays(periodStart);
     const endDisabledDays = leaveDateDisabledDays(fromDate || periodStart);
-    const canSave = countNum > 0 && !locked && !dateError && (!datesRequired || (fromDate && toDate));
+    const canSave = countedDays > 0 && !locked && !dateError && (!datesRequired || (fromDate && toDate));
 
     return (
         <ModalShell open={open} title={editing ? 'Edit leave record' : 'Add leave record'} onClose={onClose} width="max-w-lg" zClass="z-[100]">
@@ -2552,14 +2577,21 @@ function AddLeaveModal({
                         min="0"
                         step="1"
                         value={daysCount}
-                        onChange={(e) => setDaysCount(e.target.value)}
+                        onChange={(e) => {
+                            const next = e.target.value;
+                            if (isAnnual && autoDays > 0 && Number(next) > autoDays) {
+                                setDaysCount(String(autoDays));
+                                return;
+                            }
+                            setDaysCount(next);
+                        }}
                         disabled={locked}
                         placeholder="Days"
                         className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:bg-[#F8FAFC]"
                     />
                     <p className="mt-1 text-[11px] text-slate-500">
                         {datesRequired
-                            ? `Start and end dates are required. The count fills in from those dates and you can still change it.${
+                            ? `Start and end dates are required. The count fills in from those dates and cannot be more than that period.${
                                   isAnnual
                                       ? ` End date can be after the historical period (${prettyDate(periodStart)} — ${prettyDate(periodEnd)}).`
                                       : ''
@@ -2607,13 +2639,13 @@ function AddLeaveModal({
                             startDate: showDates ? fromDate : '',
                             endDate: showDates ? toDate : '',
                             returnToWorkDate: showDates && toDate ? addDays(toDate, 1) : '',
-                            calendarDays: showDates ? autoDays || countNum : countNum,
-                            actualDays: countNum,
-                            eligibleWorkingDays: countNum,
+                            calendarDays: showDates ? autoDays || countedDays : countedDays,
+                            actualDays: countedDays,
+                            eligibleWorkingDays: countedDays,
                             multiplier,
                             rule: multiplier,
-                            deductionDays: countNum * multiplier,
-                            deduction: countNum * multiplier,
+                            deductionDays: countedDays * multiplier,
+                            deduction: countedDays * multiplier,
                             source: 'manual',
                             status: 'approved',
                             remarks,
@@ -3644,9 +3676,11 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 next.deductionDays = next.actualDays;
                 next.deduction = next.actualDays;
             }
+            const annualCount = annualCalendarCount(row, leaveMultipliers);
+            if (annualCount) Object.assign(next, annualCount);
             return next;
         });
-    }, [leaveRecords]);
+    }, [leaveMultipliers, leaveRecords]);
     const systemLeaveHistoryList = useMemo(() => {
         return systemLeaveHistoryRows(liveLeaveRecords, leaveMultipliers).map((row) => {
             if (leaveTypeKey(row) !== 'holiday') return row;
@@ -5812,6 +5846,22 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 onClose={() => setAnnualWindowsOpen(false)}
                 width="max-w-4xl"
                 zClass="z-[80]"
+                headerAction={
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setAnnualWindowsOpen(false);
+                            setLeaveGroupModal({
+                                type: 'annual',
+                                source: 'manual',
+                                returnTo: 'periods',
+                            });
+                        }}
+                        className="inline-flex h-9 items-center rounded-lg border border-[#E2E8F0] bg-white px-3 text-[13px] font-semibold text-[#2563EB] hover:bg-slate-50"
+                    >
+                        List all annual leave
+                    </button>
+                }
             >
                 <p className="mt-1 text-[12px] text-[#64748B]">
                     The first joining date is the contract joining date. Each later row starts the day after the previous leave eligible date. Used counts annual leave from that joining date through the next row&apos;s leave eligible date, up to {annualWindows?.allowedDays || 30} days. Once that is full, the rest counts on the next row when the leave date is inside it, from that row&apos;s joining date through the following leave eligible date. Eligible days are {annualWindows?.allowedDays || 30} after the {annualWindows?.cycleDays || 300}-day cycle, and balance is that amount minus used. A row is Inactive until the cycle is complete, then Active, and Lapsed after the next leave eligible date. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
@@ -5948,14 +5998,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                           }`
                         : 'Leave records'
                 }
-                onBack={
-                    leaveGroupModal?.type === 'annual' && leaveGroupModal?.from && leaveGroupModal?.to
-                        ? () => {
-                              setLeaveGroupModal(null);
-                              setAnnualWindowsOpen(true);
-                          }
-                        : undefined
-                }
                 onClose={() => setLeaveGroupModal(null)}
                 width="max-w-5xl"
                 zClass="z-[80]"
@@ -6017,6 +6059,21 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     />
                 </div>
                 <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                    {leaveGroupModal?.type === 'annual' && (
+                        (leaveGroupModal?.from && leaveGroupModal?.to) || leaveGroupModal?.returnTo === 'periods'
+                    ) ? (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setLeaveGroupModal(null);
+                                setAnnualWindowsOpen(true);
+                            }}
+                            className="inline-flex h-10 items-center gap-0.5 rounded-xl border px-4 text-sm font-semibold text-[#2563EB]"
+                        >
+                            <ChevronLeft size={16} />
+                            Back
+                        </button>
+                    ) : null}
                     <button
                         type="button"
                         onClick={() => setLeaveGroupModal(null)}
