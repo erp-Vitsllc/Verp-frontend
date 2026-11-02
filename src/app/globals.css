@@ -364,6 +364,39 @@ tr.record-focus-blink > td {
     animation: none;
   }
 }
+/* Safari does not paint CSS-variable backgrounds (bg-popover / bg-background)
+   on the transformed date popover, so the leave calendar shows the dialog text through it. */
+.date-picker-popover,
+.date-picker-popover-surface,
+.date-picker-popover [data-slot="calendar"],
+.date-picker-popover .rdp-root,
+.date-picker-popover .rdp-month,
+.date-picker-popover .rdp-months,
+.date-picker-popover .rdp-weeks,
+.date-picker-popover .rdp-week {
+  background-color: #ffffff !important;
+  background-image: none !important;
+}
+
+.dark .date-picker-popover,
+.dark .date-picker-popover-surface,
+.dark .date-picker-popover [data-slot="calendar"],
+.dark .date-picker-popover .rdp-root,
+.dark .date-picker-popover .rdp-month,
+.dark .date-picker-popover .rdp-months,
+.dark .date-picker-popover .rdp-weeks,
+.dark .date-picker-popover .rdp-week {
+  background-color: #333333 !important;
+}
+
+.date-picker-popover {
+  opacity: 1 !important;
+  filter: none !important;
+  animation: none !important;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
 button[data-action-guard-processing="true"],
 [data-slot="button"][data-action-guard-processing="true"] {
   cursor: wait;

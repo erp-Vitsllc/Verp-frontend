@@ -10,6 +10,7 @@ import { hasAnyPermission, isAdmin, hasPermission, canAccessAddEmployee } from '
 import dynamic from 'next/dynamic';
 import { apiGet } from '@/lib/api-client';
 import EmployeeTable from './EmployeeTable';
+import { isOutsideUaeWorkLocation, OUTSIDE_UAE_CONTRACT_LABEL } from '@/utils/workPayLocation';
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
 import { buildEmployeeListBellFromStats, buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
@@ -80,6 +81,9 @@ const isEmployeeIncomplete = (employee) => {
 };
 
 const getContractExpiry = (employee) => {
+    if (isOutsideUaeWorkLocation(employee)) {
+        return { outsideUae: true, formatted: OUTSIDE_UAE_CONTRACT_LABEL };
+    }
     if (!employee.visaDetails) return null;
 
     const visas = [

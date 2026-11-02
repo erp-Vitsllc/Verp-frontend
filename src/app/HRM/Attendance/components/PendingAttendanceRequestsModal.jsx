@@ -110,10 +110,17 @@ function normalizeAttendanceInboxItem(row = {}) {
     }
     if (isAttendanceChangeItem(row)) {
         const summary = row.extra2 || row.message || 'Attendance change waiting for approval';
+        const action = row.action || row.raw?.action || '';
+        const requestType =
+            action === 'hour_adjust'
+                ? 'Hour Approval Request'
+                : action === 'flexible_ot'
+                  ? 'Flexible OT Request'
+                  : 'Attendance Change Request';
         return {
             ...row,
-            requestType: 'Attendance Change Request',
-            type: 'Attendance Change Request',
+            requestType,
+            type: requestType,
             subjectName: row.subjectName || row.employeeName || 'Employee',
             status: row.status || 'Pending',
             extra1: summary,

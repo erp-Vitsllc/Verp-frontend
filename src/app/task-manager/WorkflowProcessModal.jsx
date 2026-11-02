@@ -9,6 +9,7 @@ import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation
 
 const PILL = {
     Completed: 'bg-emerald-50 text-emerald-600',
+    Accepted: 'bg-emerald-50 text-emerald-600',
     'In Progress': 'bg-blue-50 text-blue-600',
     'Not Started': 'bg-slate-100 text-slate-500',
     Rejected: 'bg-rose-50 text-rose-600',
@@ -119,7 +120,7 @@ export function WorkflowBoard({ actionId, onChanged }) {
             ) : null}
         <ol className="space-y-0">
             {steps.map((step, index) => {
-                const done = step.status === 'Completed';
+                const done = step.status === 'Completed' || step.status === 'Accepted';
                 const active = step.status === 'In Progress';
                 const rejected = step.status === 'Rejected';
                 return (
@@ -138,7 +139,7 @@ export function WorkflowBoard({ actionId, onChanged }) {
                             >
                                 {done ? <Check size={16} /> : rejected ? <X size={14} /> : index + 1}
                             </span>
-                            {index < steps.length - 1 && <span className={`my-1 w-px flex-1 ${done ? 'bg-emerald-300' : 'bg-slate-200'}`} />}
+                            {index < steps.length - 1 && <span className={`my-1 w-px flex-1 ${rejected ? 'bg-rose-300' : done ? 'bg-emerald-300' : 'bg-slate-200'}`} />}
                         </div>
                         <div className={`pb-5 ${index === steps.length - 1 ? 'pb-0' : ''}`}>
                             <div className="flex items-start gap-2">

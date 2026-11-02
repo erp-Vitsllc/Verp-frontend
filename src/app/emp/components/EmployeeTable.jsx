@@ -113,7 +113,7 @@ const EmployeeRow = memo(({ employee, serialNo, canViewProfile }) => {
             <td className={`${td} text-gray-900`}>
                 {employee.companyNickName || employee.companyName || '—'}
             </td>
-            <td className={`${td} text-gray-900`}>{contractExpiry || '—'}</td>
+            <td className={`${td} text-gray-900`}>{contractExpiry?.formatted || '—'}</td>
             <td className={td}>
                 <span className={`px-2 py-1 rounded-full text-[10px] sm:text-xs font-medium ${statusClass}`}>
                     {employee.status || 'Probation'}

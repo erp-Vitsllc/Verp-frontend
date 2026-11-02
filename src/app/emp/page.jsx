@@ -34,6 +34,7 @@ import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { canDeleteEmployeeFromList } from '@/utils/employeeListPermissions';
 import { isEmployeeProfileActivated } from '@/utils/employeeActivationSections';
+import { isOutsideUaeWorkLocation, OUTSIDE_UAE_CONTRACT_LABEL } from '@/utils/workPayLocation';
 import ErpPageHeader from '@/components/ErpPageHeader';
 import { navHrefProps } from '@/utils/linkContextMenu';
 import { Country } from 'country-state-city';
@@ -771,6 +772,8 @@ function EmployeeContent() {
     // Memoize getContractExpiry to avoid recreating function on every render
     const getContractExpiry = useCallback((employee) => {
         // Check visaDetails first (if populated)
+        if (isOutsideUaeWorkLocation(employee)) return OUTSIDE_UAE_CONTRACT_LABEL;
+
         let expiryDate = null;
 
         if (employee?.visaDetails) {

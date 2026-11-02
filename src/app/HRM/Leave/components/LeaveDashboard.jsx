@@ -182,6 +182,10 @@ function rowStatusKey(row) {
     return 'pending';
 }
 
+function rowCanReviseLeave(row) {
+    return row?.canEdit === true || row?.canMaintain === true;
+}
+
 function LeaveApprovalTable({
     rows,
     decidingId,
@@ -212,9 +216,10 @@ function LeaveApprovalTable({
         const employeeMatch = isEmployeeHighlighted(row);
         const statusKey = rowStatusKey(row);
         const canDecide = statusKey === 'pending' && row.canDecide === true;
-        const canEdit = row.canEdit === true || canDecide;
-        const canMaintain = row.canMaintain === true && statusKey !== 'pending';
-        const canDelete = canMaintain && statusKey === 'approved';
+        const canRevise = row.canEdit === true || row.canMaintain === true;
+        const canDelete = row.canDelete === true && statusKey === 'approved';
+        const showReturn = canRevise && statusKey === 'approved';
+        const showActions = canDecide || canRevise || canDelete;
         const pendingWith = statusKey === 'pending' ? String(row.pendingWithName || '').trim() : '';
         const blinking = String(blinkRowId || '') === String(row.id);
 
@@ -281,7 +286,7 @@ function LeaveApprovalTable({
                     ) : null}
                 </td>
                 <td className="px-2 py-3">
-                    {canDecide || canEdit ? (
+                    {showActions ? (
                         <div className="flex items-center justify-center gap-2">
                             {canDecide ? (
                                 <>
@@ -316,7 +321,7 @@ function LeaveApprovalTable({
                                     </button>
                                 </>
                             ) : null}
-                            {canEdit ? (
+                            {canRevise ? (
                                 <button
                                     type="button"
                                     disabled={decidingId === row.id}
@@ -348,7 +353,7 @@ function LeaveApprovalTable({
                                     <Trash2 size={13} />
                                 </button>
                             ) : null}
-                            {statusKey === 'approved' && canMaintain ? (
+                            {showReturn ? (
                                 <button
                                     type="button"
                                     disabled={decidingId === row.id}
@@ -1010,10 +1015,11 @@ export default function LeaveDashboard({
             setApprovalCategory(nextCategory);
         }
         setBlinkRowId(row.id);
-        const mode = rowStatusKey(row) === 'pending' ? 'approve' : 'edit';
+        const pending = rowStatusKey(row) === 'pending';
+        const mode = pending ? 'approve' : rowCanReviseLeave(row) ? 'edit' : '';
         setFocusedRow(row);
         setRightFocus('approve');
-        if (onSelectRequest) onSelectRequest(row, mode);
+        if (onSelectRequest && mode) onSelectRequest(row, mode);
         else onApprovalRowSelect?.(row);
 
         const timer = window.setTimeout(() => setBlinkRowId(''), 1800);
@@ -1032,10 +1038,12 @@ export default function LeaveDashboard({
                 setApprovalCategory(nextCategory);
             }
             if (onSelectRequest && openedPanelForIdRef.current !== String(row.id)) {
+                const pending = nextCategory === 'pending';
+                const mode = pending ? 'approve' : rowCanReviseLeave(row) ? 'edit' : '';
                 openedPanelForIdRef.current = String(row.id);
                 setFocusedRow(row);
                 setRightFocus('approve');
-                onSelectRequest(row, nextCategory === 'pending' ? 'approve' : 'edit');
+                if (mode) onSelectRequest(row, mode);
             }
         }
         setBlinkRowId(row?.id || selectedApprovalId);

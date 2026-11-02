@@ -4,6 +4,7 @@ import {
     employeeRequiresBankDetails,
 } from '@/utils/employeeActivationSections';
 import { isEmployeeUaeNationality } from '@/utils/employeeUaeNationality';
+import { hasCompleteOutsideUaeIdentityDocument } from '@/utils/outsideUaeIdentityDocument';
 
 const checkField = (val) => {
     if (val === null || val === undefined) return false;
@@ -69,6 +70,17 @@ export function calculateEmployeeProfileCompletion(employee = {}) {
         } else {
             pendingFields.push({ section: 'Basic Details', field: 'Probation Period' });
         }
+    }
+
+    if (String(employee?.workLocation || '').trim().toLowerCase() === 'outside_uae') {
+        totalFields++;
+        if (hasCompleteOutsideUaeIdentityDocument(employee)) {
+            completedFields++;
+        } else {
+            pendingFields.push({ section: 'Document', field: 'Add document' });
+        }
+        const percentage = totalFields === 0 ? 0 : Math.round((completedFields / totalFields) * 100);
+        return { percentage, pendingFields };
     }
 
     const passport = employee.passportDetails;

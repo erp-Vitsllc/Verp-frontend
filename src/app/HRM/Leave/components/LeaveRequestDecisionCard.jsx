@@ -38,7 +38,7 @@ export default function LeaveRequestDecisionCard({
     const [requestedHours, setRequestedHours] = useState('0');
 
     useEffect(() => {
-        setEditing(Boolean(startEditing));
+        setEditing(Boolean(startEditing) && canEdit);
         setRejecting(false);
         setRejectReason('');
         setEditIn(clockInputValue(row?.timeIn));
@@ -50,7 +50,7 @@ export default function LeaveRequestDecisionCard({
                 ? String(row.leaveRequestedHours)
                 : '0',
         );
-    }, [row?.id, row?.timeIn, row?.timeOut, row?.leaveDeductionChoice, row?.leaveRequestedHours, startEditing]);
+    }, [canEdit, row?.id, row?.timeIn, row?.timeOut, row?.leaveDeductionChoice, row?.leaveRequestedHours, startEditing]);
 
     if (!row) return null;
     const pendingWith = String(row.pendingWithName || '').trim();
@@ -58,7 +58,8 @@ export default function LeaveRequestDecisionCard({
     const clarification = isAttendanceClarificationRequest(row);
     const lateEarly = isLateEarlyRequest(row);
     const showDecide = canDecide;
-    const showEdit = canDecide || (clarification && canEdit);
+    const showEditAction = canEdit === true;
+    const showActions = showDecide || showEditAction;
     const dateLabel =
         row.startDate && row.endDate
             ? row.startDate === row.endDate
@@ -146,7 +147,7 @@ export default function LeaveRequestDecisionCard({
                         </p>
                     </div>
                 ) : null}
-                {clarification && editing ? (
+                {clarification && editing && showEditAction ? (
                     <div className="mt-3 grid grid-cols-2 gap-2 text-left">
                         <label className="text-[11px] text-[#667085]">
                             Check in
@@ -169,7 +170,7 @@ export default function LeaveRequestDecisionCard({
                     </div>
                 ) : null}
             </div>
-            {showEdit ? (
+            {showActions ? (
                 <>
                     {showDecide && row.approvalStage === 'pending_reportee' ? (
                         <p className="mt-3 text-center text-[11px] leading-snug text-[#6B7280]">
@@ -188,24 +189,26 @@ export default function LeaveRequestDecisionCard({
                         </label>
                     ) : null}
                     <div className="mt-4 flex gap-2">
-                        <button
-                            type="button"
-                            disabled={submitting}
-                            onClick={() => {
-                                if (clarification && editing) {
-                                    onSave?.(row, { timeIn: editIn, timeOut: editOut });
-                                    return;
-                                }
-                                if (clarification) {
-                                    setEditing(true);
-                                    return;
-                                }
-                                onEdit?.(row);
-                            }}
-                            className="min-w-[88px] rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                        >
-                            {clarification && editing ? 'Save' : 'Edit'}
-                        </button>
+                        {showEditAction ? (
+                            <button
+                                type="button"
+                                disabled={submitting}
+                                onClick={() => {
+                                    if (clarification && editing) {
+                                        onSave?.(row, { timeIn: editIn, timeOut: editOut });
+                                        return;
+                                    }
+                                    if (clarification) {
+                                        setEditing(true);
+                                        return;
+                                    }
+                                    onEdit?.(row);
+                                }}
+                                className="min-w-[88px] rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                            >
+                                {clarification && editing ? 'Save' : 'Edit'}
+                            </button>
+                        ) : null}
                         {showDecide ? (
                             <button
                                 type="button"

@@ -116,9 +116,9 @@ export function buildAnnualLeaveShade(calendar, { processingStart = '', allowEar
             leaveYellow: (date) => toneOfKey(dateToKey(date)) === 'yellow',
         },
         modifiersStyles: {
-            leaveGrey: { backgroundColor: 'transparent' },
-            leaveGreen: { backgroundColor: 'transparent' },
-            leaveYellow: { backgroundColor: 'transparent' },
+            leaveGrey: { backgroundColor: '#e2e8f0' },
+            leaveGreen: { backgroundColor: '#d1fae5' },
+            leaveYellow: { backgroundColor: '#fef3c7' },
         },
         calendarClassNames: {
             disabled: 'cursor-not-allowed opacity-100',

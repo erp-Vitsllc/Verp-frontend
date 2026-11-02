@@ -19,6 +19,12 @@ import LabourCard from '../cards/LabourCard';
 import MedicalInsuranceCard from '../cards/MedicalInsuranceCard';
 import DrivingLicenseCard from '../cards/DrivingLicenseCard';
 import VisaTypePickerModal from '../modals/VisaTypePickerModal';
+import { isOutsideUaeWorkLocation } from '@/utils/workPayLocation';
+import {
+    OutsideUaeIdentityButton,
+    OutsideUaeIdentityCards,
+    OutsideUaeIdentityModal,
+} from '../OutsideUaeIdentityDocuments';
 
 export default function BasicTab({
     employee,
@@ -46,6 +52,7 @@ export default function BasicTab({
     canCreate = true,
 }) {
     const [showVisaTypePicker, setShowVisaTypePicker] = useState(false);
+    const [outsideDocEdit, setOutsideDocEdit] = useState(null);
     const passportCardRef = useRef(null);
     const emiratesIdCardRef = useRef(null);
     const visaCardRef = useRef(null);
@@ -61,6 +68,13 @@ export default function BasicTab({
     const visiblePendingChanges = useMemo(
         () => employeePendingChangesForViewer(employee, viewerCanSeePendingActivationQueue),
         [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
+    );
+    const outsideUae = !isCompanyProfile && isOutsideUaeWorkLocation(employee);
+    const hasStoredVisa = Boolean(
+        employee?.visaDetails?.visit?.number ||
+        employee?.visaDetails?.employment?.number ||
+        employee?.visaDetails?.spouse?.number ||
+        employee?.visaDetails?.number,
     );
 
     useEffect(() => {
@@ -158,7 +172,7 @@ export default function BasicTab({
                             </div>
                             <div
                                 id="passport"
-                                className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_passport').view) ? '' : 'hidden'}`}
+                                className={`break-inside-avoid mb-6 ${(!outsideUae || employee?.passportDetails?.number) && canView && crudAccess('hrm_employees_view_passport').view ? '' : 'hidden'}`}
                             >
                                 <PassportCard
                                     ref={passportCardRef}
@@ -181,7 +195,7 @@ export default function BasicTab({
                                     canEdit={canEdit}
                                 />
                             </div>
-                            {isVisaRequirementApplicable && (
+                            {isVisaRequirementApplicable && (!outsideUae || hasStoredVisa) && (
                                 <div
                                     id="visa"
                                     className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_visa').view) ? '' : 'hidden'}`}
@@ -207,7 +221,7 @@ export default function BasicTab({
                             )}
                             <div
                                 id="emirates-id"
-                                className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_emirates_id').view) ? '' : 'hidden'}`}
+                                className={`break-inside-avoid mb-6 ${(!outsideUae || employee?.emiratesIdDetails?.number) && canView && crudAccess('hrm_employees_view_emirates_id').view ? '' : 'hidden'}`}
                             >
                                 <EmiratesIdCard
                                     ref={emiratesIdCardRef}
@@ -231,7 +245,7 @@ export default function BasicTab({
                             </div>
                             <div
                                 id="labour-card"
-                                className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_labour_card').view) ? '' : 'hidden'}`}
+                                className={`break-inside-avoid mb-6 ${(!outsideUae || employee?.labourCardDetails?.number) && canView && crudAccess('hrm_employees_view_labour_card').view ? '' : 'hidden'}`}
                             >
                                 <LabourCard
                                     ref={labourCardRef}
@@ -255,7 +269,7 @@ export default function BasicTab({
                             </div>
                             <div
                                 id="medical-insurance"
-                                className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_medical_insurance').view) ? '' : 'hidden'}`}
+                                className={`break-inside-avoid mb-6 ${(!outsideUae || employee?.medicalInsuranceDetails?.provider) && canView && crudAccess('hrm_employees_view_medical_insurance').view ? '' : 'hidden'}`}
                             >
                                 <MedicalInsuranceCard
                                     ref={medicalInsuranceCardRef}
@@ -279,7 +293,7 @@ export default function BasicTab({
                             </div>
                             <div
                                 id="driving-license"
-                                className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_driving_license').view) ? '' : 'hidden'}`}
+                                className={`break-inside-avoid mb-6 ${(!outsideUae || employee?.drivingLicenceDetails?.number) && canView && crudAccess('hrm_employees_view_driving_license').view ? '' : 'hidden'}`}
                             >
                                 <DrivingLicenseCard
                                     ref={drivingLicenseCardRef}
@@ -301,6 +315,14 @@ export default function BasicTab({
                                     canEdit={canEdit}
                                 />
                             </div>
+                            {outsideUae ? (
+                                <OutsideUaeIdentityCards
+                                    employee={employee}
+                                    formatDate={formatDate}
+                                    onViewDocument={onViewDocument}
+                                    onEdit={(doc, index) => setOutsideDocEdit({ doc, index })}
+                                />
+                            ) : null}
                         </>
                     )}
                 </div>
@@ -312,6 +334,15 @@ export default function BasicTab({
                         const match = visiblePendingChanges.find((e) => String(e.section || '').toLowerCase() === sec);
                         return match?.proposedData || null;
                     };
+
+                    if (outsideUae) {
+                        return (
+                            <OutsideUaeIdentityButton
+                                employee={employee}
+                                onAdd={() => setOutsideDocEdit({})}
+                            />
+                        );
+                    }
 
                     if (isCompanyProfile) {
                         const documentButtons = [];
@@ -529,6 +560,13 @@ export default function BasicTab({
                     setShowVisaTypePicker(false);
                     visaCardRef.current?.openModal?.(visaType);
                 }}
+            />
+            <OutsideUaeIdentityModal
+                isOpen={outsideUae && outsideDocEdit !== null}
+                employeeId={employeeId}
+                editing={outsideDocEdit}
+                onClose={() => setOutsideDocEdit(null)}
+                onSaved={() => fetchEmployee?.()}
             />
         </div>
     );

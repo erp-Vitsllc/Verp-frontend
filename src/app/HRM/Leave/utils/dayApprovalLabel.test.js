@@ -47,4 +47,40 @@ describe('dayApprovalLabel', () => {
             'Approved',
         );
     });
+
+    it('keeps a late punch not approved when another flag is approved', () => {
+        assert.equal(
+            dayApprovalLabel({
+                statusKey: 'late_arrived',
+                approvalStatus: 'approved',
+                flexibleOtStatus: 'approved',
+                hourAdjustStatus: '',
+                leaveRequestStatus: '',
+            }),
+            'Not approved',
+        );
+    });
+
+    it('keeps a late punch not approved while its request is still open', () => {
+        assert.equal(
+            dayApprovalLabel({
+                statusKey: 'late_arrived',
+                approvalStatus: 'approved',
+                leaveRequestStatus: 'pending',
+                hourAdjustStatus: '',
+            }),
+            'Not approved',
+        );
+    });
+
+    it('shows a late punch as approved only after the hour decision', () => {
+        assert.equal(
+            dayApprovalLabel({
+                statusKey: 'late_arrived',
+                hourAdjustStatus: 'approved',
+                approvalStatus: 'pending',
+            }),
+            'Approved',
+        );
+    });
 });

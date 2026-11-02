@@ -34,6 +34,7 @@ import LeaveRequestTypeModal from './LeaveRequestTypeModal';
 import { MY_REQUESTS_CHANGED } from './DashboardMyRequestsCard';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
 import AddLoanModal from '@/app/HRM/LoanAndAdvance/components/AddLoanModal';
+import { getAttendanceCalendarMonth, subscribeAttendanceCalendarMonth } from '@/app/dashboard/attendanceCalendarMonth';
 
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
@@ -408,6 +409,7 @@ export default function DashboardRequestHub() {
     const [leaveHolidayDates, setLeaveHolidayDates] = useState(null);
     const [leaveOffWeekdays, setLeaveOffWeekdays] = useState(null);
     const [leaveRecords, setLeaveRecords] = useState([]);
+    const [calendarMonth, setCalendarMonth] = useState(() => getAttendanceCalendarMonth());
     const [leaveVariant, setLeaveVariant] = useState('');
     const [leaveSelfId, setLeaveSelfId] = useState('');
     const [annualEligibleOn, setAnnualEligibleOn] = useState('');
@@ -418,6 +420,8 @@ export default function DashboardRequestHub() {
     const [selfExistingLoans, setSelfExistingLoans] = useState([]);
 
     const hubRequestId = String(searchParams?.get('hubRequestId') || '').trim();
+
+    useEffect(() => subscribeAttendanceCalendarMonth(setCalendarMonth), []);
 
     const closeDecide = useCallback(() => {
         setDecide(null);
@@ -431,20 +435,22 @@ export default function DashboardRequestHub() {
         let cancelled = false;
         (async () => {
             const todayKey = getDubaiDateKey();
-            const monthKey = todayKey.slice(0, 7);
-            const year = Number(todayKey.slice(0, 4));
+            const months = [todayKey.slice(0, 7)];
+            if (/^\d{4}-\d{2}$/.test(calendarMonth) && !months.includes(calendarMonth)) months.push(calendarMonth);
+            const years = [...new Set(months.map((month) => Number(month.slice(0, 4))))];
             try {
-                const [attendanceRes, holidayRes] = await Promise.all([
-                    axiosInstance.get('/Attendance/me', {
-                        params: { month: monthKey },
+                const [attendanceResponses, holidayResponses] = await Promise.all([
+                    Promise.all(months.map((month) => axiosInstance.get('/Attendance/me', {
+                        params: { month },
                         skipToast: true,
-                    }),
-                    axiosInstance.get('/Holiday', {
+                    }))),
+                    Promise.all(years.map((year) => axiosInstance.get('/Holiday', {
                         params: { year },
                         skipToast: true,
-                    }),
+                    }))),
                 ]);
                 if (cancelled) return;
+                const attendanceRes = attendanceResponses[0];
                 setLeaveSelfId(String(attendanceRes.data?.employee?.id || attendanceRes.data?.employee?._id || ''));
                 const staffType = normalizeWorkLocationKey(attendanceRes.data?.employee?.staffType);
                 const offWeekdays = new Set(
@@ -452,9 +458,9 @@ export default function DashboardRequestHub() {
                         ? attendanceRes.data.offWeekdays
                         : [],
                 );
-                const holidayList = Array.isArray(holidayRes.data?.holidays)
-                    ? holidayRes.data.holidays
-                    : [];
+                const holidayList = holidayResponses.flatMap((response) => (
+                    Array.isArray(response.data?.holidays) ? response.data.holidays : []
+                ));
                 const holidayDates = new Set(
                     holidayList
                         .filter((h) => holidayAppliesToStaff(h, staffType))
@@ -473,7 +479,16 @@ export default function DashboardRequestHub() {
                 setLeaveDateKey(earliest);
                 setLeaveHolidayDates(holidayDates);
                 setLeaveOffWeekdays(offWeekdays);
-                setLeaveRecords(Array.isArray(attendanceRes.data?.records) ? attendanceRes.data.records : []);
+                const seenDates = new Set();
+                const records = attendanceResponses.flatMap((response) => (
+                    Array.isArray(response.data?.records) ? response.data.records : []
+                )).filter((row) => {
+                    const date = String(row?.date || '').slice(0, 10);
+                    if (!date || seenDates.has(date)) return false;
+                    seenDates.add(date);
+                    return true;
+                });
+                setLeaveRecords(records);
             } catch {
                 if (!cancelled) {
                     const fallback = nextDateKey(nextDateKey(todayKey));
@@ -488,7 +503,7 @@ export default function DashboardRequestHub() {
         return () => {
             cancelled = true;
         };
-    }, [composeKind]);
+    }, [composeKind, calendarMonth]);
 
     useEffect(() => {
         if (composeKind !== 'leave' || leaveVariant !== 'annual' || !leaveSelfId) {
@@ -864,6 +879,7 @@ export default function DashboardRequestHub() {
                     holidayDates={leaveHolidayDates}
                     offWeekdays={leaveOffWeekdays}
                     attendanceRecords={leaveRecords}
+                    monthKey={calendarMonth}
                     submitting={submitting}
                     error={error}
                     heading={

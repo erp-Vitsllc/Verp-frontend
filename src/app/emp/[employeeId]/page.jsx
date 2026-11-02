@@ -83,6 +83,8 @@ import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContac
 import { resolveContractJoiningDate, resolveVitsTenureStartDate, employeeHasEmploymentVisaRecord } from '@/utils/employeeWorkDetailsValidation';
 import { buildWorkDetailsInitialForm } from '@/utils/buildWorkDetailsInitialForm';
 import { normalizeWorkLocationKey } from '@/utils/workLocations';
+import { isOutsideUaeWorkLocation, OUTSIDE_UAE_CONTRACT_LABEL } from '@/utils/workPayLocation';
+import { hasCompleteOutsideUaeIdentityDocument } from '@/utils/outsideUaeIdentityDocument';
 import {
     applyLeftUserReadOnlySectionPermissions,
     isEmployeeLeftUser,
@@ -7832,6 +7834,30 @@ function EmployeeProfilePageContent() {
             }
         }
 
+        if (isOutsideUaeWorkLocation(employee)) {
+            totalFields++;
+            if (hasCompleteOutsideUaeIdentityDocument(employee)) {
+                completedFields++;
+            } else if (!sectionPendingMap.has('Document')) {
+                sectionPendingMap.set('Document', ['Add document']);
+            } else {
+                sectionPendingMap.get('Document').push('Add document');
+            }
+
+            sectionPendingMap.forEach((fields, section) => {
+                if (fields.length > 3) {
+                    pendingFields.push({ section, field: `${fields.length} fields incomplete` });
+                } else {
+                    fields.forEach((field) => {
+                        pendingFields.push({ section, field });
+                    });
+                }
+            });
+
+            const percentage = totalFields === 0 ? 0 : Math.round((completedFields / totalFields) * 100);
+            return { percentage, pendingFields };
+        }
+
         // Passport fields
         const pendingPassport = getPendingSectionData('passport');
         const effectivePassport = employee.passportDetails || pendingPassport;
@@ -9222,6 +9248,7 @@ function EmployeeProfilePageContent() {
             return 'bg-green-400';
         }
         if (type === 'visa-missing') return 'bg-red-400';
+        if (type === 'outside-uae') return 'bg-white';
         if (type === 'passport') {
             if (passportDays < 60) return 'bg-red-400';
             if (passportDays < 180) return 'bg-orange-400';
@@ -9350,7 +9377,12 @@ function EmployeeProfilePageContent() {
         }
         const showExpirySummary = String(employee?.status || '').trim() !== 'Left User';
         if (showExpirySummary) {
-        if (!hasVisaNumber) {
+        if (isOutsideUaeWorkLocation(employee)) {
+            statusItems.push({
+                type: 'outside-uae',
+                text: OUTSIDE_UAE_CONTRACT_LABEL,
+            });
+        } else if (!hasVisaNumber) {
             if (!isEmployeeUaeNationality(employee)) {
                 statusItems.push({
                     type: 'visa-missing',
@@ -9377,7 +9409,7 @@ function EmployeeProfilePageContent() {
                 });
             }
         }
-        if (employeeRequiresEmiratesId(employee, pendingVisaForSummary) && !hasEidNumber) {
+        if (!isOutsideUaeWorkLocation(employee) && employeeRequiresEmiratesId(employee, pendingVisaForSummary) && !hasEidNumber) {
             statusItems.push({
                 type: 'eid-missing',
                 text: 'Emirates ID Number required'

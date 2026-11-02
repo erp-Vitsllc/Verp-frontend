@@ -684,6 +684,10 @@ function AnnualLeavePageContent() {
             if (!row?.id || !row.employeeMongoId) return;
             if (!isValidDateKey(row.startDateKey) || !isValidDateKey(row.endDateKey)) return;
 
+            const wantsEdit = mode === 'edit';
+            const mayRevise = row.canEdit === true || row.canMaintain === true;
+            if (wantsEdit && !mayRevise) return;
+
             setSavedLeaveKey(`${row.employeeMongoId}|${row.startDateKey}|${row.endDateKey}`);
             router.replace(
                 leaveDashboardHref({
@@ -692,7 +696,7 @@ function AnnualLeavePageContent() {
                     approvalId: row.id,
                 }),
             );
-            setLeaveModalMode(mode === 'edit' ? 'edit' : 'approve');
+            setLeaveModalMode(wantsEdit ? 'edit' : 'approve');
             setApproveRequest(row);
             setModalOpen(false);
         },

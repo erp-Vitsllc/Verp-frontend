@@ -1417,6 +1417,7 @@ export default function DashboardAttendanceCalendar({
                 holidayDates={holidayDates}
                 offWeekdays={offWeekdays}
                 attendanceRecords={monthAttendanceRecords}
+                monthKey={monthKey}
                 submitting={futureSubmitting}
                 error={futureError}
                 onClose={() => {

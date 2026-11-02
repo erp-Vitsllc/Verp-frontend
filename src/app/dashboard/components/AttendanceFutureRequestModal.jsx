@@ -8,6 +8,7 @@ import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, 
 import { buildAnnualLeaveShade, buildAnnualLeaveValidationLines, describeAnnualLeaveRange } from '@/app/HRM/Leave/utils/annualLeaveShade';
 import { LeaveShadeLegend } from '@/app/HRM/Leave/utils/LeaveShadeLegend';
 import { indexLeaveSalaryVisibility, processingStartForEmployee } from '@/app/HRM/Leave/utils/leaveSalaryVisibility';
+import { monthListLabel, requestDateOptions } from '@/app/dashboard/punchRequestDates';
 
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
@@ -253,6 +254,7 @@ export default function AttendanceFutureRequestModal({
     holidayDates = null,
     offWeekdays = null,
     attendanceRecords = [],
+    monthKey = '',
     submitting = false,
     error = '',
     heading = 'Request for a future day',
@@ -294,60 +296,19 @@ export default function AttendanceFutureRequestModal({
     const isPreviousDate = isAuthorizedLeave && leaveDuration === 'previous';
     const usesDateList = isMispunch || isPreviousDate || isSickLeave || isFuturePunch;
 
-    const dateOptions = useMemo(() => {
-        if (!usesDateList) return [];
-        const rows = (Array.isArray(attendanceRecords) ? attendanceRecords : [])
-            .filter((row) => {
-                const date = String(row?.date || '').slice(0, 10);
-                if (!date.startsWith(currentMonth) || date > todayKey) return false;
-                const status = String(row?.statusKey || '');
-                // Cleared attendance is stored as unauthorized leave. A leftover
-                // request flag must not hide that past day from Previous date.
-                if (isPreviousDate) {
-                    if (date >= todayKey) return false;
-                    if (status !== 'unauthorized_leave') return false;
-                    return !/mispunch/i.test(String(row?.reason || ''));
-                }
-                const approved = ['approvalStatus', 'leaveRequestStatus', 'hourAdjustStatus']
-                    .some((key) => String(row?.[key] || '').toLowerCase() === 'approved');
-                const pending = String(row?.leaveRequestStatus || '').toLowerCase() === 'pending';
-                if (approved || pending) return false;
-                if (isSickLeave || isMispunch) {
-                    const noPunch = !String(row?.timeIn || '').trim() && !String(row?.timeOut || '').trim();
-                    const unauth =
-                        !status ||
-                        status === 'unauthorized_leave' ||
-                        status === 'not_marked' ||
-                        status === 'absent';
-                    if (isSickLeave) return unauth && noPunch && date < todayKey && status !== 'mispunch';
-                    return (
-                        status === 'mispunch' ||
-                        /mispunch/i.test(String(row?.reason || '')) ||
-                        (unauth && noPunch && date < todayKey)
-                    );
-                }
-                if (variant === 'late') return status === 'late_arrived';
-                if (variant === 'early') return status === 'early_go';
-                return status === 'unauthorized_leave';
-            })
-            .map((row) => String(row.date).slice(0, 10));
-        if (isMispunch || isSickLeave) {
-            const known = new Set(
-                (Array.isArray(attendanceRecords) ? attendanceRecords : []).map((row) => String(row?.date || '').slice(0, 10)),
-            );
-            const [year, month] = currentMonth.split('-').map(Number);
-            const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
-            for (let day = 1; day <= last; day += 1) {
-                const key = `${currentMonth}-${String(day).padStart(2, '0')}`;
-                if (key >= todayKey || known.has(key)) continue;
-                const weekday = weekdayKeyFromDateKey(key);
-                if (holidayDates instanceof Set && holidayDates.has(key)) continue;
-                if (offWeekdays instanceof Set && offWeekdays.has(weekday)) continue;
-                rows.push(key);
-            }
-        }
-        return [...new Set(rows)].sort();
-    }, [attendanceRecords, currentMonth, todayKey, usesDateList, isMispunch, isPreviousDate, variant, holidayDates, offWeekdays]);
+    const dateList = useMemo(() => {
+        if (!usesDateList) return { dates: [], listMonth: currentMonth };
+        return requestDateOptions({
+            attendanceRecords,
+            todayKey,
+            calendarMonth: isMispunch || isFuturePunch ? monthKey : '',
+            variant: isPreviousDate ? 'previous' : isSickLeave ? 'sick' : variant,
+            holidayDates,
+            offWeekdays,
+        });
+    }, [attendanceRecords, currentMonth, todayKey, usesDateList, isMispunch, isFuturePunch, isPreviousDate, isSickLeave, monthKey, variant, holidayDates, offWeekdays]);
+    const dateOptions = dateList.dates;
+    const dateMonthLabel = monthListLabel(dateList.listMonth);
 
     const missedNotice = useMemo(() => {
         if (!isFuturePunch || !fromDate) return '';
@@ -375,6 +336,14 @@ export default function AttendanceFutureRequestModal({
         setAttachment(null);
         setLocalError('');
     }, [isOpen, dateKey, minimumDate, isMispunch, todayKey]);
+
+    useEffect(() => {
+        if (!isOpen || !usesDateList || !fromDate) return;
+        if (!dateOptions.includes(fromDate)) {
+            setFromDate('');
+            setToDate('');
+        }
+    }, [isOpen, usesDateList, fromDate, dateOptions]);
     const isMultiDay = Boolean(fromDate && toDate && fromDate !== toDate);
     const leaveDayCount = useMemo(
         () => countLeaveDays(fromDate, toDate, holidayDates, offWeekdays),
@@ -591,9 +560,9 @@ export default function AttendanceFutureRequestModal({
                 isPreviousDate
                     ? 'Choose an unauthorized leave date from this month.'
                     : variant === 'late'
-                      ? 'Choose a late arrival day.'
+                      ? `Choose a late arrival day${dateMonthLabel ? ` in ${dateMonthLabel}` : ''}.`
                       : variant === 'early'
-                        ? 'Choose an early go day.'
+                        ? `Choose an early go day${dateMonthLabel ? ` in ${dateMonthLabel}` : ''}.`
                     : isSingleDate
                       ? 'Choose a date.'
                       : 'Choose a start date and an end date.',
@@ -689,15 +658,15 @@ export default function AttendanceFutureRequestModal({
                             ) : null}
                             {isMispunch ? (
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Choose an unauthorized or mispunched day from this month. Reason is required.
+                                    Choose an unauthorized or mispunched day{dateMonthLabel ? ` in ${dateMonthLabel}` : ' from this month'}. This follows the attendance calendar month. Reason is required.
                                 </p>
                             ) : variant === 'late' ? (
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Choose a late arrival day. Reason is required.
+                                    Choose a late arrival day{dateMonthLabel ? ` in ${dateMonthLabel}` : ''}. This follows the attendance calendar month. Reason is required.
                                 </p>
                             ) : variant === 'early' ? (
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Choose an early go day. Reason is required.
+                                    Choose an early go day{dateMonthLabel ? ` in ${dateMonthLabel}` : ''}. This follows the attendance calendar month. Reason is required.
                                 </p>
                             ) : isFuturePunch ? (
                                 <p className="text-xs text-slate-400 mt-1">
@@ -817,10 +786,10 @@ export default function AttendanceFutureRequestModal({
                                         {dateOptions.length
                                             ? 'Select a date'
                                             : variant === 'late'
-                                              ? 'No late arrival days'
+                                              ? `No late arrival days${dateMonthLabel ? ` in ${dateMonthLabel}` : ''}`
                                               : variant === 'early'
-                                                ? 'No early go days'
-                                                : 'No dates this month'}
+                                                ? `No early go days${dateMonthLabel ? ` in ${dateMonthLabel}` : ''}`
+                                                : `No dates${dateMonthLabel ? ` in ${dateMonthLabel}` : ' this month'}`}
                                     </option>
                                     {dateOptions.map((day) => (
                                         <option key={day} value={day}>{formatDisplayDate(day)}</option>

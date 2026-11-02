@@ -340,6 +340,8 @@ export function formatCommandCenterSubtype(item = {}) {
     if (type === 'Employee Leave Request') return 'Leave request';
     if (type === 'Attendance Off Day Work') return 'Off-day work';
     if (type === 'Attendance Change Request') return 'Attendance change';
+    if (type === 'Hour Approval Request') return 'Hour approval';
+    if (type === 'Flexible OT Request') return 'Flexible overtime';
     if (type === 'Employee Fine Request') return 'Fine request';
     if (type === 'Employee Advance Request') return 'Advance request';
     if (type === 'Employee Loan Request') return 'Loan request';

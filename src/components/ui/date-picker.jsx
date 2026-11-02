@@ -39,11 +39,11 @@ function isDateDisabled(checkDate, disabledDays) {
 
 function ShadedDayButton({ className, modifiers, ...props }) {
     const tone = modifiers?.leaveYellow
-        ? "!bg-[rgba(245,158,11,0.16)] !text-amber-900/85 hover:!bg-[rgba(245,158,11,0.26)] !shadow-[inset_0_0_0_1px_rgba(245,158,11,0.28)]"
+        ? "!bg-[#fef3c7] !text-amber-950 hover:!bg-[#fde68a] !shadow-[inset_0_0_0_1px_#fcd34d]"
         : modifiers?.leaveGreen
-          ? "!bg-[rgba(16,185,129,0.13)] !text-emerald-900/85 hover:!bg-[rgba(16,185,129,0.22)] !shadow-[inset_0_0_0_1px_rgba(16,185,129,0.24)]"
+          ? "!bg-[#d1fae5] !text-emerald-950 hover:!bg-[#a7f3d0] !shadow-[inset_0_0_0_1px_#6ee7b7]"
           : modifiers?.leaveGrey
-            ? "!bg-[rgba(148,163,184,0.18)] !text-slate-500 hover:!bg-[rgba(148,163,184,0.26)] !shadow-[inset_0_0_0_1px_rgba(148,163,184,0.28)]"
+            ? "!bg-[#e2e8f0] !text-slate-600 hover:!bg-[#cbd5e1] !shadow-[inset_0_0_0_1px_#cbd5e1]"
             : ""
     return (
         <CalendarDayButton
@@ -288,53 +288,58 @@ export function DatePicker({
                 </Button>
             </PopoverTrigger>
             <PopoverContent
-                className="w-auto p-0"
+                className="date-picker-popover z-[100000] w-auto bg-[#ffffff] p-0"
                 align="start"
                 collisionPadding={modifiers ? 16 : undefined}
+                style={{ backgroundColor: "#ffffff" }}
             >
-                <div className={cn("border-b", modifiers ? "px-2 py-1.5" : "p-3")}>
-                    <input
-                        type="text"
-                        placeholder="dd/MM/yyyy"
-                        value={inputStr}
-                        onChange={handleInputChange}
-                        onBlur={handleInputBlur}
-                        className="w-full px-2 py-1 text-sm border rounded"
-                    />
-                </div>
-                <Calendar
-                    className={modifiers ? "p-1.5" : undefined}
-                    mode="single"
-                    selected={date}
-                    onSelect={(selectedDate) => {
-                        handleSelect(selectedDate)
-                        if (selectedDate) setPickerOpen(false)
-                    }}
-                    month={month}
-                    onMonthChange={handleMonthChange}
-                    captionLayout="dropdown"
-                    fromYear={1900}
-                    toYear={new Date().getFullYear() + 20}
-                    initialFocus
-                    disabled={disabledDays}
-                    modifiers={modifiers}
-                    modifiersStyles={modifiersStyles}
-                    classNames={calendarClassNames}
-                    components={modifiers ? { DayButton: ShadedDayButton } : undefined}
-                    footer={footer}
-                />
-                {quickAction?.label ? (
-                    <div className="border-t p-2">
-                        <button
-                            type="button"
-                            onClick={handleQuickAction}
-                            disabled={!quickActionEnabled}
-                            className="w-full rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
-                        >
-                            {quickAction.label}
-                        </button>
+                <div className="date-picker-popover-surface bg-[#ffffff]" style={{ backgroundColor: "#ffffff" }}>
+                    <div className={cn("border-b bg-[#ffffff]", modifiers ? "px-2 py-1.5" : "p-3")} style={{ backgroundColor: "#ffffff" }}>
+                        <input
+                            type="text"
+                            placeholder="dd/MM/yyyy"
+                            value={inputStr}
+                            onChange={handleInputChange}
+                            onBlur={handleInputBlur}
+                            className="w-full rounded border bg-[#ffffff] px-2 py-1 text-sm"
+                            style={{ backgroundColor: "#ffffff" }}
+                        />
                     </div>
-                ) : null}
+                    <Calendar
+                        className={cn("bg-[#ffffff]", modifiers ? "p-1.5" : undefined)}
+                        style={{ backgroundColor: "#ffffff" }}
+                        mode="single"
+                        selected={date}
+                        onSelect={(selectedDate) => {
+                            handleSelect(selectedDate)
+                            if (selectedDate) setPickerOpen(false)
+                        }}
+                        month={month}
+                        onMonthChange={handleMonthChange}
+                        captionLayout="dropdown"
+                        fromYear={1900}
+                        toYear={new Date().getFullYear() + 20}
+                        initialFocus
+                        disabled={disabledDays}
+                        modifiers={modifiers}
+                        modifiersStyles={modifiersStyles}
+                        classNames={calendarClassNames}
+                        components={modifiers ? { DayButton: ShadedDayButton } : undefined}
+                        footer={footer}
+                    />
+                    {quickAction?.label ? (
+                        <div className="border-t bg-[#ffffff] p-2" style={{ backgroundColor: "#ffffff" }}>
+                            <button
+                                type="button"
+                                onClick={handleQuickAction}
+                                disabled={!quickActionEnabled}
+                                className="w-full rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                            >
+                                {quickAction.label}
+                            </button>
+                        </div>
+                    ) : null}
+                </div>
             </PopoverContent>
         </Popover>
     )

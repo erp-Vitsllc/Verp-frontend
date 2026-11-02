@@ -73,6 +73,7 @@ import { employeePendingRequests } from '../utils/pendingCalendarDays';
 import { attendanceCellTag } from '../utils/groupCalendarDay';
 import { punchAttendanceKind } from '../utils/punchAttendanceKind';
 import { isChargeableMispunch, mispunchDayAmounts, mispunchPolicyRule } from '../utils/mispunchDeduction';
+import { setAttendanceCalendarMonth } from '@/app/dashboard/attendanceCalendarMonth';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -2173,8 +2174,20 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
             totalPay = money2(workedAmount + sideAmount);
         }
     }
-    const cellKind = offDayOtHours > 0 ? 'present' : payKind;
-    const tipTone = offDayOtHours > 0 ? TIP_TONE.present : (sandwichKind ? TIP_TONE[sandwichKind] : tone);
+    const punchChargeHours = chargedDeductionHours(payRecord, ctx.scheduleWeek, ctx.leavePolicy || {});
+    const punchChargeAmount = money2(attendanceDeductionAmount(
+        payRecord,
+        ctx.scheduleWeek,
+        ctx.salaryDaily,
+        ctx.leavePolicy || {},
+        ctx.mispunchAmounts,
+    ));
+    // A late, early, or missed punch with nothing deducted is a present day.
+    const clearPunchCharge = payKind === 'attention' && !(punchChargeHours > 0) && !(punchChargeAmount > 0);
+    const cellKind = offDayOtHours > 0 || clearPunchCharge ? 'present' : payKind;
+    const tipTone = offDayOtHours > 0 || clearPunchCharge
+        ? TIP_TONE.present
+        : (sandwichKind ? TIP_TONE[sandwichKind] : tone);
     if (cellKind === 'present' && sideMode === 'deduction' && !deductionWaived) {
         sideMode = otHours > 0 ? 'ot' : '';
         sideAmount = sideMode === 'ot' ? otPay : 0;
@@ -5442,6 +5455,10 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
     const todayKey = dubaiTodayKey();
     const currentMonth = todayKey.slice(0, 7);
     const [monthKey, setMonthKey] = useState(currentMonth);
+    useEffect(() => {
+        setAttendanceCalendarMonth(monthKey);
+        return () => setAttendanceCalendarMonth('');
+    }, [monthKey]);
     const [records, setRecords] = useState([]);
     const [scheduleWeek, setScheduleWeek] = useState(null);
     const [offWeekdays, setOffWeekdays] = useState(() => new Set(['saturday', 'sunday']));

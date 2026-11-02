@@ -4,6 +4,13 @@ import axiosInstance from '@/utils/axios';
 
 export const DUBAI_TZ = 'Asia/Dubai';
 
+/** Shown in place of contract / visa expiry when work location is Outside UAE. */
+export const OUTSIDE_UAE_CONTRACT_LABEL = 'REMOTE WORK';
+
+export function isOutsideUaeWorkLocation(employee) {
+    return String(employee?.workLocation || '').trim().toLowerCase() === 'outside_uae';
+}
+
 const SHORT_CURRENCY = {
     AED: 'Dirham',
     INR: 'Rupees',
@@ -99,7 +106,7 @@ export function clockShiftMinutes(timeZone, date = new Date()) {
 
 /** Scheduled employees outside UAE see the UAE shift in their own time zone. Flexible groups stay as stored. */
 export function employeeClockShift(employee, timingMode, date = new Date()) {
-    if (String(employee?.workLocation || '').toLowerCase() !== 'outside_uae') return 0;
+    if (!isOutsideUaeWorkLocation(employee)) return 0;
     if (String(timingMode || '').toLowerCase() === 'flexible') return 0;
     return clockShiftMinutes(employee?.workTimeZone, date);
 }

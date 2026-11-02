@@ -67,6 +67,7 @@ import SalarySlipPreviewPanel from './SalarySlipPreviewPanel';
 import { salarySlipMonthHref } from './salarySlipEdit';
 import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import { getUaeHolidaysBetween } from '@/app/Settings/FlowChart/utils/uaeHolidaysCatalog';
+import AnnualLeaveEntitlementSection from './AnnualLeaveEntitlementSection';
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const LEAVE_TYPES = [
@@ -3844,6 +3845,24 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         ],
         [liveLeaveRecords, splitLeave.annualLeaveRecords, splitLeave.leaveRecords],
     );
+    const annualLeaveEntitlementRecords = useMemo(() => {
+        const historical = (historicalLeaveHistoryRows || []).filter((row) => leaveTypeKey(row) === 'annual');
+        const system = (systemLeaveHistoryList || []).filter((row) => leaveTypeKey(row) === 'annual');
+        return [...historical, ...system];
+    }, [historicalLeaveHistoryRows, systemLeaveHistoryList]);
+    const entitlementAsOf = useMemo(() => {
+        const today = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Dubai',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).format(new Date());
+        const candidates = [today, data?.liveAttendance?.to, historicalTo].filter((value) =>
+            ISO.test(String(value || '').trim()),
+        );
+        candidates.sort();
+        return candidates.at(-1) || '';
+    }, [data?.liveAttendance?.to, historicalTo]);
     const calculationStartDate = resolveEntitlementCalculationStart({
         joiningDate,
         annualLeaveRecords: annualLeaveHistory,
@@ -5120,6 +5139,15 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 </p>
                                             </div>
                                         </section>
+
+                                        <AnnualLeaveEntitlementSection
+                                            key={employeeId || 'salary-employee'}
+                                            joiningDate={joiningDate}
+                                            asOfDate={entitlementAsOf}
+                                            leaveRecords={annualLeaveEntitlementRecords}
+                                            loading={loading}
+                                            error={error}
+                                        />
 
                                         <section className={CARD}>
                                             <div className="mb-4 flex items-start justify-between gap-3">

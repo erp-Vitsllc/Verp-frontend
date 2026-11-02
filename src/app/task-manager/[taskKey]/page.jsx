@@ -278,6 +278,16 @@ function TaskDetailsPage() {
     }, []);
 
     useEffect(() => {
+        const saved = String(task?.taskNumber || '').trim();
+        if (!saved) return;
+        const query = new URLSearchParams(window.location.search);
+        if (query.get('no') === saved) return;
+        query.set('no', saved);
+        const next = `${window.location.pathname}?${query.toString()}`;
+        window.history.replaceState(window.history.state, '', next);
+    }, [task?.taskNumber]);
+
+    useEffect(() => {
         if (!task?.canReturn) return;
         const query = new URLSearchParams(window.location.search);
         if (query.get('return') === '1') setNoteAction('return');
@@ -854,7 +864,7 @@ function TaskDetailsPage() {
                                         Open this section
                                     </a>
                                 ) : null}
-                                <p className="mt-3 text-slate-500">Open Workflow to see who acted on each step. Work Updates keep the notes, and Emails shows each message sent for this task.</p>
+                                <p className="mt-3 text-slate-500">Workflow is the history of this task: who requested it, who it was assigned or reassigned to, and who accepted or rejected it. Work Updates keep the notes, and Emails shows each message sent for this task.</p>
                             </div>
                         )}
                         {tab === 'workflow' && <WorkflowBoard actionId={task.actionId} onChanged={load} />}
