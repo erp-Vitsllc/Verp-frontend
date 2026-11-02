@@ -2351,6 +2351,22 @@ function groupPendingRequests(requests) {
     return byDate;
 }
 
+function joiningMonthOpenDate(joinKey, processingStart) {
+    const join = String(joinKey || '').trim();
+    const start = String(processingStart || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(join) || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return '';
+    if (start.slice(0, 7) !== join.slice(0, 7) || start < join) return '';
+    return start;
+}
+
+function countStartForMonth(monthKey, joinKey, processingStart) {
+    const open = joiningMonthOpenDate(joinKey, processingStart);
+    if (open.startsWith(monthKey) && open > `${monthKey}-01`) return open;
+    const join = String(joinKey || '').trim();
+    if (join.startsWith(monthKey) && join > `${monthKey}-01`) return join;
+    return `${monthKey}-01`;
+}
+
 function buildMonthCalendarContext({
     monthKey,
     todayKey,
@@ -2362,6 +2378,7 @@ function buildMonthCalendarContext({
     leavePolicy,
     monthlySalary,
     joinKey,
+    processingStart = '',
     visibleFrom,
     pendingRequests = [],
 }) {
@@ -2385,7 +2402,7 @@ function buildMonthCalendarContext({
     const salaryDaily = monthlySalary > 0 && monthDays.length
         ? money2(monthlySalary / Math.max(monthDays.length - weekOffs, 1))
         : 0;
-    const countFrom = joinKey && joinKey.startsWith(monthKey) && joinKey > `${monthKey}-01` ? joinKey : `${monthKey}-01`;
+    const countFrom = countStartForMonth(monthKey, joinKey, processingStart);
     const countTo = countEndForMonth(monthKey, todayKey);
     const monthRecords = records || [];
     const counted = recordsInWindow(monthRecords, countFrom, countTo);
@@ -3280,7 +3297,10 @@ export default function EmployeeInformationDashboard({
     const payMoney = (value, digits = 2) => formatPayMoney(value, payCurrencyCode(employee), payRates, digits);
     const joinKey = String(employee.dateOfJoining || '').trim();
     const [period, setPeriod] = useState('month');
-    const [monthKey, setMonthKey] = useState(currentMonth);
+    const monthFromUrl = String(searchParams.get('month') || '').trim();
+    const [monthKey, setMonthKey] = useState(() =>
+        /^\d{4}-\d{2}$/.test(monthFromUrl) ? monthFromUrl : currentMonth,
+    );
     const [recordsByDate, setRecordsByDate] = useState({});
     const [monthRecords, setMonthRecords] = useState([]);
     const [offWeekdays, setOffWeekdays] = useState(() => new Set(['saturday', 'sunday']));
@@ -3311,6 +3331,7 @@ export default function EmployeeInformationDashboard({
     const [groupMenuOpen, setGroupMenuOpen] = useState(false);
     const [prepPage, setPrepPage] = useState(1);
     const [taskPage, setTaskPage] = useState(1);
+    const [slipPay, setSlipPay] = useState(null);
     const groupMenuRef = useRef(null);
 
     useEffect(() => {
@@ -3413,6 +3434,35 @@ export default function EmployeeInformationDashboard({
     }, [loadMonth]);
 
     useEffect(() => {
+        const code = String(employee.employeeId || '').trim();
+        if (!code || !/^\d{4}-\d{2}$/.test(monthKey)) {
+            setSlipPay(null);
+            return undefined;
+        }
+        let cancelled = false;
+        setSlipPay(null);
+        async function loadSlipPay() {
+            try {
+                const response = await axiosInstance.get(
+                    `/Employee/salary-enroll/${encodeURIComponent(code)}/historical/salary-slip-pay`,
+                    { params: { month: monthKey }, skipToast: true },
+                );
+                if (cancelled) return;
+                const figures = response.data?.figures;
+                setSlipPay(figures && figures.monthKey === monthKey ? figures : null);
+            } catch {
+                if (!cancelled) setSlipPay(null);
+            }
+        }
+        loadSlipPay();
+        window.addEventListener('focus', loadSlipPay);
+        return () => {
+            cancelled = true;
+            window.removeEventListener('focus', loadSlipPay);
+        };
+    }, [employee.employeeId, monthKey]);
+
+    useEffect(() => {
         if (monthKey === currentMonth) return undefined;
         let cancelled = false;
         axiosInstance
@@ -3508,7 +3558,8 @@ export default function EmployeeInformationDashboard({
         [monthAnchor],
     );
 
-    const countFrom = joinKey.startsWith(monthKey) && joinKey > `${monthKey}-01` ? joinKey : `${monthKey}-01`;
+    const joiningOpen = joiningMonthOpenDate(joinKey, employee.salaryProcessingStart);
+    const countFrom = countStartForMonth(monthKey, joinKey, employee.salaryProcessingStart);
     const countTo = countEndForMonth(monthKey, todayKey);
     const countedRecords = useMemo(
         () => recordsInWindow(monthRecords, countFrom, countTo),
@@ -4104,24 +4155,38 @@ export default function EmployeeInformationDashboard({
     useEffect(() => {
         onDeductionDetails?.({ rows: deductionDetailRows, hint: deductionHint });
     }, [onDeductionDetails, deductionDetailRows, deductionHint]);
-    const salaryTableRows = [
-        ...deductionRows.map((row) => ({
-            ...row,
-            type: ({
-                'Late in': 'Late In',
-                'Late out': 'Early Out',
-                'Missed punch': 'Missed Punch',
-                'Annual leave': 'Annual Leave',
-                'Authorized leave': 'Authorized Leave',
-                'Unauthorized leave': 'Unauthorized Leave',
-                'Sandwich leave': 'Sandwich Leave',
-            })[row.type] || row.type,
-        })),
-        { key: 'fine', type: 'Fine', count: null, amount: fineOutstanding },
-        { key: 'utility', type: 'Utility Excess', count: null, amount: utilityOutstanding },
-        { key: 'loan_recovery', type: 'Loan Recovery', count: null, amount: loanOutstanding },
-        { key: 'advance_recovery', type: 'Advance Recovery', count: null, amount: advanceOutstanding },
-    ];
+    const usingSlipPay = Boolean(
+        slipPay &&
+        slipPay.monthKey === monthKey &&
+        Array.isArray(slipPay.deductions) &&
+        slipPay.deductions.length,
+    );
+    const salaryTableRows = usingSlipPay
+        ? slipPay.deductions.map((row) => ({
+            key: String(row.component || 'deduction'),
+            type: String(row.component || 'Deduction'),
+            count: row.basis || '',
+            amount: Number(row.amount) || 0,
+            slipLine: true,
+        }))
+        : [
+            ...deductionRows.map((row) => ({
+                ...row,
+                type: ({
+                    'Late in': 'Late In',
+                    'Late out': 'Early Out',
+                    'Missed punch': 'Missed Punch',
+                    'Annual leave': 'Annual Leave',
+                    'Authorized leave': 'Authorized Leave',
+                    'Unauthorized leave': 'Unauthorized Leave',
+                    'Sandwich leave': 'Sandwich Leave',
+                })[row.type] || row.type,
+            })),
+            { key: 'fine', type: 'Fine', count: null, amount: fineOutstanding },
+            { key: 'utility', type: 'Utility Excess', count: null, amount: utilityOutstanding },
+            { key: 'loan_recovery', type: 'Loan Recovery', count: null, amount: loanOutstanding },
+            { key: 'advance_recovery', type: 'Advance Recovery', count: null, amount: advanceOutstanding },
+        ];
     const companyDeductionKeys = new Set(['fine', 'utility', 'loan_recovery', 'advance_recovery']);
     const salaryDeductionTotal = deductionRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
     const companyDeductionTotal = salaryTableRows.reduce(
@@ -4131,11 +4196,13 @@ export default function EmployeeInformationDashboard({
     const salaryDeductionAed = payCurrencyCode(employee) === 'AED'
         ? salaryDeductionTotal
         : aedEquivalent(salaryDeductionTotal, payCurrencyCode(employee), payRates);
-    const deductionTotalLabel = salaryDeductionAed == null
-        ? payMoney(salaryDeductionTotal, 2)
-        : formatAed((Number(salaryDeductionAed) || 0) + companyDeductionTotal, 2);
+    const deductionTotalLabel = usingSlipPay
+        ? formatAed(slipPay.deduction, 2)
+        : salaryDeductionAed == null
+            ? payMoney(salaryDeductionTotal, 2)
+            : formatAed((Number(salaryDeductionAed) || 0) + companyDeductionTotal, 2);
     const deductionAmountText = (row) => (
-        companyDeductionKeys.has(row.key) ? formatAed(row.amount, 2) : payMoney(row.amount, 2)
+        usingSlipPay || companyDeductionKeys.has(row.key) ? formatAed(row.amount, 2) : payMoney(row.amount, 2)
     );
 
     const elapsedMonthDays = countFrom && countTo
@@ -4149,10 +4216,22 @@ export default function EmployeeInformationDashboard({
         : 0;
     const monthDeduction = deductionRows.reduce((sum, row) => sum + (row.amount == null ? 0 : Number(row.amount) || 0), 0);
     const earnedBeforeDeduction = money2(salaryBasis.daily * elapsedMonthDays + (additionBundle.overtimePay || 0));
-    const accumulated = monthlySalary > 0
-        ? Math.max(0, money2(earnedBeforeDeduction - monthDeduction))
+    const slipMonthClosed = monthKey < currentMonth;
+    const slipMonthly = usingSlipPay && Number(slipPay.monthlySalary) > 0
+        ? Number(slipPay.monthlySalary)
+        : monthlySalary;
+    const slipElapsedShare = salaryBasis.calendarDays > 0 ? elapsedMonthDays / salaryBasis.calendarDays : 0;
+    const accumulated = slipMonthly > 0
+        ? usingSlipPay
+            ? Math.max(0, money2(
+                slipMonthClosed
+                    ? Number(slipPay.netSalary)
+                    : slipMonthly * slipElapsedShare + (Number(slipPay.extra) || 0) - (Number(slipPay.deduction) || 0),
+            ))
+            : Math.max(0, money2(earnedBeforeDeduction - monthDeduction))
         : 0;
-    const accumulatedPct = monthlySalary > 0 ? Math.round((accumulated / monthlySalary) * 10000) / 100 : 0;
+    const accumulatedPct = slipMonthly > 0 ? Math.round((accumulated / slipMonthly) * 10000) / 100 : 0;
+    const showSlipMoney = (value, digits = 2) => (usingSlipPay ? formatAed(value, digits) : payMoney(value, digits));
 
     const pendingRows = Array.isArray(profile?.requests?.pending) ? profile.requests.pending : [];
     const pending = pendingRows.filter((row) =>
@@ -4170,6 +4249,11 @@ export default function EmployeeInformationDashboard({
         [monthRecords, monthKey, calendarNotes, countTo],
     );
     const approvedOtTotal = approvedOtRows.reduce((sum, row) => sum + row.approvedHours, 0);
+    const otPaySalary = usingSlipPay && Number(slipPay.monthlySalary) > 0
+        ? Number(slipPay.monthlySalary)
+        : monthlySalary;
+    const otPerDay = salaryBasis.calendarDays > 0 ? money2(otPaySalary / salaryBasis.calendarDays) : 0;
+    const approvedOtAmount = money2((Number(approvedOtTotal) || 0) * otPerDay / 10);
     const otPageCount = Math.max(1, Math.ceil(approvedOtRows.length / CARD_PAGE_SIZE));
     const otPageSafe = Math.min(otPage, otPageCount);
     const otPageRows = approvedOtRows.slice((otPageSafe - 1) * CARD_PAGE_SIZE, otPageSafe * CARD_PAGE_SIZE);
@@ -4238,7 +4322,7 @@ export default function EmployeeInformationDashboard({
         additionPayByDate,
         calendarNotes,
         adjustmentByDate,
-        visibleFrom: '',
+        visibleFrom: joiningOpen.startsWith(monthKey) && joiningOpen > `${monthKey}-01` ? joiningOpen : '',
         pendingRequestsByDate: employeePendingRequests({
             records: monthRecords,
             pending: pendingRows,
@@ -4750,7 +4834,7 @@ export default function EmployeeInformationDashboard({
                                 <Coins size={22} strokeWidth={2.1} className="shrink-0 text-[#2563EB]" />
                                 <span className="min-w-0">
                                     <span className="block text-[11px] font-medium leading-none text-[#64748B]">Monthly Salary</span>
-                                    <span className="mt-1 block text-[18px] font-bold leading-none tabular-nums text-[#1B2A4A]">{payMoney(monthlySalary, 0)}</span>
+                                    <span className="mt-1 block text-[18px] font-bold leading-none tabular-nums text-[#1B2A4A]">{showSlipMoney(slipMonthly, 0)}</span>
                                 </span>
                             </button>
                             <div className="flex items-start gap-2 rounded-xl bg-[#F0FDF4] px-2.5 py-2">
@@ -4762,20 +4846,22 @@ export default function EmployeeInformationDashboard({
                                     <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#E5E7EB]">
                                         <div
                                             className="h-full rounded-full bg-[#4ADE80]"
-                                            style={{ width: `${monthlySalary > 0 ? Math.min(100, Math.max(0, accumulatedPct)) : 0}%` }}
+                                            style={{ width: `${slipMonthly > 0 ? Math.min(100, Math.max(0, accumulatedPct)) : 0}%` }}
                                         />
                                     </div>
                                     <div className="mt-1 flex items-baseline justify-between gap-2">
                                         <p className="truncate text-[12px] font-bold tabular-nums text-[#1B2A4A]">
-                                            {monthlySalary > 0 ? `${payMoney(accumulated, 2)} / ${payMoney(monthlySalary, 0)}` : '—'}
+                                            {slipMonthly > 0 ? `${showSlipMoney(accumulated, 2)} / ${showSlipMoney(slipMonthly, 0)}` : '—'}
                                         </p>
                                         <p className="shrink-0 text-[12px] font-medium tabular-nums text-[#64748B]">
-                                            {monthlySalary > 0 ? `${accumulatedPct.toFixed(2)}%` : '—'}
+                                            {slipMonthly > 0 ? `${accumulatedPct.toFixed(2)}%` : '—'}
                                         </p>
                                     </div>
-                                    {monthlySalary > 0 ? (
+                                    {slipMonthly > 0 ? (
                                         <p className="mt-1 text-[10px] leading-snug text-[#64748B]">
-                                            Salary per day {payMoney(salaryBasis.daily, 2)} ({payMoney(monthlySalary, 0)} / {salaryBasis.calendarDays} days). Week offs and holidays are paid. If the employee worked one and overtime is approved, that day is still paid and the overtime is added. Hours moved to a comp off day are not overtime. Approved overtime from the 1st through yesterday is added at the hourly rate. Counted through yesterday. Suspension days are not included. Earned {payMoney(earnedBeforeDeduction, 2)} − deductions {payMoney(monthDeduction, 2)}.
+                                            {usingSlipPay
+                                                ? `Same as the salary slip${slipMonthClosed ? '' : ', counted through yesterday'}. Salary ${formatAed(slipMonthly, 2)} + additions ${formatAed(slipPay.extra, 2)} (overtime ${formatAed(slipPay.ot, 2)}) − deductions ${formatAed(slipPay.deduction, 2)}. Deductions remove attendance loss, fine ${formatAed(slipPay.fine, 2)}, loan ${formatAed(slipPay.loan, 2)}, salary advance ${formatAed(slipPay.salaryAdvance, 2)}, and utility excess ${formatAed(slipPay.utilityExcess, 2)}. Editing or clearing any of these on the salary slip changes this amount.`
+                                                : `Salary per day ${payMoney(salaryBasis.daily, 2)} (${payMoney(monthlySalary, 0)} / ${salaryBasis.calendarDays} days). Week offs and holidays are paid. If the employee worked one and overtime is approved, that day is still paid and the overtime is added. Hours moved to a comp off day are not overtime. Approved overtime from the 1st through yesterday is added at the hourly rate. Counted through yesterday. Suspension days are not included. Earned ${payMoney(earnedBeforeDeduction, 2)} − deductions ${payMoney(monthDeduction, 2)}.`}
                                         </p>
                                     ) : null}
                                 </div>
@@ -4931,13 +5017,15 @@ export default function EmployeeInformationDashboard({
                                         const leaveRow = row.key === 'on_leave' || row.key === 'authorized_leave' || row.key === 'unauthorized_leave' || row.key === 'sandwich';
                                         const countText = salaryLock.locked
                                             ? '—'
-                                            : row.count == null || row.count === ''
+                                            : row.slipLine
+                                              ? (row.count || '—')
+                                              : row.count == null || row.count === ''
                                               ? '—'
                                               : leaveRow
                                                 ? (Number(row.count) ? `${Number(row.count).toFixed(1)} ${Number(row.count) === 1 ? 'Day' : 'Days'}` : '—')
                                                 : row.count;
                                         return (
-                                            <tr key={row.key} className="border-t border-[#F4F7FB]">
+                                            <tr key={`${row.key}-${index}`} className="border-t border-[#F4F7FB]">
                                                 <td className={`${TD} text-[#94A3B8]`}>{index + 1}</td>
                                                 <td className={TD}>{row.type}</td>
                                                 <td className={`${TD} tabular-nums`}>{countText}</td>
@@ -5228,13 +5316,23 @@ export default function EmployeeInformationDashboard({
                     </div>
 
                     <section className="flex min-h-[240px] flex-1 flex-col overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white">
-                        <div className="border-b border-[#EEF2F6] px-4 py-3">
-                            <p className="text-[14px] font-bold text-[#1B2A4A]">
-                                OT reference ({monthLoading ? '…' : formatHourMeasure(approvedOtTotal)} approved)
-                            </p>
-                            <p className="mt-0.5 text-[12px] text-[#94A3B8]">
-                                Approved overtime in {formatMonthLabel(monthKey)}. When it covers a leave, the date is that leave day.
-                            </p>
+                        <div className="flex items-start justify-between gap-4 border-b border-[#EEF2F6] px-4 py-3">
+                            <div className="min-w-0">
+                                <p className="text-[14px] font-bold text-[#1B2A4A]">OT reference</p>
+                                <p className="mt-0.5 text-[12px] text-[#94A3B8]">
+                                    Approved overtime in {formatMonthLabel(monthKey)}. When it covers a leave, the date is that leave day.
+                                </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#94A3B8]">Total OT hours</p>
+                                <p className="text-[14px] font-bold tabular-nums text-[#1B2A4A]">
+                                    {monthLoading ? '…' : formatHourMeasure(approvedOtTotal)}
+                                </p>
+                                <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#94A3B8]">Total OT amount</p>
+                                <p className="text-[14px] font-bold tabular-nums text-[#16A34A]">
+                                    {monthLoading ? '…' : showSlipMoney(approvedOtAmount, 2)}
+                                </p>
+                            </div>
                         </div>
                         <div className="min-h-0 flex-1 overflow-x-auto">
                             <table className="w-full min-w-[720px] border-collapse text-left">
@@ -5465,6 +5563,7 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
     const [staffType, setStaffType] = useState('');
     const [holidayRows, setHolidayRows] = useState([]);
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
+    const [processingStartDate, setProcessingStartDate] = useState('');
     const [calendarPay, setCalendarPay] = useState(null);
     const [employeeId, setEmployeeId] = useState('');
     const [employeeName, setEmployeeName] = useState('');
@@ -5493,14 +5592,17 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
             setEmployeeId(String(response.data?.employee?.id || requestedId || ''));
             setEmployeeName(String(response.data?.employee?.name || '').trim());
             setSalaryLock(salaryLockFromAttendancePayload(response.data));
+            setProcessingStartDate(String(response.data?.processingStartDate || '').trim());
             setCalendarPay(response.data?.calendarPay || null);
         } catch (err) {
             setRecords([]);
             if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
                 setSalaryLock(salaryLockFromAttendancePayload(err.response.data));
+                setProcessingStartDate(String(err.response.data?.processingStartDate || '').trim());
                 setError('');
             } else {
                 setSalaryLock(EMPTY_SALARY_LOCK);
+                setProcessingStartDate('');
                 setError(err?.response?.data?.message || 'Could not load attendance.');
             }
         } finally {
@@ -5558,7 +5660,12 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
             leavePolicy: calendarPay?.leavePolicy || {},
             monthlySalary: monthPay.monthlySalary,
             joinKey: calendarPay?.joinKey || '',
-            visibleFrom: calendarPay?.joinKey || '',
+            processingStart: processingStartDate,
+            visibleFrom: (() => {
+                const open = joiningMonthOpenDate(calendarPay?.joinKey, processingStartDate);
+                if (open.startsWith(monthKey) && open > `${monthKey}-01`) return open;
+                return calendarPay?.joinKey || '';
+            })(),
             pendingRequests: [],
         });
         return {
@@ -5571,7 +5678,7 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
                 employeeName,
             }),
         };
-    }, [calendarPay, employeeName, holidayRows, monthKey, offWeekdays, records, salaryLock, scheduleWeek, staffType, todayKey]);
+    }, [calendarPay, employeeName, holidayRows, monthKey, offWeekdays, processingStartDate, records, salaryLock, scheduleWeek, staffType, todayKey]);
 
     function shiftMonth(delta) {
         const next = format(addMonths(anchor, delta), 'yyyy-MM');

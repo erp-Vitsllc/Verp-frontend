@@ -76,7 +76,8 @@ function firstEligibleAdvanceRequestDate(todayKey, holidayDates, offWeekdays) {
 
 function earliestLeaveDate(todayKey, holidayDates, offWeekdays, processingStartDate) {
     const working = firstEligibleAdvanceRequestDate(todayKey, holidayDates, offWeekdays) || '';
-    const floor = firstOfProcessingMonth(processingStartDate);
+    const rawStart = String(processingStartDate || '').trim();
+    const floor = /^\d{4}-\d{2}-\d{2}$/.test(rawStart) ? rawStart : firstOfProcessingMonth(rawStart);
     let cursor = working || floor;
     if (working && floor && working < floor) cursor = floor;
     if (!cursor) return '';

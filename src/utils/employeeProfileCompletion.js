@@ -4,7 +4,7 @@ import {
     employeeRequiresBankDetails,
 } from '@/utils/employeeActivationSections';
 import { isEmployeeUaeNationality } from '@/utils/employeeUaeNationality';
-import { hasCompleteOutsideUaeIdentityDocument } from '@/utils/outsideUaeIdentityDocument';
+import { outsideUaeProfileIdentitySatisfied } from '@/utils/outsideUaeIdentityDocument';
 
 const checkField = (val) => {
     if (val === null || val === undefined) return false;
@@ -74,7 +74,7 @@ export function calculateEmployeeProfileCompletion(employee = {}) {
 
     if (String(employee?.workLocation || '').trim().toLowerCase() === 'outside_uae') {
         totalFields++;
-        if (hasCompleteOutsideUaeIdentityDocument(employee)) {
+        if (outsideUaeProfileIdentitySatisfied(employee)) {
             completedFields++;
         } else {
             pendingFields.push({ section: 'Document', field: 'Add document' });

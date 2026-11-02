@@ -495,12 +495,11 @@ function SlipTable({
 }
 
 function patchEarningAmount(onPatch, name, value) {
-    const amount = value;
-    if (THIS_MONTH_EARNING.has(name)) {
-        patchNamedComponent(onPatch, 'earnings', name, { amount });
-        return;
-    }
-    patchNamedComponent(onPatch, 'yearlyEarnings', name, { amount, basis: 'Monthly' });
+    onPatch('earnings', (draft) => ({
+        ...draft,
+        earnings: mapComponent(draft.earnings, name, { amount: value }),
+        yearlyEarnings: mapComponent(draft.yearlyEarnings, name, { amount: value, basis: 'Monthly' }),
+    }));
 }
 
 export default function SalarySlipCards({ slip, onPatch }) {

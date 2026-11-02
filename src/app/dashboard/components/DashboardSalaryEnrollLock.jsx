@@ -29,8 +29,15 @@ export function firstOfProcessingMonth(value) {
     return '';
 }
 
+/** Keep a full date from the server. Month-only values still open on the 1st. */
+export function exactProcessingDate(value) {
+    const raw = String(value || '').trim();
+    if (ISO_DATE.test(raw)) return raw;
+    return firstOfProcessingMonth(raw);
+}
+
 export function formatProcessingStartLabel(value) {
-    const key = firstOfProcessingMonth(value);
+    const key = exactProcessingDate(value);
     if (!key) return '';
     const [year, month, day] = key.split('-').map(Number);
     return new Intl.DateTimeFormat('en-GB', {
@@ -42,7 +49,7 @@ export function formatProcessingStartLabel(value) {
 }
 
 export function daysUntilProcessingStart(value, todayKey = getDubaiDateKey()) {
-    const start = firstOfProcessingMonth(value);
+    const start = exactProcessingDate(value);
     if (!ISO_DATE.test(start) || !ISO_DATE.test(todayKey)) return 0;
     const [y1, m1, d1] = todayKey.split('-').map(Number);
     const [y2, m2, d2] = start.split('-').map(Number);
@@ -56,7 +63,7 @@ export function salaryLockFromAttendancePayload(data) {
     const locked = data?.salaryEnrolled === false || data?.attendanceLocked === true;
     if (!locked) return { ...EMPTY_SALARY_LOCK };
     const enrolledWaiting = data?.salaryEnrolled === true || data?.lockKind === 'processing';
-    const processingStartDate = firstOfProcessingMonth(
+    const processingStartDate = exactProcessingDate(
         data?.processingStartDate || data?.processingStartMonth || '',
     );
     const fromApi = Number(data?.daysRemaining);

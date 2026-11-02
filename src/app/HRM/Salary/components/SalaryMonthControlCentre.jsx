@@ -46,7 +46,7 @@ const REQUEST_CATEGORIES = [
     {
         key: 'finance',
         title: 'Finance',
-        detail: 'Fine, loan, advance & utility',
+        detail: 'Fine, loan, advance, utility and early salary',
         alert: true,
     },
     {
@@ -59,6 +59,12 @@ const REQUEST_CATEGORIES = [
         key: 'compoff',
         title: 'Comp-off',
         detail: 'Comp-off leave requests',
+        alert: false,
+    },
+    {
+        key: 'asset',
+        title: 'Assets',
+        detail: 'Assignment, return and transfer',
         alert: false,
     },
 ];
@@ -866,17 +872,34 @@ function payrollFineListHref(item) {
 }
 
 function blockerTaskPath(item) {
+    const explicit = String(item?.path || '').trim();
+    if (explicit.startsWith('/')) return explicit;
     const id = String(item?.employeeId || '').trim();
+    const mongoId = String(item?.mongoId || '').trim();
     const key = String(item?.id || '');
     const category = String(item?.category || '');
-    if (isPayrollFineItem(item)) return payrollFineListHref(item);
+    if (key.startsWith('fine-') || isPayrollFineItem(item)) {
+        const fineId = String(item?.requestId || '').trim();
+        if (fineId) return `/HRM/Fine/${encodeURIComponent(fineId)}`;
+        return payrollFineListHref(item);
+    }
     if (key.startsWith('hub-')) {
         const hubId = key.slice(4);
         return hubId ? `/dashboard?hubRequestId=${encodeURIComponent(hubId)}` : '/dashboard';
     }
-    if (key.startsWith('loan-') || category === 'finance') return '/HRM/LoanAndAdvance';
+    if (key.startsWith('loan-')) {
+        const loanId = key.slice(5);
+        return loanId ? `/HRM/LoanAndAdvance/${encodeURIComponent(loanId)}` : '/HRM/LoanAndAdvance';
+    }
+    if (key.startsWith('asset-') || category === 'asset') return '/HRM/Asset';
+    if (key.startsWith('util-')) return '/HRM/Asset/UtilityBills';
+    if (category === 'finance') return '/HRM/LoanAndAdvance';
     if (category === 'attendance' || category === 'leave' || category === 'overtime' || category === 'compoff') {
-        return id ? `/HRM/Leave?employee=${encodeURIComponent(id)}` : '/HRM/Leave';
+        if (mongoId) {
+            const month = String(item?.monthKey || '').trim();
+            return `/HRM/Leave/${encodeURIComponent(mongoId)}${month ? `?month=${encodeURIComponent(month)}` : ''}`;
+        }
+        return '/HRM/Leave';
     }
     return id ? `/HRM/Salary/enroll/${encodeURIComponent(id)}` : '/HRM/Salary';
 }
@@ -950,10 +973,9 @@ function employeePendingStatusLabel(items) {
 }
 
 function blockerReviewHref(item) {
-    if (isPayrollFineItem(item)) return payrollFineListHref(item);
     const path = String(item?.path || '').trim();
-    if (/^\/HRM\/Fine\/[^/?#]+/i.test(path)) return payrollFineListHref(item);
-    return path || blockerTaskPath(item);
+    if (path.startsWith('/')) return path;
+    return blockerTaskPath(item);
 }
 
 function blockerDue(item) {

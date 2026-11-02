@@ -84,7 +84,7 @@ import { resolveContractJoiningDate, resolveVitsTenureStartDate, employeeHasEmpl
 import { buildWorkDetailsInitialForm } from '@/utils/buildWorkDetailsInitialForm';
 import { normalizeWorkLocationKey } from '@/utils/workLocations';
 import { isOutsideUaeWorkLocation, OUTSIDE_UAE_CONTRACT_LABEL } from '@/utils/workPayLocation';
-import { hasCompleteOutsideUaeIdentityDocument } from '@/utils/outsideUaeIdentityDocument';
+import { outsideUaeProfileIdentitySatisfied } from '@/utils/outsideUaeIdentityDocument';
 import {
     applyLeftUserReadOnlySectionPermissions,
     isEmployeeLeftUser,
@@ -7836,7 +7836,11 @@ function EmployeeProfilePageContent() {
 
         if (isOutsideUaeWorkLocation(employee)) {
             totalFields++;
-            if (hasCompleteOutsideUaeIdentityDocument(employee)) {
+            const pendingPassport = getPendingSectionData('passport');
+            const passportForIdentity = employee?.passportDetails?.number
+                ? employee.passportDetails
+                : pendingPassport || employee?.passportDetails;
+            if (outsideUaeProfileIdentitySatisfied(employee, passportForIdentity)) {
                 completedFields++;
             } else if (!sectionPendingMap.has('Document')) {
                 sectionPendingMap.set('Document', ['Add document']);

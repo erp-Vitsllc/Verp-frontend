@@ -32,7 +32,7 @@ import AttendanceLeaveDecideModal from './AttendanceLeaveDecideModal';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
 import DashboardSalaryEnrollLock, {
     EMPTY_SALARY_LOCK,
-    firstOfProcessingMonth,
+    exactProcessingDate,
     salaryLockFromAttendancePayload,
 } from './DashboardSalaryEnrollLock';
 import { dashboardHover, dashboardItem, DASH_EASE } from './dashboardMotion';
@@ -606,7 +606,7 @@ export default function DashboardAttendanceCalendar({
             }
             setSalaryLock(salaryLockFromAttendancePayload(res.data));
             setProcessingStartDate(
-                firstOfProcessingMonth(res.data?.processingStartDate || res.data?.processingStartMonth || ''),
+                exactProcessingDate(res.data?.processingStartDate || res.data?.processingStartMonth || ''),
             );
         } catch (err) {
             setRecordsByDate({});
@@ -614,7 +614,7 @@ export default function DashboardAttendanceCalendar({
             if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
                 setSalaryLock(salaryLockFromAttendancePayload(err.response.data));
                 setProcessingStartDate(
-                    firstOfProcessingMonth(
+                    exactProcessingDate(
                         err.response.data?.processingStartDate || err.response.data?.processingStartMonth || '',
                     ),
                 );

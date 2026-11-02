@@ -6,7 +6,6 @@ import {
     Calendar,
     CalendarDays,
     Check,
-    ChevronLeft,
     ChevronRight,
     ExternalLink,
     Eye,
@@ -125,6 +124,18 @@ function toMonthStartDate(value) {
     return month ? `${month}-01` : '';
 }
 
+function attendanceOpenDate(verpStartDate, joiningDate) {
+    if (!ISO.test(verpStartDate)) return '';
+    if (
+        ISO.test(joiningDate) &&
+        verpStartDate.slice(0, 7) === joiningDate.slice(0, 7) &&
+        verpStartDate >= joiningDate
+    ) {
+        return verpStartDate;
+    }
+    return toMonthStartDate(verpStartDate);
+}
+
 function nextMonthStartDate(value) {
     const month = toMonthKey(value);
     if (!month) return '';
@@ -134,26 +145,40 @@ function nextMonthStartDate(value) {
     return `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
 }
 
+function dubaiTodayKey() {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Dubai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date());
+}
+
 function currentMonthKey() {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return dubaiTodayKey().slice(0, 7);
 }
 
-/** First month whose 1st is after the joining date (VERP start is always day 1). */
-function firstVerpMonthAfterJoining(joiningDate) {
-    if (!ISO.test(joiningDate)) return '';
-    const year = Number(joiningDate.slice(0, 4));
-    const month = Number(joiningDate.slice(5, 7));
-    if (month === 12) return `${year + 1}-01`;
-    return `${year}-${String(month + 1).padStart(2, '0')}`;
-}
-
-/** VERP start cannot be before the current month, or the month after joining. */
+/** Joining month is selectable, including the current month. Earlier months stay closed. */
 function earliestSelectableVerpMonth(joiningDate) {
-    const afterJoining = firstVerpMonthAfterJoining(joiningDate);
-    const current = currentMonthKey();
-    if (!afterJoining) return current;
-    return afterJoining > current ? afterJoining : current;
+    if (!ISO.test(joiningDate)) return currentMonthKey();
+    return joiningDate.slice(0, 7);
+}
+
+/**
+ * Joining month opens on the enrollment day (today, once that day is on or after joining).
+ * Any later month still opens on the 1st.
+ */
+function verpDateForSelectedMonth(monthKey, joiningDate, existingDate = '', todayKey = dubaiTodayKey()) {
+    if (!/^\d{4}-\d{2}$/.test(String(monthKey || ''))) return '';
+    const joiningMonth = ISO.test(joiningDate) ? joiningDate.slice(0, 7) : '';
+    if (joiningMonth && monthKey === joiningMonth) {
+        if (ISO.test(existingDate) && existingDate.slice(0, 7) === monthKey && existingDate >= joiningDate) {
+            return existingDate;
+        }
+        if (todayKey.slice(0, 7) === monthKey && todayKey >= joiningDate) return todayKey;
+        return joiningDate;
+    }
+    return `${monthKey}-01`;
 }
 
 function formatSignedDays(value) {
@@ -1989,52 +2014,6 @@ function leaveSourceKey(row) {
     return 'manual';
 }
 
-function annualWindowSplitFull(row, allowedDays) {
-    const cap = Math.max(0, Number(allowedDays) || 30);
-    const used = Number(row?.takenDays) || 0;
-    if (used < cap) return false;
-    return (row?.entries || []).some((entry) => entry?.split);
-}
-
-function annualPeriodEntries(entries, historyRows) {
-    const history = Array.isArray(historyRows) ? historyRows : [];
-    return (Array.isArray(entries) ? entries : [])
-        .filter((entry) => String(entry?.source || 'manual').toLowerCase() !== 'system')
-        .map((entry, index) => {
-            const recordId = String(entry?.id || '');
-            const stored = history.find((row) => {
-                const id = String(row?.id || row?._id || '');
-                if (recordId && id === recordId) return true;
-                const from = String(row?.fromDate || row?.startDate || '');
-                const to = String(row?.toDate || row?.endDate || from);
-                return !recordId && from && from === entry?.recordFrom && to === entry?.recordTo;
-            });
-            const days = Math.max(0, Number(entry?.actualDays) || 0);
-            const multiplier = Number(stored?.multiplier ?? stored?.rule ?? entry?.multiplier) || 1;
-            return {
-                ...(stored || {}),
-                id: `${recordId || 'annual'}-${entry?.fromDate || index}-${index}`,
-                leaveType: 'annual',
-                source: stored?.source || 'manual',
-                fromDate: entry?.fromDate || '',
-                toDate: entry?.toDate || entry?.fromDate || '',
-                startDate: entry?.fromDate || '',
-                endDate: entry?.toDate || entry?.fromDate || '',
-                actualDays: days,
-                eligibleWorkingDays: days,
-                multiplier,
-                rule: multiplier,
-                deductionDays: days * multiplier,
-                deduction: days * multiplier,
-                split: Boolean(entry?.split),
-                storedIndex: Number.isInteger(stored?.storedIndex) ? stored.storedIndex : undefined,
-                recordFrom: entry?.recordFrom || '',
-                recordTo: entry?.recordTo || '',
-                remarks: stored?.remarks || '',
-            };
-        });
-}
-
 function leaveRowsForGroup(rows, type, source, from = '', to = '') {
     return (Array.isArray(rows) ? rows : []).filter((row) => {
         if (leaveTypeKey(row) !== type || leaveSourceKey(row) !== source) return false;
@@ -3433,35 +3412,9 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [leaveTypeFilter, setLeaveTypeFilter] = useState('');
     const [systemLeaveTypeFilter, setSystemLeaveTypeFilter] = useState('');
     const [leaveGroupModal, setLeaveGroupModal] = useState(null);
-    const [annualWindowsOpen, setAnnualWindowsOpen] = useState(false);
-    const [annualWindows, setAnnualWindows] = useState(null);
     const [officeHolidayOpen, setOfficeHolidayOpen] = useState(false);
     const [officeHolidays, setOfficeHolidays] = useState(null);
 
-    useEffect(() => {
-        if (!annualWindowsOpen) return undefined;
-        const mongoId = String(data?.employee?.mongoId || '').trim();
-        if (!mongoId) {
-            setAnnualWindows({ error: 'This employee is not linked to a leave profile yet.' });
-            return undefined;
-        }
-        let cancelled = false;
-        setAnnualWindows(null);
-        (async () => {
-            try {
-                const { data: payload } = await axiosInstance.get(
-                    `/Leave/employees/${mongoId}/annual-eligibility`,
-                    { skipToast: true },
-                );
-                if (!cancelled) setAnnualWindows(payload?.allowance || { windows: [] });
-            } catch {
-                if (!cancelled) setAnnualWindows({ error: 'Could not load annual leave periods.' });
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [annualWindowsOpen, data?.employee?.mongoId]);
     const [leaveDraftIndex, setLeaveDraftIndex] = useState(null);
     const [cycleModal, setCycleModal] = useState(false);
     const [cycleDraft, setCycleDraft] = useState(null);
@@ -3622,7 +3575,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         return () => clearTimeout(handle);
     }, [employeeId, joiningDate, joiningDateReason, verpStartDate, loading]);
 
-    const historicalTo = verpStartDate ? addDays(verpStartDate, -1) : '';
+    const sameJoiningMonth = Boolean(
+        ISO.test(joiningDate) &&
+        ISO.test(verpStartDate) &&
+        joiningDate.slice(0, 7) === verpStartDate.slice(0, 7),
+    );
+    const historicalTo = verpStartDate && !sameJoiningMonth ? addDays(verpStartDate, -1) : '';
     useEffect(() => {
         if (!officeHolidayOpen) return undefined;
         const from = String(joiningDate || '').trim();
@@ -3650,7 +3608,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             Array.isArray(data?.liveAttendance?.leaveRecords) ? data.liveAttendance.leaveRecords : [],
             hiddenSystemLeave,
         );
-        const from = data?.liveAttendance?.from || toMonthStartDate(verpStartDate);
+        const from = data?.liveAttendance?.from || attendanceOpenDate(verpStartDate, joiningDate);
         const to = data?.liveAttendance?.to || '';
         return liveLeaveRecordsInProcessingWindow(rows, from, to);
     }, [
@@ -3717,18 +3675,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         if (!leaveGroupModal) return [];
         const pool =
             leaveGroupModal.source === 'system' ? systemLeaveHistoryList : historicalLeaveHistoryRows;
-        if (Number.isInteger(leaveGroupModal.windowIndex)) {
-            const windowRow = (annualWindows?.windows || []).find((row) => row.index === leaveGroupModal.windowIndex);
-            if (windowRow && Array.isArray(windowRow.entries)) {
-                return annualPeriodEntries(windowRow.entries, pool);
-            }
-        }
-        if (leaveGroupModal.includeHoliday) {
-            return [
-                ...leaveRowsForGroup(pool, 'annual', leaveGroupModal.source, leaveGroupModal.from, leaveGroupModal.to),
-                ...leaveRowsForGroup(pool, 'holiday', leaveGroupModal.source, leaveGroupModal.from, leaveGroupModal.to),
-            ];
-        }
         return leaveRowsForGroup(
             pool,
             leaveGroupModal.type,
@@ -3736,7 +3682,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             leaveGroupModal.from,
             leaveGroupModal.to,
         );
-    }, [annualWindows, historicalLeaveHistoryRows, leaveGroupModal, systemLeaveHistoryList]);
+    }, [historicalLeaveHistoryRows, leaveGroupModal, systemLeaveHistoryList]);
     useEffect(() => {
         if (!leaveGroupModal) return;
         if (leaveGroupModal.from || leaveGroupModal.to) return;
@@ -3907,7 +3853,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         liveEnabled: liveAttendanceEnabled,
         historicalFrom: data?.historicalFrom || joiningDate,
         historicalTo: data?.historicalTo || historicalTo,
-        liveFrom: data?.liveAttendance?.from || toMonthStartDate(verpStartDate),
+        liveFrom: data?.liveAttendance?.from || attendanceOpenDate(verpStartDate, joiningDate),
         liveTo: data?.liveAttendance?.to || '',
         historicalLeave: historicalCalc.totalLeaveDeduction,
         reservedDays: reservedLeaveDays,
@@ -4043,7 +3989,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     }
 
     function liveRangeSubtitle() {
-        const from = data?.liveAttendance?.from || toMonthStartDate(verpStartDate);
+        const from = data?.liveAttendance?.from || attendanceOpenDate(verpStartDate, joiningDate);
         const to = data?.liveAttendance?.to || '';
         return from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from);
     }
@@ -4166,7 +4112,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     }
 
     function openLiveOvertimeDaysDetail() {
-        const from = data?.liveAttendance?.from || toMonthStartDate(verpStartDate);
+        const from = data?.liveAttendance?.from || attendanceOpenDate(verpStartDate, joiningDate);
         const to = data?.liveAttendance?.to || '';
         const range = from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from);
         setEligibilityDetail({
@@ -4192,7 +4138,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     }
 
     function openLiveOvertimeHoursDetail() {
-        const from = data?.liveAttendance?.from || toMonthStartDate(verpStartDate);
+        const from = data?.liveAttendance?.from || attendanceOpenDate(verpStartDate, joiningDate);
         const to = data?.liveAttendance?.to || '';
         const records = Array.isArray(data?.liveAttendance?.overtimeRecords)
             ? data.liveAttendance.overtimeRecords
@@ -4212,7 +4158,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     }
 
     function openLiveOverallDetail() {
-        const from = data?.liveAttendance?.from || toMonthStartDate(verpStartDate);
+        const from = data?.liveAttendance?.from || attendanceOpenDate(verpStartDate, joiningDate);
         const to = data?.liveAttendance?.to || '';
         const date = from && to ? `${prettyDate(from)} — ${prettyDate(to)}` : prettyDate(from) || '—';
         setEligibilityDetail({
@@ -4239,7 +4185,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         : String(emp?.initials || nameInitials(employeeId))
             .slice(0, 2)
             .toUpperCase();
-    const migrationComplete = Boolean(joiningDate && verpStartDate && historicalTo);
+    const migrationComplete = Boolean(joiningDate && verpStartDate && (historicalTo || sameJoiningMonth));
     const enrollStatus = enrolled ? 'Enrolled' : 'Pending';
     const enrollTone = enrolled ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700';
     const canClickCreate = Boolean(
@@ -4788,11 +4734,11 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                                     Defines the historical period used for salary calculations.
                                                                 </p>
                                                             </div>
-                                                            {toMonthStartDate(verpStartDate) ? (
+                                                            {attendanceOpenDate(verpStartDate, joiningDate) ? (
                                                                 <p className="max-w-[340px] text-right text-[12px] leading-5 text-[#475569]">
                                                                     Attendance starts at{' '}
                                                                     <span className="font-semibold text-[#0F172A]">
-                                                                        {prettyDate(toMonthStartDate(verpStartDate))}
+                                                                        {prettyDate(verpStartDate)}
                                                                     </span>
                                                                     {' '}and salary starts at{' '}
                                                                     <span className="font-semibold text-[#0F172A]">
@@ -4854,7 +4800,13 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     <MonthPicker
                                                         value={toMonthKey(verpStartDate)}
                                                         onChange={(monthKey) =>
-                                                            setVerpStartDate(toMonthStartDate(monthKey))
+                                                            setVerpStartDate(
+                                                                verpDateForSelectedMonth(
+                                                                    monthKey,
+                                                                    joiningDate,
+                                                                    verpStartDate,
+                                                                ),
+                                                            )
                                                         }
                                                         disabled={locked}
                                                         placeholder="Select month"
@@ -4872,7 +4824,9 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         value={
                                                             joiningDate && historicalTo
                                                                 ? `${prettyDate(joiningDate)} — ${prettyDate(historicalTo)}`
-                                                                : '—'
+                                                                : sameJoiningMonth
+                                                                  ? 'None — processing starts in the joining month'
+                                                                  : '—'
                                                         }
                                                         className="h-11 w-full rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm text-[#0F172A]"
                                                     />
@@ -5041,7 +4995,10 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 }
                                                 onOpen={(group) => {
                                                     if (group.type === 'annual') {
-                                                        setAnnualWindowsOpen(true);
+                                                        setLeaveGroupModal({
+                                                            type: 'annual',
+                                                            source: group.source || 'manual',
+                                                        });
                                                         return;
                                                     }
                                                     if (group.type === 'holiday') {
@@ -5103,11 +5060,11 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             <p className="mt-0.5 text-[12px] text-[#64748B]">
                                                                 Each attendance leave after the processing date
                                                                 {(data?.liveAttendance?.from ||
-                                                                    toMonthStartDate(verpStartDate)) &&
+                                                                    attendanceOpenDate(verpStartDate, joiningDate)) &&
                                                                 data?.liveAttendance?.to
                                                                     ? ` · ${prettyDate(
                                                                           data.liveAttendance.from ||
-                                                                              toMonthStartDate(verpStartDate),
+                                                                              attendanceOpenDate(verpStartDate, joiningDate),
                                                                       )} — ${prettyDate(data.liveAttendance.to)}`
                                                                     : ''}
                                                                 . Dates come from attendance and cannot be edited here.
@@ -5396,12 +5353,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     <p className="px-4 pt-3 text-[9px] font-bold uppercase leading-3 tracking-[0.8px] text-[#7B8797]">
                                                         Processing date to yesterday
                                                     </p>
-                                                    {(data?.liveAttendance?.from || toMonthStartDate(verpStartDate)) &&
+                                                    {(data?.liveAttendance?.from || attendanceOpenDate(verpStartDate, joiningDate)) &&
                                                     data?.liveAttendance?.to ? (
                                                         <p className="px-4 pt-1 text-[10px] font-medium leading-4 text-[#94A3B8]">
                                                             {prettyDate(
                                                                 data.liveAttendance.from ||
-                                                                    toMonthStartDate(verpStartDate),
+                                                                    attendanceOpenDate(verpStartDate, joiningDate),
                                                             )}{' '}
                                                             — {prettyDate(data.liveAttendance.to)}
                                                         </p>
@@ -5869,101 +5826,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 }}
             />
             <ModalShell
-                open={annualWindowsOpen}
-                title="Annual leave periods"
-                onClose={() => setAnnualWindowsOpen(false)}
-                width="max-w-4xl"
-                zClass="z-[80]"
-                headerAction={
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setAnnualWindowsOpen(false);
-                            setLeaveGroupModal({
-                                type: 'annual',
-                                source: 'manual',
-                                returnTo: 'periods',
-                            });
-                        }}
-                        className="inline-flex h-9 items-center rounded-lg border border-[#E2E8F0] bg-white px-3 text-[13px] font-semibold text-[#2563EB] hover:bg-slate-50"
-                    >
-                        List all annual leave
-                    </button>
-                }
-            >
-                <p className="mt-1 text-[12px] text-[#64748B]">
-                    The first joining date is the contract joining date. Each later row starts the day after the previous leave eligible date. Used counts annual leave from that joining date through the next row&apos;s leave eligible date, up to {annualWindows?.allowedDays || 30} days. Once that is full, the rest counts on the next row when the leave date is inside it, from that row&apos;s joining date through the following leave eligible date. Eligible days are {annualWindows?.allowedDays || 30} after the {annualWindows?.cycleDays || 300}-day cycle, and balance is that amount minus used. A row is Inactive until the cycle is complete, then Active, and Lapsed after the next leave eligible date. {annualWindows?.completedCycles || 0} cycle{(annualWindows?.completedCycles || 0) === 1 ? '' : 's'} completed, {annualWindows?.remainderDays || 0} day{(annualWindows?.remainderDays || 0) === 1 ? '' : 's'} toward the next one.
-                </p>
-                {annualWindows?.error ? (
-                    <p className="mt-4 text-[13px] text-[#B45309]">{annualWindows.error}</p>
-                ) : !annualWindows ? (
-                    <p className="mt-4 text-[13px] text-[#64748B]">Loading periods…</p>
-                ) : (
-                    <div className="mt-4 max-h-[70vh] overflow-auto">
-                        <table className="w-full min-w-[720px] text-left text-[12px] text-[#0F172A]">
-                            <thead className="text-[11px] uppercase tracking-wide text-[#64748B]">
-                                <tr>
-                                    <th className="px-2 py-2">Joining date</th>
-                                    <th className="px-2 py-2">Leave eligible date</th>
-                                    <th className="px-2 py-2">Eligible days</th>
-                                    <th className="px-2 py-2">Used</th>
-                                    <th className="px-2 py-2">Balance</th>
-                                    <th className="px-2 py-2">Leave status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {(annualWindows.windows || []).length ? (
-                                    annualWindows.windows.map((row) => {
-                                        const inactive = String(row.status || '').toLowerCase() === 'inactive';
-                                        return (
-                                        <tr
-                                            key={row.index}
-                                            className="cursor-pointer border-t border-[#E6EAF0] hover:bg-[#F8FAFC]"
-                                            onClick={() => {
-                                                setAnnualWindowsOpen(false);
-                                                setLeaveGroupModal({
-                                                    type: 'annual',
-                                                    source: 'manual',
-                                                    from: row.startDate,
-                                                    to: row.takeUntil || row.endDate,
-                                                    windowIndex: row.index,
-                                                });
-                                            }}
-                                        >
-                                            <td className="px-2 py-2">{prettyDate(row.startDate)}</td>
-                                            <td className="px-2 py-2">{prettyDate(row.endDate)}</td>
-                                            <td className="px-2 py-2">{inactive ? 'Not eligible' : row.allowedDays || annualWindows.allowedDays || 30}</td>
-                                            <td className="px-2 py-2">{row.takenDays} days</td>
-                                            <td className="px-2 py-2">
-                                                {row.balance}
-                                                {annualWindowSplitFull(row, annualWindows?.allowedDays) ? ' (splitted)' : ''}
-                                            </td>
-                                            <td className="px-2 py-2">{row.status}</td>
-                                        </tr>
-                                        );
-                                    })
-                                ) : (
-                                    <tr>
-                                        <td colSpan={6} className="px-2 py-6 text-[#64748B]">
-                                            Not eligible yet. The first row opens when counted working days reach {annualWindows.cycleDays || 300}.
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-                <div className="mt-4 flex justify-end">
-                    <button
-                        type="button"
-                        onClick={() => setAnnualWindowsOpen(false)}
-                        className="rounded-lg border border-[#E6EAF0] px-3 py-2 text-[12px] font-semibold text-[#334155]"
-                    >
-                        Close
-                    </button>
-                </div>
-            </ModalShell>
-            <ModalShell
                 open={officeHolidayOpen}
                 title="Office holidays"
                 onClose={() => setOfficeHolidayOpen(false)}
@@ -6018,48 +5880,24 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             <ModalShell
                 open={Boolean(leaveGroupModal)}
                 title={
-                    leaveGroupModal?.includeHoliday
-                        ? `Annual leave · ${prettyDate(leaveGroupModal.from)} – ${prettyDate(leaveGroupModal.to)}`
+                    leaveGroupModal?.type === 'annual'
+                        ? 'List all annual leave'
                         : leaveGroupModal
-                        ? `${leaveMeta(leaveGroupModal.type).label} · ${
-                              leaveGroupModal.source === 'system' ? 'System' : 'Manual'
-                          }`
-                        : 'Leave records'
+                          ? `${leaveMeta(leaveGroupModal.type).label} · ${
+                                leaveGroupModal.source === 'system' ? 'System' : 'Manual'
+                            }`
+                          : 'Leave records'
                 }
                 onClose={() => setLeaveGroupModal(null)}
                 width="max-w-5xl"
                 zClass="z-[80]"
             >
-                <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="mt-1">
                     <p className="text-[12px] text-[#64748B]">
-                        {leaveGroupModal?.includeHoliday
-                            ? 'Holidays in this period, and the annual leave days taken inside it. The period allowance is 30 days.'
-                            : `${leaveGroupRows.length} ${
-                                  leaveGroupRows.length === 1 ? 'record' : 'records'
-                              } for this leave type and source${
-                                  leaveGroupModal?.from && leaveGroupModal?.to
-                                      ? ` between ${prettyDate(leaveGroupModal.from)} and ${prettyDate(leaveGroupModal.to)}.`
-                                      : '.'
-                              }${
-                                  Number.isInteger(leaveGroupModal?.windowIndex)
-                                      ? ' Days shown here are the part counted on this row. Once the row reaches 30, the rest of that leave continues on the next row.'
-                                      : ''
-                              }`}
+                        {`${leaveGroupRows.length} ${
+                            leaveGroupRows.length === 1 ? 'record' : 'records'
+                        } for this leave type and source.`}
                     </p>
-                    {leaveGroupModal?.type === 'annual' && Number.isInteger(leaveGroupModal?.windowIndex) ? (
-                        <button
-                            type="button"
-                            onClick={() =>
-                                setLeaveGroupModal({
-                                    type: 'annual',
-                                    source: leaveGroupModal.source || 'manual',
-                                })
-                            }
-                            className="inline-flex h-9 shrink-0 items-center rounded-lg border border-[#E2E8F0] bg-white px-3 text-[13px] font-semibold text-[#2563EB] hover:bg-slate-50"
-                        >
-                            List all annual leave
-                        </button>
-                    ) : null}
                 </div>
                 <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
                     <LeaveTable
@@ -6087,21 +5925,6 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     />
                 </div>
                 <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
-                    {leaveGroupModal?.type === 'annual' && (
-                        (leaveGroupModal?.from && leaveGroupModal?.to) || leaveGroupModal?.returnTo === 'periods'
-                    ) ? (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setLeaveGroupModal(null);
-                                setAnnualWindowsOpen(true);
-                            }}
-                            className="inline-flex h-10 items-center gap-0.5 rounded-xl border px-4 text-sm font-semibold text-[#2563EB]"
-                        >
-                            <ChevronLeft size={16} />
-                            Back
-                        </button>
-                    ) : null}
                     <button
                         type="button"
                         onClick={() => setLeaveGroupModal(null)}

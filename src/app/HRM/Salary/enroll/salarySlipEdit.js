@@ -357,9 +357,22 @@ function setDeductionAmount(rows, name, amount) {
     return list;
 }
 
+function deductionLineOverridden(overrides, name) {
+    if (!overrides || !name) return false;
+    if (overrides[name]) return true;
+    const key = String(name || '').trim().toLowerCase();
+    if (key && overrides[key]) return true;
+    return Object.keys(overrides).some((flag) => {
+        if (!overrides[flag]) return false;
+        return flag === name || deductionMatches(name, flag) || deductionMatches(flag, name);
+    });
+}
+
 function pushDetailsIntoDeductions(slip) {
     let deductions = Array.isArray(slip.deductions) ? slip.deductions.map((row) => ({ ...row })) : [];
+    const overrides = slip?.thisMonthOverrides || {};
     for (const row of slip.attendanceDeductions || []) {
+        if (deductionLineOverridden(overrides, row.category)) continue;
         deductions = setDeductionAmount(deductions, row.category, row.total);
     }
     for (const loan of slip.loanSchedule || []) {
@@ -451,8 +464,29 @@ export function recalcSlip(slip) {
     };
 }
 
+function markChangedSlipAmounts(beforeRows, afterRows, overrides) {
+    const beforeBy = new Map();
+    for (const row of beforeRows || []) {
+        const name = String(row?.component || row?.type || '').trim();
+        if (!name) continue;
+        beforeBy.set(name.toLowerCase(), money(row.amount ?? row.total ?? row.thisMonthAmount));
+    }
+    for (const row of afterRows || []) {
+        const name = String(row?.component || row?.type || '').trim();
+        if (!name) continue;
+        const next = money(row.amount ?? row.total ?? row.thisMonthAmount);
+        if (beforeBy.get(name.toLowerCase()) !== next) overrides[name] = true;
+    }
+    return overrides;
+}
+
 export function applySlipSectionPatch(slip, section, updater) {
     const draft = updater(JSON.parse(JSON.stringify(slip || {})));
+    const overrides = { ...(draft.thisMonthOverrides || {}) };
+    markChangedSlipAmounts(slip?.earnings, draft.earnings, overrides);
+    markChangedSlipAmounts(slip?.yearlyEarnings, draft.yearlyEarnings, overrides);
+    markChangedSlipAmounts(slip?.deductions, draft.deductions, overrides);
+    draft.thisMonthOverrides = overrides;
     const fromDetails = new Set(['attendanceDeductions', 'loans', 'fines', 'utilities', 'thisMonthDeduction']);
     if (section === 'fines') {
         draft.thisMonthOverrides = { ...(draft.thisMonthOverrides || {}), Fine: true };
