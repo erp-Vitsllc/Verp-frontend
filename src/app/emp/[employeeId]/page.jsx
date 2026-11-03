@@ -7836,16 +7836,12 @@ function EmployeeProfilePageContent() {
 
         if (isOutsideUaeWorkLocation(employee)) {
             totalFields++;
-            const pendingPassport = getPendingSectionData('passport');
-            const passportForIdentity = employee?.passportDetails?.number
-                ? employee.passportDetails
-                : pendingPassport || employee?.passportDetails;
-            if (outsideUaeProfileIdentitySatisfied(employee, passportForIdentity)) {
+            if (outsideUaeProfileIdentitySatisfied(employee)) {
                 completedFields++;
-            } else if (!sectionPendingMap.has('Document')) {
-                sectionPendingMap.set('Document', ['Add document']);
+            } else if (!sectionPendingMap.has('Basic Details')) {
+                sectionPendingMap.set('Basic Details', ['Add document']);
             } else {
-                sectionPendingMap.get('Document').push('Add document');
+                sectionPendingMap.get('Basic Details').push('Add document');
             }
 
             sectionPendingMap.forEach((fields, section) => {
@@ -9608,7 +9604,7 @@ function EmployeeProfilePageContent() {
                                     hasDocuments={(() => {
                                         // Check if any documents exist (manually added or attachments)
                                         // Check for manually added documents
-                                        if (employee?.documents && employee.documents.length > 0) return true;
+                                        if ((employee?.documents || []).some((doc) => doc?.outsideUaeIdentity !== true)) return true;
 
                                         // Check passport document (url or data)
                                         if (employee?.passportDetails?.document?.url || employee?.passportDetails?.document?.data || employee?.passportDetails?.document?.name) return true;

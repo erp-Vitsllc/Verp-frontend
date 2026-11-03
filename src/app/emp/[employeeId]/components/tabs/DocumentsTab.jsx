@@ -694,8 +694,9 @@ export default function DocumentsTab({
             }, SECTIONS.SALARY, 'Salary');
         }
 
-        // Manual Documents
+        // Manual Documents. Basic Details identity files stay on that tab only.
         (employee.documents || []).forEach((doc, index) => {
+            if (doc?.outsideUaeIdentity === true) return;
             const hasLabourSalaryAmounts =
                 isLabourCardSalaryType(doc.type) &&
                 [doc.basicSalary, doc.houseRentAllowance, doc.vehicleAllowance, doc.fuelAllowance, doc.otherAllowance, doc.totalSalary]
@@ -770,6 +771,7 @@ export default function DocumentsTab({
 
         queuedDocAdds.forEach((change) => {
             const doc = change.proposedData || {};
+            if (doc?.outsideUaeIdentity === true) return;
             const section = resolveManualDocumentSection(doc);
             const expired = isExpired(doc.expiryDate);
             docs.push({

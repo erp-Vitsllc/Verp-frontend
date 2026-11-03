@@ -77,7 +77,7 @@ export function calculateEmployeeProfileCompletion(employee = {}) {
         if (outsideUaeProfileIdentitySatisfied(employee)) {
             completedFields++;
         } else {
-            pendingFields.push({ section: 'Document', field: 'Add document' });
+            pendingFields.push({ section: 'Basic Details', field: 'Add document' });
         }
         const percentage = totalFields === 0 ? 0 : Math.round((completedFields / totalFields) * 100);
         return { percentage, pendingFields };
