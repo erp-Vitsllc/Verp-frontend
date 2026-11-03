@@ -11,7 +11,7 @@ const MONTH_STEP_ORDER = ['accounts', 'hr', 'management'];
 const FULL_STEP_ORDER = ['user1', 'accounts', 'hr', 'management'];
 
 function monthChainCopy() {
-    return 'Accounts → HR → Management. Status becomes Processed after Management. Salary slots open only then.';
+    return 'Accounts submits when readiness is 100% and every employee is Ready. HR approves or rejects, then Management. A rejection emails Accounts and brings Submit back. Create slot opens after Management approves.';
 }
 
 function prettyDate(value) {
@@ -131,7 +131,7 @@ export default function SalaryDmfApprovalPanel({
         if (payload) {
             setConfirmStart(false);
             const next = payload?.dmf || payload;
-            toast({ title: payrollApprovalStatusLabel(next) || 'Pending for Accounts' });
+            toast({ title: payrollApprovalStatusLabel(next) || 'Pending for HR' });
         }
     }
 
@@ -176,7 +176,7 @@ export default function SalaryDmfApprovalPanel({
             }
         >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-            {isMonth ? 'Process salary' : 'Approval'}
+            {isMonth ? 'Submit' : 'Approval'}
         </button>
     );
 
@@ -240,11 +240,11 @@ export default function SalaryDmfApprovalPanel({
                     />
                     <div className="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
                         <h3 className="text-base font-bold text-slate-800">
-                            {isMonth ? 'Process this salary month?' : 'Send for approval?'}
+                            {isMonth ? 'Submit this payroll to HR?' : 'Send for approval?'}
                         </h3>
                         <p className="mt-3 text-sm text-slate-600">
                             {isMonth
-                                ? monthChainCopy()
+                                ? 'HR receives an email with a link that opens this payroll, and can approve or reject. Approval then goes to Management. A rejection emails Accounts and brings Submit back.'
                                 : 'This starts User → Accounts → HR → Management. After Management approves, VERP creates a Zoho Books bill.'}
                         </p>
                         <div className="mt-5 flex justify-end gap-2">
@@ -261,7 +261,7 @@ export default function SalaryDmfApprovalPanel({
                                 disabled={disabled}
                                 className="h-10 rounded-xl bg-[#0F766E] px-4 text-sm font-semibold text-white disabled:opacity-60"
                             >
-                                {busy ? 'Sending…' : 'Send'}
+                                {busy ? 'Sending…' : isMonth ? 'Submit' : 'Send'}
                             </button>
                         </div>
                     </div>

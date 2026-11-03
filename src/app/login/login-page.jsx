@@ -34,6 +34,18 @@ export default function LoginPage() {
     const [locationError, setLocationError] = useState('');
     const submittingRef = useRef(false);
 
+    const readLoginLocation = () => {
+        refreshWebPublicIp();
+        const locationPromise = promptSystemLocation({ preferCached: true }).catch(() => null);
+        const quickCoords = Promise.race([
+            locationPromise,
+            new Promise((resolve) => {
+                setTimeout(() => resolve(undefined), 500);
+            }),
+        ]);
+        return { locationPromise, quickCoords };
+    };
+
     const persistSession = (data) => {
         if (typeof window === 'undefined') return;
         const userData = {
@@ -132,7 +144,7 @@ export default function LoginPage() {
                 setServerError('Enter the OTP sent to your company email.');
                 return;
             }
-            const locationPromise = promptSystemLocation().catch(() => null);
+            const { locationPromise } = readLoginLocation();
             try {
                 submittingRef.current = true;
                 setLoading(true);
@@ -180,16 +192,17 @@ export default function LoginPage() {
             return;
         }
 
-        const locationPromise = promptSystemLocation().catch(() => null);
+        const { locationPromise, quickCoords } = readLoginLocation();
         try {
             submittingRef.current = true;
             setLoading(true);
             setServerError('');
+            const earlyCoords = await quickCoords;
             try {
-                await postPasswordLogin(null);
+                await postPasswordLogin(earlyCoords || null);
             } catch (err) {
                 if (!isLocationRequiredError(err)) throw err;
-                const coords = await locationPromise;
+                const coords = earlyCoords || await locationPromise;
                 if (!coords) {
                     setLocationError('');
                     setLocationModalOpen(true);
@@ -217,7 +230,7 @@ export default function LoginPage() {
         setLocationBusy(true);
         setLocationError('');
         try {
-            const coords = await promptSystemLocation();
+            const coords = await promptSystemLocation({ preferCached: true });
             if (otpToken) {
                 await postOtpLogin(coords);
             } else {

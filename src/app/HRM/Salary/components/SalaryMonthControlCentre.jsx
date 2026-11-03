@@ -28,7 +28,6 @@ const SIDEBAR_EMPLOYEE_LIMIT = 5;
 const TAB_MODE_GROUP = 'group';
 const TAB_MODE_COMPANY = 'company';
 const COMPANY_TAB_PREFIX = 'co:';
-const SALARY_FILTER_LIMIT = 3000;
 const LOCATION_CODE_TONES = ['green', 'violet', 'teal', 'pink', 'blue', 'amber'];
 const REQUEST_CATEGORIES = [
     {
@@ -64,7 +63,7 @@ const REQUEST_CATEGORIES = [
     {
         key: 'asset',
         title: 'Assets',
-        detail: 'Assignment, return and transfer',
+        detail: 'Pending assignment and return',
         alert: false,
     },
 ];
@@ -279,28 +278,6 @@ function sameCompany(left, right) {
     return String(left || '').trim().toLowerCase() === String(right || '').trim().toLowerCase();
 }
 
-function batchCompanyFilters(batch) {
-    if (Array.isArray(batch?.companies) && batch.companies.length) {
-        return batch.companies.map((name) => String(name || '').trim()).filter(Boolean);
-    }
-    const single = String(batch?.company || '').trim();
-    return single ? [single] : [];
-}
-
-function employeeMatchesCompanies(emp, companies) {
-    if (!companies?.length) return true;
-    const key = companyKeyOf(emp);
-    return companies.some((name) => sameCompany(key, name));
-}
-
-function sortEmployeesByName(rows) {
-    return [...(rows || [])].sort((a, b) =>
-        String(a?.name || a?.employeeId || '').localeCompare(String(b?.name || b?.employeeId || ''), undefined, {
-            sensitivity: 'base',
-        }),
-    );
-}
-
 function toggleSort(prev, key) {
     if (prev?.key === key) {
         return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' };
@@ -412,13 +389,17 @@ function paymentBatchFromApi(row) {
     if (!row) return null;
     const id = String(row.id || row._id || '').trim();
     if (!id) return null;
+    const status = String(row.status || (row.processed ? 'approved' : 'draft')).trim() || 'approved';
+    if (status === 'cancelled') return null;
     return {
         id,
         paymentNo: Number(row.paymentNo) || 0,
-        company: '',
-        salaryFilter: '',
+        companyName: String(row.companyName || '').trim(),
+        paymentMethod: String(row.paymentMethod || '').trim(),
+        status,
+        rejectReason: String(row.rejectReason || '').trim(),
         selectedIds: (row.selectedIds || row.employeeIds || []).map(String).filter(Boolean),
-        processed: true,
+        processed: status === 'approved',
         createdAt: row.createdAt || null,
     };
 }
@@ -442,43 +423,66 @@ function groupEmployeesByCompany(rows) {
     return grouped;
 }
 
-function SlotTabs({ slots, activeSlot, onSelect }) {
+function SlotTabs({ slots, activeSlot, viewerIsSlotHr, accountsCanUpdate, onSelect }) {
     return (
         <div className="spcc-metric-slots" role="tablist" aria-label="Salary slots">
-            {slots.map((item) => (
-                <button
-                    key={item.slot}
-                    type="button"
-                    role="tab"
-                    aria-selected={activeSlot === item.slot}
-                    className={`spcc-metric-slot${activeSlot === item.slot ? ' is-on' : ''}${item.processed ? ' is-done' : ''}`}
-                    onClick={() => onSelect(item.slot)}
-                >
-                    Slot {item.slot}
-                </button>
-            ))}
+            {slots.map((item) => {
+                const live =
+                    (item.status === 'pending_hr' && viewerIsSlotHr) ||
+                    (accountsCanUpdate &&
+                        (item.status === 'pending_wps' || item.status === 'pending_update'));
+                const mark = slotStatusLabel(item.status);
+                const createdGreen = item.status === 'pending_hr' || item.status === 'approved';
+                return (
+                    <button
+                        key={item.slot}
+                        type="button"
+                        role="tab"
+                        aria-selected={activeSlot === item.slot}
+                        className={`spcc-metric-slot${activeSlot === item.slot ? ' is-on' : ''}${
+                            createdGreen ? ' is-done' : ''
+                        }${item.status === 'draft' ? ' is-draft' : ''}${live ? ' is-live' : ''}`}
+                        onClick={() => onSelect(item)}
+                    >
+                        <span>Slot {item.slot}</span>
+                        {mark ? <span className="spcc-slot-mark">{mark}</span> : null}
+                    </button>
+                );
+            })}
         </div>
     );
 }
 
-function SlotAmountDate({ total, dateLabel, processed, employeeCount }) {
+function SlotAmountDate({ total, dateLabel, status, employeeCount }) {
+    const approved = status === 'approved';
+    const caption =
+        status === 'draft'
+            ? `${employeeCount} employee${employeeCount === 1 ? '' : 's'}`
+            : status === 'pending_hr'
+              ? 'Pending with HR'
+              : status === 'pending_wps'
+                ? 'Check the WPS send'
+                : status === 'pending_update'
+                  ? 'Update salary'
+                  : status === 'rejected'
+                    ? 'Rejected — back with Accounts'
+                    : approved
+                      ? `${employeeCount} employee${employeeCount === 1 ? '' : 's'}`
+                      : 'No payment in this slot yet.';
     return (
         <div className="spcc-slot-summary">
             <div className="spcc-slot-summary__row">
                 <span className="spcc-slot-summary__label">Total amount</span>
                 <span className="spcc-slot-summary__value tabular-nums">
-                    {processed ? formatMoney(total) : '—'}
+                    {approved ? formatMoney(total) : '—'}
                 </span>
             </div>
             <div className="spcc-slot-summary__row">
                 <span className="spcc-slot-summary__label">Date</span>
                 <span className="spcc-slot-summary__value">{dateLabel}</span>
             </div>
-            <span className="spcc-metric__caption">
-                {processed
-                    ? `${employeeCount} employee${employeeCount === 1 ? '' : 's'} processed`
-                    : 'No payment in this slot yet.'}
-            </span>
+            <span className="spcc-metric__caption">{caption}</span>
+            {status === 'draft' ? <span className="spcc-slot-watermark">Draft</span> : null}
         </div>
     );
 }
@@ -489,19 +493,21 @@ function PaymentResultCard({ slot, active, onSelect }) {
 
     return (
         <section
-            className={`spcc-pay-result${active ? ' is-active' : ''}`}
-            onClick={() => onSelect?.(slot.slot)}
+            className={`spcc-pay-result${active ? ' is-active' : ''}${
+                slot.status === 'pending_hr' || slot.status === 'approved' ? ' is-updated' : ''
+            }`}
+            onClick={() => onSelect?.(slot)}
         >
             <div className="spcc-pay-result__head">
                 <h3 className="spcc-pay-result__title">Slot {slot.slot}</h3>
-                <StatusPill tone={slot.processed ? 'ok' : 'warn'}>
-                    {slot.processed ? 'Paid' : 'Open'}
+                <StatusPill tone={slot.status === 'approved' ? 'ok' : slot.status === 'pending_hr' ? 'warn' : 'warn'}>
+                    {slotStatusLabel(slot.status) || 'Open'}
                 </StatusPill>
             </div>
             <SlotAmountDate
                 total={slot.total}
                 dateLabel={slot.dateLabel}
-                processed={slot.processed}
+                status={slot.status}
                 employeeCount={slot.rows.length}
             />
             <div className="spcc-pay-result__body">
@@ -533,325 +539,461 @@ function PaymentResultCard({ slot, active, onSelect }) {
     );
 }
 
-function PaymentProcessCard({
-    index,
-    batch,
+function slotStatusLabel(status) {
+    if (status === 'draft') return 'Draft';
+    if (status === 'pending_hr') return 'Pending with HR';
+    if (status === 'pending_wps') return 'WPS send';
+    if (status === 'pending_update') return 'Update salary';
+    if (status === 'rejected') return 'Rejected';
+    if (status === 'approved') return 'Updated';
+    return '';
+}
+
+function slotWorkflowSteps(status, payType, accountsName, hrName) {
+    const progress =
+        {
+            new: 0,
+            draft: 1,
+            rejected: 1,
+            pending_hr: 2,
+            pending_wps: 3,
+            pending_update: 4,
+            approved: 5,
+        }[status] ?? 0;
+    const steps = [
+        { key: 'draft', title: 'Draft', who: '', mark: progress >= 2 ? 'done' : 'current' },
+        {
+            key: 'applied',
+            title: 'Slot applied',
+            who: accountsName,
+            mark: progress >= 2 ? 'done' : 'wait',
+        },
+        {
+            key: 'hr',
+            title: 'HR approval',
+            who: hrName,
+            mark: progress >= 3 ? 'done' : progress === 2 ? 'current' : 'wait',
+        },
+    ];
+    if (payType === 'WPS') {
+        steps.push({
+            key: 'wps',
+            title: 'Send for WPS',
+            who: accountsName,
+            note: 'Check the WPS send',
+            mark: progress >= 4 ? 'done' : progress === 3 ? 'current' : 'wait',
+        });
+    }
+    steps.push({
+        key: 'salary',
+        title: 'Update salary',
+        who: accountsName,
+        mark: progress >= 5 ? 'done' : progress === 4 ? 'current' : 'wait',
+    });
+    return steps;
+}
+
+function idIsClaimed(claimedKeys, id) {
+    const key = employeeIdKey(id);
+    return Boolean(key && claimedKeys?.has(key));
+}
+
+function SlotEditorModal({
+    editor,
     employees,
-    companyNames,
-    claimedElsewhere,
-    onPatch,
-    onRemove,
+    claimedKeys,
     saving,
-    onComplete,
+    canEdit,
+    canDecide,
+    canMarkWps,
+    canSetUpdated,
+    accountsName,
+    hrName,
+    onChange,
+    onClose,
+    onCancelSlot,
+    onDraft,
+    onApply,
+    onApprove,
+    onReject,
+    onWpsUpdated,
+    onUpdateSalary,
+    onSetUpdated,
 }) {
     const allRef = useRef(null);
     const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
+    const [typeFilter, setTypeFilter] = useState('both');
+    const [rejectOpen, setRejectOpen] = useState(false);
+    const [rejectReason, setRejectReason] = useState('');
+    const [panel, setPanel] = useState('details');
+    useEffect(() => {
+        setPanel('details');
+        setRejectOpen(false);
+    }, [editor?.id, editor?.status]);
+    const companyName = String(editor?.companyName || '').trim();
+    const selected = useMemo(
+        () => new Set((editor?.selectedIds || []).map((id) => String(id))),
+        [editor?.selectedIds],
+    );
 
     const companies = useMemo(() => {
         const names = [];
         const seen = new Set();
-        const addName = (name) => {
-            const label = String(name || '').trim();
-            if (!label || label === '—') return;
+        for (const emp of employees || []) {
+            const label = companyKeyOf(emp);
             const key = label.toLowerCase();
-            if (seen.has(key)) return;
+            if (!label || seen.has(key)) continue;
             seen.add(key);
             names.push(label);
-        };
-        for (const emp of employees || []) addName(companyKeyOf(emp));
-        for (const name of companyNames || []) addName(name);
+        }
+        if (companyName && !seen.has(companyName.toLowerCase())) names.push(companyName);
         names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
         return names;
-    }, [companyNames, employees]);
+    }, [employees, companyName]);
 
-    const companyCounts = useMemo(() => {
-        const counts = new Map();
+    const lockedType = useMemo(() => {
+        const types = new Set();
         for (const emp of employees || []) {
-            const key = companyKeyOf(emp);
-            counts.set(key.toLowerCase(), (counts.get(key.toLowerCase()) || 0) + 1);
+            const id = String(emp.employeeId || '');
+            if (!selected.has(id)) continue;
+            types.add(employeePayMethod(emp));
         }
-        return counts;
-    }, [employees]);
+        return types.size === 1 ? [...types][0] : '';
+    }, [employees, selected]);
 
-    const companyFilters = useMemo(() => batchCompanyFilters(batch), [batch.companies, batch.company]);
-    const allCompaniesOn = !companyFilters.length;
+    const storedType = String(editor?.paymentMethod || '').trim();
+    const payType = storedType === 'Cash' || storedType === 'WPS' ? storedType : lockedType;
+    const workflow = slotWorkflowSteps(editor?.status || 'new', payType, accountsName, hrName);
 
-    const visible = useMemo(() => {
-        const selectedIds = new Set((batch.selectedIds || []).map(String));
-        if (batch.processed) {
-            return sortEmployeesByName(
-                (employees || []).filter((emp) => selectedIds.has(String(emp.employeeId || ''))),
-            );
-        }
-        return sortEmployeesByName(
-            (employees || []).filter((emp) => {
-                if (!employeeMatchesCompanies(emp, companyFilters)) return false;
-                const value = employeeAmount(emp);
-                if (batch.salaryFilter === 'lte3000') return value <= SALARY_FILTER_LIMIT;
-                if (batch.salaryFilter === 'gt3000') return value > SALARY_FILTER_LIMIT;
-                return true;
-            }),
+    const rows = useMemo(() => {
+        if (!companyName) return [];
+        const list = (employees || []).filter((emp) => {
+            if (!sameCompany(companyKeyOf(emp), companyName)) return false;
+            const id = String(emp.employeeId || '');
+            if (!id) return false;
+            if (selected.has(id)) return true;
+            return !idIsClaimed(claimedKeys, id);
+        });
+        const typed =
+            typeFilter === 'both'
+                ? list
+                : list.filter(
+                      (emp) =>
+                          employeePayMethod(emp) === typeFilter || selected.has(String(emp.employeeId || '')),
+                  );
+        return [...typed].sort((a, b) =>
+            comparePaymentEmployee(a, b, sort.key === 'amount' ? 'amount' : 'name', sort.dir),
         );
-    }, [employees, companyFilters, batch.salaryFilter, batch.processed, batch.selectedIds]);
+    }, [employees, companyName, claimedKeys, selected, typeFilter, sort]);
 
-    const grouped = useMemo(() => {
-        const byCompany = new Map();
-        for (const emp of visible) {
-            const key = companyKeyOf(emp);
-            if (!byCompany.has(key)) byCompany.set(key, []);
-            byCompany.get(key).push(emp);
-        }
-        const entries = [...byCompany.entries()].sort((a, b) =>
-            a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }),
-        );
-        if (sort.key !== 'company') {
-            const sorted = [...visible].sort((a, b) =>
-                comparePaymentEmployee(a, b, sort.key, sort.dir),
-            );
-            return [['__flat__', sorted]];
-        }
-        for (const [, rows] of entries) {
-            rows.sort((a, b) => comparePaymentEmployee(a, b, 'name', sort.dir));
-        }
-        if (sort.dir === 'desc') entries.reverse();
-        if (companyFilters.length === 1) {
-            const match = entries.find(([name]) => sameCompany(name, companyFilters[0]));
-            return [match || [companyFilters[0], []]];
-        }
-        return entries;
-    }, [visible, companyFilters, sort]);
-
-    const selected = new Set(batch.selectedIds || []);
-    const selectableIds = visible
+    const selectableIds = rows
+        .filter((emp) => {
+            const method = employeePayMethod(emp);
+            return !lockedType || method === lockedType;
+        })
         .map((emp) => String(emp.employeeId || ''))
-        .filter((id) => id && !claimedElsewhere.has(id));
+        .filter(Boolean);
     const selectedVisible = selectableIds.filter((id) => selected.has(id));
-    const allVisibleChecked =
-        selectableIds.length > 0 && selectedVisible.length === selectableIds.length;
+    const allVisibleChecked = selectableIds.length > 0 && selectedVisible.length === selectableIds.length;
     const checkedTotal = (employees || []).reduce((sum, emp) => {
         const id = String(emp.employeeId || '');
-        if (!id || !selected.has(id)) return sum;
+        if (!selected.has(id)) return sum;
         return sum + employeeAmount(emp);
     }, 0);
 
     useEffect(() => {
         if (!allRef.current) return;
-        allRef.current.indeterminate =
-            !batch.processed &&
-            selectedVisible.length > 0 &&
-            selectedVisible.length < selectableIds.length;
-    }, [batch.processed, selectedVisible.length, selectableIds.length]);
+        allRef.current.indeterminate = selectedVisible.length > 0 && selectedVisible.length < selectableIds.length;
+    }, [selectedVisible.length, selectableIds.length]);
 
-    function applyCompanyFilters(nextCompanies) {
-        const filters =
-            !nextCompanies.length || nextCompanies.length === companies.length ? [] : nextCompanies;
+    function changeCompany(name) {
         const allowed = new Set(
             (employees || [])
-                .filter((emp) => employeeMatchesCompanies(emp, filters))
-                .map((emp) => String(emp.employeeId || ''))
-                .filter(Boolean),
+                .filter((emp) => sameCompany(companyKeyOf(emp), name))
+                .map((emp) => String(emp.employeeId || '')),
         );
-        const nextIds = (batch.selectedIds || []).filter((id) => allowed.has(String(id)));
-        onPatch({
-            companies: filters,
-            company: filters.length === 1 ? filters[0] : '',
-            selectedIds: nextIds,
+        onChange({
+            companyName: name,
+            selectedIds: (editor.selectedIds || []).filter((id) => allowed.has(String(id))),
         });
     }
 
-    function toggleCompany(name, checked) {
-        let next = batchCompanyFilters(batch);
-        if (checked) {
-            if (!next.some((row) => sameCompany(row, name))) next = [...next, name];
-        } else {
-            next = next.filter((row) => !sameCompany(row, name));
-        }
-        applyCompanyFilters(next);
-    }
-
-    function toggleOne(id, checked) {
-        if (!id || claimedElsewhere.has(id) || batch.processed) return;
+    function toggleOne(emp, checked) {
+        if (!canEdit) return;
+        const id = String(emp.employeeId || '');
+        if (!id || idIsClaimed(claimedKeys, id)) return;
+        const method = employeePayMethod(emp);
+        if (checked && lockedType && method !== lockedType) return;
         const next = new Set(selected);
         if (checked) next.add(id);
         else next.delete(id);
-        onPatch({ selectedIds: [...next] });
+        onChange({ selectedIds: [...next], paymentMethod: next.size ? method : '' });
     }
 
     function toggleAll(checked) {
-        if (batch.processed) return;
+        if (!canEdit) return;
         const next = new Set(selected);
         selectableIds.forEach((id) => {
             if (checked) next.add(id);
             else next.delete(id);
         });
-        onPatch({ selectedIds: [...next] });
+        const method = lockedType || (typeFilter !== 'both' ? typeFilter : '');
+        onChange({ selectedIds: [...next], paymentMethod: method });
     }
 
+    const selectAllEnabled = canEdit && selectableIds.length > 0 && (Boolean(lockedType) || typeFilter !== 'both');
+
     return (
-        <section className={`spcc-batch spcc-batch--modal${batch.processed ? ' is-done' : ''}`}>
+        <section className="spcc-batch spcc-batch--modal">
             <div className="spcc-batch__head">
                 <div>
+                    <p className="spcc-batch__kicker">{editor.status === 'new' ? 'New slot' : `Slot ${editor.slot || ''}`}</p>
                     <h3 id="spcc-pay-modal-title" className="spcc-batch__title">
-                        Payment {paymentLabel(batch, index)}
-                        {batch.paymentMethod ? ` · ${batch.paymentMethod}` : ''}
+                        {companyName || 'Select company'}
                     </h3>
-                    <p className="spcc-batch__sub">
-                        {batch.processed
-                            ? `${selected.size} employee${selected.size === 1 ? '' : 's'} processed`
-                            : companyFilters.length
-                              ? `Checked ${companyFilters.join(', ')} · ${visible.length} employee${
-                                    visible.length === 1 ? '' : 's'
-                                }`
-                              : `All employees${batch.paymentMethod ? ` · ${batch.paymentMethod}` : ''}`}
-                    </p>
+                    {editor.status && editor.status !== 'new' ? (
+                        <p className="spcc-batch__sub">{slotStatusLabel(editor.status)}</p>
+                    ) : null}
+                    {editor.rejectReason ? (
+                        <p className="spcc-batch__sub">Rejected: {editor.rejectReason}</p>
+                    ) : null}
                 </div>
-                <button type="button" className="spcc-batch__close" onClick={onRemove} aria-label="Close">
-                    ×
+                <div className="spcc-batch__head-side">
+                    <span className="spcc-batch__checked-total">Total net salary {formatMoney(checkedTotal)}</span>
+                    <button type="button" className="spcc-batch__close" onClick={onClose} aria-label="Close">
+                        ×
+                    </button>
+                </div>
+            </div>
+
+            <div className="spcc-slot-switch" role="tablist" aria-label="Slot view">
+                <button
+                    type="button"
+                    className={panel === 'details' ? 'is-on' : ''}
+                    onClick={() => setPanel('details')}
+                >
+                    Details
+                </button>
+                <button
+                    type="button"
+                    className={panel === 'workflow' ? 'is-on' : ''}
+                    onClick={() => setPanel('workflow')}
+                >
+                    Workflow
                 </button>
             </div>
 
-            {batch.processed ? null : (
-                <div className="spcc-batch__toolbar">
-                    <div className="spcc-batch__tabs" role="group" aria-label="Companies">
-                        <label className={`spcc-batch__tab${allCompaniesOn ? ' is-on' : ''}`}>
-                            <input
-                                type="checkbox"
-                                checked={allCompaniesOn}
-                                onChange={() => applyCompanyFilters([])}
-                            />
-                            All employees
-                            <em>{(employees || []).length}</em>
-                        </label>
-                        {companies.map((name) => {
-                            const count = companyCounts.get(name.toLowerCase()) || 0;
-                            const checked = companyFilters.some((row) => sameCompany(row, name));
-                            return (
-                                <label
-                                    key={name}
-                                    className={`spcc-batch__tab${checked ? ' is-on' : ''}`}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={checked}
-                                        onChange={(event) => toggleCompany(name, event.target.checked)}
-                                    />
-                                    {name}
-                                    <em>{count}</em>
-                                </label>
-                            );
-                        })}
-                    </div>
-                    <div className="spcc-batch__salary">
-                        <span className="spcc-batch__checked-total">
-                            Total {formatMoney(checkedTotal)}
-                        </span>
-                        <label>
-                            <span>Salary</span>
-                            <select
-                                value={batch.salaryFilter || ''}
-                                onChange={(e) => onPatch({ salaryFilter: e.target.value })}
-                            >
-                                <option value="">All salaries</option>
-                                <option value="lte3000">Less than or equal 3000</option>
-                                <option value="gt3000">Greater than 3000</option>
-                            </select>
-                        </label>
-                    </div>
-                </div>
-            )}
+            {panel === 'workflow' ? (
+                <ol className="spcc-flow">
+                    {workflow.map((step, index) => (
+                        <li key={step.key} className={`spcc-flow__step is-${step.mark}`}>
+                            <span className="spcc-flow__rail" aria-hidden="true">
+                                <span className="spcc-flow__dot" />
+                                {index < workflow.length - 1 ? <span className="spcc-flow__line" /> : null}
+                            </span>
+                            <span>
+                                <span className="spcc-flow__title">{step.title}</span>
+                                {step.who ? <span className="spcc-flow__who">{step.who}</span> : null}
+                                {step.note && step.mark !== 'wait' ? (
+                                    <span className="spcc-flow__who">{step.note}</span>
+                                ) : null}
+                            </span>
+                        </li>
+                    ))}
+                </ol>
+            ) : (
+            <>
+            <div className="spcc-batch__toolbar">
+                <label className="spcc-slot-company">
+                    <span>Company</span>
+                    <select
+                        value={companyName}
+                        disabled={!canEdit}
+                        onChange={(event) => changeCompany(event.target.value)}
+                    >
+                        <option value="">Select company</option>
+                        {companies.map((name) => (
+                            <option key={name} value={name}>
+                                {name}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </div>
 
-            <div className="spcc-batch__list">
-                <div className="spcc-batch__row spcc-batch__row--head">
-                    {batch.processed ? (
-                        <span />
-                    ) : (
+            {companyName ? (
+                <div className="spcc-batch__list">
+                    <div className="spcc-batch__row spcc-batch__row--head">
                         <input
                             ref={allRef}
                             type="checkbox"
                             checked={allVisibleChecked}
-                            disabled={!selectableIds.length}
-                            onChange={(e) => toggleAll(e.target.checked)}
+                            disabled={!selectAllEnabled}
+                            onChange={(event) => toggleAll(event.target.checked)}
+                            aria-label="Select employees"
                         />
+                        <SortHeader
+                            label="Employee name"
+                            column="name"
+                            sort={sort}
+                            onSort={(column) => setSort((prev) => toggleSort(prev, column))}
+                        />
+                        <SortHeader
+                            label="Net salary"
+                            column="amount"
+                            sort={sort}
+                            onSort={(column) => setSort((prev) => toggleSort(prev, column))}
+                        />
+                        <label className="spcc-slot-type">
+                            <span>Salary type</span>
+                            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+                                <option value="both">Both</option>
+                                <option value="WPS">WPS</option>
+                                <option value="Cash">Cash</option>
+                            </select>
+                        </label>
+                    </div>
+                    {rows.length ? (
+                        rows.map((emp) => {
+                            const id = String(emp.employeeId || '');
+                            const method = employeePayMethod(emp);
+                            const checked = selected.has(id);
+                            const typeLocked = Boolean(lockedType) && method !== lockedType;
+                            const disabled = !canEdit || typeLocked || idIsClaimed(claimedKeys, id);
+                            return (
+                                <label
+                                    key={id}
+                                    className={`spcc-batch__row${disabled && !checked ? ' is-locked' : ''}${checked ? ' is-checked' : ''}`}
+                                    title={typeLocked ? `This slot is ${lockedType} only` : undefined}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={disabled}
+                                        onChange={(event) => toggleOne(emp, event.target.checked)}
+                                    />
+                                    <span>
+                                        <strong>{emp.name || id}</strong>
+                                        <em>{id}</em>
+                                    </span>
+                                    <span className="tabular-nums">{formatMoney(employeeAmount(emp))}</span>
+                                    <span>{method}</span>
+                                </label>
+                            );
+                        })
+                    ) : (
+                        <p className="spcc-pay-empty">No employees left for this company in this month.</p>
                     )}
-                    <SortHeader
-                        label="Employee"
-                        column="name"
-                        sort={sort}
-                        onSort={(column) => setSort((prev) => toggleSort(prev, column))}
-                    />
-                    <SortHeader
-                        label="Company"
-                        column="company"
-                        sort={sort}
-                        onSort={(column) => setSort((prev) => toggleSort(prev, column))}
-                    />
-                    <SortHeader
-                        label="Actual amount"
-                        column="amount"
-                        sort={sort}
-                        onSort={(column) => setSort((prev) => toggleSort(prev, column))}
-                    />
                 </div>
-                {grouped.length ? (
-                    grouped.map(([company, rows]) => (
-                        <div key={company} className="spcc-batch__group">
-                            {company === '__flat__' || companyFilters.length === 1 ? null : (
-                                <p className="spcc-batch__group-title">
-                                    {company}
-                                    <span>{rows.length}</span>
-                                </p>
-                            )}
-                            {rows.length ? (
-                                rows.map((emp) => {
-                                    const id = String(emp.employeeId || '');
-                                    const taken = claimedElsewhere.has(id);
-                                    const checked = selected.has(id);
-                                    return (
-                                        <label
-                                            key={id}
-                                            className={`spcc-batch__row${taken ? ' is-locked' : ''}${checked ? ' is-checked' : ''}`}
-                                        >
-                                            <input
-                                                type="checkbox"
-                                                checked={checked}
-                                                disabled={batch.processed || taken}
-                                                onChange={(e) => toggleOne(id, e.target.checked)}
-                                            />
-                                            <span>
-                                                <strong>{emp.name || id}</strong>
-                                                <em>{taken ? 'Already in another payment' : id}</em>
-                                            </span>
-                                            <span>{company}</span>
-                                            <span className="tabular-nums">{formatMoney(employeeAmount(emp))}</span>
-                                        </label>
-                                    );
-                                })
-                            ) : (
-                                <p className="spcc-batch__empty">No employees assigned to this company.</p>
-                            )}
-                        </div>
-                    ))
+            ) : (
+                <p className="spcc-pay-empty">Select a company to list its employees.</p>
+            )}
+            </>
+            )}
+
+            <div className="spcc-batch__foot">
+                {canDecide ? (
+                    rejectOpen ? (
+                        <>
+                            <input
+                                className="spcc-slot-reason"
+                                value={rejectReason}
+                                onChange={(event) => setRejectReason(event.target.value)}
+                                placeholder="Rejection reason"
+                            />
+                            <button type="button" className="spcc-btn spcc-btn--ghost" onClick={() => setRejectOpen(false)}>
+                                Back
+                            </button>
+                            <button
+                                type="button"
+                                className="spcc-btn spcc-btn--reject"
+                                disabled={saving || !rejectReason.trim()}
+                                onClick={() => onReject(rejectReason.trim())}
+                            >
+                                Reject
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onClose}>
+                                Close
+                            </button>
+                            <button
+                                type="button"
+                                className="spcc-btn spcc-btn--reject"
+                                disabled={saving}
+                                onClick={() => setRejectOpen(true)}
+                            >
+                                Reject
+                            </button>
+                            <button type="button" className="spcc-btn spcc-btn--approve" disabled={saving} onClick={onApprove}>
+                                Approve
+                            </button>
+                        </>
+                    )
+                ) : canEdit ? (
+                    <>
+                        <button type="button" className="spcc-btn spcc-btn--ghost" disabled={saving} onClick={onCancelSlot}>
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="spcc-btn spcc-btn--ghost"
+                            disabled={saving || !companyName || !selected.size}
+                            onClick={onDraft}
+                        >
+                            Draft
+                        </button>
+                        <button
+                            type="button"
+                            className="spcc-btn spcc-btn--primary"
+                            disabled={saving || !companyName || !selected.size}
+                            onClick={onApply}
+                        >
+                            Apply
+                        </button>
+                    </>
+                ) : canMarkWps ? (
+                    <>
+                        <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onClose}>
+                            Close
+                        </button>
+                        <button
+                            type="button"
+                            className="spcc-btn spcc-btn--primary"
+                            disabled={saving}
+                            onClick={onWpsUpdated}
+                        >
+                            WPS updated
+                        </button>
+                    </>
+                ) : canSetUpdated ? (
+                    <>
+                        <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onClose}>
+                            Close
+                        </button>
+                        <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onUpdateSalary}>
+                            Update salary
+                        </button>
+                        <button
+                            type="button"
+                            className="spcc-btn spcc-btn--approve"
+                            disabled={saving}
+                            onClick={onSetUpdated}
+                        >
+                            Set as updated
+                        </button>
+                    </>
                 ) : (
-                    <p className="spcc-pay-empty">No employees match this filter.</p>
+                    <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onClose}>
+                        Close
+                    </button>
                 )}
             </div>
-            {batch.processed ? null : (
-                <div className="spcc-batch__foot">
-                    <button
-                        type="button"
-                        className="spcc-btn spcc-btn--primary spcc-batch__done"
-                        disabled={saving || !selected.size}
-                        onClick={onComplete}
-                    >
-                        {saving
-                            ? 'Saving…'
-                            : `Done · process payment${selected.size ? ` (${selected.size})` : ''}`}
-                    </button>
-                </div>
-            )}
         </section>
     );
 }
+
 
 function isPayrollFineItem(item) {
     const key = String(item?.id || '');
@@ -1115,11 +1257,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const [monthDmf, setMonthDmf] = useState(null);
     const [approvalPrompt, setApprovalPrompt] = useState(false);
     const [paymentBatches, setPaymentBatches] = useState([]);
-    const [paymentModalId, setPaymentModalId] = useState(null);
-    const [paymentMethodPicker, setPaymentMethodPicker] = useState(false);
+    const [slotEditor, setSlotEditor] = useState(null);
     const [savingPayment, setSavingPayment] = useState(false);
     const [activeSlot, setActiveSlot] = useState(1);
-    const paymentSeq = useRef(1);
 
     const load = useCallback(async () => {
         if (!parsed) {
@@ -1156,7 +1296,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         setPaymentBatches([]);
         setMonthDmf(null);
         setApprovalPrompt(false);
-        setPaymentModalId(null);
+        setSlotEditor(null);
         setSavingPayment(false);
         setBlockersOpen(false);
         setBlockerFilter('');
@@ -1615,83 +1755,96 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     function claimedElsewhere(batchId) {
         const ids = new Set();
         for (const batch of paymentBatches) {
-            if (batch.id === batchId) continue;
-            for (const id of batch.selectedIds || []) ids.add(String(id));
+            if (batch.id === batchId || batch.status === 'cancelled') continue;
+            for (const id of batch.selectedIds || []) {
+                const key = employeeIdKey(id);
+                if (key) ids.add(key);
+            }
         }
         return ids;
     }
 
-    function openPaymentMethodPicker() {
-        if (String(monthDmf?.status || '') !== 'approved') {
+    function openNewSlot() {
+        if (!monthDmf?.canCreateSlot) {
             toast({
-                title: 'Salary not processed',
-                description: 'A payment slot can be added only after Process salary is approved (Accounts → HR → Management).',
+                title: 'Create slot is locked',
+                description: 'Create slot opens after Management approves, and only for the flowchart Accounts assignee.',
             });
             return;
         }
-        setPaymentMethodPicker(true);
-    }
-
-    function openPaymentModal(method) {
-        const id = `pay-${paymentSeq.current++}`;
-        setPaymentBatches((prev) => [
-            ...prev,
-            {
-                id,
-                company: '',
-                companies: [],
-                salaryFilter: '',
-                selectedIds: [],
-                processed: false,
-                paymentMethod: method === 'Cash' ? 'Cash' : 'WPS',
-            },
-        ]);
-        setPaymentMethodPicker(false);
-        setPaymentModalId(id);
-    }
-
-    function closePaymentModal() {
-        const id = paymentModalId;
-        setPaymentModalId(null);
-        if (!id) return;
-        setPaymentBatches((prev) => prev.filter((batch) => batch.processed || batch.id !== id));
-    }
-
-    function patchPaymentBatch(id, patch) {
-        setPaymentBatches((prev) => prev.map((batch) => (batch.id === id ? { ...batch, ...patch } : batch)));
-    }
-
-    async function completePaymentBatch(id) {
-        const batch = paymentBatches.find((item) => item.id === id);
-        const validIds = new Set(paymentEmployees.map((emp) => String(emp.employeeId || '')).filter(Boolean));
-        const selectedIds = (batch?.selectedIds || []).filter((empId) => validIds.has(String(empId)));
-        if (!selectedIds.length || savingPayment || !parsed?.monthKey) return;
-        if (String(monthDmf?.status || '') !== 'approved') {
+        const enrolled = (derived.employees || []).filter(
+            (emp) => emp.enrolled !== false && employeeIdKey(emp.employeeId),
+        );
+        const held = new Set();
+        for (const batch of paymentBatches) {
+            if (batch.status === 'cancelled') continue;
+            for (const id of batch.selectedIds || []) {
+                const key = employeeIdKey(id);
+                if (key) held.add(key);
+            }
+        }
+        const everyoneSlotted =
+            enrolled.length > 0 && enrolled.every((emp) => held.has(employeeIdKey(emp.employeeId)));
+        if (everyoneSlotted) {
             toast({
-                title: 'Salary not processed',
-                description: 'A payment slot can be added only after Process salary is approved (Accounts → HR → Management).',
+                title: 'Create slot is disabled',
+                description: 'Every enrolled employee is already in a slot for this month.',
             });
             return;
         }
+        const last = paymentBatches.reduce((max, batch) => Math.max(max, Number(batch.paymentNo) || 0), 0);
+        setSlotEditor({
+            id: '',
+            slot: last + 1,
+            companyName: '',
+            selectedIds: [],
+            status: 'new',
+            paymentMethod: '',
+            rejectReason: '',
+        });
+    }
+
+    function openSavedSlot(item) {
+        if (!item?.batch) return;
+        setActiveSlot(item.slot);
+        setSlotEditor({
+            id: item.batch.id,
+            slot: item.slot,
+            companyName: item.companyName || item.batch.companyName || '',
+            selectedIds: [...(item.batch.selectedIds || [])],
+            status: item.status || 'approved',
+            paymentMethod: item.paymentMethod || item.batch.paymentMethod || '',
+            rejectReason: item.rejectReason || item.batch.rejectReason || '',
+        });
+    }
+
+    async function saveSlot(action, extra = {}) {
+        if (!parsed?.monthKey || !slotEditor || savingPayment) return;
+        const selectedIds = slotEditor.selectedIds || [];
+        if ((action === 'draft' || action === 'apply') && (!slotEditor.companyName || !selectedIds.length)) return;
         setSavingPayment(true);
         try {
-            const res = await axiosInstance.post(`/Employee/salary-register/${parsed.monthKey}/payments`, {
+            const path = slotEditor.id
+                ? `/Employee/salary-register/${parsed.monthKey}/payments/${slotEditor.id}`
+                : `/Employee/salary-register/${parsed.monthKey}/payments`;
+            const res = await axiosInstance.post(path, {
+                action,
                 employeeIds: selectedIds,
+                companyName: slotEditor.companyName,
+                reason: extra.reason || '',
             });
             const saved = paymentBatchFromApi(res.data?.payment);
-            if (!saved) throw new Error('Payment was not returned.');
-            setPaymentBatches((prev) => [...prev.filter((item) => item.id !== id && item.processed), saved]);
-            setPaymentModalId(null);
-            if (saved.paymentNo) setActiveSlot(saved.paymentNo);
-            toast({
-                title: 'Payment saved',
-                description: `${saved.selectedIds.length} employee${
-                    saved.selectedIds.length === 1 ? '' : 's'
-                } assigned to Slot ${saved.paymentNo}.`,
+            setPaymentBatches((prev) => {
+                const dropId = slotEditor.id;
+                const rest = prev.filter((item) => item.id !== dropId && item.id !== saved?.id);
+                return saved ? [...rest, saved] : rest;
             });
+            if (saved?.paymentNo) setActiveSlot(saved.paymentNo);
+            setSlotEditor(null);
+            toast({ title: res.data?.message || 'Slot saved' });
         } catch (error) {
             toast({
-                title: 'Could not save payment',
+                title: 'Could not save slot',
                 description: error?.response?.data?.message || 'Try again in a moment.',
             });
         } finally {
@@ -1740,7 +1893,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                 if (dmfStatus === 'idle' || dmfStatus === 'rejected' || !dmfStatus) {
                     toast({
                         title: 'Payroll is 100% ready',
-                        description: `Click Process salary ${monthLabel}. Email and notification go to Accounts, then HR, then Management. Slots open after Processed.`,
+                        description: monthDmf?.canStart
+                            ? 'Click Submit. HR gets an email with a link to this payroll, then Management. Create slot opens after Management approves.'
+                            : 'Submit is with the flowchart Accounts assignee.',
                     });
                     return;
                 }
@@ -1753,7 +1908,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                 }
                 toast({
                     title: 'Processed',
-                    description: 'Salary slots are open.',
+                    description: monthDmf?.canCreateSlot
+                        ? 'Create slot is available for Accounts.'
+                        : 'Salary slots are open for the flowchart Accounts assignee.',
                 });
                 return;
             }
@@ -1846,13 +2003,12 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     }
 
     useEffect(() => {
-        if (!paymentModalId && !blockersOpen && !paymentMethodPicker) return undefined;
+        if (!slotEditor && !blockersOpen) return undefined;
         const prevOverflow = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
         const onKey = (event) => {
             if (event.key !== 'Escape') return;
-            if (paymentModalId) closePaymentModal();
-            else if (paymentMethodPicker) setPaymentMethodPicker(false);
+            if (slotEditor) setSlotEditor(null);
             else {
                 setBlockersOpen(false);
                 setBlockerEmployeeId('');
@@ -1863,18 +2019,22 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             document.body.style.overflow = prevOverflow;
             window.removeEventListener('keydown', onKey);
         };
-    }, [paymentModalId, blockersOpen, paymentMethodPicker]);
+    }, [slotEditor, blockersOpen]);
 
     const salarySlots = useMemo(() => {
-        const processed = paymentBatches.filter((batch) => batch.processed);
-        const empById = new Map(
-            (paymentEmployees || []).map((emp) => [String(emp.employeeId || ''), emp]),
-        );
-        return processed
+        const empById = new Map();
+        for (const emp of paymentEmployees || []) {
+            const id = String(emp.employeeId || '');
+            if (!id) continue;
+            empById.set(id, emp);
+            empById.set(employeeIdKey(id), emp);
+        }
+        return paymentBatches
+            .filter((batch) => batch.status !== 'cancelled')
             .map((batch, index) => {
                 const slot = paymentLabel(batch, index);
                 const rows = (batch?.selectedIds || [])
-                    .map((id) => empById.get(String(id)))
+                    .map((id) => empById.get(String(id)) || empById.get(employeeIdKey(id)))
                     .filter(Boolean);
                 const total = rows.reduce((sum, emp) => sum + employeeAmount(emp), 0);
                 return {
@@ -1883,7 +2043,11 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                     rows,
                     total,
                     dateLabel: formatSlotDate(batch?.createdAt),
-                    processed: true,
+                    processed: batch.status === 'approved',
+                    status: batch.status || 'approved',
+                    companyName: batch.companyName || '',
+                    paymentMethod: batch.paymentMethod || '',
+                    rejectReason: batch.rejectReason || '',
                 };
             })
             .sort((a, b) => a.slot - b.slot);
@@ -1894,57 +2058,62 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const pendingForLabel = payrollPendingForLabel(monthDmf);
     const canStartMonthApproval = Boolean(monthDmf?.canStart);
     const canActOnMonthApproval = Boolean(monthDmf?.canAct);
+    const canCreateSlot = Boolean(monthDmf?.canCreateSlot);
     const canUseApproverActions = canStartMonthApproval || canActOnMonthApproval;
-    const monthPayrollReady = useMemo(() => {
+    const everyEmployeeReady = useMemo(() => {
         const enrolled = (derived.employees || []).filter((emp) => emp.enrolled !== false);
-        const enrolledIds = new Set(enrolled.map((emp) => employeeIdKey(emp.employeeId)).filter(Boolean));
-        const pending = (Array.isArray(derived.pendingRequests) ? derived.pendingRequests : []).filter((item) =>
-            enrolledIds.has(employeeIdKey(item.employeeId)),
+        if (!enrolled.length) return false;
+        const pendingIds = new Set(
+            (Array.isArray(derived.pendingRequests) ? derived.pendingRequests : [])
+                .map((item) => employeeIdKey(item.employeeId))
+                .filter(Boolean),
         );
-        return enrolled.length > 0 && pending.length === 0;
-    }, [derived.employees, derived.pendingRequests]);
-    const processSalaryBlockedReason = monthPayrollReady
-        ? ''
-        : 'Process salary is available only when readiness is 100%.';
+        const processedIds = new Set([...processedPaymentIds].map((id) => employeeIdKey(id)));
+        return enrolled.every((emp) => {
+            const id = employeeIdKey(emp.employeeId);
+            return Boolean(id) && !pendingIds.has(id) && !processedIds.has(id);
+        });
+    }, [derived.employees, derived.pendingRequests, processedPaymentIds]);
+    const monthPayrollReady = everyEmployeeReady;
+    const showAccountsSubmit =
+        canStartMonthApproval && everyEmployeeReady && readinessChecks.percent === 100;
     const approverOnlyTitle = pendingForLabel
         ? `Pending for ${pendingForLabel}. Only that approver can use this.`
         : 'Only the current payroll approver can use this.';
-    const canProcessPayment =
-        dmfApproved &&
-        payrollRows.some((emp) => !processedPaymentIds.has(String(emp.employeeId || '')));
+    const viewerIsSlotHr = Boolean(register?.viewerIsSlotHr);
+    const heldEmployeeKeys = useMemo(() => {
+        const ids = new Set();
+        for (const batch of paymentBatches) {
+            if (batch.status === 'cancelled') continue;
+            for (const id of batch.selectedIds || []) {
+                const key = employeeIdKey(id);
+                if (key) ids.add(key);
+            }
+        }
+        return ids;
+    }, [paymentBatches]);
+    const enrolledForSlots = (derived.employees || []).filter(
+        (emp) => emp.enrolled !== false && employeeIdKey(emp.employeeId),
+    );
+    const allEnrolledInSlots =
+        enrolledForSlots.length > 0 &&
+        enrolledForSlots.every((emp) => heldEmployeeKeys.has(employeeIdKey(emp.employeeId)));
+    const canProcessPayment = canCreateSlot && !allEnrolledInSlots;
     const nextSlotNo = (salarySlots[salarySlots.length - 1]?.slot || 0) + 1;
     const headerSlots = salarySlots;
     const activeSlotData = headerSlots.find((item) => item.slot === activeSlot) || headerSlots[0];
-    const activePayment = paymentBatches.find((batch) => batch.id === paymentModalId) || null;
-    const activePaymentIndex = paymentBatches.findIndex((batch) => batch.id === paymentModalId);
-    const activePaymentEmployees = useMemo(() => {
-        const method = String(activePayment?.paymentMethod || '').trim();
-        if (!method) return paymentEmployees;
-        return paymentEmployees.filter((emp) => employeePayMethod(emp) === method);
-    }, [paymentEmployees, activePayment?.paymentMethod]);
-    const activePaymentCompanyNames = useMemo(() => {
-        const names = [];
-        const seen = new Set();
-        for (const emp of activePaymentEmployees) {
-            const label = companyKeyOf(emp);
-            const key = label.toLowerCase();
-            if (!label || label === '—' || seen.has(key)) continue;
-            seen.add(key);
-            names.push(label);
-        }
-        return names;
-    }, [activePaymentEmployees]);
-    const paymentMethodCounts = useMemo(() => {
-        let wps = 0;
-        let cash = 0;
-        for (const emp of paymentEmployees) {
-            const id = String(emp.employeeId || '').trim();
-            if (!id || processedPaymentIds.has(id)) continue;
-            if (employeePayMethod(emp) === 'WPS') wps += 1;
-            else cash += 1;
-        }
-        return { wps, cash };
-    }, [paymentEmployees, processedPaymentIds]);
+    const slotCanEdit =
+        Boolean(slotEditor) &&
+        canCreateSlot &&
+        ['new', 'draft', 'rejected'].includes(String(slotEditor.status || ''));
+    const slotCanDecide = Boolean(slotEditor) && viewerIsSlotHr && slotEditor.status === 'pending_hr';
+    const slotCanMarkWps = Boolean(slotEditor) && canCreateSlot && slotEditor.status === 'pending_wps';
+    const slotCanSetUpdated = Boolean(slotEditor) && canCreateSlot && slotEditor.status === 'pending_update';
+    const accountsStep = (monthDmf?.steps || []).find((step) => step.key === 'accounts');
+    const hrStep = (monthDmf?.steps || []).find((step) => step.key === 'hr');
+    const accountsName =
+        String(accountsStep?.assignedToName || accountsStep?.actionedByName || 'Accounts').trim() || 'Accounts';
+    const hrName = String(hrStep?.assignedToName || hrStep?.actionedByName || 'HR').trim() || 'HR';
 
     if (!parsed) {
         return (
@@ -1979,21 +2148,37 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         rejectButtonClass="spcc-btn spcc-btn--reject"
                         onUpdated={(payload) => setMonthDmf(payload?.dmf || payload)}
                     />
-                    {canStartMonthApproval ? (
+                    {showAccountsSubmit ? (
                         <button
                             type="button"
                             className="spcc-btn spcc-btn--primary"
-                            disabled={!monthPayrollReady || loading}
-                            title={
-                                processSalaryBlockedReason || `Process salary ${monthLabel}`
-                            }
+                            disabled={loading}
+                            title={`Submit ${monthLabel} payroll to HR`}
                             onClick={() => {
                                 if (!monthPayrollReady || loading) return;
                                 setApprovalPrompt(true);
                             }}
                         >
-                            Process salary {monthLabel}
+                            Submit
                         </button>
+                    ) : null}
+                    {canCreateSlot ? (
+                        <button
+                            type="button"
+                            className="spcc-btn spcc-btn--primary"
+                            disabled={loading || savingPayment || allEnrolledInSlots}
+                            title={
+                                allEnrolledInSlots
+                                    ? 'Every enrolled employee is already in a slot for this month.'
+                                    : 'Create a salary slot'
+                            }
+                            onClick={openNewSlot}
+                        >
+                            Create slot
+                        </button>
+                    ) : null}
+                    {dmfStatus === 'rejected' && monthDmf?.rejectReason ? (
+                        <p className="spcc-reject-note">Rejected: {monthDmf.rejectReason}</p>
                     ) : null}
                     <button
                         type="button"
@@ -2174,31 +2359,31 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             title="Salary slots"
                             pill={
                                 headerSlots.length
-                                    ? activeSlotData?.processed
-                                        ? 'Paid'
-                                        : 'None'
+                                    ? slotStatusLabel(activeSlotData?.status) || 'Open'
                                     : 'None'
                             }
-                            pillTone={activeSlotData?.processed ? 'ok' : 'warn'}
+                            pillTone={activeSlotData?.status === 'approved' ? 'ok' : 'warn'}
                         >
                             {headerSlots.length ? (
                                 <>
                                     <SlotTabs
                                         slots={headerSlots}
                                         activeSlot={activeSlotData?.slot || headerSlots[0].slot}
-                                        onSelect={setActiveSlot}
+                                        viewerIsSlotHr={viewerIsSlotHr}
+                                        accountsCanUpdate={canCreateSlot}
+                                        onSelect={openSavedSlot}
                                     />
                                     <SlotAmountDate
                                         total={activeSlotData?.total || 0}
                                         dateLabel={activeSlotData?.dateLabel || '—'}
-                                        processed={Boolean(activeSlotData?.processed)}
+                                        status={activeSlotData?.status}
                                         employeeCount={activeSlotData?.rows.length || 0}
                                     />
                                 </>
                             ) : (
                                 <span className="spcc-metric__sub">
                                     {dmfApproved
-                                        ? 'Slots appear here after you process a payment.'
+                                        ? 'Draft and applied slots for this month appear here.'
                                         : 'Slots open after salary is Processed.'}
                                 </span>
                             )}
@@ -2491,22 +2676,20 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                 key={slot.batch?.id || slot.slot}
                                 slot={slot}
                                 active={activeSlotData?.slot === slot.slot}
-                                onSelect={setActiveSlot}
+                                onSelect={openSavedSlot}
                             />
                         ))}
-                        {canProcessPayment ? (
+                        {canCreateSlot ? (
                             <button
                                 type="button"
-                                className="spcc-pay-add"
-                                onClick={() => {
-                                    setActiveSlot(nextSlotNo);
-                                    openPaymentMethodPicker();
-                                }}
+                                className={`spcc-pay-add${allEnrolledInSlots ? ' is-locked' : ''}`}
+                                disabled={allEnrolledInSlots || savingPayment}
+                                onClick={openNewSlot}
                             >
                                 <span className="spcc-pay-add__kicker">Next</span>
                                 <span className="spcc-pay-add__title">Slot {nextSlotNo}</span>
                                 <span className="spcc-btn spcc-btn--primary spcc-pay-add__btn">
-                                    Process payment
+                                    {allEnrolledInSlots ? 'All employees slotted' : 'Create slot'}
                                 </span>
                             </button>
                         ) : !dmfApproved ? (
@@ -2520,13 +2703,13 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         ) : null}
                     </div>
 
-                    {typeof document !== 'undefined' && activePayment
+                    {typeof document !== 'undefined' && slotEditor
                         ? createPortal(
                               <div className="spcc-modal">
                                   <button
                                       type="button"
                                       className="spcc-modal__backdrop"
-                                      onClick={closePaymentModal}
+                                      onClick={() => setSlotEditor(null)}
                                       aria-label="Close"
                                   />
                                   <div
@@ -2536,67 +2719,41 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                       aria-labelledby="spcc-pay-modal-title"
                                       onClick={(event) => event.stopPropagation()}
                                   >
-                                      <PaymentProcessCard
-                                          index={Math.max(0, activePaymentIndex)}
-                                          batch={activePayment}
-                                          employees={activePaymentEmployees}
-                                          companyNames={activePaymentCompanyNames}
-                                          claimedElsewhere={claimedElsewhere(activePayment.id)}
-                                          onPatch={(patch) => patchPaymentBatch(activePayment.id, patch)}
-                                          onRemove={closePaymentModal}
+                                      <SlotEditorModal
+                                          editor={slotEditor}
+                                          employees={paymentEmployees}
+                                          claimedKeys={claimedElsewhere(slotEditor.id)}
                                           saving={savingPayment}
-                                          onComplete={() => completePaymentBatch(activePayment.id)}
+                                          canEdit={slotCanEdit}
+                                          canDecide={slotCanDecide}
+                                          canMarkWps={slotCanMarkWps}
+                                          canSetUpdated={slotCanSetUpdated}
+                                          accountsName={accountsName}
+                                          hrName={hrName}
+                                          onChange={(patch) =>
+                                              setSlotEditor((current) => (current ? { ...current, ...patch } : current))
+                                          }
+                                          onClose={() => setSlotEditor(null)}
+                                          onCancelSlot={() => {
+                                              if (!slotEditor.id) {
+                                                  setSlotEditor(null);
+                                                  return;
+                                              }
+                                              saveSlot('cancel');
+                                          }}
+                                          onDraft={() => saveSlot('draft')}
+                                          onApply={() => saveSlot('apply')}
+                                          onApprove={() => saveSlot('approve')}
+                                          onReject={(reason) => saveSlot('reject', { reason })}
+                                          onWpsUpdated={() => saveSlot('wps_updated')}
+                                          onUpdateSalary={() =>
+                                              toast({
+                                                  title: 'Zoho implementation is not done yet',
+                                                  description: 'Salary update in Zoho is not connected.',
+                                              })
+                                          }
+                                          onSetUpdated={() => saveSlot('set_updated')}
                                       />
-                                  </div>
-                              </div>,
-                              document.body,
-                          )
-                        : null}
-
-                    {typeof document !== 'undefined' && paymentMethodPicker
-                        ? createPortal(
-                              <div className="spcc-modal">
-                                  <button
-                                      type="button"
-                                      className="spcc-modal__backdrop"
-                                      onClick={() => setPaymentMethodPicker(false)}
-                                      aria-label="Close"
-                                  />
-                                  <div
-                                      className="spcc-modal__panel spcc-modal__panel--method"
-                                      role="dialog"
-                                      aria-modal="true"
-                                      aria-labelledby="spcc-pay-method-title"
-                                      onClick={(event) => event.stopPropagation()}
-                                  >
-                                      <h3 id="spcc-pay-method-title" className="spcc-method-title">
-                                          Process payment
-                                      </h3>
-                                      <p className="spcc-method-sub">Choose which enrolled employees to include.</p>
-                                      <div className="spcc-method-grid">
-                                          <button
-                                              type="button"
-                                              className="spcc-method-btn"
-                                              onClick={() => openPaymentModal('WPS')}
-                                          >
-                                              <strong>WPS</strong>
-                                              <em>
-                                                  {paymentMethodCounts.wps} employee
-                                                  {paymentMethodCounts.wps === 1 ? '' : 's'}
-                                              </em>
-                                          </button>
-                                          <button
-                                              type="button"
-                                              className="spcc-method-btn"
-                                              onClick={() => openPaymentModal('Cash')}
-                                          >
-                                              <strong>Cash</strong>
-                                              <em>
-                                                  {paymentMethodCounts.cash} employee
-                                                  {paymentMethodCounts.cash === 1 ? '' : 's'}
-                                              </em>
-                                          </button>
-                                      </div>
                                   </div>
                               </div>,
                               document.body,

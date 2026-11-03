@@ -81,7 +81,16 @@
 .spcc-hero__actions {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 10px;
+}
+
+.spcc-reject-note {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #b91c1c;
 }
 
 .spcc-btn {
@@ -517,6 +526,11 @@
 
 .spcc-batch__foot {
     flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
     margin-top: 12px;
     padding-top: 12px;
     border-top: 1px solid var(--spcc-line);
@@ -530,6 +544,59 @@
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 14px;
+}
+
+.spcc-batch__kicker {
+    margin: 0 0 2px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--spcc-muted);
+}
+
+.spcc-batch__head-side {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.spcc-batch--modal .spcc-batch__title {
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.spcc-slot-company,
+.spcc-slot-type {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--spcc-muted);
+}
+
+.spcc-slot-company select,
+.spcc-slot-type select,
+.spcc-slot-reason {
+    height: 32px;
+    border: 1px solid #d7dee8;
+    border-radius: 8px;
+    background: #fff;
+    padding: 0 8px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--spcc-ink);
+}
+
+.spcc-slot-company {
+    min-width: min(280px, 100%);
+}
+
+.spcc-slot-reason {
+    flex: 1 1 180px;
 }
 
 .spcc-batch__title {
@@ -1429,23 +1496,56 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    max-height: 80px;
+    max-height: 128px;
     overflow-y: auto;
 }
 
 .spcc-metric-slot {
     display: inline-flex;
-    align-items: center;
-    height: 24px;
-    padding: 0 9px;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    height: auto;
+    min-height: 24px;
+    padding: 4px 10px;
     border: 1px solid #d7dee8;
-    border-radius: 999px;
+    border-radius: 12px;
     background: #f8fafc;
     color: #64748b;
     font: inherit;
     font-size: 11px;
     font-weight: 650;
+    line-height: 1.15;
     cursor: pointer;
+}
+
+.spcc-slot-mark {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #94a3b8;
+}
+
+.spcc-metric-slot.is-live {
+    background: #fff7ed;
+    border-color: #fb923c;
+    color: #c2410c;
+    box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.45);
+}
+
+.spcc-metric-slot.is-live .spcc-slot-mark {
+    color: #ea580c;
+}
+
+.spcc-slot-watermark {
+    margin-top: 6px;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(148, 163, 184, 0.55);
+    line-height: 1;
 }
 
 .spcc-metric-slot:hover {
@@ -1459,10 +1559,119 @@
     color: var(--spcc-blue);
 }
 
-.spcc-metric-slot.is-done:not(.is-on) {
-    background: var(--spcc-green-bg);
-    border-color: #a7f3d0;
-    color: var(--spcc-green);
+.spcc-metric-slot.is-done,
+.spcc-metric-slot.is-done.is-on,
+.spcc-metric-slot.is-done.is-live {
+    background: #d1fae5;
+    border-color: #34d399;
+    color: #047857;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.28);
+}
+
+.spcc-metric-slot.is-done .spcc-slot-mark {
+    color: #047857;
+}
+
+.spcc-pay-result.is-updated,
+.spcc-pay-result.is-updated.is-active {
+    border-color: #34d399;
+    background: #f0fdf4;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.16);
+}
+
+.spcc-slot-switch {
+    display: inline-flex;
+    align-self: flex-start;
+    margin-bottom: 12px;
+    padding: 2px;
+    border: 1px solid #d7dee8;
+    border-radius: 999px;
+    background: #f8fafc;
+}
+
+.spcc-slot-switch button {
+    border: 0;
+    background: transparent;
+    border-radius: 999px;
+    padding: 6px 14px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    color: #64748b;
+    cursor: pointer;
+}
+
+.spcc-slot-switch button.is-on {
+    background: #fff;
+    color: #1a56db;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.spcc-flow {
+    list-style: none;
+    margin: 0;
+    padding: 4px 2px 8px;
+    display: flex;
+    flex-direction: column;
+}
+
+.spcc-flow__step {
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    column-gap: 10px;
+    min-height: 56px;
+}
+
+.spcc-flow__rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.spcc-flow__dot {
+    width: 12px;
+    height: 12px;
+    margin-top: 4px;
+    border: 2px solid #cbd5e1;
+    border-radius: 999px;
+    background: #fff;
+}
+
+.spcc-flow__line {
+    width: 2px;
+    flex: 1;
+    background: #e2e8f0;
+}
+
+.spcc-flow__title {
+    display: block;
+    font-size: 14px;
+    font-weight: 750;
+    color: #0f172a;
+}
+
+.spcc-flow__who {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.spcc-flow__step.is-done .spcc-flow__dot {
+    background: #047857;
+    border-color: #047857;
+}
+
+.spcc-flow__step.is-current .spcc-flow__dot {
+    background: #1a56db;
+    border-color: #1a56db;
+    box-shadow: 0 0 0 4px rgba(26, 86, 219, 0.15);
+}
+
+.spcc-flow__step.is-wait .spcc-flow__title,
+.spcc-flow__step.is-wait .spcc-flow__who {
+    color: #94a3b8;
 }
 
 .spcc-slot-summary {
@@ -2718,11 +2927,6 @@
 
     .spcc-batch__row,
     .spcc-batch__row--head {
-        grid-template-columns: 28px minmax(0, 1fr) minmax(0, 0.9fr);
-    }
-
-    .spcc-batch__row > span:nth-child(4),
-    .spcc-batch__row--head > span:nth-child(4) {
-        display: none;
+        grid-template-columns: 28px minmax(0, 1.2fr) minmax(0, 0.7fr) minmax(0, 0.6fr);
     }
 }

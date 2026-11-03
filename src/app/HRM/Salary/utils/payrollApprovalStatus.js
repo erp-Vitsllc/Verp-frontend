@@ -20,18 +20,19 @@ export function payrollPendingForLabel(dmf) {
     return '';
 }
 
-/** Month process status: Pending → Pending for Accounts → Pending for HR → Pending for Management → Processed. */
+/** Month process status: Pending → Pending for HR → Pending for Management → Processed, or Rejected. */
 export function monthPayrollProcessStatusLabel(dmf) {
     const status = String(dmf?.status || '').toLowerCase();
     if (status === 'approved') return 'Processed';
     return payrollApprovalStatusLabel(dmf);
 }
 
-/** User-facing payroll status: Pending → Pending for Accounts → Pending for HR → Pending for Management → Approved. */
+/** User-facing payroll status: Pending → Pending for HR → Pending for Management → Approved, or Rejected. */
 export function payrollApprovalStatusLabel(dmf) {
     if (dmf?.statusLabel) return String(dmf.statusLabel);
     const status = String(dmf?.status || '').toLowerCase();
     if (status === 'approved') return 'Approved';
+    if (status === 'rejected') return 'Rejected';
     if (status === 'pending') {
         const who = payrollPendingForLabel(dmf);
         return who ? `Pending for ${who}` : 'Pending';

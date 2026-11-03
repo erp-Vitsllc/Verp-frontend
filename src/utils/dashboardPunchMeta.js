@@ -75,6 +75,8 @@ function geoFailureMessage(err) {
     return LOCATION_REQUIRED_MESSAGE;
 }
 
+const LAST_COORDS_KEY = 'verp_browser_location';
+
 function coordsFromPosition(pos) {
     const c = pos?.coords;
     if (!c) return null;
@@ -87,6 +89,64 @@ function coordsFromPosition(pos) {
         longitude,
         ...(Number.isFinite(accuracy) ? { accuracy } : {}),
     };
+}
+
+function isPermissionDenied(err) {
+    const code = Number(err?.code);
+    return code === 1 || /denied|permission/i.test(String(err?.message || ''));
+}
+
+function geoErrorResult(err) {
+    return {
+        coords: null,
+        error: geoFailureMessage(err),
+        denied: isPermissionDenied(err),
+        timedOut: Number(err?.code) === 3 || /timeout/i.test(String(err?.message || '')),
+    };
+}
+
+/** Desktop Macs locate from Wi-Fi. iPadOS reports a Mac platform but has GPS. */
+function isMacDesktop() {
+    if (typeof navigator === 'undefined') return false;
+    const ua = String(navigator.userAgent || '');
+    if (/iPhone|iPad|iPod/i.test(ua)) return false;
+    const platform = String(navigator.userAgentData?.platform || navigator.platform || '');
+    if (Number(navigator.maxTouchPoints) > 1 && /Mac/i.test(platform)) return false;
+    return /Mac OS X|Macintosh/i.test(ua) || /^mac/i.test(platform);
+}
+
+function rememberBrowserCoords(coords) {
+    if (!coords || typeof sessionStorage === 'undefined') return;
+    try {
+        sessionStorage.setItem(LAST_COORDS_KEY, JSON.stringify({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            accuracy: coords.accuracy,
+            at: Date.now(),
+        }));
+    } catch {
+        // Private mode can reject storage. The live fix is still usable.
+    }
+}
+
+function cachedBrowserCoords(maxAgeMs) {
+    if (typeof sessionStorage === 'undefined') return null;
+    try {
+        const raw = JSON.parse(sessionStorage.getItem(LAST_COORDS_KEY) || 'null');
+        const latitude = Number(raw?.latitude);
+        const longitude = Number(raw?.longitude);
+        const at = Number(raw?.at);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(at)) return null;
+        if (Date.now() - at > maxAgeMs) return null;
+        const accuracy = Number(raw?.accuracy);
+        return {
+            latitude,
+            longitude,
+            ...(Number.isFinite(accuracy) ? { accuracy } : {}),
+        };
+    } catch {
+        return null;
+    }
 }
 
 async function requestNativeLocationAccess() {
@@ -121,7 +181,7 @@ async function readCapacitorLocation(timeoutMs, options = {}) {
         if (coords) return { coords, error: '' };
         return { coords: null, error: LOCATION_REQUIRED_MESSAGE };
     } catch (err) {
-        return { coords: null, error: geoFailureMessage(err) };
+        return geoErrorResult(err);
     }
 }
 
@@ -156,7 +216,7 @@ function readNavigatorLocation(timeoutMs, options = {}) {
             },
             (err) => {
                 clearTimeout(timer);
-                finish({ coords: null, error: geoFailureMessage(err) });
+                finish(geoErrorResult(err));
             },
             {
                 enableHighAccuracy: Boolean(options.enableHighAccuracy),
@@ -175,6 +235,7 @@ async function readBestPosition(timeoutMs, options) {
     return {
         coords: null,
         error: fromNative.error || fromBrowser.error || LOCATION_REQUIRED_MESSAGE,
+        denied: Boolean(fromNative.denied || fromBrowser.denied),
     };
 }
 
@@ -230,47 +291,173 @@ function hasCapacitorGeo() {
     return Boolean(typeof window !== 'undefined' && window.Capacitor?.Plugins?.Geolocation?.getCurrentPosition);
 }
 
-export async function requireBrowserLocation(timeoutMs = 20000) {
+/**
+ * Macs have no GPS chip. High-accuracy getCurrentPosition waits out the timeout,
+ * then Core Location returns "unavailable" — login sits there, then errors.
+ * watchPosition can ignore that transient error and take the Wi-Fi fix.
+ * Must be started inside the click. Safari drops the prompt after an await.
+ */
+function readMacLocation(timeoutMs, options = {}) {
+    return new Promise((resolve) => {
+        if (typeof navigator === 'undefined' || !navigator.geolocation) {
+            resolve({
+                coords: null,
+                error: 'Location is not available on this device. Turn on location, then try again.',
+            });
+            return;
+        }
+        const geo = navigator.geolocation;
+        if (!geo.watchPosition) {
+            resolve(readNavigatorLocation(timeoutMs, {
+                enableHighAccuracy: false,
+                maximumAge: options.maximumAge,
+            }));
+            return;
+        }
+        let settled = false;
+        let watchId = null;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            if (watchId != null) {
+                try { geo.clearWatch(watchId); } catch { /* already cleared */ }
+            }
+            resolve(value);
+        };
+        const timer = setTimeout(
+            () => finish(geoErrorResult({ code: 3 })),
+            timeoutMs + 400,
+        );
+        watchId = geo.watchPosition(
+            (pos) => {
+                clearTimeout(timer);
+                const coords = coordsFromPosition(pos);
+                finish(
+                    coords
+                        ? { coords, error: '' }
+                        : { coords: null, error: LOCATION_REQUIRED_MESSAGE },
+                );
+            },
+            (err) => {
+                // Code 2/3 are often a first blip before the Wi-Fi fix. Keep watching.
+                if (!isPermissionDenied(err)) return;
+                clearTimeout(timer);
+                finish(geoErrorResult(err));
+            },
+            {
+                enableHighAccuracy: false,
+                maximumAge: Number.isFinite(options.maximumAge) ? options.maximumAge : 0,
+            },
+        );
+    });
+}
+
+export async function requireBrowserLocation(timeoutMs = 20000, options = {}) {
+    const preferCached = options?.preferCached === true;
     const insecureHttp =
         isHttpPage() && typeof window !== 'undefined' && window.isSecureContext === false;
-    const networkTimeout = insecureHttp ? 3000 : Math.min(Math.max(timeoutMs, 8000), 15000);
-    const gpsTimeout = insecureHttp ? 3000 : timeoutMs;
+
+    if (preferCached) {
+        const recent = cachedBrowserCoords(2 * 60 * 1000);
+        if (recent) return recent;
+    }
+
+    if (isMacDesktop()) {
+        const budget = insecureHttp
+            ? 3000
+            : Math.min(Math.max(Number(timeoutMs) || 12000, 8000), 15000);
+        const macAge = preferCached ? 5 * 60 * 1000 : 60 * 1000;
+        // Start the browser watch before any await so Safari still shows the prompt.
+        const macFixPromise = readMacLocation(budget, { maximumAge: macAge });
+        if (hasCapacitorGeo()) {
+            await requestNativeLocationAccess();
+            const native = await readCapacitorLocation(budget, {
+                enableHighAccuracy: false,
+                maximumAge: macAge,
+            });
+            if (native.coords) {
+                rememberBrowserCoords(native.coords);
+                return native.coords;
+            }
+            if (native.denied) {
+                throw locationRequiredError(native.error || LOCATION_REQUIRED_MESSAGE);
+            }
+        }
+        const macFix = await macFixPromise;
+        if (macFix.coords) {
+            rememberBrowserCoords(macFix.coords);
+            return macFix.coords;
+        }
+        if (macFix.denied) {
+            throw locationRequiredError(macFix.error || LOCATION_REQUIRED_MESSAGE);
+        }
+        if (isHttpPage()) {
+            const fallback = await readHttpFallbackLocation();
+            if (fallback) return fallback;
+        }
+        if (preferCached) {
+            const stale = cachedBrowserCoords(30 * 60 * 1000);
+            if (stale) return stale;
+        }
+        throw locationRequiredError(macFix.error || LOCATION_REQUIRED_MESSAGE);
+    }
+
+    const networkTimeout = insecureHttp ? 3000 : Math.min(Math.max(timeoutMs, 8000), 12000);
+    const gpsTimeout = insecureHttp ? 3000 : Math.min(timeoutMs, preferCached ? 8000 : 15000);
 
     // Start GPS in this click. Safari/Mac drops the prompt if we await anything first.
     const firstTry = readNavigatorLocation(networkTimeout, {
         enableHighAccuracy: false,
-        maximumAge: 10 * 60 * 1000,
+        maximumAge: preferCached ? 5 * 60 * 1000 : 60 * 1000,
     });
 
     if (hasCapacitorGeo()) {
         await requestNativeLocationAccess();
         const native = await readCapacitorLocation(networkTimeout, {
             enableHighAccuracy: false,
-            maximumAge: 10 * 60 * 1000,
+            maximumAge: preferCached ? 5 * 60 * 1000 : 60 * 1000,
         });
-        if (native.coords) return native.coords;
+        if (native.coords) {
+            rememberBrowserCoords(native.coords);
+            return native.coords;
+        }
     }
 
     const network = await firstTry;
-    if (network.coords) return network.coords;
+    if (network.coords) {
+        rememberBrowserCoords(network.coords);
+        return network.coords;
+    }
+    if (network.denied) {
+        throw locationRequiredError(network.error || LOCATION_REQUIRED_MESSAGE);
+    }
 
     const gps = await readBestPosition(gpsTimeout, {
         enableHighAccuracy: true,
         maximumAge: 15000,
     });
-    if (gps.coords) return gps.coords;
+    if (gps.coords) {
+        rememberBrowserCoords(gps.coords);
+        return gps.coords;
+    }
 
     if (isHttpPage()) {
         const fallback = await readHttpFallbackLocation();
         if (fallback) return fallback;
     }
 
+    if (!gps.denied && preferCached) {
+        const stale = cachedBrowserCoords(30 * 60 * 1000);
+        if (stale) return stale;
+    }
+
     throw locationRequiredError(network.error || gps.error || LOCATION_REQUIRED_MESSAGE);
 }
 
 /** Call from a Turn On click so the browser/OS can show its system location prompt. */
-export async function promptSystemLocation() {
-    return requireBrowserLocation(45000);
+export async function promptSystemLocation(options) {
+    const preferCached = options?.preferCached === true;
+    return requireBrowserLocation(preferCached ? 12000 : 20000, { preferCached });
 }
 
 export async function readBrowserLocation(timeoutMs = 10000) {

@@ -36,8 +36,8 @@ function formatAed(value) {
 }
 
 const MONTH_ROW_GRID =
-    'grid w-full min-w-[760px] items-center gap-x-2 sm:gap-x-3 ' +
-    'grid-cols-[2.25rem_minmax(7.5rem,1.1fr)_minmax(6.5rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_3.25rem_4.25rem_minmax(7.5rem,1fr)]';
+    'grid w-full min-w-[880px] items-center gap-x-2 sm:gap-x-3 ' +
+    'grid-cols-[2.25rem_minmax(7.5rem,1.1fr)_minmax(6.5rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_3.25rem_4.25rem_minmax(6.5rem,0.9fr)_minmax(7.5rem,1fr)]';
 
 const COLUMNS = [
     { key: 'slNo', label: 'SL', className: 'text-left' },
@@ -49,6 +49,7 @@ const COLUMNS = [
     { key: 'ot', label: 'OT', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
     { key: 'deduction', label: 'Deduction', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
     { key: 'processStatus', label: 'Process', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
+    { key: 'paymentStatus', label: 'Payment', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
 ];
 const APPROVAL_COL_CLASS =
     'w-[10.5rem] shrink-0 px-1 text-[9px] font-semibold tracking-normal text-gray-600';
@@ -380,7 +381,7 @@ function SalaryPageContent() {
                         ) : null}
 
                         <div className="w-full max-w-full overflow-x-auto">
-                            <div className="min-w-[760px]">
+                            <div className="min-w-[880px]">
                                 <div className="flex items-center">
                                     <div className={`${MONTH_ROW_GRID} min-w-0 flex-1 px-3 sm:px-4 py-2 text-gray-700`}>
                                     {COLUMNS.map((col) => (
@@ -490,6 +491,18 @@ function SalaryPageContent() {
                                                         }
                                                     >
                                                         {row.processStatus || 'Pending'}
+                                                    </span>
+                                                    <span
+                                                        title={row.paymentStatus || 'Not paid'}
+                                                        className={
+                                                            row.paymentStatus === 'Paid'
+                                                                ? 'text-[11px] font-semibold text-emerald-700'
+                                                                : row.paymentStatus === 'Partially paid'
+                                                                  ? 'text-[11px] font-semibold text-amber-700'
+                                                                  : 'text-[11px] font-semibold text-slate-500'
+                                                        }
+                                                    >
+                                                        {row.paymentStatus || 'Not paid'}
                                                     </span>
                                                 </NavButton>
                                                 {showApprovalCol ? (
