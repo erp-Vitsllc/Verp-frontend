@@ -64,7 +64,7 @@ function locationRequiredError(message) {
 function geoFailureMessage(err) {
     const code = Number(err?.code);
     if (code === 1 || /denied|permission/i.test(String(err?.message || ''))) {
-        return 'Location is blocked for this site. Tap Turn On and allow location on the system prompt.';
+        return 'Location can be on while this site is still blocked. Click the lock icon in the address bar, set Location to Allow, then tap Turn On.';
     }
     if (code === 2) {
         return 'Could not read your location. Turn on location services, then tap Turn On.';
@@ -227,6 +227,45 @@ function readNavigatorLocation(timeoutMs, options = {}) {
     });
 }
 
+async function geolocationPermissionState() {
+    try {
+        if (typeof navigator === 'undefined' || !navigator.permissions?.query) return '';
+        const status = await navigator.permissions.query({ name: 'geolocation' });
+        return String(status?.state || '');
+    } catch {
+        return '';
+    }
+}
+
+/** Site permission can already be Allow while the first GPS read still fails. */
+async function coordsIfAlreadyAllowed(timeoutMs) {
+    const state = await geolocationPermissionState();
+    if (state !== 'granted' && state !== 'prompt') return { state, coords: null };
+    const cached = state === 'granted' ? cachedBrowserCoords(30 * 60 * 1000) : null;
+    if (cached) return { state, coords: cached };
+    const again = await readNavigatorLocation(Math.min(timeoutMs, 12000), {
+        enableHighAccuracy: false,
+        maximumAge: state === 'granted' ? 10 * 60 * 1000 : 0,
+    });
+    if (again.coords) return { state, coords: again.coords };
+    if (state === 'granted') {
+        const watched = await readMacLocation(Math.min(timeoutMs, 12000), { maximumAge: 60000 });
+        if (watched.coords) return { state, coords: watched.coords };
+    }
+    return { state, coords: null };
+}
+
+async function finishDenied(failure, timeoutMs) {
+    const retry = await coordsIfAlreadyAllowed(timeoutMs);
+    if (retry.coords) return retry.coords;
+    if (retry.state === 'granted' || retry.state === 'prompt') {
+        throw locationRequiredError(
+            'Location is already on. Tap Turn On again and wait for the position. Choose Allow if the browser asks.',
+        );
+    }
+    throw locationRequiredError(failure?.error || LOCATION_REQUIRED_MESSAGE);
+}
+
 async function readBestPosition(timeoutMs, options) {
     const fromNative = await readCapacitorLocation(timeoutMs, options);
     if (fromNative.coords) return fromNative;
@@ -380,7 +419,9 @@ export async function requireBrowserLocation(timeoutMs = 20000, options = {}) {
                 return native.coords;
             }
             if (native.denied) {
-                throw locationRequiredError(native.error || LOCATION_REQUIRED_MESSAGE);
+                const recovered = await finishDenied(native, budget);
+                rememberBrowserCoords(recovered);
+                return recovered;
             }
         }
         const macFix = await macFixPromise;
@@ -389,7 +430,9 @@ export async function requireBrowserLocation(timeoutMs = 20000, options = {}) {
             return macFix.coords;
         }
         if (macFix.denied) {
-            throw locationRequiredError(macFix.error || LOCATION_REQUIRED_MESSAGE);
+            const recovered = await finishDenied(macFix, budget);
+            rememberBrowserCoords(recovered);
+            return recovered;
         }
         if (isHttpPage()) {
             const fallback = await readHttpFallbackLocation();
@@ -429,7 +472,9 @@ export async function requireBrowserLocation(timeoutMs = 20000, options = {}) {
         return network.coords;
     }
     if (network.denied) {
-        throw locationRequiredError(network.error || LOCATION_REQUIRED_MESSAGE);
+        const recovered = await finishDenied(network, timeoutMs);
+        rememberBrowserCoords(recovered);
+        return recovered;
     }
 
     const gps = await readBestPosition(gpsTimeout, {
@@ -449,6 +494,12 @@ export async function requireBrowserLocation(timeoutMs = 20000, options = {}) {
     if (!gps.denied && preferCached) {
         const stale = cachedBrowserCoords(30 * 60 * 1000);
         if (stale) return stale;
+    }
+
+    if (gps.denied) {
+        const recovered = await finishDenied(gps, timeoutMs);
+        rememberBrowserCoords(recovered);
+        return recovered;
     }
 
     throw locationRequiredError(network.error || gps.error || LOCATION_REQUIRED_MESSAGE);
