@@ -311,13 +311,32 @@ function emptyInfo() {
 }
 
 /**
+ * Chosen hours on an authorized leave, as a share of one day.
+ * 0 means the day is paid. Null means the leave still uses the policy.
+ */
+export function explicitAuthorizedHourShare(row) {
+    if (!row || String(row.statusKey || '') !== 'authorized_leave') return null;
+    const mode = String(row.hourAdjustMode || '').trim();
+    if (mode !== 'authorized' && mode !== 'custom') return null;
+    if (String(row.hourAdjustStatus || '') !== 'approved') return null;
+    const approved = Number(row.hoursApproved);
+    const taken = Number(row.hoursTaken);
+    const hours = Number.isFinite(approved) && approved > 0 ? approved : 0;
+    const dayHours = Number.isFinite(taken) && taken > 0 ? taken : 0;
+    if (!(hours > 0)) return 0;
+    if (!(dayHours > 0)) return 1;
+    return hours / dayHours;
+}
+
+/**
  * A zero-hour approval restores a late, early, or missed punch.
- * Authorized leave stays a leave day and still deducts, even when that approval stored 0 hours.
+ * Authorized leave stays unpaid unless the chosen hours are 0.
+ * An explicit deduction waive pays the day, including authorized leave.
  */
 export function hourApprovalRestoresPay(row) {
     if (!row) return false;
-    if (String(row.statusKey || '') === 'authorized_leave') return false;
     if (row.deductionWaived === true) return true;
+    if (String(row.statusKey || '') === 'authorized_leave') return explicitAuthorizedHourShare(row) === 0;
     return String(row.hourAdjustStatus || '') === 'approved' && !(Number(row.hoursApproved) > 0);
 }
 
@@ -329,12 +348,12 @@ function deductionForgiven(row) {
 /**
  * A green present day, including one whose deduction was waived.
  * It is not a short day, so the missing hours are not deducted.
- * Authorized leave is never paid as a present day.
+ * Authorized leave is paid only when that deduction was waived.
  */
 function isPaidPresentDay(day) {
     if (!day || day.synthetic) return false;
-    if (String(day.statusKey || '') === 'authorized_leave') return false;
     if (day.forgiven) return true;
+    if (String(day.statusKey || '') === 'authorized_leave') return false;
     const key = String(day.statusKey || '');
     return key === 'on_office' || key === 'work_from_home';
 }

@@ -417,6 +417,29 @@ describe('weekly salary addition counts', () => {
         assert.match(result.workingDay.compOffTitle, /09-Oct-2026 is comp off/);
     });
 
+    it('pays authorized leave when the chosen hours and amount are zero', () => {
+        assert.equal(hourApprovalRestoresPay({
+            statusKey: 'authorized_leave',
+            hourAdjustStatus: 'approved',
+            hourAdjustMode: 'custom',
+            hoursApproved: 0,
+            hoursTaken: 8,
+        }), true);
+        const records = [
+            {
+                date: '2026-10-06',
+                statusKey: 'authorized_leave',
+                hourAdjustStatus: 'approved',
+                hourAdjustMode: 'custom',
+                hoursApproved: 0,
+                hoursTaken: 8,
+            },
+        ];
+        const result = report(weeks[1], records, { countTo: '2026-10-09', flexible: false });
+        assert.equal(result.workingDay.worked, 1);
+        assert.equal(result.balancePay.workedRows.some((row) => row.date === '2026-10-06'), true);
+    });
+
     it('does not pay authorized leave when the hour approval stored zero hours', () => {
         assert.equal(hourApprovalRestoresPay({
             statusKey: 'authorized_leave',
@@ -443,6 +466,34 @@ describe('weekly salary addition counts', () => {
         const result = report(weeks[1], records, { countTo: '2026-10-09', flexible: false });
         assert.equal(result.workingDay.worked, 1);
         assert.equal(result.balancePay.workedRows.some((row) => row.date === '2026-10-06'), false);
+    });
+
+    it('pays a waived deduction as a full day and does not keep the hour loss', () => {
+        assert.equal(hourApprovalRestoresPay({
+            statusKey: 'authorized_leave',
+            deductionWaived: true,
+            hourAdjustStatus: 'approved',
+            hoursApproved: 0,
+        }), true);
+        const records = [
+            {
+                date: '2026-10-06',
+                statusKey: 'authorized_leave',
+                deductionWaived: true,
+            },
+            {
+                date: '2026-10-07',
+                statusKey: 'late_arrived',
+                timeIn: '10:00',
+                timeOut: '16:00',
+                deductionWaived: true,
+            },
+        ];
+        const result = report(weeks[1], records, { countTo: '2026-10-09', flexible: false });
+        assert.equal(result.workingDay.worked, 2);
+        assert.equal(result.balancePay.workedRows.find((row) => row.date === '2026-10-06').hours, 8);
+        assert.equal(result.balancePay.workedRows.find((row) => row.date === '2026-10-07').hours, 8);
+        assert.equal(result.balancePay.gapHours, result.balancePay.requiredHours - 16);
     });
 
     it('leaves both leave days in the balance when one of them is comp off', () => {

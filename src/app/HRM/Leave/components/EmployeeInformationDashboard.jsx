@@ -67,6 +67,7 @@ import {
     workedOffDay,
     earnsOffDayPay,
     hourApprovalRestoresPay,
+    explicitAuthorizedHourShare,
 } from '../utils/weeklySalaryAddition';
 import { dayApprovalLabel } from '../utils/dayApprovalLabel';
 import { employeePendingRequests } from '../utils/pendingCalendarDays';
@@ -1349,6 +1350,13 @@ function chargedDeductionHours(record, week, policy) {
         return hourDeductionParts(record, week, key, unauthTimes).hours;
     }
     if (key === 'on_leave') return dayHoursOf(week, record?.date) || 0;
+    if (key === 'authorized_leave') {
+        const share = explicitAuthorizedHourShare(record);
+        if (share != null) {
+            const dayHours = n(record.hoursTaken) || dayHoursOf(week, record?.date) || 8;
+            return share * dayHours;
+        }
+    }
     if (key === 'unauthorized_leave' && String(record?.hourAdjustStatus || '') === 'approved') {
         return hourDeductionParts(record, week, key, 1).hours;
     }
@@ -1395,6 +1403,10 @@ function attendanceDeductionAmount(record, week, daily, policy, mispunchAmounts)
     }
     if (key === 'on_leave') {
         return money2(Number(daily) || 0);
+    }
+    if (key === 'authorized_leave') {
+        const share = explicitAuthorizedHourShare(record);
+        if (share != null) return money2(share * (Number(daily) || 0));
     }
     if (key === 'unauthorized_leave' && String(record?.hourAdjustStatus || '') === 'approved') {
         return hourDeductionAmount(record, week, daily, key, 1);
@@ -1713,7 +1725,7 @@ function requestApproved(record) {
     );
 }
 
-/** Waive, or a zero-hour punch approval, restores the day. Authorized leave is not restored. */
+/** Waive, or a zero-hour punch approval, restores the day. Authorized leave is restored only when its chosen hours are 0. */
 function hoursForgiven(record) {
     return hourApprovalRestoresPay(record);
 }
@@ -1722,14 +1734,16 @@ function dayKind(record, { isFuture, isToday, isHoliday, isWeeklyOff }) {
     const key = String(record?.statusKey || '');
     if (key === 'suspended' || record?.attendanceSuspended) return 'suspended';
     if (key === 'sick_leave') return 'sick';
-    if (key === 'authorized_leave') return 'authorized';
+    if (key === 'authorized_leave' && record?.deductionWaived !== true && explicitAuthorizedHourShare(record) !== 0) {
+        return 'authorized';
+    }
     if (key === 'on_leave') return 'annual';
     if (key === 'compoff_leave') return 'compoff';
     // A punch alone keeps the holiday or weekly-off colour. Approved overtime pay
     // turns the cell green in the calendar. Comp off does not.
     if (key === 'holiday' || isHoliday) return 'holiday';
     if (key === 'weekly_off' || isWeeklyOff) return 'weekend';
-    // A waived late, early, or missed punch is paid, so the day is green.
+    // Waived time and a waived deduction are paid, so the day is green.
     if (hoursForgiven(record)) return 'present';
     // A future day stays blank until leave is approved. Unauthorized leave is only a past day.
     const unapprovedFuture = Boolean(isFuture) && !requestApproved(record);
@@ -2184,8 +2198,9 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
     ));
     // A late, early, or missed punch with nothing deducted is a present day.
     const clearPunchCharge = payKind === 'attention' && !(punchChargeHours > 0) && !(punchChargeAmount > 0);
-    const cellKind = offDayOtHours > 0 || clearPunchCharge ? 'present' : payKind;
-    const tipTone = offDayOtHours > 0 || clearPunchCharge
+    const paidAuthorizedDay = explicitAuthorizedHourShare(record) === 0;
+    const cellKind = offDayOtHours > 0 || clearPunchCharge || paidAuthorizedDay ? 'present' : payKind;
+    const tipTone = offDayOtHours > 0 || clearPunchCharge || paidAuthorizedDay
         ? TIP_TONE.present
         : (sandwichKind ? TIP_TONE[sandwichKind] : tone);
     if (cellKind === 'present' && sideMode === 'deduction' && !deductionWaived) {
@@ -2195,6 +2210,9 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
             ? null
             : money2(workedAmount + sideAmount);
     }
+    const earnedOnCell = paidAuthorizedDay && cellKind === 'present' && workedAmount > 0
+        ? formatAedNumber(workedAmount)
+        : '';
     const statusMark = cellTag === 'OT' || sideMode === 'ot'
         ? 'OT'
         : (cellTag === 'COMPOFF' || compOffDay) && !/comp\s*off/i.test(typeLabel)
@@ -2265,13 +2283,18 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
             <div
                 onDoubleClick={openMarkPage}
                 className={`${compact
-                ? `flex w-full flex-col items-center justify-center rounded-[7px] text-[11px] font-semibold tabular-nums leading-none ${cellTag ? 'h-9' : 'h-8'}`
+                ? `flex w-full flex-col items-center justify-center rounded-[7px] text-[11px] font-semibold tabular-nums leading-none ${cellTag || earnedOnCell ? 'h-10' : 'h-8'}`
                 : 'flex min-h-12 w-full flex-col items-center justify-center rounded-[9px] px-0.5 py-1 text-[13px] font-semibold tabular-nums leading-none'
             } ${DAY_STYLE[cellKind] || DAY_STYLE.empty}${requestPending ? ' attendance-request-blink' : ''}`}>
                 <span>{format(day, 'd')}</span>
                 {cellTag ? (
                     <span className={`text-center font-bold leading-none ${compact ? 'mt-px text-[6px] tracking-tight' : 'mt-0.5 text-[8px] leading-tight'} ${adjInk(cellKind)}`}>
                         {cellTag}
+                    </span>
+                ) : null}
+                {earnedOnCell ? (
+                    <span className={`max-w-full truncate text-center font-bold leading-none ${compact ? 'mt-px text-[6px]' : 'mt-0.5 text-[8px]'}`}>
+                        {earnedOnCell}
                     </span>
                 ) : null}
             </div>
@@ -3917,6 +3940,11 @@ export default function EmployeeInformationDashboard({
                 return;
             }
             if (key === 'authorized_leave') {
+                const share = explicitAuthorizedHourShare(row);
+                if (share != null) {
+                    authorizedHours += share * (n(row.hoursTaken) || hourCap(date));
+                    return;
+                }
                 const times = policy.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
                 authorizedHours += leaveDayWeight(row, true) * times * hourCap(date);
                 return;
@@ -3998,9 +4026,12 @@ export default function EmployeeInformationDashboard({
         const authDays = money2(deductionSource.reduce((sum, row) => {
             if (deductionKind(row) !== 'authorized_leave') return sum;
             if (row?.deductionWaived === true) return sum;
-            return sum + leaveDayWeight(row, true);
+            const share = explicitAuthorizedHourShare(row);
+            const weight = leaveDayWeight(row, true);
+            return sum + (share != null ? share * weight : weight);
         }, 0));
         const unauthDays = money2(deductionSource.reduce((sum, row) => {
+            if (row?.deductionWaived === true) return sum;
             const key = deductionKind(row);
             if (key === 'unauthorized_leave') return sum + leaveDayWeight(row, false);
             const punched = Boolean(String(row?.timeIn || '').trim() || String(row?.timeOut || '').trim());
@@ -4010,6 +4041,7 @@ export default function EmployeeInformationDashboard({
         const authTimes = policy.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
         const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
         const punchShare = (row, kind) => {
+            if (row?.deductionWaived === true) return 0;
             const key = deductionKind(row);
             if (key !== 'late_arrived' && key !== 'early_go') return 0;
             if (isFlexibleWeek(scheduleWeek)) return key === kind ? 1 : 0;

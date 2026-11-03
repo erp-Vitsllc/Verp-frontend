@@ -2475,7 +2475,7 @@ export default function MarkAttendanceTable({
         if (payload?.markKey === 'clear_attendance' && !isFlowchartHr) return;
         const idSet = new Set(ids);
         if (idSet.size === 0) return;
-        const { markKey, markLabel, timeIn, timeOut, reason, attachmentName, attachmentFile, leavePayType } = payload;
+        const { markKey, markLabel, timeIn, timeOut, reason, attachmentName, attachmentFile, leavePayType, hourAdjustMode, hoursApproved } = payload;
         const attachmentData = await new Promise((resolve) => {
             if (!attachmentFile) {
                 resolve('');
@@ -2501,6 +2501,12 @@ export default function MarkAttendanceTable({
                 attachmentName: attachmentName || '',
                 attachmentData: attachmentData || '',
                 leavePayType: leavePayType || '',
+                ...(markKey === 'authorized_leave'
+                    ? {
+                        hourAdjustMode: hourAdjustMode || 'authorized',
+                        hoursApproved,
+                    }
+                    : {}),
             }));
 
         setSaving(true);
@@ -3228,6 +3234,7 @@ export default function MarkAttendanceTable({
                 markKey={formState?.markKey}
                 markLabel={formState?.markLabel}
                 dateKey={dateKey}
+                scheduleWeek={scheduleWeek}
                 staffType={staffType}
                 holidayDates={holidayDates}
                 offWeekdays={offWeekdays}

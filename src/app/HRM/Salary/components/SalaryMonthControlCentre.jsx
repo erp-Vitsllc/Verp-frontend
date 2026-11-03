@@ -268,6 +268,23 @@ function employeeIdKey(value) {
     return String(value || '').trim().replace(/\s+/g, '').toUpperCase();
 }
 
+function salaryYearMonth(value) {
+    const match = String(value || '').trim().match(/^(\d{4}-\d{2})/);
+    return match ? match[1] : '';
+}
+
+/** Enrolled employees appear on a month only once salary processing has started. */
+function enrolledForSalaryMonth(emp, monthKey) {
+    if (!emp || emp.enrolled === false) return false;
+    if (emp.enrolledForMonth === false) return false;
+    if (emp.enrolledForMonth === true) return true;
+    const month = salaryYearMonth(monthKey);
+    if (!month) return false;
+    const start = salaryYearMonth(emp.processingStart) || salaryYearMonth(emp.fromMonth);
+    if (!start) return true;
+    return start <= month;
+}
+
 function companyKeyOf(emp) {
     const name = String(emp?.companyName || '').trim();
     if (!name || name === '—') return 'Unassigned';
@@ -326,12 +343,12 @@ function comparePayrollRow(a, b, key, dir, processedIds) {
     return mul * compareText(a?.name || a?.employeeId, b?.name || b?.employeeId);
 }
 
-function SortHeader({ label, column, sort, onSort }) {
+function SortHeader({ label, column, sort, onSort, align = 'start' }) {
     const active = sort?.key === column;
     return (
         <button
             type="button"
-            className={`spcc-sort${active ? ' is-on' : ''}`}
+            className={`spcc-sort${active ? ' is-on' : ''}${align === 'end' ? ' is-end' : ''}`}
             onClick={() => onSort(column)}
         >
             {label}
@@ -631,6 +648,9 @@ function SlotEditorModal({
         setRejectOpen(false);
     }, [editor?.id, editor?.status]);
     const companyName = String(editor?.companyName || '').trim();
+    const slotStatus = String(editor?.status || 'new');
+    // Draft and new slots are still being picked. Rejected slots go back to Accounts to change the pick.
+    const showAllEmployees = slotStatus === 'new' || slotStatus === 'draft' || slotStatus === 'rejected';
     const selected = useMemo(
         () => new Set((editor?.selectedIds || []).map((id) => String(id))),
         [editor?.selectedIds],
@@ -671,20 +691,21 @@ function SlotEditorModal({
             if (!sameCompany(companyKeyOf(emp), companyName)) return false;
             const id = String(emp.employeeId || '');
             if (!id) return false;
+            if (!showAllEmployees) return selected.has(id);
             if (selected.has(id)) return true;
             return !idIsClaimed(claimedKeys, id);
         });
         const typed =
             typeFilter === 'both'
                 ? list
-                : list.filter(
-                      (emp) =>
-                          employeePayMethod(emp) === typeFilter || selected.has(String(emp.employeeId || '')),
-                  );
+                : list.filter((emp) => {
+                      if (employeePayMethod(emp) === typeFilter) return true;
+                      return showAllEmployees && selected.has(String(emp.employeeId || ''));
+                  });
         return [...typed].sort((a, b) =>
             comparePaymentEmployee(a, b, sort.key === 'amount' ? 'amount' : 'name', sort.dir),
         );
-    }, [employees, companyName, claimedKeys, selected, typeFilter, sort]);
+    }, [employees, companyName, claimedKeys, selected, showAllEmployees, typeFilter, sort]);
 
     const selectableIds = rows
         .filter((emp) => {
@@ -743,32 +764,37 @@ function SlotEditorModal({
 
     const selectAllEnabled = canEdit && selectableIds.length > 0 && (Boolean(lockedType) || typeFilter !== 'both');
 
+    const slotTitle = editor.status === 'new' ? 'New slot' : `Slot ${editor.slot || ''}`;
+
     return (
         <section className="spcc-batch spcc-batch--modal">
-            <div className="spcc-batch__head">
-                <div>
-                    <p className="spcc-batch__kicker">{editor.status === 'new' ? 'New slot' : `Slot ${editor.slot || ''}`}</p>
+            <div className="spcc-slot-head">
+                <div className="spcc-slot-head__copy">
+                    <p className="spcc-batch__kicker">{slotTitle}</p>
                     <h3 id="spcc-pay-modal-title" className="spcc-batch__title">
-                        {companyName || 'Select company'}
+                        {companyName || 'Create salary slot'}
                     </h3>
                     {editor.status && editor.status !== 'new' ? (
                         <p className="spcc-batch__sub">{slotStatusLabel(editor.status)}</p>
-                    ) : null}
+                    ) : (
+                        <p className="spcc-batch__sub">Pick a company, then choose who is paid in this slot.</p>
+                    )}
                     {editor.rejectReason ? (
-                        <p className="spcc-batch__sub">Rejected: {editor.rejectReason}</p>
+                        <p className="spcc-batch__sub spcc-slot-reject">Rejected: {editor.rejectReason}</p>
                     ) : null}
                 </div>
-                <div className="spcc-batch__head-side">
-                    <span className="spcc-batch__checked-total">Total net salary {formatMoney(checkedTotal)}</span>
-                    <button type="button" className="spcc-batch__close" onClick={onClose} aria-label="Close">
-                        ×
-                    </button>
-                </div>
+                <button type="button" className="spcc-batch__close" onClick={onClose} aria-label="Close">
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                        <path d="M3 3l8 8M11 3l-8 8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                    </svg>
+                </button>
             </div>
 
             <div className="spcc-slot-switch" role="tablist" aria-label="Slot view">
                 <button
                     type="button"
+                    role="tab"
+                    aria-selected={panel === 'details'}
                     className={panel === 'details' ? 'is-on' : ''}
                     onClick={() => setPanel('details')}
                 >
@@ -776,6 +802,8 @@ function SlotEditorModal({
                 </button>
                 <button
                     type="button"
+                    role="tab"
+                    aria-selected={panel === 'workflow'}
                     className={panel === 'workflow' ? 'is-on' : ''}
                     onClick={() => setPanel('workflow')}
                 >
@@ -784,7 +812,7 @@ function SlotEditorModal({
             </div>
 
             {panel === 'workflow' ? (
-                <ol className="spcc-flow">
+                <ol className="spcc-flow spcc-flow--panel">
                     {workflow.map((step, index) => (
                         <li key={step.key} className={`spcc-flow__step is-${step.mark}`}>
                             <span className="spcc-flow__rail" aria-hidden="true">
@@ -802,193 +830,226 @@ function SlotEditorModal({
                     ))}
                 </ol>
             ) : (
-            <>
-            <div className="spcc-batch__toolbar">
-                <label className="spcc-slot-company">
-                    <span>Company</span>
-                    <select
-                        value={companyName}
-                        disabled={!canEdit}
-                        onChange={(event) => changeCompany(event.target.value)}
-                    >
-                        <option value="">Select company</option>
-                        {companies.map((name) => (
-                            <option key={name} value={name}>
-                                {name}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-            </div>
-
-            {companyName ? (
-                <div className="spcc-batch__list">
-                    <div className="spcc-batch__row spcc-batch__row--head">
-                        <input
-                            ref={allRef}
-                            type="checkbox"
-                            checked={allVisibleChecked}
-                            disabled={!selectAllEnabled}
-                            onChange={(event) => toggleAll(event.target.checked)}
-                            aria-label="Select employees"
-                        />
-                        <SortHeader
-                            label="Employee name"
-                            column="name"
-                            sort={sort}
-                            onSort={(column) => setSort((prev) => toggleSort(prev, column))}
-                        />
-                        <SortHeader
-                            label="Net salary"
-                            column="amount"
-                            sort={sort}
-                            onSort={(column) => setSort((prev) => toggleSort(prev, column))}
-                        />
+                <>
+                    <div className="spcc-slot-fields">
+                        <label className="spcc-slot-company">
+                            <span>Company</span>
+                            <select
+                                value={companyName}
+                                disabled={!canEdit}
+                                onChange={(event) => changeCompany(event.target.value)}
+                            >
+                                <option value="">Select company</option>
+                                {companies.map((name) => (
+                                    <option key={name} value={name}>
+                                        {name}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
                         <label className="spcc-slot-type">
                             <span>Salary type</span>
-                            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+                            <select
+                                value={typeFilter}
+                                disabled={!companyName}
+                                onChange={(event) => setTypeFilter(event.target.value)}
+                            >
                                 <option value="both">Both</option>
                                 <option value="WPS">WPS</option>
                                 <option value="Cash">Cash</option>
                             </select>
                         </label>
                     </div>
-                    {rows.length ? (
-                        rows.map((emp) => {
-                            const id = String(emp.employeeId || '');
-                            const method = employeePayMethod(emp);
-                            const checked = selected.has(id);
-                            const typeLocked = Boolean(lockedType) && method !== lockedType;
-                            const disabled = !canEdit || typeLocked || idIsClaimed(claimedKeys, id);
-                            return (
-                                <label
-                                    key={id}
-                                    className={`spcc-batch__row${disabled && !checked ? ' is-locked' : ''}${checked ? ' is-checked' : ''}`}
-                                    title={typeLocked ? `This slot is ${lockedType} only` : undefined}
-                                >
+                    {showAllEmployees && companyName && !lockedType && typeFilter === 'both' ? (
+                        <p className="spcc-slot-note">A slot uses one salary type. Filter to WPS or Cash to select every employee.</p>
+                    ) : null}
+                    {lockedType ? <p className="spcc-slot-note">This slot is {lockedType} only.</p> : null}
+
+                    <div className="spcc-batch__list">
+                        {companyName ? (
+                            <>
+                                <div className="spcc-batch__row spcc-batch__row--head">
                                     <input
+                                        ref={allRef}
                                         type="checkbox"
-                                        checked={checked}
-                                        disabled={disabled}
-                                        onChange={(event) => toggleOne(emp, event.target.checked)}
+                                        checked={allVisibleChecked}
+                                        disabled={!selectAllEnabled}
+                                        onChange={(event) => toggleAll(event.target.checked)}
+                                        aria-label="Select employees"
                                     />
-                                    <span>
-                                        <strong>{emp.name || id}</strong>
-                                        <em>{id}</em>
-                                    </span>
-                                    <span className="tabular-nums">{formatMoney(employeeAmount(emp))}</span>
-                                    <span>{method}</span>
-                                </label>
-                            );
-                        })
-                    ) : (
-                        <p className="spcc-pay-empty">No employees left for this company in this month.</p>
-                    )}
-                </div>
-            ) : (
-                <p className="spcc-pay-empty">Select a company to list its employees.</p>
-            )}
-            </>
+                                    <SortHeader
+                                        label="Employee"
+                                        column="name"
+                                        sort={sort}
+                                        onSort={(column) => setSort((prev) => toggleSort(prev, column))}
+                                    />
+                                    <SortHeader
+                                        label="Net salary"
+                                        column="amount"
+                                        sort={sort}
+                                        align="end"
+                                        onSort={(column) => setSort((prev) => toggleSort(prev, column))}
+                                    />
+                                    <span>Type</span>
+                                </div>
+                                {rows.length ? (
+                                    rows.map((emp) => {
+                                        const id = String(emp.employeeId || '');
+                                        const method = employeePayMethod(emp);
+                                        const checked = selected.has(id);
+                                        const typeLocked = Boolean(lockedType) && method !== lockedType;
+                                        const disabled = !canEdit || typeLocked || idIsClaimed(claimedKeys, id);
+                                        return (
+                                            <label
+                                                key={id}
+                                                className={`spcc-batch__row${disabled && !checked ? ' is-locked' : ''}${checked ? ' is-checked' : ''}`}
+                                                title={typeLocked ? `This slot is ${lockedType} only` : undefined}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked}
+                                                    disabled={disabled}
+                                                    onChange={(event) => toggleOne(emp, event.target.checked)}
+                                                />
+                                                <span className="spcc-slot-person">
+                                                    <strong>{emp.name || id}</strong>
+                                                    <em>{id}</em>
+                                                </span>
+                                                <span className="spcc-slot-amount tabular-nums">{formatMoney(employeeAmount(emp))}</span>
+                                                <span className={`spcc-type-pill${method === 'WPS' ? ' is-wps' : ' is-cash'}`}>{method}</span>
+                                            </label>
+                                        );
+                                    })
+                                ) : (
+                                    <p className="spcc-slot-empty">
+                                        {showAllEmployees
+                                            ? 'No employees left for this company in this month.'
+                                            : 'No employees in this slot.'}
+                                    </p>
+                                )}
+                            </>
+                        ) : (
+                            <div className="spcc-slot-empty">
+                                <strong>No company selected</strong>
+                                <span>Select a company to list its employees.</span>
+                            </div>
+                        )}
+                    </div>
+                </>
             )}
 
             <div className="spcc-batch__foot">
-                {canDecide ? (
-                    rejectOpen ? (
+                {canDecide && rejectOpen ? (
+                    <input
+                        className="spcc-slot-reason"
+                        value={rejectReason}
+                        onChange={(event) => setRejectReason(event.target.value)}
+                        placeholder="Rejection reason"
+                    />
+                ) : (
+                    <div className="spcc-slot-total">
+                        <span>Total net salary</span>
+                        <strong className="tabular-nums">{formatMoney(checkedTotal)}</strong>
+                        {selected.size ? (
+                            <em>
+                                {selected.size} employee{selected.size === 1 ? '' : 's'}
+                            </em>
+                        ) : null}
+                    </div>
+                )}
+                <div className="spcc-slot-actions">
+                    {canDecide ? (
+                        rejectOpen ? (
+                            <>
+                                <button type="button" className="spcc-btn spcc-btn--ghost" onClick={() => setRejectOpen(false)}>
+                                    Back
+                                </button>
+                                <button
+                                    type="button"
+                                    className="spcc-btn spcc-btn--reject"
+                                    disabled={saving || !rejectReason.trim()}
+                                    onClick={() => onReject(rejectReason.trim())}
+                                >
+                                    Reject
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onClose}>
+                                    Close
+                                </button>
+                                <button
+                                    type="button"
+                                    className="spcc-btn spcc-btn--reject"
+                                    disabled={saving}
+                                    onClick={() => setRejectOpen(true)}
+                                >
+                                    Reject
+                                </button>
+                                <button type="button" className="spcc-btn spcc-btn--approve" disabled={saving} onClick={onApprove}>
+                                    Approve
+                                </button>
+                            </>
+                        )
+                    ) : canEdit ? (
                         <>
-                            <input
-                                className="spcc-slot-reason"
-                                value={rejectReason}
-                                onChange={(event) => setRejectReason(event.target.value)}
-                                placeholder="Rejection reason"
-                            />
-                            <button type="button" className="spcc-btn spcc-btn--ghost" onClick={() => setRejectOpen(false)}>
-                                Back
+                            <button type="button" className="spcc-btn spcc-btn--ghost" disabled={saving} onClick={onCancelSlot}>
+                                Cancel
                             </button>
                             <button
                                 type="button"
-                                className="spcc-btn spcc-btn--reject"
-                                disabled={saving || !rejectReason.trim()}
-                                onClick={() => onReject(rejectReason.trim())}
+                                className="spcc-btn spcc-btn--ghost"
+                                disabled={saving || !companyName || !selected.size}
+                                onClick={onDraft}
                             >
-                                Reject
+                                Draft
+                            </button>
+                            <button
+                                type="button"
+                                className="spcc-btn spcc-btn--primary"
+                                disabled={saving || !companyName || !selected.size}
+                                onClick={onApply}
+                            >
+                                Apply
                             </button>
                         </>
-                    ) : (
+                    ) : canMarkWps ? (
                         <>
                             <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onClose}>
                                 Close
                             </button>
                             <button
                                 type="button"
-                                className="spcc-btn spcc-btn--reject"
+                                className="spcc-btn spcc-btn--primary"
                                 disabled={saving}
-                                onClick={() => setRejectOpen(true)}
+                                onClick={onWpsUpdated}
                             >
-                                Reject
-                            </button>
-                            <button type="button" className="spcc-btn spcc-btn--approve" disabled={saving} onClick={onApprove}>
-                                Approve
+                                WPS updated
                             </button>
                         </>
-                    )
-                ) : canEdit ? (
-                    <>
-                        <button type="button" className="spcc-btn spcc-btn--ghost" disabled={saving} onClick={onCancelSlot}>
-                            Cancel
-                        </button>
-                        <button
-                            type="button"
-                            className="spcc-btn spcc-btn--ghost"
-                            disabled={saving || !companyName || !selected.size}
-                            onClick={onDraft}
-                        >
-                            Draft
-                        </button>
-                        <button
-                            type="button"
-                            className="spcc-btn spcc-btn--primary"
-                            disabled={saving || !companyName || !selected.size}
-                            onClick={onApply}
-                        >
-                            Apply
-                        </button>
-                    </>
-                ) : canMarkWps ? (
-                    <>
+                    ) : canSetUpdated ? (
+                        <>
+                            <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onClose}>
+                                Close
+                            </button>
+                            <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onUpdateSalary}>
+                                Update salary
+                            </button>
+                            <button
+                                type="button"
+                                className="spcc-btn spcc-btn--approve"
+                                disabled={saving}
+                                onClick={onSetUpdated}
+                            >
+                                Set as updated
+                            </button>
+                        </>
+                    ) : (
                         <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onClose}>
                             Close
                         </button>
-                        <button
-                            type="button"
-                            className="spcc-btn spcc-btn--primary"
-                            disabled={saving}
-                            onClick={onWpsUpdated}
-                        >
-                            WPS updated
-                        </button>
-                    </>
-                ) : canSetUpdated ? (
-                    <>
-                        <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onClose}>
-                            Close
-                        </button>
-                        <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onUpdateSalary}>
-                            Update salary
-                        </button>
-                        <button
-                            type="button"
-                            className="spcc-btn spcc-btn--approve"
-                            disabled={saving}
-                            onClick={onSetUpdated}
-                        >
-                            Set as updated
-                        </button>
-                    </>
-                ) : (
-                    <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onClose}>
-                        Close
-                    </button>
-                )}
+                    )}
+                </div>
             </div>
         </section>
     );
@@ -1366,8 +1427,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             Number(overview.totalActive) ||
             locationCards.reduce((sum, loc) => sum + loc.totalActive, 0);
         const enrolledCount = Number(overview.enrolled) || Number(register?.enrolledCount) || 0;
-        const employees = (Array.isArray(overview.employees) ? overview.employees : []).filter(
-            (emp) => emp.enrolled,
+        const employees = (Array.isArray(overview.employees) ? overview.employees : []).filter((emp) =>
+            enrolledForSalaryMonth(emp, parsed.monthKey),
         );
         const pendingRequests = Array.isArray(overview.pendingRequests) ? overview.pendingRequests : [];
         const enrolledEmployees = employees.filter((emp) => emp.enrolled);
@@ -1664,7 +1725,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             if (key) monthById.set(key, emp);
         }
         return (derived.employees || [])
-            .filter((emp) => emp.enrolled !== false)
+            .filter((emp) => enrolledForSalaryMonth(emp, parsed?.monthKey))
             .filter((emp) => {
                 if (tab === ALL_TAB_KEY) return true;
                 if (tabMode === TAB_MODE_COMPANY) {
@@ -1698,16 +1759,17 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                     extra: employeeExtra({ ...emp, ...month }),
                 };
             });
-    }, [monthEmployees, tab, tabMode, derived.employees]);
+    }, [monthEmployees, tab, tabMode, derived.employees, parsed?.monthKey]);
 
     const paymentEmployees = useMemo(() => {
         const byId = new Map();
         for (const emp of monthEmployees) {
+            if (!enrolledForSalaryMonth(emp, parsed?.monthKey)) continue;
             const id = employeeIdKey(emp.employeeId);
             if (id) byId.set(id, emp);
         }
         for (const emp of derived.employees || []) {
-            if (emp.enrolled === false) continue;
+            if (!enrolledForSalaryMonth(emp, parsed?.monthKey)) continue;
             const id = employeeIdKey(emp.employeeId);
             if (!id) continue;
             const existing = byId.get(id);
@@ -1733,7 +1795,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             byId.set(id, next);
         }
         return [...byId.values()];
-    }, [monthEmployees, derived.employees]);
+    }, [monthEmployees, derived.employees, parsed?.monthKey]);
 
     const processedPaymentIds = useMemo(() => {
         const ids = new Set();
@@ -1773,8 +1835,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             return;
         }
         const enrolled = (derived.employees || []).filter(
-            (emp) => emp.enrolled !== false && employeeIdKey(emp.employeeId),
+            (emp) => enrolledForSalaryMonth(emp, parsed?.monthKey) && employeeIdKey(emp.employeeId),
         );
+        if (!enrolled.length) return;
         const held = new Set();
         for (const batch of paymentBatches) {
             if (batch.status === 'cancelled') continue;
@@ -1820,7 +1883,12 @@ export default function SalaryMonthControlCentre({ monthKey }) {
 
     async function saveSlot(action, extra = {}) {
         if (!parsed?.monthKey || !slotEditor || savingPayment) return;
-        const selectedIds = slotEditor.selectedIds || [];
+        const allowedIds = new Set(
+            (paymentEmployees || []).map((emp) => String(emp.employeeId || '')).filter(Boolean),
+        );
+        const selectedIds = (slotEditor.selectedIds || [])
+            .map((id) => String(id || ''))
+            .filter((id) => allowedIds.has(id));
         if ((action === 'draft' || action === 'apply') && (!slotEditor.companyName || !selectedIds.length)) return;
         setSavingPayment(true);
         try {
@@ -2061,7 +2129,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const canCreateSlot = Boolean(monthDmf?.canCreateSlot);
     const canUseApproverActions = canStartMonthApproval || canActOnMonthApproval;
     const everyEmployeeReady = useMemo(() => {
-        const enrolled = (derived.employees || []).filter((emp) => emp.enrolled !== false);
+        const enrolled = (derived.employees || []).filter((emp) =>
+            enrolledForSalaryMonth(emp, parsed?.monthKey),
+        );
         if (!enrolled.length) return false;
         const pendingIds = new Set(
             (Array.isArray(derived.pendingRequests) ? derived.pendingRequests : [])
@@ -2073,7 +2143,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             const id = employeeIdKey(emp.employeeId);
             return Boolean(id) && !pendingIds.has(id) && !processedIds.has(id);
         });
-    }, [derived.employees, derived.pendingRequests, processedPaymentIds]);
+    }, [derived.employees, derived.pendingRequests, processedPaymentIds, parsed?.monthKey]);
     const monthPayrollReady = everyEmployeeReady;
     const showAccountsSubmit =
         canStartMonthApproval && everyEmployeeReady && readinessChecks.percent === 100;
@@ -2093,12 +2163,11 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         return ids;
     }, [paymentBatches]);
     const enrolledForSlots = (derived.employees || []).filter(
-        (emp) => emp.enrolled !== false && employeeIdKey(emp.employeeId),
+        (emp) => enrolledForSalaryMonth(emp, parsed?.monthKey) && employeeIdKey(emp.employeeId),
     );
-    const allEnrolledInSlots =
-        enrolledForSlots.length > 0 &&
-        enrolledForSlots.every((emp) => heldEmployeeKeys.has(employeeIdKey(emp.employeeId)));
-    const canProcessPayment = canCreateSlot && !allEnrolledInSlots;
+    const canOpenNewSlot =
+        canCreateSlot &&
+        enrolledForSlots.some((emp) => !heldEmployeeKeys.has(employeeIdKey(emp.employeeId)));
     const nextSlotNo = (salarySlots[salarySlots.length - 1]?.slot || 0) + 1;
     const headerSlots = salarySlots;
     const activeSlotData = headerSlots.find((item) => item.slot === activeSlot) || headerSlots[0];
@@ -2162,16 +2231,12 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             Submit
                         </button>
                     ) : null}
-                    {canCreateSlot ? (
+                    {canOpenNewSlot ? (
                         <button
                             type="button"
                             className="spcc-btn spcc-btn--primary"
-                            disabled={loading || savingPayment || allEnrolledInSlots}
-                            title={
-                                allEnrolledInSlots
-                                    ? 'Every enrolled employee is already in a slot for this month.'
-                                    : 'Create a salary slot'
-                            }
+                            disabled={loading || savingPayment}
+                            title="Create a salary slot"
                             onClick={openNewSlot}
                         >
                             Create slot
@@ -2679,17 +2744,17 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                 onSelect={openSavedSlot}
                             />
                         ))}
-                        {canCreateSlot ? (
+                        {canOpenNewSlot ? (
                             <button
                                 type="button"
-                                className={`spcc-pay-add${allEnrolledInSlots ? ' is-locked' : ''}`}
-                                disabled={allEnrolledInSlots || savingPayment}
+                                className="spcc-pay-add"
+                                disabled={savingPayment}
                                 onClick={openNewSlot}
                             >
                                 <span className="spcc-pay-add__kicker">Next</span>
                                 <span className="spcc-pay-add__title">Slot {nextSlotNo}</span>
                                 <span className="spcc-btn spcc-btn--primary spcc-pay-add__btn">
-                                    {allEnrolledInSlots ? 'All employees slotted' : 'Create slot'}
+                                    Create slot
                                 </span>
                             </button>
                         ) : !dmfApproved ? (

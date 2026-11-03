@@ -18,6 +18,29 @@ const WEEKDAY_KEYS = [
     'saturday',
 ];
 
+function roundMarkHours(value) {
+    const hours = Number(value);
+    if (!Number.isFinite(hours) || hours < 0) return 0;
+    return Math.round(hours * 1e6) / 1e6;
+}
+
+function dayHoursForMark(week, dateKey) {
+    if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return 8;
+    const day = week[WEEKDAY_KEYS[new Date(`${dateKey}T12:00:00Z`).getUTCDay()]];
+    if (!day || day.isOffDay) return 8;
+    const hours = Number(day.workingHours);
+    if (Number.isFinite(hours) && hours > 0) return Math.min(24, hours);
+    const weekHours = Number(week.hoursPerDay);
+    if (Number.isFinite(weekHours) && weekHours > 0) return Math.min(24, weekHours);
+    return 8;
+}
+
+function hourLabel(hours) {
+    const value = roundMarkHours(hours);
+    const text = Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
+    return `${text} hr`;
+}
+
 /** Field rules per mark type. */
 export function getMarkFormConfig(markKey, { flowchartHr = false } = {}) {
     if (markKey === 'work_from_home' || markKey === 'on_office') {
@@ -145,6 +168,7 @@ export default function MarkAttendanceDetailsModal({
     markKey,
     markLabel,
     dateKey = '',
+    scheduleWeek = null,
     staffType = 'office',
     holidayDates = [],
     offWeekdays = [],
@@ -157,6 +181,8 @@ export default function MarkAttendanceDetailsModal({
     const [timeIn, setTimeIn] = useState('');
     const [timeOut, setTimeOut] = useState('');
     const [reason, setReason] = useState('');
+    const [approvalMode, setApprovalMode] = useState('authorized');
+    const [approvedHours, setApprovedHours] = useState('');
     const [attachment, setAttachment] = useState(null);
     const [leaveSpan, setLeaveSpan] = useState('single');
     const [fromDate, setFromDate] = useState('');
@@ -178,6 +204,8 @@ export default function MarkAttendanceDetailsModal({
         let cancelled = false;
 
         setReason('');
+        setApprovalMode('authorized');
+        setApprovedHours('');
         setAttachment(null);
         setLeaveSpan('single');
         setFromDate(dateKey || '');
@@ -299,6 +327,21 @@ export default function MarkAttendanceDetailsModal({
             setError('Reason is required.');
             return;
         }
+        const dayHours = dayHoursForMark(scheduleWeek, dateKey);
+        const maxHours = roundMarkHours(dayHours * 2);
+        let chosenHours = dayHours;
+        if (markKey === 'authorized_leave' && approvalMode === 'custom') {
+            const typed = String(approvedHours ?? '').trim();
+            if (typed !== '' && !/^\d+(\.\d{1,2})?$/.test(typed)) {
+                setError(`Enter hours from 0 up to ${hourLabel(maxHours)}.`);
+                return;
+            }
+            chosenHours = roundMarkHours(typed === '' ? 0 : typed);
+            if (chosenHours > maxHours + 0.001) {
+                setError(`Enter hours from 0 up to ${hourLabel(maxHours)}.`);
+                return;
+            }
+        }
         onSave?.({
             markKey,
             markLabel,
@@ -308,8 +351,23 @@ export default function MarkAttendanceDetailsModal({
             attachmentName: attachment?.name || '',
             attachmentFile: attachment || null,
             leavePayType: '',
+            ...(markKey === 'authorized_leave'
+                ? {
+                    hourAdjustMode: approvalMode,
+                    hoursApproved: approvalMode === 'authorized' ? dayHours : chosenHours,
+                    hoursTaken: dayHours,
+                    hoursMax: maxHours,
+                }
+                : {}),
         });
     };
+
+    const dayHours = dayHoursForMark(scheduleWeek, dateKey);
+    const maxHours = roundMarkHours(dayHours * 2);
+    const chosenHours = markKey === 'authorized_leave' && approvalMode === 'custom'
+        ? roundMarkHours(approvedHours)
+        : dayHours;
+    const deductionDays = dayHours > 0 ? chosenHours / dayHours : 0;
 
     const subtitle = isBulk
         ? `Applying to ${bulkCount} selected employees`
@@ -383,6 +441,71 @@ export default function MarkAttendanceDetailsModal({
                         <p className="text-xs text-gray-500">
                             Reason and attachment are required for this day. This goes to the primary reportee, then HR.
                         </p>
+                    ) : null}
+
+                    {markKey === 'authorized_leave' ? (
+                        <div className="space-y-3">
+                            <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Day salary hours</span>
+                                    <span className="font-semibold text-gray-900">{hourLabel(dayHours)}</span>
+                                </div>
+                                <div className="mt-1 flex items-center justify-between gap-3">
+                                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Unauthorized maximum</span>
+                                    <span className="font-semibold text-gray-900">{hourLabel(maxHours)}</span>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setApprovalMode('authorized')}
+                                    className={`rounded-lg border px-3 py-2 text-sm font-semibold ${approvalMode === 'authorized' ? 'border-[#EA3D2F] bg-red-50 text-[#EA3D2F]' : 'border-gray-200 text-gray-600'}`}
+                                >
+                                    Authorize
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setApprovalMode('custom');
+                                        setApprovedHours((current) => (String(current).trim() === '' ? String(dayHours) : current));
+                                    }}
+                                    className={`rounded-lg border px-3 py-2 text-sm font-semibold ${approvalMode === 'custom' ? 'border-[#EA3D2F] bg-red-50 text-[#EA3D2F]' : 'border-gray-200 text-gray-600'}`}
+                                >
+                                    Custom
+                                </button>
+                            </div>
+                            {approvalMode === 'custom' ? (
+                                <label className="block">
+                                    <span className="block text-xs font-semibold text-gray-600 mb-1.5">
+                                        Hours
+                                        <span className="font-normal text-gray-400"> (0 to {hourLabel(maxHours)})</span>
+                                    </span>
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        min="0"
+                                        max={maxHours}
+                                        step="0.01"
+                                        value={approvedHours}
+                                        onChange={(event) => {
+                                            const next = event.target.value;
+                                            if (next !== '' && !/^\d*\.?\d{0,2}$/.test(next)) return;
+                                            setApprovedHours(next);
+                                        }}
+                                        className="w-full h-10 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#EA3D2F]/25 focus:border-[#EA3D2F]"
+                                    />
+                                </label>
+                            ) : (
+                                <p className="text-sm text-gray-600">
+                                    Deducts one day of salary ({hourLabel(dayHours)}).
+                                </p>
+                            )}
+                            <p className="text-sm text-gray-600">
+                                {deductionDays > 0
+                                    ? `Deduction amount follows the hours: ${deductionDays === 1 ? '1 day' : `${Math.round(deductionDays * 100) / 100} days`} of salary.`
+                                    : 'Hours and amount are 0, so nothing is deducted. The calendar shows this day in green with the salary for the day.'}
+                            </p>
+                        </div>
                     ) : null}
 
                     {config.showReason ? (

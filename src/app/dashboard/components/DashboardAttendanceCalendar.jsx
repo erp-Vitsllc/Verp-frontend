@@ -340,6 +340,20 @@ function firstEligibleAdvanceRequestDate(todayKey, holidayDates, offWeekdays) {
     return null;
 }
 
+const WAIVED_PRESENT_KEYS = new Set([
+    'authorized_leave',
+    'unauthorized_leave',
+    'late_arrived',
+    'early_go',
+    'mispunch',
+    'not_marked',
+    'absent',
+]);
+
+function waivedDayShowsPresent(record) {
+    return WAIVED_PRESENT_KEYS.has(String(record?.statusKey || '').trim());
+}
+
 function isApprovedFutureLateEarly(record) {
     const kind = String(record?.leaveRequestKind || '');
     const approved =
@@ -376,6 +390,9 @@ function dayTone({
             cell: TONE.holiday,
             label: why ? `Holiday — ${why}` : 'Holiday',
         };
+    }
+    if (record?.deductionWaived === true && waivedDayShowsPresent(record)) {
+        return { cell: TONE.present, label: 'Present' };
     }
     if (record && AUTHORIZED_LEAVE_KEYS.has(record.statusKey)) {
         return {
