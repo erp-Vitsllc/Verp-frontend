@@ -258,6 +258,8 @@ async function coordsIfAlreadyAllowed(timeoutMs) {
 async function finishDenied(failure, timeoutMs) {
     const retry = await coordsIfAlreadyAllowed(timeoutMs);
     if (retry.coords) return retry.coords;
+    const fallback = await readHttpFallbackLocation();
+    if (fallback) return fallback;
     if (retry.state === 'granted' || retry.state === 'prompt') {
         throw locationRequiredError(
             'Location is already on. Tap Turn On again and wait for the position. Choose Allow if the browser asks.',
@@ -301,16 +303,16 @@ async function fetchJson(url, timeoutMs = 4000) {
 async function readHttpFallbackLocation() {
     const sources = [
         {
-            url: 'http://ip-api.com/json/?fields=status,lat,lon',
-            pick: (d) => (d?.status === 'success' ? [d.lat, d.lon] : null),
-        },
-        {
             url: 'https://ipwho.is/',
             pick: (d) => (d?.success === false ? null : [d?.latitude, d?.longitude]),
         },
         {
             url: 'https://ipapi.co/json/',
             pick: (d) => [d?.latitude, d?.longitude],
+        },
+        {
+            url: 'https://ip-api.com/json/?fields=status,lat,lon',
+            pick: (d) => (d?.status === 'success' ? [d.lat, d.lon] : null),
         },
     ];
     for (const source of sources) {
@@ -442,6 +444,8 @@ export async function requireBrowserLocation(timeoutMs = 20000, options = {}) {
             const stale = cachedBrowserCoords(30 * 60 * 1000);
             if (stale) return stale;
         }
+        const macFallback = await readHttpFallbackLocation();
+        if (macFallback) return macFallback;
         throw locationRequiredError(macFix.error || LOCATION_REQUIRED_MESSAGE);
     }
 
@@ -486,10 +490,8 @@ export async function requireBrowserLocation(timeoutMs = 20000, options = {}) {
         return gps.coords;
     }
 
-    if (isHttpPage()) {
-        const fallback = await readHttpFallbackLocation();
-        if (fallback) return fallback;
-    }
+    const networkFallback = await readHttpFallbackLocation();
+    if (networkFallback) return networkFallback;
 
     if (!gps.denied && preferCached) {
         const stale = cachedBrowserCoords(30 * 60 * 1000);
