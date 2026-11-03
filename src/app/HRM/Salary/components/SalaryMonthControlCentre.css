@@ -183,12 +183,12 @@
 }
 
 .spcc-shell .spcc-pay-cards {
-    display: grid !important;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
     width: 100%;
     max-width: 100%;
-    margin-top: 12px;
+    margin: 0;
     padding-top: 0;
     border-top: 0;
     align-items: stretch;
@@ -199,7 +199,7 @@
     width: auto !important;
     max-width: none !important;
     min-width: 0 !important;
-    min-height: 188px;
+    min-height: 0;
     height: auto;
     box-sizing: border-box;
 }
@@ -293,7 +293,8 @@
     margin: 10px 0 8px;
 }
 
-.spcc-pay-result__head {
+.spcc-pay-result__head,
+.spcc-pay-result__identity {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1223,9 +1224,32 @@
     text-decoration: underline;
 }
 
+.spcc-board {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+    gap: 12px;
+    align-items: start;
+}
+
+.spcc-board__main {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.spcc-board__main > .spcc-metrics,
+.spcc-board__main > .spcc-grid {
+    margin-bottom: 0;
+}
+
+.spcc-board > .spcc-slot-rows {
+    min-width: 0;
+}
+
 .spcc-metrics {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 12px;
     align-items: stretch;
@@ -2007,10 +2031,11 @@
 }
 
 .spcc-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 442px;
-    gap: 16px;
-    align-items: start;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+    min-width: 0;
 }
 
 .spcc-col-main,
@@ -2022,8 +2047,8 @@
 }
 
 .spcc-col-side {
-    width: 442px;
-    max-width: 100%;
+    width: auto;
+    max-width: none;
     flex: none;
     padding-left: 0;
     border-left: 0;
@@ -3078,12 +3103,20 @@
 }
 
 @media (max-width: 1100px) {
-    .spcc-metrics,
-    .spcc-shell .spcc-pay-cards {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .spcc-board {
+        grid-template-columns: 1fr;
     }
 
-    .spcc-grid,
+    .spcc-board > .spcc-board__main,
+    .spcc-board > .spcc-slot-rows {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    .spcc-metrics {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
     .spcc-tabs-row {
         grid-template-columns: 1fr;
     }
@@ -3106,8 +3139,7 @@
 }
 
 @media (max-width: 720px) {
-    .spcc-metrics,
-    .spcc-shell .spcc-pay-cards {
+    .spcc-metrics {
         grid-template-columns: 1fr;
     }
 

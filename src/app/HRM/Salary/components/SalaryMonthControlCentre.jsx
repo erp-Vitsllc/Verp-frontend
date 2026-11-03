@@ -440,36 +440,6 @@ function groupEmployeesByCompany(rows) {
     return grouped;
 }
 
-function SlotTabs({ slots, activeSlot, viewerIsSlotHr, accountsCanUpdate, onSelect }) {
-    return (
-        <div className="spcc-metric-slots" role="tablist" aria-label="Salary slots">
-            {slots.map((item) => {
-                const live =
-                    (item.status === 'pending_hr' && viewerIsSlotHr) ||
-                    (accountsCanUpdate &&
-                        (item.status === 'pending_wps' || item.status === 'pending_update'));
-                const mark = slotStatusLabel(item.status);
-                const createdGreen = item.status === 'pending_hr' || item.status === 'approved';
-                return (
-                    <button
-                        key={item.slot}
-                        type="button"
-                        role="tab"
-                        aria-selected={activeSlot === item.slot}
-                        className={`spcc-metric-slot${activeSlot === item.slot ? ' is-on' : ''}${
-                            createdGreen ? ' is-done' : ''
-                        }${item.status === 'draft' ? ' is-draft' : ''}${live ? ' is-live' : ''}`}
-                        onClick={() => onSelect(item)}
-                    >
-                        <span>Slot {item.slot}</span>
-                        {mark ? <span className="spcc-slot-mark">{mark}</span> : null}
-                    </button>
-                );
-            })}
-        </div>
-    );
-}
-
 function SlotAmountDate({ total, dateLabel, status, employeeCount }) {
     const approved = status === 'approved';
     const caption =
@@ -510,14 +480,14 @@ function PaymentResultCard({ slot, active, onSelect }) {
 
     return (
         <section
-            className={`spcc-pay-result${active ? ' is-active' : ''}${
+            className={`spcc-pay-result spcc-pay-result--row${active ? ' is-active' : ''}${
                 slot.status === 'pending_hr' || slot.status === 'approved' ? ' is-updated' : ''
             }`}
             onClick={() => onSelect?.(slot)}
         >
-            <div className="spcc-pay-result__head">
+            <div className="spcc-pay-result__identity">
                 <h3 className="spcc-pay-result__title">Slot {slot.slot}</h3>
-                <StatusPill tone={slot.status === 'approved' ? 'ok' : slot.status === 'pending_hr' ? 'warn' : 'warn'}>
+                <StatusPill tone={slot.status === 'approved' ? 'ok' : 'warn'}>
                     {slotStatusLabel(slot.status) || 'Open'}
                 </StatusPill>
             </div>
@@ -2169,8 +2139,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         canCreateSlot &&
         enrolledForSlots.some((emp) => !heldEmployeeKeys.has(employeeIdKey(emp.employeeId)));
     const nextSlotNo = (salarySlots[salarySlots.length - 1]?.slot || 0) + 1;
-    const headerSlots = salarySlots;
-    const activeSlotData = headerSlots.find((item) => item.slot === activeSlot) || headerSlots[0];
+    const activeSlotData = salarySlots.find((item) => item.slot === activeSlot) || salarySlots[0];
     const slotCanEdit =
         Boolean(slotEditor) &&
         canCreateSlot &&
@@ -2309,6 +2278,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                 </div>
             ) : (
                 <>
+                    <div className="spcc-board">
+                    <div className="spcc-board__main">
                     <section className="spcc-metrics">
                         <MetricCard
                             code="TO"
@@ -2417,41 +2388,6 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                 />
                             </span>
                             <span className="spcc-metric__caption">MOL code on enroll details = WPS</span>
-                        </MetricCard>
-                        <MetricCard
-                            code="SL"
-                            codeTone="amber"
-                            title="Salary slots"
-                            pill={
-                                headerSlots.length
-                                    ? slotStatusLabel(activeSlotData?.status) || 'Open'
-                                    : 'None'
-                            }
-                            pillTone={activeSlotData?.status === 'approved' ? 'ok' : 'warn'}
-                        >
-                            {headerSlots.length ? (
-                                <>
-                                    <SlotTabs
-                                        slots={headerSlots}
-                                        activeSlot={activeSlotData?.slot || headerSlots[0].slot}
-                                        viewerIsSlotHr={viewerIsSlotHr}
-                                        accountsCanUpdate={canCreateSlot}
-                                        onSelect={openSavedSlot}
-                                    />
-                                    <SlotAmountDate
-                                        total={activeSlotData?.total || 0}
-                                        dateLabel={activeSlotData?.dateLabel || '—'}
-                                        status={activeSlotData?.status}
-                                        employeeCount={activeSlotData?.rows.length || 0}
-                                    />
-                                </>
-                            ) : (
-                                <span className="spcc-metric__sub">
-                                    {dmfApproved
-                                        ? 'Draft and applied slots for this month appear here.'
-                                        : 'Slots open after salary is Processed.'}
-                                </span>
-                            )}
                         </MetricCard>
                     </section>
 
@@ -2734,38 +2670,41 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             </section>
                         </aside>
                     </div>
-
-                    <div className="spcc-pay-cards">
-                        {salarySlots.map((slot) => (
-                            <PaymentResultCard
-                                key={slot.batch?.id || slot.slot}
-                                slot={slot}
-                                active={activeSlotData?.slot === slot.slot}
-                                onSelect={openSavedSlot}
-                            />
-                        ))}
-                        {canOpenNewSlot ? (
-                            <button
-                                type="button"
-                                className="spcc-pay-add"
-                                disabled={savingPayment}
-                                onClick={openNewSlot}
-                            >
-                                <span className="spcc-pay-add__kicker">Next</span>
-                                <span className="spcc-pay-add__title">Slot {nextSlotNo}</span>
-                                <span className="spcc-btn spcc-btn--primary spcc-pay-add__btn">
-                                    Create slot
-                                </span>
-                            </button>
-                        ) : !dmfApproved ? (
-                            <div className="spcc-pay-add is-locked">
-                                <span className="spcc-pay-add__kicker">Locked</span>
-                                <span className="spcc-pay-add__title">Slot {nextSlotNo}</span>
-                                <span className="spcc-btn spcc-btn--ghost spcc-pay-add__btn">
-                                    After Processed
-                                </span>
-                            </div>
-                        ) : null}
+                    </div>
+                    <section className="spcc-slot-rows" aria-label="Salary slots">
+                        <div className="spcc-pay-cards">
+                            {salarySlots.map((slot) => (
+                                <PaymentResultCard
+                                    key={slot.batch?.id || slot.slot}
+                                    slot={slot}
+                                    active={activeSlotData?.slot === slot.slot}
+                                    onSelect={openSavedSlot}
+                                />
+                            ))}
+                            {canOpenNewSlot ? (
+                                <button
+                                    type="button"
+                                    className="spcc-pay-add spcc-pay-add--row"
+                                    disabled={savingPayment}
+                                    onClick={openNewSlot}
+                                >
+                                    <span className="spcc-pay-add__kicker">Next</span>
+                                    <span className="spcc-pay-add__title">Slot {nextSlotNo}</span>
+                                    <span className="spcc-btn spcc-btn--primary spcc-pay-add__btn">
+                                        Create slot
+                                    </span>
+                                </button>
+                            ) : !dmfApproved ? (
+                                <div className="spcc-pay-add spcc-pay-add--row is-locked">
+                                    <span className="spcc-pay-add__kicker">Locked</span>
+                                    <span className="spcc-pay-add__title">Slot {nextSlotNo}</span>
+                                    <span className="spcc-btn spcc-btn--ghost spcc-pay-add__btn">
+                                        After Processed
+                                    </span>
+                                </div>
+                            ) : null}
+                        </div>
+                    </section>
                     </div>
 
                     {typeof document !== 'undefined' && slotEditor
