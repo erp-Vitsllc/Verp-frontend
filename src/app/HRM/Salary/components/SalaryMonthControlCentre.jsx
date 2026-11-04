@@ -155,8 +155,8 @@ function cycleFromPolicy(policy, parsed) {
         ticketEligibility: policy?.leaveSalaryWorkingDays
             ? `${policy.leaveSalaryWorkingDays} working days`
             : policy?.workingDaysRequiredToEligible
-              ? `${policy.workingDaysRequiredToEligible} working days`
-              : '—',
+                ? `${policy.workingDaysRequiredToEligible} working days`
+                : '—',
     };
 }
 
@@ -279,15 +279,18 @@ function salaryYearMonth(value) {
     return match ? match[1] : '';
 }
 
-/** Enrolled employees appear on a month only once salary processing has started. */
+/** Enrolled, active employees whose processing month is this payroll month or earlier. */
 function enrolledForSalaryMonth(emp, monthKey) {
     if (!emp || emp.enrolled === false) return false;
     if (emp.enrolledForMonth === false) return false;
-    if (emp.enrolledForMonth === true) return true;
+    if (String(emp.status || '') === 'Left User') return false;
+    const profile = String(emp.profileStatus || '').trim().toLowerCase();
+    if (profile && profile !== 'active') return false;
     const month = salaryYearMonth(monthKey);
-    if (!month) return false;
     const start = salaryYearMonth(emp.processingStart) || salaryYearMonth(emp.fromMonth);
-    if (!start) return true;
+    if (month && start && start > month) return false;
+    if (emp.enrolledForMonth === true) return true;
+    if (!month || !start) return false;
     return start <= month;
 }
 
@@ -452,16 +455,16 @@ function SlotAmountDate({ total, dateLabel, status, employeeCount }) {
         status === 'draft'
             ? `${employeeCount} employee${employeeCount === 1 ? '' : 's'}`
             : status === 'pending_hr'
-              ? 'Pending with HR'
-              : status === 'pending_wps'
-                ? 'Check the WPS send'
-                : status === 'pending_update'
-                  ? 'Update salary'
-                  : status === 'rejected'
-                    ? 'Rejected — back with Accounts'
-                    : approved
-                      ? `${employeeCount} employee${employeeCount === 1 ? '' : 's'}`
-                      : 'No payment in this slot yet.';
+                ? 'Pending with HR'
+                : status === 'pending_wps'
+                    ? 'Check the WPS send'
+                    : status === 'pending_update'
+                        ? 'Update salary'
+                        : status === 'rejected'
+                            ? 'Rejected — back with Accounts'
+                            : approved
+                                ? `${employeeCount} employee${employeeCount === 1 ? '' : 's'}`
+                                : 'No payment in this slot yet.';
     return (
         <div className="spcc-slot-summary">
             <div className="spcc-slot-summary__row">
@@ -486,9 +489,8 @@ function PaymentResultCard({ slot, active, onSelect }) {
 
     return (
         <section
-            className={`spcc-pay-result spcc-pay-result--row${active ? ' is-active' : ''}${
-                slot.status === 'pending_hr' || slot.status === 'approved' ? ' is-updated' : ''
-            }`}
+            className={`spcc-pay-result spcc-pay-result--row${active ? ' is-active' : ''}${slot.status === 'pending_hr' || slot.status === 'approved' ? ' is-updated' : ''
+                }`}
             onClick={() => onSelect?.(slot)}
         >
             <div className="spcc-pay-result__identity">
@@ -675,9 +677,9 @@ function SlotEditorModal({
             typeFilter === 'both'
                 ? list
                 : list.filter((emp) => {
-                      if (employeePayMethod(emp) === typeFilter) return true;
-                      return showAllEmployees && selected.has(String(emp.employeeId || ''));
-                  });
+                    if (employeePayMethod(emp) === typeFilter) return true;
+                    return showAllEmployees && selected.has(String(emp.employeeId || ''));
+                });
         return [...typed].sort((a, b) =>
             comparePaymentEmployee(a, b, sort.key === 'amount' ? 'amount' : 'name', sort.dir),
         );
@@ -1506,19 +1508,19 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                 })),
             ];
         }
-            const groupCounts = new Map();
-            for (const emp of monthRoster) {
-                const key = normalizeWorkLocationKey(emp.staffType);
-                groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
-            }
-            return [
-                { key: ALL_TAB_KEY, label: 'All employees', count: employeeCount },
-                ...derived.locationCards.map((loc) => ({
-                    key: loc.key,
-                    label: loc.label,
-                    count: groupCounts.get(loc.key) || 0,
-                })),
-            ];
+        const groupCounts = new Map();
+        for (const emp of monthRoster) {
+            const key = normalizeWorkLocationKey(emp.staffType);
+            groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
+        }
+        return [
+            { key: ALL_TAB_KEY, label: 'All employees', count: employeeCount },
+            ...derived.locationCards.map((loc) => ({
+                key: loc.key,
+                label: loc.label,
+                count: groupCounts.get(loc.key) || 0,
+            })),
+        ];
     }, [tabMode, derived.locationCards, monthRoster]);
 
     const locationKeysSig = useMemo(
@@ -1590,8 +1592,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             tab === ALL_TAB_KEY
                 ? monthRoster
                 : tabMode === TAB_MODE_COMPANY
-                  ? monthRoster.filter((emp) => sameCompany(companyKeyOf(emp), companyName))
-                  : monthRoster.filter((emp) => normalizeWorkLocationKey(emp.staffType) === tab);
+                    ? monthRoster.filter((emp) => sameCompany(companyKeyOf(emp), companyName))
+                    : monthRoster.filter((emp) => normalizeWorkLocationKey(emp.staffType) === tab);
         const enrolledCount = employees.filter((emp) => emp.enrolled !== false).length;
         const employeeIds = new Set(employees.map((emp) => employeeIdKey(emp.employeeId)).filter(Boolean));
         const pendingRequests = derived.pendingRequests.filter((row) =>
@@ -1671,8 +1673,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             totalEmployees > 0 && pendingApprovals === 0
                 ? 100
                 : totalEmployees
-                  ? Math.round((doneCount / totalEmployees) * 100)
-                  : 0;
+                    ? Math.round((doneCount / totalEmployees) * 100)
+                    : 0;
 
         return {
             percent,
@@ -1759,8 +1761,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     }, [monthRoster, tab, tabMode]);
 
     const cardStats = useMemo(() => {
-        let gross = 0;
-        let actual = 0;
+        let salaryGross = 0;
+        let salaryNet = 0;
         let deduction = 0;
         let extra = 0;
         let wpsCount = 0;
@@ -1770,8 +1772,13 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         for (const emp of payrollRows) {
             const monthly = Number(emp.monthlySalary) || 0;
             const net = Number(emp.actualSalary ?? emp.monthlySalary) || 0;
-            gross += monthly;
-            actual += net;
+            const hasSlipSplit = emp.lossOfPay != null || emp.otherDeduction != null;
+            const lossOfPay = Number(emp.lossOfPay) || 0;
+            const otherDeduction = Number(emp.otherDeduction) || 0;
+            const employeeGross = hasSlipSplit ? monthly - lossOfPay : monthly;
+            const employeeNet = hasSlipSplit ? employeeGross - otherDeduction : net;
+            salaryGross += employeeGross;
+            salaryNet += employeeNet;
             deduction += Number(emp.deduction) || 0;
             extra += employeeExtra(emp);
             if (employeePayMethod(emp) === 'WPS') {
@@ -1784,8 +1791,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         }
         return {
             enrolled: payrollRows.length,
-            gross,
-            actual,
+            salaryGross,
+            salaryNet,
             wpsCount,
             wpsAmount,
             cashCount,
@@ -2018,8 +2025,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                 description: completed
                     ? `${completed} employee${completed === 1 ? '' : 's'} completed and removed from pending. ${stillPending} still pending.`
                     : stillPending
-                      ? `${stillPending} employee${stillPending === 1 ? '' : 's'} still pending.`
-                      : 'No pending employees.',
+                        ? `${stillPending} employee${stillPending === 1 ? '' : 's'} still pending.`
+                        : 'No pending employees.',
             });
         } catch (error) {
             toast({
@@ -2081,8 +2088,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         ? `${sent} responsible person${sent === 1 ? '' : 's'} emailed (one mail each). ${skipped} skipped (no email).`
                         : `${sent} responsible person${sent === 1 ? '' : 's'} emailed — one mail each, with every visible task as a numbered link.`
                     : skipped
-                      ? 'No email addresses were found for the responsible people on the visible rows.'
-                      : 'No matching people to remind.',
+                        ? 'No email addresses were found for the responsible people on the visible rows.'
+                        : 'No matching people to remind.',
             });
         } catch {
             toast({
@@ -2335,525 +2342,525 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             ) : (
                 <>
                     <div className="spcc-board">
-                    <div className="spcc-board__main">
-                    <section className="spcc-metrics">
-                        <MetricCard
-                            code="TO"
-                            codeTone="blue"
-                            title="Headcount & salary"
-                            pill="Active"
-                            pillTone="ok"
-                        >
-                            <RatioStat
-                                label="Employees"
-                                part={cardStats.enrolled}
-                                hint={tab === ALL_TAB_KEY ? 'this month' : view.groupLabel}
-                                title={
-                                    tab === ALL_TAB_KEY
-                                        ? 'Employees enrolled for this payroll month'
-                                        : `Employees shown for ${view.groupLabel}`
-                                }
-                            />
-                            <RatioStat
-                                label="Salary"
-                                part={cardStats.gross}
-                                total={cardStats.actual}
-                                money
-                                hint="monthly / actual"
-                                percent={ratioPercent(cardStats.actual, cardStats.gross)}
-                                title={
-                                    tab === ALL_TAB_KEY
-                                        ? 'Total monthly salary / actual salary for this month'
-                                        : `Monthly salary / actual salary for ${view.groupLabel}`
-                                }
-                            />
-                        </MetricCard>
-                        <MetricCard
-                            code="CO"
-                            codeTone="teal"
-                            title="Companies"
-                            pill="Active"
-                            pillTone="ok"
-                        >
-                            {derived.companyCards.length ? (
-                                <div className="spcc-metric-list">
-                                    {derived.companyCards.map((company) => {
-                                        const name = company.name || 'Company';
-                                        const enrolled = Number(company.enrolled) || 0;
-                                        const total = Number(company.totalActive) || 0;
-                                        const rosterMatch = monthRoster.find((emp) =>
-                                            sameCompany(companyKeyOf(emp), name),
-                                        );
-                                        const companyTab = toCompanyTabKey(
-                                            rosterMatch ? companyKeyOf(rosterMatch) : name,
-                                        );
-                                        const active =
-                                            tabMode === TAB_MODE_COMPANY && sameCompany(fromCompanyTabKey(tab), name);
-                                        return (
-                                            <button
-                                                key={company.companyId || name}
-                                                type="button"
-                                                className={`spcc-metric-co${active ? ' is-on' : ''}`}
-                                                onClick={() => {
-                                                    setTabMode(TAB_MODE_COMPANY);
-                                                    setTab(companyTab);
-                                                }}
-                                            >
-                                                <span className="spcc-metric-co__avatar">{companyInitials(name)}</span>
-                                                <span className="spcc-metric-co__main">
-                                                    <span className="spcc-metric-co__top">
-                                                        <span className="spcc-metric-co__name">{name}</span>
-                                                        <span className="spcc-metric-co__ratio">
-                                                            {enrolled}
-                                                            <span className="spcc-metric-den"> / {total}</span>
+                        <div className="spcc-board__main">
+                            <section className="spcc-metrics">
+                                <MetricCard
+                                    code="TO"
+                                    codeTone="blue"
+                                    title="Headcount & salary"
+                                    pill="Active"
+                                    pillTone="ok"
+                                >
+                                    <RatioStat
+                                        label="Employees"
+                                        part={cardStats.enrolled}
+                                        hint={tab === ALL_TAB_KEY ? 'this month' : view.groupLabel}
+                                        title={
+                                            tab === ALL_TAB_KEY
+                                                ? 'Employees enrolled for this payroll month'
+                                                : `Employees shown for ${view.groupLabel}`
+                                        }
+                                    />
+                                    <RatioStat
+                                        label="Salary"
+                                        part={cardStats.salaryGross}
+                                        total={cardStats.salaryNet}
+                                        money
+                                        hint="gross / net salary"
+                                        percent={ratioPercent(cardStats.salaryNet, cardStats.salaryGross)}
+                                        title={
+                                            tab === ALL_TAB_KEY
+                                                ? 'Gross is monthly salary minus leave, late in, early out, and missed punch. Net salary is that gross minus loan, fine, utility, and salary advance.'
+                                                : `Gross and net salary for ${view.groupLabel}. Gross is monthly salary minus leave, late in, early out, and missed punch. Net salary subtracts loan, fine, utility, and salary advance.`
+                                        }
+                                    />
+                                </MetricCard>
+                                <MetricCard
+                                    code="CO"
+                                    codeTone="teal"
+                                    title="Companies"
+                                    pill="Active"
+                                    pillTone="ok"
+                                >
+                                    {derived.companyCards.length ? (
+                                        <div className="spcc-metric-list">
+                                            {derived.companyCards.map((company) => {
+                                                const name = company.name || 'Company';
+                                                const enrolled = Number(company.enrolled) || 0;
+                                                const total = Number(company.totalActive) || 0;
+                                                const rosterMatch = monthRoster.find((emp) =>
+                                                    sameCompany(companyKeyOf(emp), name),
+                                                );
+                                                const companyTab = toCompanyTabKey(
+                                                    rosterMatch ? companyKeyOf(rosterMatch) : name,
+                                                );
+                                                const active =
+                                                    tabMode === TAB_MODE_COMPANY && sameCompany(fromCompanyTabKey(tab), name);
+                                                return (
+                                                    <button
+                                                        key={company.companyId || name}
+                                                        type="button"
+                                                        className={`spcc-metric-co${active ? ' is-on' : ''}`}
+                                                        onClick={() => {
+                                                            setTabMode(TAB_MODE_COMPANY);
+                                                            setTab(companyTab);
+                                                        }}
+                                                    >
+                                                        <span className="spcc-metric-co__avatar">{companyInitials(name)}</span>
+                                                        <span className="spcc-metric-co__main">
+                                                            <span className="spcc-metric-co__top">
+                                                                <span className="spcc-metric-co__name">{name}</span>
+                                                                <span className="spcc-metric-co__ratio">
+                                                                    {enrolled}
+                                                                    <span className="spcc-metric-den"> / {total}</span>
+                                                                </span>
+                                                            </span>
+                                                            <MetricBar percent={ratioPercent(enrolled, total)} />
                                                         </span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <span className="spcc-metric__sub">No companies added yet.</span>
+                                    )}
+                                </MetricCard>
+                                <MetricCard
+                                    code="WP"
+                                    codeTone="violet"
+                                    title="Payment type"
+                                    pill="Enrolled"
+                                    pillTone="ok"
+                                >
+                                    <div className="spcc-paytype">
+                                        <div className="spcc-paytype__method">
+                                            <span className="spcc-metric-stat__label">WPS</span>
+                                            <div className="spcc-paytype__pair">
+                                                <div className="spcc-paytype__mini">
+                                                    <span className="spcc-metric-stat__label">Count</span>
+                                                    <strong className="tabular-nums">{cardStats.wpsCount}</strong>
+                                                </div>
+                                                <div className="spcc-paytype__mini">
+                                                    <span className="spcc-metric-stat__label">Amount</span>
+                                                    <strong className="tabular-nums">{formatMoney(cardStats.wpsAmount)}</strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="spcc-paytype__method">
+                                            <span className="spcc-metric-stat__label">Cash</span>
+                                            <div className="spcc-paytype__pair">
+                                                <div className="spcc-paytype__mini">
+                                                    <span className="spcc-metric-stat__label">Count</span>
+                                                    <strong className="tabular-nums">{cardStats.cashCount}</strong>
+                                                </div>
+                                                <div className="spcc-paytype__mini">
+                                                    <span className="spcc-metric-stat__label">Amount</span>
+                                                    <strong className="tabular-nums">{formatMoney(cardStats.cashAmount)}</strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="spcc-paytype__total" title="Total deduction of employees in this list">
+                                            <span className="spcc-metric-stat__label">Deduction</span>
+                                            <strong className="tabular-nums">{formatMoney(cardStats.deduction)}</strong>
+                                        </div>
+                                        <div className="spcc-paytype__total" title="Total extra of employees in this list">
+                                            <span className="spcc-metric-stat__label">Extra</span>
+                                            <strong className="tabular-nums">{formatMoney(cardStats.extra)}</strong>
+                                        </div>
+                                    </div>
+                                </MetricCard>
+                            </section>
+
+                            <div className="spcc-grid">
+                                <div className="spcc-col-main">
+                                    <section className="spcc-card spcc-card--panel">
+                                        <div className="spcc-tabs-row">
+                                            <nav
+                                                className="spcc-tabs"
+                                                aria-label={tabMode === TAB_MODE_COMPANY ? 'Companies' : 'Work location groups'}
+                                            >
+                                                {tabItems.map((item) => (
+                                                    <button
+                                                        key={item.key}
+                                                        type="button"
+                                                        className={`spcc-tab${tab === item.key ? ' is-active' : ''}`}
+                                                        onClick={() => setTab(item.key)}
+                                                    >
+                                                        {item.label}
+                                                        {item.count != null ? <em>{item.count}</em> : null}
+                                                    </button>
+                                                ))}
+                                            </nav>
+                                            <div className="spcc-tab-mode" role="group" aria-label="Tab grouping">
+                                                <button
+                                                    type="button"
+                                                    className={`spcc-tab-mode__btn${tabMode === TAB_MODE_GROUP ? ' is-on' : ''}`}
+                                                    onClick={() => {
+                                                        setTabMode(TAB_MODE_GROUP);
+                                                        setTab(ALL_TAB_KEY);
+                                                    }}
+                                                >
+                                                    Group
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className={`spcc-tab-mode__btn${tabMode === TAB_MODE_COMPANY ? ' is-on' : ''}`}
+                                                    onClick={() => {
+                                                        setTabMode(TAB_MODE_COMPANY);
+                                                        setTab(ALL_TAB_KEY);
+                                                    }}
+                                                >
+                                                    Company
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="spcc-pay-wrap" ref={payTableRef}>
+                                            <div className="spcc-pay-table" role="table" aria-label="Salary employees">
+                                                <div className="spcc-pay-row spcc-pay-row--head" role="row">
+                                                    <span>Sl no</span>
+                                                    <span>
+                                                        <SortHeader
+                                                            label="Employee name"
+                                                            column="name"
+                                                            sort={payrollSort}
+                                                            onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
+                                                        />
                                                     </span>
-                                                    <MetricBar percent={ratioPercent(enrolled, total)} />
-                                                </span>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                <span className="spcc-metric__sub">No companies added yet.</span>
-                            )}
-                        </MetricCard>
-                        <MetricCard
-                            code="WP"
-                            codeTone="violet"
-                            title="Payment type"
-                            pill="Enrolled"
-                            pillTone="ok"
-                        >
-                            <div className="spcc-paytype">
-                                <div className="spcc-paytype__method">
-                                    <span className="spcc-metric-stat__label">WPS</span>
-                                    <div className="spcc-paytype__pair">
-                                        <div className="spcc-paytype__mini">
-                                            <span className="spcc-metric-stat__label">Count</span>
-                                            <strong className="tabular-nums">{cardStats.wpsCount}</strong>
+                                                    <span>
+                                                        <SortHeader
+                                                            label="Monthly salary"
+                                                            column="monthly"
+                                                            sort={payrollSort}
+                                                            onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
+                                                        />
+                                                    </span>
+                                                    <span>
+                                                        <SortHeader
+                                                            label="Basic salary"
+                                                            column="basic"
+                                                            sort={payrollSort}
+                                                            onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
+                                                        />
+                                                    </span>
+                                                    <span>
+                                                        <SortHeader
+                                                            label="Deduction"
+                                                            column="deduction"
+                                                            sort={payrollSort}
+                                                            onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
+                                                        />
+                                                    </span>
+                                                    <span>
+                                                        <SortHeader
+                                                            label="Extra"
+                                                            column="extra"
+                                                            sort={payrollSort}
+                                                            onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
+                                                        />
+                                                    </span>
+                                                    <span>
+                                                        <SortHeader
+                                                            label="Net salary"
+                                                            column="net"
+                                                            sort={payrollSort}
+                                                            onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
+                                                        />
+                                                    </span>
+                                                    <span>
+                                                        <SortHeader
+                                                            label="Status"
+                                                            column="status"
+                                                            sort={payrollSort}
+                                                            onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
+                                                        />
+                                                    </span>
+                                                </div>
+                                                {sortedPayrollRows.length ? (
+                                                    sortedPayrollRows.map((emp, index) => {
+                                                        const id = String(emp.employeeId || '');
+                                                        const processed = processedPaymentIds.has(id);
+                                                        const blockerCount = Number(view.requestCountByEmployee?.[id]) || 0;
+                                                        const pending = !processed && blockerCount > 0;
+                                                        const pendingItems = view.pendingByEmployee?.[id] || [];
+                                                        const status = processed
+                                                            ? 'Processed'
+                                                            : pending
+                                                                ? employeePendingStatusLabel(pendingItems)
+                                                                : 'Ready';
+                                                        const netSalary = emp.actualSalary ?? emp.monthlySalary;
+                                                        return (
+                                                            <div
+                                                                key={emp.employeeId || emp.slNo || index}
+                                                                data-pay-employee={id}
+                                                                className={`spcc-pay-row${readinessEmployeeId === id ? ' is-selected' : ''}`}
+                                                                role="row"
+                                                                title={id ? 'Double-click to open salary slips' : undefined}
+                                                                onClick={(event) => {
+                                                                    if (!id || event.detail > 1) return;
+                                                                    setReadinessEmployeeId((current) => {
+                                                                        const next = current === id ? '' : id;
+                                                                        setReadinessAnchorId(next);
+                                                                        return next;
+                                                                    });
+                                                                }}
+                                                                onDoubleClick={() => {
+                                                                    if (!id) return;
+                                                                    navigateFromList(
+                                                                        router,
+                                                                        `/HRM/Salary/enroll/${encodeURIComponent(id)}`,
+                                                                        parsed?.monthKey
+                                                                            ? `/HRM/Salary/${parsed.monthKey}`
+                                                                            : '/HRM/Salary',
+                                                                    );
+                                                                }}
+                                                            >
+                                                                <span className="tabular-nums">{index + 1}</span>
+                                                                <span className="spcc-pay-emp">{emp.name || id || '—'}</span>
+                                                                <span className="tabular-nums">{formatMoney(emp.monthlySalary)}</span>
+                                                                <span className="tabular-nums">{formatMoney(emp.basicSalary)}</span>
+                                                                <span className="tabular-nums">{formatMoney(emp.deduction)}</span>
+                                                                <span className="tabular-nums">{formatMoney(employeeExtra(emp))}</span>
+                                                                <span className="tabular-nums">{formatMoney(netSalary)}</span>
+                                                                <span onClick={(event) => event.stopPropagation()}>
+                                                                    {blockerCount > 0 ? (
+                                                                        <button
+                                                                            type="button"
+                                                                            className="spcc-status-open"
+                                                                            onClick={() => {
+                                                                                setReadinessEmployeeId(id);
+                                                                                setReadinessAnchorId(id);
+                                                                            }}
+                                                                            title={status}
+                                                                        >
+                                                                            <StatusPill tone="warn">
+                                                                                {pending ? status : `${blockerCount} pending`}
+                                                                            </StatusPill>
+                                                                        </button>
+                                                                    ) : (
+                                                                        <StatusPill tone={pending ? 'warn' : 'ok'}>
+                                                                            {status}
+                                                                        </StatusPill>
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })
+                                                ) : (
+                                                    <p className="spcc-pay-empty">No enrolled employees for this month.</p>
+                                                )}
+                                            </div>
                                         </div>
-                                        <div className="spcc-paytype__mini">
-                                            <span className="spcc-metric-stat__label">Amount</span>
-                                            <strong className="tabular-nums">{formatMoney(cardStats.wpsAmount)}</strong>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="spcc-paytype__method">
-                                    <span className="spcc-metric-stat__label">Cash</span>
-                                    <div className="spcc-paytype__pair">
-                                        <div className="spcc-paytype__mini">
-                                            <span className="spcc-metric-stat__label">Count</span>
-                                            <strong className="tabular-nums">{cardStats.cashCount}</strong>
-                                        </div>
-                                        <div className="spcc-paytype__mini">
-                                            <span className="spcc-metric-stat__label">Amount</span>
-                                            <strong className="tabular-nums">{formatMoney(cardStats.cashAmount)}</strong>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="spcc-paytype__total" title="Total deduction of employees in this list">
-                                    <span className="spcc-metric-stat__label">Deduction</span>
-                                    <strong className="tabular-nums">{formatMoney(cardStats.deduction)}</strong>
-                                </div>
-                                <div className="spcc-paytype__total" title="Total extra of employees in this list">
-                                    <span className="spcc-metric-stat__label">Extra</span>
-                                    <strong className="tabular-nums">{formatMoney(cardStats.extra)}</strong>
+                                    </section>
                                 </div>
                             </div>
-                        </MetricCard>
-                    </section>
-
-                    <div className="spcc-grid">
-                        <div className="spcc-col-main">
-                            <section className="spcc-card spcc-card--panel">
-                                <div className="spcc-tabs-row">
-                                    <nav
-                                        className="spcc-tabs"
-                                        aria-label={tabMode === TAB_MODE_COMPANY ? 'Companies' : 'Work location groups'}
-                                    >
-                                        {tabItems.map((item) => (
-                                            <button
-                                                key={item.key}
-                                                type="button"
-                                                className={`spcc-tab${tab === item.key ? ' is-active' : ''}`}
-                                                onClick={() => setTab(item.key)}
-                                            >
-                                                {item.label}
-                                                {item.count != null ? <em>{item.count}</em> : null}
-                                            </button>
-                                        ))}
-                                    </nav>
-                                    <div className="spcc-tab-mode" role="group" aria-label="Tab grouping">
+                        </div>
+                        <div className="spcc-board__side" ref={sideColRef}>
+                            <section className="spcc-slot-rows" aria-label="Salary slots">
+                                <div className="spcc-pay-cards">
+                                    {salarySlots.map((slot) => (
+                                        <PaymentResultCard
+                                            key={slot.batch?.id || slot.slot}
+                                            slot={slot}
+                                            active={activeSlotData?.slot === slot.slot}
+                                            onSelect={openSavedSlot}
+                                        />
+                                    ))}
+                                    {canOpenNewSlot ? (
                                         <button
                                             type="button"
-                                            className={`spcc-tab-mode__btn${tabMode === TAB_MODE_GROUP ? ' is-on' : ''}`}
-                                            onClick={() => {
-                                                setTabMode(TAB_MODE_GROUP);
-                                                setTab(ALL_TAB_KEY);
-                                            }}
+                                            className="spcc-pay-add spcc-pay-add--row"
+                                            disabled={savingPayment}
+                                            onClick={openNewSlot}
                                         >
-                                            Group
+                                            <span className="spcc-pay-add__kicker">Next</span>
+                                            <span className="spcc-pay-add__title">Slot {nextSlotNo}</span>
+                                            <span className="spcc-btn spcc-btn--primary spcc-pay-add__btn">
+                                                Create slot
+                                            </span>
                                         </button>
-                                        <button
-                                            type="button"
-                                            className={`spcc-tab-mode__btn${tabMode === TAB_MODE_COMPANY ? ' is-on' : ''}`}
-                                            onClick={() => {
-                                                setTabMode(TAB_MODE_COMPANY);
-                                                setTab(ALL_TAB_KEY);
-                                            }}
-                                        >
-                                            Company
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="spcc-pay-wrap" ref={payTableRef}>
-                                    <div className="spcc-pay-table" role="table" aria-label="Salary employees">
-                                        <div className="spcc-pay-row spcc-pay-row--head" role="row">
-                                            <span>Sl no</span>
-                                            <span>
-                                                <SortHeader
-                                                    label="Employee name"
-                                                    column="name"
-                                                    sort={payrollSort}
-                                                    onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
-                                                />
-                                            </span>
-                                            <span>
-                                                <SortHeader
-                                                    label="Monthly salary"
-                                                    column="monthly"
-                                                    sort={payrollSort}
-                                                    onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
-                                                />
-                                            </span>
-                                            <span>
-                                                <SortHeader
-                                                    label="Basic salary"
-                                                    column="basic"
-                                                    sort={payrollSort}
-                                                    onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
-                                                />
-                                            </span>
-                                            <span>
-                                                <SortHeader
-                                                    label="Deduction"
-                                                    column="deduction"
-                                                    sort={payrollSort}
-                                                    onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
-                                                />
-                                            </span>
-                                            <span>
-                                                <SortHeader
-                                                    label="Extra"
-                                                    column="extra"
-                                                    sort={payrollSort}
-                                                    onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
-                                                />
-                                            </span>
-                                            <span>
-                                                <SortHeader
-                                                    label="Net salary"
-                                                    column="net"
-                                                    sort={payrollSort}
-                                                    onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
-                                                />
-                                            </span>
-                                            <span>
-                                                <SortHeader
-                                                    label="Status"
-                                                    column="status"
-                                                    sort={payrollSort}
-                                                    onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
-                                                />
+                                    ) : !dmfApproved ? (
+                                        <div className="spcc-pay-add spcc-pay-add--row is-locked">
+                                            <span className="spcc-pay-add__kicker">Locked</span>
+                                            <span className="spcc-pay-add__title">Slot {nextSlotNo}</span>
+                                            <span className="spcc-btn spcc-btn--ghost spcc-pay-add__btn">
+                                                After Processed
                                             </span>
                                         </div>
-                                        {sortedPayrollRows.length ? (
-                                            sortedPayrollRows.map((emp, index) => {
-                                                const id = String(emp.employeeId || '');
-                                                const processed = processedPaymentIds.has(id);
-                                                const blockerCount = Number(view.requestCountByEmployee?.[id]) || 0;
-                                                const pending = !processed && blockerCount > 0;
-                                                const pendingItems = view.pendingByEmployee?.[id] || [];
-                                                const status = processed
-                                                    ? 'Processed'
-                                                    : pending
-                                                      ? employeePendingStatusLabel(pendingItems)
-                                                      : 'Ready';
-                                                const netSalary = emp.actualSalary ?? emp.monthlySalary;
-                                                return (
-                                                    <div
-                                                        key={emp.employeeId || emp.slNo || index}
-                                                        data-pay-employee={id}
-                                                        className={`spcc-pay-row${readinessEmployeeId === id ? ' is-selected' : ''}`}
-                                                        role="row"
-                                                        title={id ? 'Double-click to open salary slips' : undefined}
-                                                        onClick={(event) => {
-                                                            if (!id || event.detail > 1) return;
-                                                            setReadinessEmployeeId((current) => {
-                                                                const next = current === id ? '' : id;
-                                                                setReadinessAnchorId(next);
-                                                                return next;
-                                                            });
-                                                        }}
-                                                        onDoubleClick={() => {
-                                                            if (!id) return;
-                                                            navigateFromList(
+                                    ) : null}
+                                </div>
+                            </section>
+                            <aside
+                                className="spcc-col-side spcc-ready-shift"
+                                style={{ '--spcc-ready-shift': `${readinessShift}px` }}
+                            >
+                                <section className="spcc-card spcc-card--panel spcc-card--ready">
+                                    <div className="spcc-card__head spcc-card__head--ready">
+                                        <div className="spcc-ready-head">
+                                            <h2 className="spcc-card__title">Payroll readiness</h2>
+                                            <p className="spcc-card__sub">
+                                                {readinessEmployeeId
+                                                    ? readinessEmployeeItems.length
+                                                        ? `${readinessEmployeeName} · ${readinessEmployeeItems.length} pending`
+                                                        : `${readinessEmployeeName} · no pending items`
+                                                    : readinessPeople.total
+                                                        ? `${readinessPeople.total} employee${readinessPeople.total === 1 ? '' : 's'} pending · ${monthLabel}`
+                                                        : `Checks for ${monthLabel}`}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {readinessEmployeeId ? (
+                                        readinessEmployeeItems.length ? (
+                                            <div className="spcc-ready-list" role="list">
+                                                {readinessEmployeeItems.map((item) => (
+                                                    <Link
+                                                        key={item.id}
+                                                        href={blockerReviewHref(item)}
+                                                        className="spcc-ready-row"
+                                                        title={blockerPendingCondition(item)}
+                                                        onClick={(event) =>
+                                                            handleNavigateFromListClick(
+                                                                event,
                                                                 router,
-                                                                `/HRM/Salary/enroll/${encodeURIComponent(id)}`,
+                                                                blockerReviewHref(item),
                                                                 parsed?.monthKey
                                                                     ? `/HRM/Salary/${parsed.monthKey}`
                                                                     : '/HRM/Salary',
-                                                            );
-                                                        }}
+                                                            )
+                                                        }
                                                     >
-                                                        <span className="tabular-nums">{index + 1}</span>
-                                                        <span className="spcc-pay-emp">{emp.name || id || '—'}</span>
-                                                        <span className="tabular-nums">{formatMoney(emp.monthlySalary)}</span>
-                                                        <span className="tabular-nums">{formatMoney(emp.basicSalary)}</span>
-                                                        <span className="tabular-nums">{formatMoney(emp.deduction)}</span>
-                                                        <span className="tabular-nums">{formatMoney(employeeExtra(emp))}</span>
-                                                        <span className="tabular-nums">{formatMoney(netSalary)}</span>
-                                                        <span onClick={(event) => event.stopPropagation()}>
-                                                            {blockerCount > 0 ? (
-                                                                <button
-                                                                    type="button"
-                                                                    className="spcc-status-open"
-                                                                    onClick={() => {
-                                                                        setReadinessEmployeeId(id);
-                                                                        setReadinessAnchorId(id);
-                                                                    }}
-                                                                    title={status}
-                                                                >
-                                                                    <StatusPill tone="warn">
-                                                                        {pending ? status : `${blockerCount} pending`}
-                                                                    </StatusPill>
-                                                                </button>
-                                                            ) : (
-                                                                <StatusPill tone={pending ? 'warn' : 'ok'}>
-                                                                    {status}
-                                                                </StatusPill>
-                                                            )}
+                                                        <span className="spcc-ready-copy">
+                                                            <span className="spcc-ready-title">
+                                                                {blockerPendingCondition(item)}
+                                                            </span>
+                                                            <span className="spcc-ready-detail">
+                                                                {[
+                                                                    blockerResponsibleDisplay(item),
+                                                                    blockerDueDate(item),
+                                                                ]
+                                                                    .filter((part) => part && part !== '—')
+                                                                    .join(' · ')}
+                                                            </span>
                                                         </span>
-                                                    </div>
-                                                );
-                                            })
+                                                        <span className="spcc-ready-badge spcc-ready-badge--warn">
+                                                            Review
+                                                        </span>
+                                                    </Link>
+                                                ))}
+                                            </div>
                                         ) : (
-                                            <p className="spcc-pay-empty">No enrolled employees for this month.</p>
-                                        )}
-                                    </div>
-                                </div>
-                            </section>
-                        </div>
-                    </div>
-                    </div>
-                    <div className="spcc-board__side" ref={sideColRef}>
-                    <section className="spcc-slot-rows" aria-label="Salary slots">
-                        <div className="spcc-pay-cards">
-                            {salarySlots.map((slot) => (
-                                <PaymentResultCard
-                                    key={slot.batch?.id || slot.slot}
-                                    slot={slot}
-                                    active={activeSlotData?.slot === slot.slot}
-                                    onSelect={openSavedSlot}
-                                />
-                            ))}
-                            {canOpenNewSlot ? (
-                                <button
-                                    type="button"
-                                    className="spcc-pay-add spcc-pay-add--row"
-                                    disabled={savingPayment}
-                                    onClick={openNewSlot}
-                                >
-                                    <span className="spcc-pay-add__kicker">Next</span>
-                                    <span className="spcc-pay-add__title">Slot {nextSlotNo}</span>
-                                    <span className="spcc-btn spcc-btn--primary spcc-pay-add__btn">
-                                        Create slot
-                                    </span>
-                                </button>
-                            ) : !dmfApproved ? (
-                                <div className="spcc-pay-add spcc-pay-add--row is-locked">
-                                    <span className="spcc-pay-add__kicker">Locked</span>
-                                    <span className="spcc-pay-add__title">Slot {nextSlotNo}</span>
-                                    <span className="spcc-btn spcc-btn--ghost spcc-pay-add__btn">
-                                        After Processed
-                                    </span>
-                                </div>
-                            ) : null}
-                        </div>
-                    </section>
-                    <aside
-                        className="spcc-col-side spcc-ready-shift"
-                        style={{ '--spcc-ready-shift': `${readinessShift}px` }}
-                    >
-                        <section className="spcc-card spcc-card--panel spcc-card--ready">
-                            <div className="spcc-card__head spcc-card__head--ready">
-                                <div className="spcc-ready-head">
-                                    <h2 className="spcc-card__title">Payroll readiness</h2>
-                                    <p className="spcc-card__sub">
-                                        {readinessEmployeeId
-                                            ? readinessEmployeeItems.length
-                                                ? `${readinessEmployeeName} · ${readinessEmployeeItems.length} pending`
-                                                : `${readinessEmployeeName} · no pending items`
-                                            : readinessPeople.total
-                                              ? `${readinessPeople.total} employee${readinessPeople.total === 1 ? '' : 's'} pending · ${monthLabel}`
-                                              : `Checks for ${monthLabel}`}
-                                    </p>
-                                </div>
-                            </div>
-
-                            {readinessEmployeeId ? (
-                                readinessEmployeeItems.length ? (
-                                    <div className="spcc-ready-list" role="list">
-                                        {readinessEmployeeItems.map((item) => (
-                                                <Link
-                                                    key={item.id}
-                                                    href={blockerReviewHref(item)}
-                                                    className="spcc-ready-row"
-                                                    title={blockerPendingCondition(item)}
-                                                    onClick={(event) =>
-                                                        handleNavigateFromListClick(
-                                                            event,
-                                                            router,
-                                                            blockerReviewHref(item),
-                                                            parsed?.monthKey
-                                                                ? `/HRM/Salary/${parsed.monthKey}`
-                                                                : '/HRM/Salary',
-                                                        )
-                                                    }
+                                            <p className="spcc-ready-empty">
+                                                No pending items for {readinessEmployeeName}.
+                                            </p>
+                                        )
+                                    ) : readinessPeople.total ? (
+                                        <div className="spcc-ready-people">
+                                            <div className="spcc-ready-people__head">
+                                                <span>Employee</span>
+                                                <span>Pending</span>
+                                            </div>
+                                            {readinessPeople.preview.map((row) => (
+                                                <button
+                                                    key={row.id}
+                                                    type="button"
+                                                    className={`spcc-ready-person${readinessEmployeeId === row.id ? ' is-selected' : ''}`}
+                                                    onClick={() => setReadinessEmployeeId(row.id)}
+                                                    title={`${row.name} · ${row.pending} pending`}
                                                 >
-                                                <span className="spcc-ready-copy">
-                                                    <span className="spcc-ready-title">
-                                                        {blockerPendingCondition(item)}
-                                                    </span>
-                                                    <span className="spcc-ready-detail">
-                                                        {[
-                                                            blockerResponsibleDisplay(item),
-                                                            blockerDueDate(item),
-                                                        ]
-                                                            .filter((part) => part && part !== '—')
-                                                            .join(' · ')}
-                                                    </span>
-                                                </span>
-                                                <span className="spcc-ready-badge spcc-ready-badge--warn">
-                                                    Review
-                                                </span>
-                                            </Link>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <p className="spcc-ready-empty">
-                                        No pending items for {readinessEmployeeName}.
-                                    </p>
-                                )
-                            ) : readinessPeople.total ? (
-                                <div className="spcc-ready-people">
-                                    <div className="spcc-ready-people__head">
-                                        <span>Employee</span>
-                                        <span>Pending</span>
-                                    </div>
-                                    {readinessPeople.preview.map((row) => (
-                                        <button
-                                            key={row.id}
-                                            type="button"
-                                            className={`spcc-ready-person${readinessEmployeeId === row.id ? ' is-selected' : ''}`}
-                                            onClick={() => setReadinessEmployeeId(row.id)}
-                                            title={`${row.name} · ${row.pending} pending`}
-                                        >
-                                            <span className="spcc-ready-person__name">{row.name}</span>
-                                            <span className="spcc-ready-person__count">{row.pending}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            ) : (
-                                <p className="spcc-ready-empty">No pending employees in this tab.</p>
-                            )}
+                                                    <span className="spcc-ready-person__name">{row.name}</span>
+                                                    <span className="spcc-ready-person__count">{row.pending}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="spcc-ready-empty">No pending employees in this tab.</p>
+                                    )}
 
-                            <div className="spcc-req-block">
-                                <button
-                                    type="button"
-                                    className="spcc-btn spcc-btn--soft"
-                                    onClick={() => {
-                                        if (readinessEmployeeId) {
-                                            setReadinessEmployeeId('');
-                                            setReadinessAnchorId('');
-                                            return;
-                                        }
-                                        openBlockers();
-                                    }}
-                                >
-                                    <span>
-                                        {readinessEmployeeId
-                                            ? 'Back to employees'
-                                            : readinessPeople.extra > 0
-                                              ? `View others (${readinessPeople.extra})`
-                                              : tab !== ALL_TAB_KEY
-                                                ? `View ${view.groupLabel} employees`
-                                                : 'View all employees'}
-                                    </span>
-                                </button>
-                            </div>
-                        </section>
-                    </aside>
-                    </div>
+                                    <div className="spcc-req-block">
+                                        <button
+                                            type="button"
+                                            className="spcc-btn spcc-btn--soft"
+                                            onClick={() => {
+                                                if (readinessEmployeeId) {
+                                                    setReadinessEmployeeId('');
+                                                    setReadinessAnchorId('');
+                                                    return;
+                                                }
+                                                openBlockers();
+                                            }}
+                                        >
+                                            <span>
+                                                {readinessEmployeeId
+                                                    ? 'Back to employees'
+                                                    : readinessPeople.extra > 0
+                                                        ? `View others (${readinessPeople.extra})`
+                                                        : tab !== ALL_TAB_KEY
+                                                            ? `View ${view.groupLabel} employees`
+                                                            : 'View all employees'}
+                                            </span>
+                                        </button>
+                                    </div>
+                                </section>
+                            </aside>
+                        </div>
                     </div>
 
                     {typeof document !== 'undefined' && slotEditor
                         ? createPortal(
-                              <div className="spcc-modal">
-                                  <button
-                                      type="button"
-                                      className="spcc-modal__backdrop"
-                                      onClick={() => setSlotEditor(null)}
-                                      aria-label="Close"
-                                  />
-                                  <div
-                                      className="spcc-modal__panel spcc-modal__panel--pay"
-                                      role="dialog"
-                                      aria-modal="true"
-                                      aria-labelledby="spcc-pay-modal-title"
-                                      onClick={(event) => event.stopPropagation()}
-                                  >
-                                      <SlotEditorModal
-                                          editor={slotEditor}
-                                          employees={paymentEmployees}
-                                          claimedKeys={claimedElsewhere(slotEditor.id)}
-                                          saving={savingPayment}
-                                          canEdit={slotCanEdit}
-                                          canDecide={slotCanDecide}
-                                          canMarkWps={slotCanMarkWps}
-                                          canSetUpdated={slotCanSetUpdated}
-                                          accountsName={accountsName}
-                                          hrName={hrName}
-                                          onChange={(patch) =>
-                                              setSlotEditor((current) => (current ? { ...current, ...patch } : current))
-                                          }
-                                          onClose={() => setSlotEditor(null)}
-                                          onCancelSlot={() => {
-                                              if (!slotEditor.id) {
-                                                  setSlotEditor(null);
-                                                  return;
-                                              }
-                                              saveSlot('cancel');
-                                          }}
-                                          onDraft={() => saveSlot('draft')}
-                                          onApply={() => saveSlot('apply')}
-                                          onApprove={() => saveSlot('approve')}
-                                          onReject={(reason) => saveSlot('reject', { reason })}
-                                          onWpsUpdated={() => saveSlot('wps_updated')}
-                                          onUpdateSalary={() =>
-                                              toast({
-                                                  title: 'Zoho implementation is not done yet',
-                                                  description: 'Salary update in Zoho is not connected.',
-                                              })
-                                          }
-                                          onSetUpdated={() => saveSlot('set_updated')}
-                                      />
-                                  </div>
-                              </div>,
-                              document.body,
-                          )
+                            <div className="spcc-modal">
+                                <button
+                                    type="button"
+                                    className="spcc-modal__backdrop"
+                                    onClick={() => setSlotEditor(null)}
+                                    aria-label="Close"
+                                />
+                                <div
+                                    className="spcc-modal__panel spcc-modal__panel--pay"
+                                    role="dialog"
+                                    aria-modal="true"
+                                    aria-labelledby="spcc-pay-modal-title"
+                                    onClick={(event) => event.stopPropagation()}
+                                >
+                                    <SlotEditorModal
+                                        editor={slotEditor}
+                                        employees={paymentEmployees}
+                                        claimedKeys={claimedElsewhere(slotEditor.id)}
+                                        saving={savingPayment}
+                                        canEdit={slotCanEdit}
+                                        canDecide={slotCanDecide}
+                                        canMarkWps={slotCanMarkWps}
+                                        canSetUpdated={slotCanSetUpdated}
+                                        accountsName={accountsName}
+                                        hrName={hrName}
+                                        onChange={(patch) =>
+                                            setSlotEditor((current) => (current ? { ...current, ...patch } : current))
+                                        }
+                                        onClose={() => setSlotEditor(null)}
+                                        onCancelSlot={() => {
+                                            if (!slotEditor.id) {
+                                                setSlotEditor(null);
+                                                return;
+                                            }
+                                            saveSlot('cancel');
+                                        }}
+                                        onDraft={() => saveSlot('draft')}
+                                        onApply={() => saveSlot('apply')}
+                                        onApprove={() => saveSlot('approve')}
+                                        onReject={(reason) => saveSlot('reject', { reason })}
+                                        onWpsUpdated={() => saveSlot('wps_updated')}
+                                        onUpdateSalary={() =>
+                                            toast({
+                                                title: 'Zoho implementation is not done yet',
+                                                description: 'Salary update in Zoho is not connected.',
+                                            })
+                                        }
+                                        onSetUpdated={() => saveSlot('set_updated')}
+                                    />
+                                </div>
+                            </div>,
+                            document.body,
+                        )
                         : null}
 
                     <PayrollBlockersModal
