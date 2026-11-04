@@ -160,8 +160,6 @@ function SourcePendingNotice({ notice, onNavigate }) {
             {notice.link ? (
                 <a
                     href={notice.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
                     onClick={(event) => onNavigate?.(event, notice.link)}
                     className="mt-1 inline-flex font-semibold text-[#2563EB]"
                 >
@@ -856,8 +854,6 @@ function TaskDetailsPage() {
                                 {task.accessPath && task.taskCategory !== 'General Task' ? (
                                     <a
                                         href={task.accessPath}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
                                         onClick={(event) => handleNavigateFromTaskSectionClick(event, router, task.accessPath)}
                                         className="mt-3 inline-flex text-sm font-semibold text-[#2563EB]"
                                     >
@@ -929,7 +925,7 @@ function TaskDetailsPage() {
                                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                                     <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-800"><Mail size={16} /> Emails for this task</h3>
                                     {task.accessPath && task.taskCategory !== 'General Task' ? (
-                                        <a href={task.accessPath} target="_blank" rel="noopener noreferrer" onClick={(event) => handleNavigateFromTaskSectionClick(event, router, task.accessPath)} className="text-sm font-semibold text-[#2563EB]">Open the related page</a>
+                                        <a href={task.accessPath} onClick={(event) => handleNavigateFromTaskSectionClick(event, router, task.accessPath)} className="text-sm font-semibold text-[#2563EB]">Open the related page</a>
                                     ) : null}
                                 </div>
                                 <EmailInbox

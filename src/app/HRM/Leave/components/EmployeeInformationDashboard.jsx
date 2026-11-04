@@ -376,6 +376,11 @@ function formatAedNumber(value) {
     return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function dayPayText(ctx, amount, digits = 2) {
+    if (typeof ctx?.formatMoney === 'function') return ctx.formatMoney(amount, digits);
+    return formatAed(amount, digits);
+}
+
 function clockToMinutes(value) {
     const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})/);
     if (!match) return null;
@@ -1960,11 +1965,11 @@ function DayTip({
                 />
                 <TipMoney label="Total worked" value={workedText} />
                 {sideLabel ? <TipMoney label={sideLabel} value={sideHoursText || '—'} tone={sideTone} /> : <span />}
-                <TipMoney label={workedAmountLabel} value={workedAmountText} tone="text-[#16A34A]" />
-                {sideAmountLabel ? <TipMoney label={sideAmountLabel} value={sideAmountText || '—'} tone={sideTone} /> : <span />}
+                <TipMoney label={workedAmountLabel} value={workedAmountText} tone="text-[#16A34A]" wrap />
+                {sideAmountLabel ? <TipMoney label={sideAmountLabel} value={sideAmountText || '—'} tone={sideTone} wrap /> : <span />}
             </div>
             <div className="mt-2 border-t border-[#EEF2F6] pt-2">
-                <TipMoney label={totalLabel} value={totalText} tone={totalTone} />
+                <TipMoney label={totalLabel} value={totalText} tone={totalTone} wrap />
             </div>
             {compOffDate ? (
                 <div className="mt-2">
@@ -2327,13 +2332,13 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
                         outSpot={punchSpot(record?.checkOutLocation)}
                         workedText={worked == null ? '—' : formatHourlyGap(worked)}
                         workedAmountLabel={workedAmountLabel}
-                        workedAmountText={earnsDayRate || offDayOtHours > 0 || payment != null ? formatAed(workedAmount, 2) : '—'}
+                        workedAmountText={earnsDayRate || offDayOtHours > 0 || payment != null ? dayPayText(ctx, workedAmount) : '—'}
                         sideMode={sideMode}
                         sideHoursText={sideMode === 'ot' ? (otText || '—') : deductionWaived ? 'Waived' : deductionHoursText}
                         sideAmountText={deductionWaived && sideMode === 'deduction'
                             ? 'Waived'
-                            : `${formatAed(sideAmount, 2)}${sideMode === 'deduction' && doubleDeduction ? ' (double deduction)' : ''}`}
-                        totalText={totalPay == null ? '—' : formatAed(totalPay, 2)}
+                            : `${dayPayText(ctx, sideAmount)}${sideMode === 'deduction' && doubleDeduction ? ' (double deduction)' : ''}`}
+                        totalText={totalPay == null ? '—' : dayPayText(ctx, totalPay)}
                         totalTone={totalPay != null && totalPay < 0 ? 'text-[#DC2626]' : 'text-[#16A34A]'}
                         compOffDate={compOffLines[0] || ''}
                         lateText={visibleLate}
@@ -2528,13 +2533,14 @@ function buildMonthCalendarContext({
 
 function GroupEmployeeCalendar({ employee, payload, holidayRows, leavePolicy, onOpen }) {
     const [hoveredDate, setHoveredDate] = useState('');
+    const payRates = useAedRates();
     const monthKey = payload?.month || '';
     const ctx = useMemo(() => {
         if (!payload || !monthKey) return null;
         const offWeekdays = new Set(Array.isArray(payload.offWeekdays) && payload.offWeekdays.length
             ? payload.offWeekdays
             : ['saturday', 'sunday']);
-        return buildMonthCalendarContext({
+        const built = buildMonthCalendarContext({
             monthKey,
             todayKey: payload.today || format(new Date(), 'yyyy-MM-dd'),
             records: employee.records || [],
@@ -2548,7 +2554,11 @@ function GroupEmployeeCalendar({ employee, payload, holidayRows, leavePolicy, on
             visibleFrom: employee.visibleFrom || '',
             pendingRequests: employee.pendingRequests,
         });
-    }, [employee, holidayRows, leavePolicy, monthKey, payload]);
+        return {
+            ...built,
+            formatMoney: (value, digits = 2) => formatPayMoney(value, payCurrencyCode(employee), payRates, digits),
+        };
+    }, [employee, holidayRows, leavePolicy, monthKey, payload, payRates]);
     const anchor = useMemo(() => new Date(`${monthKey}-01T12:00:00`), [monthKey]);
     const days = useMemo(() => eachDayOfInterval({
         start: startOfWeek(startOfMonth(anchor), { weekStartsOn: 1 }),
@@ -4025,13 +4035,13 @@ export default function EmployeeInformationDashboard({
         const deductionSource = countedRecords;
         const authDays = money2(deductionSource.reduce((sum, row) => {
             if (deductionKind(row) !== 'authorized_leave') return sum;
-            if (row?.deductionWaived === true) return sum;
+            if (row?.deductionWaived === true || hoursForgiven(row)) return sum;
             const share = explicitAuthorizedHourShare(row);
             const weight = leaveDayWeight(row, true);
             return sum + (share != null ? share * weight : weight);
         }, 0));
         const unauthDays = money2(deductionSource.reduce((sum, row) => {
-            if (row?.deductionWaived === true) return sum;
+            if (row?.deductionWaived === true || hoursForgiven(row)) return sum;
             const key = deductionKind(row);
             if (key === 'unauthorized_leave') return sum + leaveDayWeight(row, false);
             const punched = Boolean(String(row?.timeIn || '').trim() || String(row?.timeOut || '').trim());
@@ -4041,7 +4051,7 @@ export default function EmployeeInformationDashboard({
         const authTimes = policy.authorizedDeductionDays == null ? 1 : n(policy.authorizedDeductionDays);
         const unauthTimes = policy.unauthorizedDeductionDays == null ? 2 : n(policy.unauthorizedDeductionDays);
         const punchShare = (row, kind) => {
-            if (row?.deductionWaived === true) return 0;
+            if (row?.deductionWaived === true || hoursForgiven(row)) return 0;
             const key = deductionKind(row);
             if (key !== 'late_arrived' && key !== 'early_go') return 0;
             if (isFlexibleWeek(scheduleWeek)) return key === kind ? 1 : 0;
@@ -4361,6 +4371,7 @@ export default function EmployeeInformationDashboard({
             monthKey,
             employeeName: employee.name,
         }),
+        formatMoney: payMoney,
     };
     const selectedGroupLabel = staffGroups.find((group) => group.key === groupKey)?.label || '';
     const employeeDisplayName = [employee.firstName, employee.lastName].filter(Boolean).join(' ').trim() || employee.employeeName || 'Employee';
@@ -5597,6 +5608,8 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
     const [salaryLock, setSalaryLock] = useState(EMPTY_SALARY_LOCK);
     const [processingStartDate, setProcessingStartDate] = useState('');
     const [calendarPay, setCalendarPay] = useState(null);
+    const [payEmployee, setPayEmployee] = useState(null);
+    const payRates = useAedRates();
     const [employeeId, setEmployeeId] = useState('');
     const [employeeName, setEmployeeName] = useState('');
     const [loading, setLoading] = useState(true);
@@ -5623,6 +5636,7 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
             ));
             setEmployeeId(String(response.data?.employee?.id || requestedId || ''));
             setEmployeeName(String(response.data?.employee?.name || '').trim());
+            setPayEmployee(response.data?.employee || null);
             setSalaryLock(salaryLockFromAttendancePayload(response.data));
             setProcessingStartDate(String(response.data?.processingStartDate || '').trim());
             setCalendarPay(response.data?.calendarPay || null);
@@ -5709,8 +5723,9 @@ export function AttendanceProfileCalendar({ forEmployeeId = '', className = '' }
                 monthKey,
                 employeeName,
             }),
+            formatMoney: (value, digits = 2) => formatPayMoney(value, payCurrencyCode(payEmployee), payRates, digits),
         };
-    }, [calendarPay, employeeName, holidayRows, monthKey, offWeekdays, processingStartDate, records, salaryLock, scheduleWeek, staffType, todayKey]);
+    }, [calendarPay, employeeName, holidayRows, monthKey, offWeekdays, payEmployee, payRates, processingStartDate, records, salaryLock, scheduleWeek, staffType, todayKey]);
 
     function shiftMonth(delta) {
         const next = format(addMonths(anchor, delta), 'yyyy-MM');

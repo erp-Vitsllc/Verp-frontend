@@ -186,6 +186,19 @@ function rowCanReviseLeave(row) {
     return row?.canEdit === true || row?.canMaintain === true;
 }
 
+/** Requests the logged-in person can approve sit above ones waiting on someone else. */
+function compareApprovalRows(a, b, employeeId) {
+    const aDecide = a?.canDecide === true ? 0 : 1;
+    const bDecide = b?.canDecide === true ? 0 : 1;
+    if (aDecide !== bDecide) return aDecide - bDecide;
+    if (employeeId) {
+        const aSel = String(a.employeeMongoId) === String(employeeId) ? 0 : 1;
+        const bSel = String(b.employeeMongoId) === String(employeeId) ? 0 : 1;
+        if (aSel !== bSel) return aSel - bSel;
+    }
+    return String(b.startDateKey || '').localeCompare(String(a.startDateKey || ''));
+}
+
 function LeaveApprovalTable({
     rows,
     decidingId,
@@ -878,26 +891,14 @@ export default function LeaveDashboard({
             const aPend = rowStatusKey(a) === 'pending' ? 0 : 1;
             const bPend = rowStatusKey(b) === 'pending' ? 0 : 1;
             if (aPend !== bPend) return aPend - bPend;
-            if (employeeId) {
-                const aSel = String(a.employeeMongoId) === String(employeeId) ? 0 : 1;
-                const bSel = String(b.employeeMongoId) === String(employeeId) ? 0 : 1;
-                if (aSel !== bSel) return aSel - bSel;
-            }
-            return String(b.startDateKey || '').localeCompare(String(a.startDateKey || ''));
+            return compareApprovalRows(a, b, employeeId);
         });
         return list;
     }, [employeeId, yearPendingItems]);
 
     const categoryApprovalItems = useMemo(() => {
         const list = yearPendingItems.filter((row) => rowStatusKey(row) === approvalCategory);
-        list.sort((a, b) => {
-            if (employeeId) {
-                const aSel = String(a.employeeMongoId) === String(employeeId) ? 0 : 1;
-                const bSel = String(b.employeeMongoId) === String(employeeId) ? 0 : 1;
-                if (aSel !== bSel) return aSel - bSel;
-            }
-            return String(b.startDateKey || '').localeCompare(String(a.startDateKey || ''));
-        });
+        list.sort((a, b) => compareApprovalRows(a, b, employeeId));
         return list;
     }, [approvalCategory, employeeId, yearPendingItems]);
 

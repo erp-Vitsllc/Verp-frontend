@@ -110,8 +110,6 @@ export function WorkflowBoard({ actionId, onChanged }) {
             {data.accessPath ? (
                 <a
                     href={data.accessPath}
-                    target="_blank"
-                    rel="noopener noreferrer"
                     onClick={(event) => handleNavigateFromTaskSectionClick(event, router, data.accessPath)}
                     className="mb-4 inline-flex text-sm font-semibold text-[#2563EB]"
                 >
@@ -146,7 +144,7 @@ export function WorkflowBoard({ actionId, onChanged }) {
                                 <PersonMark step={step} />
                                 <div className="min-w-0">
                                     {data.accessPath ? (
-                                        <a href={data.accessPath} target="_blank" rel="noopener noreferrer" onClick={(event) => handleNavigateFromTaskSectionClick(event, router, data.accessPath)} className="text-sm font-semibold text-[#2563EB] hover:underline">{step.title}</a>
+                                        <a href={data.accessPath} onClick={(event) => handleNavigateFromTaskSectionClick(event, router, data.accessPath)} className="text-sm font-semibold text-[#2563EB] hover:underline">{step.title}</a>
                                     ) : (
                                         <p className="text-sm font-semibold text-slate-800">{step.title}</p>
                                     )}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -19,7 +19,7 @@ import { toCalendarMonthDay, toPayrollMonthDay } from '../utils/payrollMonthDay'
 import { policyFormFromApi } from '../utils/salaryPolicyForm';
 import SalaryDmfApprovalPanel from './SalaryDmfApprovalPanel';
 import { monthPayrollProcessStatusLabel, payrollPendingForLabel } from '../utils/payrollApprovalStatus';
-import { navigateFromList } from '@/utils/listReturnNavigation';
+import { handleNavigateFromListClick, navigateFromList } from '@/utils/listReturnNavigation';
 import { buildFineListPath } from '@/utils/fineNotificationRouting';
 import './SalaryMonthControlCentre.css';
 
@@ -221,18 +221,24 @@ function MetricCard({ code, codeTone, title, pill, pillTone, onClick, active, ch
     );
 }
 
-function RatioStat({ label, part, total, money, hint }) {
+function RatioStat({ label, part, total, money, hint, percent, title }) {
+    const hasTotal = total != null && total !== '';
+    const bar = !hasTotal
+        ? (Number(part) > 0 ? 100 : 0)
+        : (percent == null ? ratioPercent(part, total) : percent);
     return (
-        <div className="spcc-metric-tile">
+        <div className="spcc-metric-tile" title={title || undefined}>
             <div className="spcc-metric-stat__head">
                 <span className="spcc-metric-stat__label">{label}</span>
                 {hint ? <span className="spcc-metric-stat__hint">{hint}</span> : null}
             </div>
             <span className={`spcc-metric-stat__value${money ? ' is-money' : ''}`}>
                 {money ? formatMoney(part) : part}
-                <span className="spcc-metric-den"> / {money ? formatMoney(total) : total}</span>
+                {hasTotal ? (
+                    <span className="spcc-metric-den"> / {money ? formatMoney(total) : total}</span>
+                ) : null}
             </span>
-            <MetricBar percent={ratioPercent(part, total)} />
+            <MetricBar percent={bar} />
         </div>
     );
 }
@@ -1176,9 +1182,11 @@ function PayrollBlockersModal({
     requests,
     employeeName,
     sending,
+    listReturnHref,
     onClose,
     onSendReminders,
 }) {
+    const router = useRouter();
     if (!open || typeof document === 'undefined') return null;
 
     const visible = Array.isArray(requests) ? requests : [];
@@ -1228,7 +1236,18 @@ function PayrollBlockersModal({
                                 <span className="spcc-blockers__owner">{blockerResponsibleDisplay(item)}</span>
                                 <span className="spcc-blockers__due">{blockerDueDate(item)}</span>
                                 <span>
-                                    <Link href={blockerReviewHref(item)} className="spcc-blockers__review">
+                                    <Link
+                                        href={blockerReviewHref(item)}
+                                        className="spcc-blockers__review"
+                                        onClick={(event) =>
+                                            handleNavigateFromListClick(
+                                                event,
+                                                router,
+                                                blockerReviewHref(item),
+                                                listReturnHref,
+                                            )
+                                        }
+                                    >
                                         Review
                                     </Link>
                                 </span>
@@ -1279,6 +1298,10 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const [blockerFilter, setBlockerFilter] = useState('');
     const [blockerEmployeeId, setBlockerEmployeeId] = useState('');
     const [readinessEmployeeId, setReadinessEmployeeId] = useState('');
+    const [readinessAnchorId, setReadinessAnchorId] = useState('');
+    const [readinessShift, setReadinessShift] = useState(0);
+    const payTableRef = useRef(null);
+    const sideColRef = useRef(null);
     const [payrollSort, setPayrollSort] = useState({ key: 'name', dir: 'asc' });
     const [sendingReminders, setSendingReminders] = useState(false);
     const [groupPolicies, setGroupPolicies] = useState({});
@@ -1333,6 +1356,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         setBlockerFilter('');
         setBlockerEmployeeId('');
         setReadinessEmployeeId('');
+        setReadinessAnchorId('');
         setTab(ALL_TAB_KEY);
         setTabMode(TAB_MODE_COMPANY);
     }, [parsed?.monthKey]);
@@ -1431,18 +1455,45 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         };
     }, [parsed, policy, register, locations]);
 
+    const monthRoster = useMemo(() => {
+        const overviewById = new Map();
+        for (const emp of derived.employees || []) {
+            const key = employeeIdKey(emp.employeeId);
+            if (key) overviewById.set(key, emp);
+        }
+        return (Array.isArray(register?.employees) ? register.employees : [])
+            .filter((emp) => enrolledForSalaryMonth(emp, parsed?.monthKey))
+            .map((month) => {
+                const overview = overviewById.get(employeeIdKey(month.employeeId)) || {};
+                const companyName =
+                    month.companyName && month.companyName !== '—'
+                        ? month.companyName
+                        : overview.companyName;
+                return {
+                    ...overview,
+                    ...month,
+                    name: month.name || overview.name,
+                    companyName,
+                    staffType: month.staffType || overview.staffType,
+                    isWps:
+                        month.isWps === true ||
+                        overview.isWps === true ||
+                        String(month.paymentType || overview.paymentType || '').toUpperCase() === 'WPS',
+                    paymentType: month.paymentType || overview.paymentType,
+                    companyMolCode: month.companyMolCode || overview.companyMolCode,
+                    enrolled: true,
+                    enrolledForMonth: true,
+                    extra: Number(month.extra ?? month.ot) || 0,
+                };
+            });
+    }, [derived.employees, register?.employees, parsed?.monthKey]);
+
     const tabItems = useMemo(() => {
-        const employeeCount = (derived.employees || []).length;
+        const employeeCount = monthRoster.length;
         if (tabMode === TAB_MODE_COMPANY) {
-            const companies = uniqueCompanyNames(
-                (derived.employees || []).map((emp) => emp.companyName),
-                (register?.employees || []).map((emp) => emp.companyName),
-                (register?.enrollmentOverview?.companies || [])
-                    .filter((row) => Number(row.totalActive) > 0)
-                    .map((row) => row.name),
-            );
+            const companies = uniqueCompanyNames(monthRoster.map((emp) => emp.companyName));
             const counts = new Map();
-            for (const emp of derived.employees || []) {
+            for (const emp of monthRoster) {
                 const key = companyKeyOf(emp).toLowerCase();
                 counts.set(key, (counts.get(key) || 0) + 1);
             }
@@ -1455,15 +1506,20 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                 })),
             ];
         }
+            const groupCounts = new Map();
+            for (const emp of monthRoster) {
+                const key = normalizeWorkLocationKey(emp.staffType);
+                groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
+            }
             return [
                 { key: ALL_TAB_KEY, label: 'All employees', count: employeeCount },
                 ...derived.locationCards.map((loc) => ({
                     key: loc.key,
                     label: loc.label,
-                    count: loc.enrolled,
+                    count: groupCounts.get(loc.key) || 0,
                 })),
             ];
-    }, [tabMode, derived.locationCards, derived.employees, register]);
+    }, [tabMode, derived.locationCards, monthRoster]);
 
     const locationKeysSig = useMemo(
         () => derived.locationCards.map((loc) => loc.key).join('|'),
@@ -1523,10 +1579,10 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         });
         const employees =
             tab === ALL_TAB_KEY
-                ? derived.employees
+                ? monthRoster
                 : tabMode === TAB_MODE_COMPANY
-                  ? derived.employees.filter((emp) => sameCompany(companyKeyOf(emp), companyName))
-                  : derived.employees.filter((emp) => normalizeWorkLocationKey(emp.staffType) === tab);
+                  ? monthRoster.filter((emp) => sameCompany(companyKeyOf(emp), companyName))
+                  : monthRoster.filter((emp) => normalizeWorkLocationKey(emp.staffType) === tab);
         const enrolledCount = employees.filter((emp) => emp.enrolled !== false).length;
         const employeeIds = new Set(employees.map((emp) => employeeIdKey(emp.employeeId)).filter(Boolean));
         const pendingRequests = derived.pendingRequests.filter((row) =>
@@ -1563,9 +1619,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             groupLabel,
             settingsHref: focus ? '/HRM/Salary/enroll' : '/HRM/Salary/salary-policy',
             settingsLabel: focus ? 'Edit group settings' : 'Edit settings',
-            employeeCount: companyName ? employees.length : focus ? focus.totalActive : derived.totalEmployees,
+            employeeCount: employees.length,
         };
-    }, [tab, tabMode, derived, policy, parsed, groupPolicies]);
+    }, [tab, tabMode, derived, policy, parsed, groupPolicies, monthRoster]);
 
     const readinessChecks = useMemo(() => {
         const enrolled = (view.employees || []).filter((emp) => emp.enrolled !== false);
@@ -1648,11 +1704,11 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const readinessEmployeeName = useMemo(() => {
         const id = String(readinessEmployeeId || '').trim();
         if (!id) return '';
-        const fromEmp = (derived.employees || []).find((emp) => String(emp.employeeId || '').trim() === id);
+        const fromEmp = monthRoster.find((emp) => String(emp.employeeId || '').trim() === id);
         if (fromEmp?.name) return fromEmp.name;
         const fromPending = (view.pendingByEmployee?.[id] || [])[0];
         return fromPending?.name || id;
-    }, [readinessEmployeeId, derived.employees, view.pendingByEmployee]);
+    }, [readinessEmployeeId, monthRoster, view.pendingByEmployee]);
 
     const readinessEmployeeItems = useMemo(() => {
         const id = String(readinessEmployeeId || '').trim();
@@ -1662,6 +1718,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
 
     useEffect(() => {
         setReadinessEmployeeId('');
+        setReadinessAnchorId('');
     }, [tab, tabMode]);
 
     const blockerRequests = useMemo(() => {
@@ -1677,95 +1734,59 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             (item) => String(item.employeeId || '').trim() === String(blockerEmployeeId),
         );
         if (fromRequest?.name) return fromRequest.name;
-        const fromEmp = (derived.employees || []).find(
+        const fromEmp = monthRoster.find(
             (emp) => String(emp.employeeId || '') === String(blockerEmployeeId),
         );
         return fromEmp?.name || blockerEmployeeId;
-    }, [blockerEmployeeId, blockerRequests, derived.employees]);
-
-    const monthEmployees = useMemo(
-        () => (Array.isArray(register?.employees) ? register.employees : []),
-        [register?.employees],
-    );
+    }, [blockerEmployeeId, blockerRequests, monthRoster]);
 
     const payrollRows = useMemo(() => {
-        const monthById = new Map();
-        for (const emp of monthEmployees) {
-            const key = employeeIdKey(emp.employeeId);
-            if (key) monthById.set(key, emp);
-        }
-        return (derived.employees || [])
-            .filter((emp) => enrolledForSalaryMonth(emp, parsed?.monthKey))
-            .filter((emp) => {
-                if (tab === ALL_TAB_KEY) return true;
-                if (tabMode === TAB_MODE_COMPANY) {
-                    return sameCompany(companyKeyOf(emp), fromCompanyTabKey(tab));
-                }
-                return normalizeWorkLocationKey(emp.staffType) === tab;
-            })
-            .map((emp) => {
-                const month = monthById.get(employeeIdKey(emp.employeeId));
-                if (!month) {
-                    return {
-                        ...emp,
-                        monthlySalary: Number(emp.monthlySalary) || 0,
-                        basicSalary: Number(emp.basicSalary) || 0,
-                        deduction: Number(emp.deduction) || 0,
-                        extra: employeeExtra(emp),
-                        actualSalary: Number(emp.actualSalary ?? emp.monthlySalary) || 0,
-                    };
-                }
-                return {
-                    ...emp,
-                    ...month,
-                    employeeId: emp.employeeId || month.employeeId,
-                    name: emp.name || month.name,
-                    companyName:
-                        month.companyName && month.companyName !== '—'
-                            ? month.companyName
-                            : emp.companyName,
-                    paymentType: emp.paymentType || month.paymentType,
-                    staffType: emp.staffType || month.staffType,
-                    extra: employeeExtra({ ...emp, ...month }),
-                };
-            });
-    }, [monthEmployees, tab, tabMode, derived.employees, parsed?.monthKey]);
+        const companyName = tabMode === TAB_MODE_COMPANY ? fromCompanyTabKey(tab) : '';
+        return monthRoster.filter((emp) => {
+            if (tab === ALL_TAB_KEY) return true;
+            if (tabMode === TAB_MODE_COMPANY) return sameCompany(companyKeyOf(emp), companyName);
+            return normalizeWorkLocationKey(emp.staffType) === tab;
+        });
+    }, [monthRoster, tab, tabMode]);
 
-    const paymentEmployees = useMemo(() => {
-        const byId = new Map();
-        for (const emp of monthEmployees) {
-            if (!enrolledForSalaryMonth(emp, parsed?.monthKey)) continue;
-            const id = employeeIdKey(emp.employeeId);
-            if (id) byId.set(id, emp);
-        }
-        for (const emp of derived.employees || []) {
-            if (!enrolledForSalaryMonth(emp, parsed?.monthKey)) continue;
-            const id = employeeIdKey(emp.employeeId);
-            if (!id) continue;
-            const existing = byId.get(id);
-            if (!existing) {
-                byId.set(id, {
-                    ...emp,
-                    monthlySalary: Number(emp.monthlySalary) || 0,
-                    basicSalary: Number(emp.basicSalary) || 0,
-                    deduction: Number(emp.deduction) || 0,
-                    actualSalary: Number(emp.actualSalary ?? emp.monthlySalary) || 0,
-                });
-                continue;
+    const cardStats = useMemo(() => {
+        let gross = 0;
+        let actual = 0;
+        let deduction = 0;
+        let extra = 0;
+        let wpsCount = 0;
+        let wpsAmount = 0;
+        let cashCount = 0;
+        let cashAmount = 0;
+        for (const emp of monthRoster) {
+            const monthly = Number(emp.monthlySalary) || 0;
+            const net = Number(emp.actualSalary ?? emp.monthlySalary) || 0;
+            gross += monthly;
+            actual += net;
+            deduction += Number(emp.deduction) || 0;
+            extra += employeeExtra(emp);
+            if (employeePayMethod(emp) === 'WPS') {
+                wpsCount += 1;
+                wpsAmount += net;
+            } else {
+                cashCount += 1;
+                cashAmount += net;
             }
-            const next = { ...existing };
-            if ((!next.companyName || next.companyName === '—') && emp.companyName) {
-                next.companyName = emp.companyName;
-            }
-            if (emp.paymentType) next.paymentType = emp.paymentType;
-            if (emp.isWps != null) next.isWps = emp.isWps;
-            if (emp.companyMolCode) next.companyMolCode = emp.companyMolCode;
-            if (emp.name && !next.name) next.name = emp.name;
-            if (emp.employeeId) next.employeeId = emp.employeeId;
-            byId.set(id, next);
         }
-        return [...byId.values()];
-    }, [monthEmployees, derived.employees, parsed?.monthKey]);
+        return {
+            enrolled: monthRoster.length,
+            gross,
+            actual,
+            wpsCount,
+            wpsAmount,
+            cashCount,
+            cashAmount,
+            deduction,
+            extra,
+        };
+    }, [monthRoster]);
+
+    const paymentEmployees = monthRoster;
 
     const processedPaymentIds = useMemo(() => {
         const ids = new Set();
@@ -1783,6 +1804,38 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             ),
         [payrollRows, payrollSort, processedPaymentIds],
     );
+
+    const placeReadinessCard = useCallback((employeeId) => {
+        const side = sideColRef.current;
+        const id = String(employeeId || '').trim();
+        if (!side || !id) {
+            setReadinessShift(0);
+            return;
+        }
+        const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id;
+        const row = payTableRef.current?.querySelector(`[data-pay-employee="${safeId}"]`);
+        const slot = side.querySelector('.spcc-slot-rows');
+        if (!row || !slot) {
+            setReadinessShift(0);
+            return;
+        }
+        const sideTop = side.getBoundingClientRect().top;
+        const slotBottom = slot.getBoundingClientRect().bottom - sideTop;
+        const rowTop = row.getBoundingClientRect().top - sideTop;
+        const next = Math.max(0, Math.round(rowTop - slotBottom - 12));
+        setReadinessShift((current) => (current === next ? current : next));
+    }, []);
+
+    useLayoutEffect(() => {
+        placeReadinessCard(readinessAnchorId);
+    }, [placeReadinessCard, readinessAnchorId, sortedPayrollRows]);
+
+    useEffect(() => {
+        if (!readinessAnchorId) return undefined;
+        const onResize = () => placeReadinessCard(readinessAnchorId);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, [placeReadinessCard, readinessAnchorId]);
 
     function claimedElsewhere(batchId) {
         const ids = new Set();
@@ -1804,9 +1857,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             });
             return;
         }
-        const enrolled = (derived.employees || []).filter(
-            (emp) => enrolledForSalaryMonth(emp, parsed?.monthKey) && employeeIdKey(emp.employeeId),
-        );
+        const enrolled = monthRoster.filter((emp) => employeeIdKey(emp.employeeId));
         if (!enrolled.length) return;
         const held = new Set();
         for (const batch of paymentBatches) {
@@ -2099,9 +2150,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const canCreateSlot = Boolean(monthDmf?.canCreateSlot);
     const canUseApproverActions = canStartMonthApproval || canActOnMonthApproval;
     const everyEmployeeReady = useMemo(() => {
-        const enrolled = (derived.employees || []).filter((emp) =>
-            enrolledForSalaryMonth(emp, parsed?.monthKey),
-        );
+        const enrolled = monthRoster.filter((emp) => employeeIdKey(emp.employeeId));
         if (!enrolled.length) return false;
         const pendingIds = new Set(
             (Array.isArray(derived.pendingRequests) ? derived.pendingRequests : [])
@@ -2113,7 +2162,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             const id = employeeIdKey(emp.employeeId);
             return Boolean(id) && !pendingIds.has(id) && !processedIds.has(id);
         });
-    }, [derived.employees, derived.pendingRequests, processedPaymentIds, parsed?.monthKey]);
+    }, [monthRoster, derived.pendingRequests, processedPaymentIds]);
     const monthPayrollReady = everyEmployeeReady;
     const showAccountsSubmit =
         canStartMonthApproval && everyEmployeeReady && readinessChecks.percent === 100;
@@ -2132,9 +2181,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         }
         return ids;
     }, [paymentBatches]);
-    const enrolledForSlots = (derived.employees || []).filter(
-        (emp) => enrolledForSalaryMonth(emp, parsed?.monthKey) && employeeIdKey(emp.employeeId),
-    );
+    const enrolledForSlots = monthRoster.filter((emp) => employeeIdKey(emp.employeeId));
     const canOpenNewSlot =
         canCreateSlot &&
         enrolledForSlots.some((emp) => !heldEmployeeKeys.has(employeeIdKey(emp.employeeId)));
@@ -2287,24 +2334,21 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             title="Headcount & salary"
                             pill="Active"
                             pillTone="ok"
-                            onClick={() => {
-                                setTabMode(TAB_MODE_GROUP);
-                                setTab(ALL_TAB_KEY);
-                            }}
-                            active={tabMode === TAB_MODE_GROUP && tab === ALL_TAB_KEY}
                         >
                             <RatioStat
                                 label="Employees"
-                                part={derived.enrolledCount}
-                                total={derived.totalEmployees}
-                                hint="enrolled / active"
+                                part={cardStats.enrolled}
+                                hint="this month"
+                                title="Employees enrolled for this payroll month"
                             />
                             <RatioStat
                                 label="Salary"
-                                part={derived.enrolledSalary}
-                                total={derived.totalSalary}
+                                part={cardStats.gross}
+                                total={cardStats.actual}
                                 money
-                                hint="enrolled / all"
+                                hint="monthly / actual"
+                                percent={ratioPercent(cardStats.actual, cardStats.gross)}
+                                title="Total monthly salary / actual salary for this month"
                             />
                         </MetricCard>
                         <MetricCard
@@ -2358,36 +2402,43 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             title="Payment type"
                             pill="Enrolled"
                             pillTone="ok"
-                            onClick={() => {
-                                setTabMode(TAB_MODE_GROUP);
-                                setTab(ALL_TAB_KEY);
-                            }}
                         >
-                            <div className="spcc-metric-split">
-                                <div className="spcc-metric-tile spcc-metric-split__tile">
+                            <div className="spcc-paytype">
+                                <div className="spcc-paytype__method">
                                     <span className="spcc-metric-stat__label">WPS</span>
-                                    <span className="spcc-metric-split__count">{derived.wpsEnrolled}</span>
+                                    <div className="spcc-paytype__pair">
+                                        <div className="spcc-paytype__mini">
+                                            <span className="spcc-metric-stat__label">Count</span>
+                                            <strong className="tabular-nums">{cardStats.wpsCount}</strong>
+                                        </div>
+                                        <div className="spcc-paytype__mini">
+                                            <span className="spcc-metric-stat__label">Amount</span>
+                                            <strong className="tabular-nums">{formatMoney(cardStats.wpsAmount)}</strong>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div className="spcc-metric-tile spcc-metric-split__tile">
+                                <div className="spcc-paytype__method">
                                     <span className="spcc-metric-stat__label">Cash</span>
-                                    <span className="spcc-metric-split__count">{derived.cashEnrolled}</span>
+                                    <div className="spcc-paytype__pair">
+                                        <div className="spcc-paytype__mini">
+                                            <span className="spcc-metric-stat__label">Count</span>
+                                            <strong className="tabular-nums">{cardStats.cashCount}</strong>
+                                        </div>
+                                        <div className="spcc-paytype__mini">
+                                            <span className="spcc-metric-stat__label">Amount</span>
+                                            <strong className="tabular-nums">{formatMoney(cardStats.cashAmount)}</strong>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="spcc-paytype__total" title="Total deduction of employees in this list">
+                                    <span className="spcc-metric-stat__label">Deduction</span>
+                                    <strong className="tabular-nums">{formatMoney(cardStats.deduction)}</strong>
+                                </div>
+                                <div className="spcc-paytype__total" title="Total extra of employees in this list">
+                                    <span className="spcc-metric-stat__label">Extra</span>
+                                    <strong className="tabular-nums">{formatMoney(cardStats.extra)}</strong>
                                 </div>
                             </div>
-                            <span
-                                className="spcc-metric-bar spcc-metric-bar--mix"
-                                aria-hidden="true"
-                            >
-                                <span
-                                    className="spcc-metric-bar__fill spcc-metric-bar__fill--wps"
-                                    style={{
-                                        width: `${ratioPercent(
-                                            derived.wpsEnrolled,
-                                            derived.wpsEnrolled + derived.cashEnrolled,
-                                        )}%`,
-                                    }}
-                                />
-                            </span>
-                            <span className="spcc-metric__caption">MOL code on enroll details = WPS</span>
                         </MetricCard>
                     </section>
 
@@ -2435,7 +2486,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                     </div>
                                 </div>
 
-                                <div className="spcc-pay-wrap">
+                                <div className="spcc-pay-wrap" ref={payTableRef}>
                                     <div className="spcc-pay-table" role="table" aria-label="Salary employees">
                                         <div className="spcc-pay-row spcc-pay-row--head" role="row">
                                             <span>Sl no</span>
@@ -2512,12 +2563,17 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                 return (
                                                     <div
                                                         key={emp.employeeId || emp.slNo || index}
+                                                        data-pay-employee={id}
                                                         className={`spcc-pay-row${readinessEmployeeId === id ? ' is-selected' : ''}`}
                                                         role="row"
                                                         title={id ? 'Double-click to open salary slips' : undefined}
                                                         onClick={(event) => {
                                                             if (!id || event.detail > 1) return;
-                                                            setReadinessEmployeeId((current) => (current === id ? '' : id));
+                                                            setReadinessEmployeeId((current) => {
+                                                                const next = current === id ? '' : id;
+                                                                setReadinessAnchorId(next);
+                                                                return next;
+                                                            });
                                                         }}
                                                         onDoubleClick={() => {
                                                             if (!id) return;
@@ -2542,7 +2598,10 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                                 <button
                                                                     type="button"
                                                                     className="spcc-status-open"
-                                                                    onClick={() => setReadinessEmployeeId(id)}
+                                                                    onClick={() => {
+                                                                        setReadinessEmployeeId(id);
+                                                                        setReadinessAnchorId(id);
+                                                                    }}
                                                                     title={status}
                                                                 >
                                                                     <StatusPill tone="warn">
@@ -2565,112 +2624,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                 </div>
                             </section>
                         </div>
-
-                        <aside className="spcc-col-side">
-                            <section className="spcc-card spcc-card--panel spcc-card--ready">
-                                <div className="spcc-card__head spcc-card__head--ready">
-                                    <div className="spcc-ready-head">
-                                        <h2 className="spcc-card__title">Payroll readiness</h2>
-                                        <p className="spcc-card__sub">
-                                            {readinessEmployeeId
-                                                ? readinessEmployeeItems.length
-                                                    ? `${readinessEmployeeName} · ${readinessEmployeeItems.length} pending`
-                                                    : `${readinessEmployeeName} · no pending items`
-                                                : readinessPeople.total
-                                                  ? `${readinessPeople.total} employee${readinessPeople.total === 1 ? '' : 's'} pending · ${monthLabel}`
-                                                  : `Checks for ${monthLabel}`}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {readinessEmployeeId ? (
-                                    readinessEmployeeItems.length ? (
-                                        <div className="spcc-ready-list" role="list">
-                                            {readinessEmployeeItems.map((item) => (
-                                                <Link
-                                                    key={item.id}
-                                                    href={blockerReviewHref(item)}
-                                                    className="spcc-ready-row"
-                                                    title={blockerPendingCondition(item)}
-                                                >
-                                                    <span className="spcc-ready-copy">
-                                                        <span className="spcc-ready-title">
-                                                            {blockerPendingCondition(item)}
-                                                        </span>
-                                                        <span className="spcc-ready-detail">
-                                                            {[
-                                                                blockerResponsibleDisplay(item),
-                                                                blockerDueDate(item),
-                                                            ]
-                                                                .filter((part) => part && part !== '—')
-                                                                .join(' · ')}
-                                                        </span>
-                                                    </span>
-                                                    <span className="spcc-ready-badge spcc-ready-badge--warn">
-                                                        Review
-                                                    </span>
-                                                </Link>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <p className="spcc-ready-empty">
-                                            No pending items for {readinessEmployeeName}.
-                                        </p>
-                                    )
-                                ) : readinessPeople.total ? (
-                                    <div className="spcc-ready-people">
-                                        <div className="spcc-ready-people__head">
-                                            <span>Employee</span>
-                                            <span>Pending</span>
-                                            <span>Due</span>
-                                        </div>
-                                        {readinessPeople.preview.map((row) => (
-                                            <button
-                                                key={row.id}
-                                                type="button"
-                                                className={`spcc-ready-person${readinessEmployeeId === row.id ? ' is-selected' : ''}`}
-                                                onClick={() => setReadinessEmployeeId(row.id)}
-                                                title={`${row.name} · ${row.pending} pending · ${row.due} due`}
-                                            >
-                                                <span className="spcc-ready-person__name">{row.name}</span>
-                                                <span className="spcc-ready-person__count">{row.pending}</span>
-                                                <span className={`spcc-ready-person__count${row.due ? ' is-due' : ''}`}>
-                                                    {row.due}
-                                                </span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <p className="spcc-ready-empty">No pending employees in this tab.</p>
-                                )}
-
-                                <div className="spcc-req-block">
-                                    <button
-                                        type="button"
-                                        className="spcc-btn spcc-btn--soft"
-                                        onClick={() => {
-                                            if (readinessEmployeeId) {
-                                                setReadinessEmployeeId('');
-                                                return;
-                                            }
-                                            openBlockers();
-                                        }}
-                                    >
-                                        <span>
-                                            {readinessEmployeeId
-                                                ? 'Back to employees'
-                                                : readinessPeople.extra > 0
-                                                  ? `View others (${readinessPeople.extra})`
-                                                  : tab !== ALL_TAB_KEY
-                                                    ? `View ${view.groupLabel} employees`
-                                                    : 'View all employees'}
-                                        </span>
-                                    </button>
-                                </div>
-                            </section>
-                        </aside>
                     </div>
                     </div>
+                    <div className="spcc-board__side" ref={sideColRef}>
                     <section className="spcc-slot-rows" aria-label="Salary slots">
                         <div className="spcc-pay-cards">
                             {salarySlots.map((slot) => (
@@ -2705,6 +2661,120 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             ) : null}
                         </div>
                     </section>
+                    <aside
+                        className="spcc-col-side spcc-ready-shift"
+                        style={{ '--spcc-ready-shift': `${readinessShift}px` }}
+                    >
+                        <section className="spcc-card spcc-card--panel spcc-card--ready">
+                            <div className="spcc-card__head spcc-card__head--ready">
+                                <div className="spcc-ready-head">
+                                    <h2 className="spcc-card__title">Payroll readiness</h2>
+                                    <p className="spcc-card__sub">
+                                        {readinessEmployeeId
+                                            ? readinessEmployeeItems.length
+                                                ? `${readinessEmployeeName} · ${readinessEmployeeItems.length} pending`
+                                                : `${readinessEmployeeName} · no pending items`
+                                            : readinessPeople.total
+                                              ? `${readinessPeople.total} employee${readinessPeople.total === 1 ? '' : 's'} pending · ${monthLabel}`
+                                              : `Checks for ${monthLabel}`}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {readinessEmployeeId ? (
+                                readinessEmployeeItems.length ? (
+                                    <div className="spcc-ready-list" role="list">
+                                        {readinessEmployeeItems.map((item) => (
+                                                <Link
+                                                    key={item.id}
+                                                    href={blockerReviewHref(item)}
+                                                    className="spcc-ready-row"
+                                                    title={blockerPendingCondition(item)}
+                                                    onClick={(event) =>
+                                                        handleNavigateFromListClick(
+                                                            event,
+                                                            router,
+                                                            blockerReviewHref(item),
+                                                            parsed?.monthKey
+                                                                ? `/HRM/Salary/${parsed.monthKey}`
+                                                                : '/HRM/Salary',
+                                                        )
+                                                    }
+                                                >
+                                                <span className="spcc-ready-copy">
+                                                    <span className="spcc-ready-title">
+                                                        {blockerPendingCondition(item)}
+                                                    </span>
+                                                    <span className="spcc-ready-detail">
+                                                        {[
+                                                            blockerResponsibleDisplay(item),
+                                                            blockerDueDate(item),
+                                                        ]
+                                                            .filter((part) => part && part !== '—')
+                                                            .join(' · ')}
+                                                    </span>
+                                                </span>
+                                                <span className="spcc-ready-badge spcc-ready-badge--warn">
+                                                    Review
+                                                </span>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="spcc-ready-empty">
+                                        No pending items for {readinessEmployeeName}.
+                                    </p>
+                                )
+                            ) : readinessPeople.total ? (
+                                <div className="spcc-ready-people">
+                                    <div className="spcc-ready-people__head">
+                                        <span>Employee</span>
+                                        <span>Pending</span>
+                                    </div>
+                                    {readinessPeople.preview.map((row) => (
+                                        <button
+                                            key={row.id}
+                                            type="button"
+                                            className={`spcc-ready-person${readinessEmployeeId === row.id ? ' is-selected' : ''}`}
+                                            onClick={() => setReadinessEmployeeId(row.id)}
+                                            title={`${row.name} · ${row.pending} pending`}
+                                        >
+                                            <span className="spcc-ready-person__name">{row.name}</span>
+                                            <span className="spcc-ready-person__count">{row.pending}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="spcc-ready-empty">No pending employees in this tab.</p>
+                            )}
+
+                            <div className="spcc-req-block">
+                                <button
+                                    type="button"
+                                    className="spcc-btn spcc-btn--soft"
+                                    onClick={() => {
+                                        if (readinessEmployeeId) {
+                                            setReadinessEmployeeId('');
+                                            setReadinessAnchorId('');
+                                            return;
+                                        }
+                                        openBlockers();
+                                    }}
+                                >
+                                    <span>
+                                        {readinessEmployeeId
+                                            ? 'Back to employees'
+                                            : readinessPeople.extra > 0
+                                              ? `View others (${readinessPeople.extra})`
+                                              : tab !== ALL_TAB_KEY
+                                                ? `View ${view.groupLabel} employees`
+                                                : 'View all employees'}
+                                    </span>
+                                </button>
+                            </div>
+                        </section>
+                    </aside>
+                    </div>
                     </div>
 
                     {typeof document !== 'undefined' && slotEditor
@@ -2770,6 +2840,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         requests={blockerRequests}
                         employeeName={blockerEmployeeName}
                         sending={sendingReminders}
+                        listReturnHref={
+                            parsed?.monthKey ? `/HRM/Salary/${parsed.monthKey}` : '/HRM/Salary'
+                        }
                         onClose={() => {
                             setBlockersOpen(false);
                             setBlockerEmployeeId('');

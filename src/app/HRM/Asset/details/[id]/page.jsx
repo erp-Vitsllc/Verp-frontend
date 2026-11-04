@@ -2174,7 +2174,7 @@ function AssetDetailsPageContent() {
         const startUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
         const now = new Date();
         const nowUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-        return Math.floor((nowUtc - startUtc) / 86400000) >= 7;
+        return Math.floor((nowUtc - startUtc) / 86400000) >= 3;
     }, [asset, isAssetController]);
 
     const liveHandoverDate = useMemo(() => {
