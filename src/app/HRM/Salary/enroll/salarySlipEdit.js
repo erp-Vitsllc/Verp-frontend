@@ -45,6 +45,7 @@ export const DEDUCTION_CATALOG = [
     'Sick Leave',
     'Annual Leave',
     'Late Arrival',
+    'Early Out',
     'Salary Advance',
     'Loan',
     'Fine',
@@ -56,6 +57,7 @@ export const LOSS_OF_PAY_CATALOG = [
     'Unauthorized Leave',
     'Sick Leave',
     'Late Arrival',
+    'Early Out',
     'Annual Leave',
 ];
 

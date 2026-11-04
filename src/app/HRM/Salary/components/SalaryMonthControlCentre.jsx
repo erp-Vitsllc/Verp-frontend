@@ -162,7 +162,7 @@ function cycleFromPolicy(policy, parsed) {
 
 function formatMoney(value) {
     const n = Number(value) || 0;
-    return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function formatSlotDate(value) {
@@ -1553,7 +1553,16 @@ export default function SalaryMonthControlCentre({ monthKey }) {
 
     useEffect(() => {
         if (tab === ALL_TAB_KEY) return;
-        if (!tabItems.some((item) => item.key === tab)) setTab(ALL_TAB_KEY);
+        if (tabItems.some((item) => item.key === tab)) return;
+        const companyName = fromCompanyTabKey(tab);
+        const match = companyName
+            ? tabItems.find((item) => sameCompany(fromCompanyTabKey(item.key) || item.label, companyName))
+            : null;
+        if (match) {
+            setTab(match.key);
+            return;
+        }
+        setTab(ALL_TAB_KEY);
     }, [tab, tabItems]);
 
     const view = useMemo(() => {
@@ -1758,7 +1767,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         let wpsAmount = 0;
         let cashCount = 0;
         let cashAmount = 0;
-        for (const emp of monthRoster) {
+        for (const emp of payrollRows) {
             const monthly = Number(emp.monthlySalary) || 0;
             const net = Number(emp.actualSalary ?? emp.monthlySalary) || 0;
             gross += monthly;
@@ -1774,7 +1783,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             }
         }
         return {
-            enrolled: monthRoster.length,
+            enrolled: payrollRows.length,
             gross,
             actual,
             wpsCount,
@@ -1784,7 +1793,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             deduction,
             extra,
         };
-    }, [monthRoster]);
+    }, [payrollRows]);
 
     const paymentEmployees = monthRoster;
 
@@ -2338,8 +2347,12 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             <RatioStat
                                 label="Employees"
                                 part={cardStats.enrolled}
-                                hint="this month"
-                                title="Employees enrolled for this payroll month"
+                                hint={tab === ALL_TAB_KEY ? 'this month' : view.groupLabel}
+                                title={
+                                    tab === ALL_TAB_KEY
+                                        ? 'Employees enrolled for this payroll month'
+                                        : `Employees shown for ${view.groupLabel}`
+                                }
                             />
                             <RatioStat
                                 label="Salary"
@@ -2348,7 +2361,11 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                 money
                                 hint="monthly / actual"
                                 percent={ratioPercent(cardStats.actual, cardStats.gross)}
-                                title="Total monthly salary / actual salary for this month"
+                                title={
+                                    tab === ALL_TAB_KEY
+                                        ? 'Total monthly salary / actual salary for this month'
+                                        : `Monthly salary / actual salary for ${view.groupLabel}`
+                                }
                             />
                         </MetricCard>
                         <MetricCard
@@ -2364,7 +2381,12 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                         const name = company.name || 'Company';
                                         const enrolled = Number(company.enrolled) || 0;
                                         const total = Number(company.totalActive) || 0;
-                                        const companyTab = toCompanyTabKey(name);
+                                        const rosterMatch = monthRoster.find((emp) =>
+                                            sameCompany(companyKeyOf(emp), name),
+                                        );
+                                        const companyTab = toCompanyTabKey(
+                                            rosterMatch ? companyKeyOf(rosterMatch) : name,
+                                        );
                                         const active =
                                             tabMode === TAB_MODE_COMPANY && sameCompany(fromCompanyTabKey(tab), name);
                                         return (

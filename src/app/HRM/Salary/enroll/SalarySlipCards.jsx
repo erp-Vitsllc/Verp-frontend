@@ -42,12 +42,13 @@ const CONTRACT_SALARY_NAMES = [
     'Fuel Allowance',
 ];
 const FORMULA_EARNINGS = new Set(['Overtime Hours', 'Overtime Days']);
-const FORMULA_DEDUCTIONS = new Set(['Authorized Leave', 'Unauthorized Leave', 'Late Arrival']);
+const FORMULA_DEDUCTIONS = new Set(['Authorized Leave', 'Unauthorized Leave']);
 
 const LOSS_OF_PAY_ROWS = [
     { name: 'Authorized Leave', dayKey: 'authorized', multiplierKey: 'authorized' },
     { name: 'Unauthorized Leave', dayKey: 'unauthorized', multiplierKey: 'unauthorized' },
-    { name: 'Late Arrival', dayKey: 'late', multiplierKey: 'late' },
+    { name: 'Late Arrival', attendanceComponent: 'Late in' },
+    { name: 'Early Out', attendanceComponent: 'Late out' },
     { name: 'Annual Leave', dayKey: 'annual', multiplierKey: 'annual' },
     { name: 'Comp off leave', dayKey: 'compOff', daysOnly: true },
 ];
@@ -618,11 +619,24 @@ export default function SalarySlipCards({ slip, onPatch }) {
             item.name === 'Unauthorized Leave' ||
             item.name === 'Annual Leave' ||
             item.name === 'Comp off leave';
-        const isLateRow = item.name === 'Late Arrival';
+        const isLateRow = item.name === 'Late Arrival' || item.name === 'Early Out';
         if ((excludeLeave || excludeAttendance) && isLeaveRow) return false;
         if (excludeAttendance && isLateRow) return false;
         return true;
     }).map((item, index) => {
+        if (item.attendanceComponent) {
+            const source = pickComponent(slip?.deductions, item.attendanceComponent);
+            const amount = money(source.amount);
+            const period = String(source.basis || '').trim() || '0 events';
+            return {
+                key: item.name,
+                sl: index + 1,
+                label: item.name,
+                period,
+                amount,
+                amountCell: <AmountCell label={item.name} amount={amount} tone="deduct" />,
+            };
+        }
         const days =
             Number(lopDays[item.dayKey]) ||
             parseLeadingNumber(
