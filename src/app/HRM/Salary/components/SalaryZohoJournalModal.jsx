@@ -37,6 +37,52 @@ function formatAmount(value) {
     return money(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function normalizeZohoLabel(value) {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function findZohoAccount(accounts, label) {
+    const target = normalizeZohoLabel(label);
+    if (!target || target === 'no category') return null;
+    const rows = (Array.isArray(accounts) ? accounts : []).map((account) => ({
+        id: String(account?.account_id || account?.id || '').trim(),
+        name: String(account?.account_name || account?.name || '').trim(),
+    })).filter((row) => row.id && row.name);
+    const exact = rows.filter((row) => normalizeZohoLabel(row.name) === target);
+    if (exact.length) return exact[0];
+    const parts = target.split(' ').filter((part) => part.length > 1);
+    if (!parts.length) return null;
+    const partial = rows.filter((row) => parts.every((part) => normalizeZohoLabel(row.name).includes(part)));
+    return partial.length === 1 ? partial[0] : null;
+}
+
+function assignSalaryJournalAccounts(lines, accounts) {
+    return (lines || []).map((line) => {
+        if (String(line?.accountId || '').trim()) return line;
+        const labels = line?.kind === 'employee'
+            ? [line.accountName, line.personName]
+            : (line?.kind === 'category' && String(line.accountName || '').trim() !== 'No category'
+                ? [line.accountName]
+                : []);
+        for (const label of labels) {
+            const match = findZohoAccount(accounts, label);
+            if (match) return { ...line, accountId: match.id, accountName: match.name };
+        }
+        return line;
+    });
+}
+
+function linesForNote(lines, note) {
+    const payroll = String(note || '').trim();
+    return (lines || []).map((line) => {
+        if (line.descriptionEdited) return line;
+        if (line.kind === 'employee' || line.kind === 'category') {
+            return { ...line, description: payroll };
+        }
+        return line;
+    });
+}
+
 function blankForm(org, monthKey, monthLabel) {
     const lines = Array.isArray(org?.lines) && org.lines.length ? org.lines.map((line) => ({ ...line })) : [emptyLine(), emptyLine()];
     return {
@@ -153,6 +199,7 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose }) {
                 [organizationId]: {
                     ...current,
                     supportReady: true,
+                    lines: assignSalaryJournalAccounts(current.lines, accounts),
                     journalNumber: current.journalNumber || String(data.nextJournalNumber || '').trim(),
                     currencyId: current.currencyId || String(aed?.currency_id || currencies[0]?.currency_id || ''),
                     locationId: current.locationId || String(location?.location_id || location?.id || ''),
@@ -391,7 +438,10 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose }) {
                                 maxLength={500}
                                 rows={3}
                                 placeholder="Max. 500 characters"
-                                onChange={(event) => patchForm({ notes: event.target.value })}
+                                onChange={(event) => {
+                                    const notes = event.target.value;
+                                    patchForm({ notes, lines: linesForNote(form.lines, notes) });
+                                }}
                                 className={inputClass}
                             />
                         </Field>
@@ -463,7 +513,7 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose }) {
                                                 <input
                                                     value={line.description}
                                                     placeholder="Description"
-                                                    onChange={(event) => updateLine(line.key, { description: event.target.value })}
+                                                    onChange={(event) => updateLine(line.key, { description: event.target.value, descriptionEdited: true })}
                                                     className={cellInput}
                                                 />
                                             </td>
