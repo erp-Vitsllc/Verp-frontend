@@ -771,6 +771,8 @@ function EmployeeProfilePageContent() {
         fuelAllowance: '',
         otherAllowance: '',
         totalSalary: '',
+        zohoAccountId: '',
+        zohoAccountName: '',
         offerLetterFile: null,
         offerLetterFileBase64: '',
         offerLetterFileName: '',
@@ -2978,6 +2980,8 @@ function EmployeeProfilePageContent() {
                 designation: form.designation,
                 department: form.department,
                 company: typeof form.company === 'object' ? (form.company?._id || null) : (form.company || null),
+                zohoCategoryAccountId: String(form.zohoCategoryAccountId || '').trim(),
+                zohoCategoryAccountName: String(form.zohoCategoryAccountName || '').trim(),
                 dateOfJoining: form.dateOfJoining,
                 primaryReportee: form.primaryReportee || null,
                 secondaryReportee: form.secondaryReportee || null,
@@ -5243,6 +5247,9 @@ function EmployeeProfilePageContent() {
                 offerLetterMime = employee.offerLetter.mimeType || 'application/pdf';
             }
 
+            const activeSalaryEntry = Array.isArray(employee.salaryHistory)
+                ? employee.salaryHistory.find((entry) => !entry.toDate)
+                : null;
             setSalaryForm({
                 month: month,
                 fromDate: fromDate || (employee.dateOfJoining ? new Date(employee.dateOfJoining).toISOString().split('T')[0] : ''),
@@ -5251,6 +5258,8 @@ function EmployeeProfilePageContent() {
                 vehicleAllowance: vehicleAllowance ? String(vehicleAllowance) : '',
                 fuelAllowance: fuelAllowance ? String(fuelAllowance) : '',
                 otherAllowance: employee.otherAllowance ? String(employee.otherAllowance) : '',
+                zohoAccountId: String(activeSalaryEntry?.zohoAccountId || employee.zohoAccountId || '').trim(),
+                zohoAccountName: String(activeSalaryEntry?.zohoAccountName || employee.zohoAccountName || '').trim(),
                 totalSalary: calculateTotalSalary(
                     employee.basic ? String(employee.basic) : '',
                     employee.houseRentAllowance ? String(employee.houseRentAllowance) : '',
@@ -5291,6 +5300,8 @@ function EmployeeProfilePageContent() {
                 fuelAllowance: '',
                 otherAllowance: '',
                 totalSalary: '0.00',
+                zohoAccountId: '',
+                zohoAccountName: '',
                 offerLetterFile: null,
                 offerLetterFileBase64: '',
                 offerLetterFileName: '',
@@ -5314,6 +5325,9 @@ function EmployeeProfilePageContent() {
     const handleOpenIncrementModal = () => {
         setSalaryMode('increment');
         if (employee) {
+            const activeSalaryEntry = Array.isArray(employee.salaryHistory)
+                ? employee.salaryHistory.find((entry) => !entry.toDate)
+                : null;
             setSalaryForm({
                 month: '',
                 fromDate: '',
@@ -5323,6 +5337,8 @@ function EmployeeProfilePageContent() {
                 fuelAllowance: '',
                 otherAllowance: '',
                 totalSalary: '0.00',
+                zohoAccountId: String(activeSalaryEntry?.zohoAccountId || employee.zohoAccountId || '').trim(),
+                zohoAccountName: String(activeSalaryEntry?.zohoAccountName || employee.zohoAccountName || '').trim(),
                 offerLetterFile: null,
                 offerLetterFileBase64: '',
                 offerLetterFileName: '',
@@ -5360,6 +5376,8 @@ function EmployeeProfilePageContent() {
                 fuelAllowance: '',
                 otherAllowance: '',
                 totalSalary: '0.00',
+                zohoAccountId: '',
+                zohoAccountName: '',
                 offerLetterFile: null,
                 offerLetterFileBase64: '',
                 offerLetterFileName: '',
@@ -5460,6 +5478,8 @@ function EmployeeProfilePageContent() {
                 updatedForm = {
                     ...updatedForm,
                     ...baseline,
+                    zohoAccountId: updatedForm.zohoAccountId || baseline.zohoAccountId || '',
+                    zohoAccountName: updatedForm.zohoAccountName || baseline.zohoAccountName || '',
                     offerLetterFile: null,
                     offerLetterFileBase64: '',
                     offerLetterFileName: '',
@@ -5768,7 +5788,9 @@ function EmployeeProfilePageContent() {
                     vehicleAllowance: vehicleAllowance,
                     fuelAllowance: fuelAllowance,
                     otherAllowance: otherAllowance,
-                    totalSalary: totalSalary
+                    totalSalary: totalSalary,
+                    zohoAccountId: String(salaryForm.zohoAccountId || '').trim(),
+                    zohoAccountName: String(salaryForm.zohoAccountName || '').trim(),
                 };
                 // Update salary letter if provided, otherwise preserve existing
                 if (offerLetterCloudinaryUrl) {
@@ -5852,6 +5874,8 @@ function EmployeeProfilePageContent() {
                         fuelAllowance: fuelAllowance,
                         otherAllowance: otherAllowance,
                         totalSalary: totalSalary,
+                        zohoAccountId: String(salaryForm.zohoAccountId || '').trim(),
+                        zohoAccountName: String(salaryForm.zohoAccountName || '').trim(),
                         createdAt: today,
                         isInitial: true
                     };
@@ -5876,6 +5900,8 @@ function EmployeeProfilePageContent() {
                         fuelAllowance,
                         otherAllowance,
                         totalSalary,
+                        zohoAccountId: String(salaryForm.zohoAccountId || '').trim(),
+                        zohoAccountName: String(salaryForm.zohoAccountName || '').trim(),
                         createdAt: today,
                     };
                     if (offerLetterCloudinaryUrl) {
@@ -5958,6 +5984,8 @@ function EmployeeProfilePageContent() {
                         fuelAllowance,
                         otherAllowance,
                         totalSalary,
+                        zohoAccountId: String(salaryForm.zohoAccountId || '').trim(),
+                        zohoAccountName: String(salaryForm.zohoAccountName || '').trim(),
                         createdAt: today,
                     };
                     if (offerLetterCloudinaryUrl) {
@@ -5998,6 +6026,8 @@ function EmployeeProfilePageContent() {
                 otherAllowance: latestActiveEntry?.otherAllowance ?? otherAllowance,
                 monthlySalary: latestActiveEntry?.totalSalary ?? totalSalary,
                 totalSalary: latestActiveEntry?.totalSalary ?? totalSalary,
+                zohoAccountId: String(latestActiveEntry?.zohoAccountId || salaryForm.zohoAccountId || '').trim(),
+                zohoAccountName: String(latestActiveEntry?.zohoAccountName || salaryForm.zohoAccountName || '').trim(),
                 salaryHistory: normalizeSalaryHistoryForSave(salaryHistory),
                 skipArchive: mode !== 'increment',
                 isSalaryIncrement: mode === 'increment',
@@ -9806,6 +9836,8 @@ function EmployeeProfilePageContent() {
                                                     vehicleAllowance: entry.vehicleAllowance ? String(entry.vehicleAllowance) : '',
                                                     fuelAllowance: entryFuelAllowance ? String(entryFuelAllowance) : '',
                                                     otherAllowance: entry.otherAllowance ? String(entry.otherAllowance) : '',
+                                                    zohoAccountId: String(entry.zohoAccountId || '').trim(),
+                                                    zohoAccountName: String(entry.zohoAccountName || '').trim(),
                                                     totalSalary: entry.totalSalary ? String(entry.totalSalary) : calculateTotalSalary(
                                                         entry.basic ? String(entry.basic) : '',
                                                         entry.houseRentAllowance ? String(entry.houseRentAllowance) : '',

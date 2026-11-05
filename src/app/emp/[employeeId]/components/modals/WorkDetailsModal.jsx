@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import axiosInstance from '@/utils/axios';
 import DropdownWithDelete from '@/components/ui/DropdownWithDelete';
+import ZohoPayAccountSelect from '@/app/HRM/Asset/Vehicle/components/ZohoPayAccountSelect';
+import { useCompanyZohoOrganizationId } from '@/hooks/useCompanyZohoOrganizationId';
 import AddDepartmentModal from '@/app/HRM/Department/components/AddDepartmentModal';
 import AddDesignationModal from '@/app/HRM/Designation/components/AddDesignationModal';
 import AddWorkLocationModal from '@/app/HRM/WorkLocation/components/AddWorkLocationModal';
@@ -670,6 +672,21 @@ export default function WorkDetailsModal({
         [activeCompanies],
     );
 
+    const selectedCompanyRow = useMemo(() => {
+        const companyId = typeof form.company === 'object'
+            ? String(form.company?._id || form.company?.id || '')
+            : String(form.company || '');
+        if (!companyId) return null;
+        return companies.find((company) => String(company?._id || company?.id || '') === companyId) || null;
+    }, [companies, form.company]);
+
+    const { organizationId: selectedCompanyZohoOrgId, loading: categoryOrgLoading } = useCompanyZohoOrganizationId({
+        companyId: selectedCompanyRow?._id || (typeof form.company === 'object' ? form.company?._id : form.company) || '',
+        companyName: selectedCompanyRow?.name || selectedCompanyRow?.nickName || '',
+        explicitOrganizationId: selectedCompanyRow?.zohoOrganizationId || '',
+        enabled: isOpen && Boolean(form.company),
+    });
+
     const secondaryReporteeOptions = useMemo(
         () => reportingToOptions.filter((option) => option.value !== form.primaryReportee),
         [reportingToOptions, form.primaryReportee],
@@ -685,6 +702,23 @@ export default function WorkDetailsModal({
         }
         if (field === 'secondaryReportee' && value && value === updatedForm.primaryReportee) {
             updatedForm.secondaryReportee = '';
+        }
+
+        if (field === 'company') {
+            const companyIdOf = (companyValue) => {
+                if (!companyValue) return '';
+                if (typeof companyValue === 'object') return String(companyValue._id || companyValue.id || '');
+                return String(companyValue);
+            };
+            const orgOf = (companyValue) => {
+                const id = companyIdOf(companyValue);
+                const row = companies.find((company) => String(company?._id || company?.id || '') === id);
+                return String(row?.zohoOrganizationId || '').trim();
+            };
+            if (orgOf(form.company) !== orgOf(processedValue)) {
+                updatedForm.zohoCategoryAccountId = '';
+                updatedForm.zohoCategoryAccountName = '';
+            }
         }
 
         if (field === 'status' && value === 'Probation' && employee?.status === 'Left User') {
@@ -994,6 +1028,41 @@ export default function WorkDetailsModal({
                                 {errors.status && (
                                     <span className="text-xs text-red-500">{errors.status}</span>
                                 )}
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
+                                Category
+                            </label>
+                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                {selectedCompanyZohoOrgId ? (
+                                    <ZohoPayAccountSelect
+                                        organizationId={selectedCompanyZohoOrgId}
+                                        value={form.zohoCategoryAccountId || ''}
+                                        name={form.zohoCategoryAccountName || ''}
+                                        placeholder="Select category"
+                                        disabled={submitting}
+                                        onChange={({ id, name }) => {
+                                            setForm((prev) => ({
+                                                ...prev,
+                                                zohoCategoryAccountId: id || '',
+                                                zohoCategoryAccountName: name || '',
+                                            }));
+                                        }}
+                                    />
+                                ) : (
+                                    <div className="flex h-10 items-center rounded-xl border border-[#E5E7EB] bg-gray-50 px-3 text-sm text-gray-400">
+                                        {categoryOrgLoading
+                                            ? 'Loading Zoho accounts…'
+                                            : form.company
+                                              ? 'This company has no Zoho organization'
+                                              : 'Select a company first'}
+                                    </div>
+                                )}
+                                <p className="text-xs text-gray-400">
+                                    Zoho Chart of Accounts for the company selected above.
+                                </p>
                             </div>
                         </div>
 

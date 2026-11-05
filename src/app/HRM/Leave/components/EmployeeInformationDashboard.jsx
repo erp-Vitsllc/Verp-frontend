@@ -1793,10 +1793,14 @@ function attentionLabel(record) {
 }
 
 function approvedPunchLabel(record) {
+    const stored = String(record?.statusLabel || '');
+    if (/\(Waived off\)/i.test(stored)) return stored;
     const kind = shownEventKind(record);
-    if (kind === 'late_arrived') return 'Late Arrival (Approved)';
-    if (kind === 'early_go') return 'Early Go (Approved)';
-    if (kind === 'mispunch') return 'Mispunch (Approved)';
+    const waived = record?.deductionWaived === true
+        || (String(record?.hourAdjustStatus || '') === 'approved' && !(Number(record?.hoursApproved) > 0));
+    if (kind === 'late_arrived') return waived ? 'Late Arrival (Waived off)' : 'Late Arrival (Approved)';
+    if (kind === 'early_go') return waived ? 'Early Go (Waived off)' : 'Early Go (Approved)';
+    if (kind === 'mispunch') return waived ? 'Mispunch (Waived off)' : 'Mispunch (Approved)';
     return '';
 }
 
@@ -2193,19 +2197,11 @@ function AttendanceDayCell({ day, ctx, hoveredDate, setHoveredDate, compact = fa
             totalPay = money2(workedAmount + sideAmount);
         }
     }
-    const punchChargeHours = chargedDeductionHours(payRecord, ctx.scheduleWeek, ctx.leavePolicy || {});
-    const punchChargeAmount = money2(attendanceDeductionAmount(
-        payRecord,
-        ctx.scheduleWeek,
-        ctx.salaryDaily,
-        ctx.leavePolicy || {},
-        ctx.mispunchAmounts,
-    ));
-    // A late, early, or missed punch with nothing deducted is a present day.
-    const clearPunchCharge = payKind === 'attention' && !(punchChargeHours > 0) && !(punchChargeAmount > 0);
+    // Colour follows the day status. A missed punch, late arrival, or early go stays
+    // yellow while it is not approved. A zero deduction does not turn that day green.
     const paidAuthorizedDay = explicitAuthorizedHourShare(record) === 0;
-    const cellKind = offDayOtHours > 0 || clearPunchCharge || paidAuthorizedDay ? 'present' : payKind;
-    const tipTone = offDayOtHours > 0 || clearPunchCharge || paidAuthorizedDay
+    const cellKind = offDayOtHours > 0 || paidAuthorizedDay ? 'present' : payKind;
+    const tipTone = offDayOtHours > 0 || paidAuthorizedDay
         ? TIP_TONE.present
         : (sandwichKind ? TIP_TONE[sandwichKind] : tone);
     if (cellKind === 'present' && sideMode === 'deduction' && !deductionWaived) {

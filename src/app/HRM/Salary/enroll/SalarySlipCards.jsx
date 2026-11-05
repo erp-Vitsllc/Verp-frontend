@@ -231,8 +231,12 @@ function BalanceScheduleTable({ rows, onThisMonthChange }) {
                                     amount={row.thisMonthDeduction}
                                     tone="deduct"
                                     max={row.total}
-                                    disabled={money(row.total) <= 0}
-                                    onChange={(value) => onThisMonthChange?.(row.type, value)}
+                                    disabled={money(row.total) <= 0 || typeof onThisMonthChange !== 'function'}
+                                    onChange={
+                                        typeof onThisMonthChange === 'function'
+                                            ? (value) => onThisMonthChange(row.type, value)
+                                            : undefined
+                                    }
                                 />
                             </td>
                             <td className={`whitespace-nowrap px-3 py-3 tabular-nums ${amountToneClass('net')}`}>
@@ -503,7 +507,7 @@ function patchEarningAmount(onPatch, name, value) {
     }));
 }
 
-export default function SalarySlipCards({ slip, onPatch }) {
+export default function SalarySlipCards({ slip, onPatch, locked = false }) {
     const summary = slip?.summary || {};
     const multipliers = summary.leaveMultipliers || {};
     const lopDays = summary.lossOfPayDays || {};
@@ -529,8 +533,9 @@ export default function SalarySlipCards({ slip, onPatch }) {
                 <AmountCell
                     label={item.name}
                     amount={amount}
+                    disabled={locked}
                     onChange={
-                        formulaRow
+                        locked || formulaRow
                             ? undefined
                             : (value) => patchEarningAmount(onPatch, item.name, value)
                     }
@@ -600,13 +605,17 @@ export default function SalarySlipCards({ slip, onPatch }) {
                 label={row.label}
                 amount={row.amount}
                 max={row.max > 0 ? row.max : undefined}
-                onChange={(value) =>
-                    patchLeaveTicketOnSlip(onPatch, {
-                        yearlyName: row.name,
-                        monthName: row.monthName,
-                        overrideKey: row.overrideKey,
-                        summaryKey: row.summaryKey,
-                    }, value)
+                disabled={locked}
+                onChange={
+                    locked
+                        ? undefined
+                        : (value) =>
+                              patchLeaveTicketOnSlip(onPatch, {
+                                  yearlyName: row.name,
+                                  monthName: row.monthName,
+                                  overrideKey: row.overrideKey,
+                                  summaryKey: row.summaryKey,
+                              }, value)
                 }
             />
         ),
@@ -662,8 +671,9 @@ export default function SalarySlipCards({ slip, onPatch }) {
                     label={item.name}
                     amount={amount}
                     tone="deduct"
+                    disabled={locked}
                     onChange={
-                        FORMULA_DEDUCTIONS.has(item.name)
+                        locked || FORMULA_DEDUCTIONS.has(item.name)
                             ? undefined
                             : (value) =>
                                   patchNamedComponent(onPatch, 'deductions', item.name, { amount: value })
@@ -695,14 +705,18 @@ export default function SalarySlipCards({ slip, onPatch }) {
                     amount={amount}
                     tone="deduct"
                     max={limit}
-                    disabled={limit != null && limit <= 0}
-                    onChange={(value) => {
-                        if (type) {
-                            patchThisMonthDeduction(onPatch, type, value);
-                            return;
-                        }
-                        patchNamedComponent(onPatch, 'deductions', item.name, { amount: value });
-                    }}
+                    disabled={locked || (limit != null && limit <= 0)}
+                    onChange={
+                        locked
+                            ? undefined
+                            : (value) => {
+                                  if (type) {
+                                      patchThisMonthDeduction(onPatch, type, value);
+                                      return;
+                                  }
+                                  patchNamedComponent(onPatch, 'deductions', item.name, { amount: value });
+                              }
+                    }
                 />
             ),
         };
@@ -797,7 +811,9 @@ export default function SalarySlipCards({ slip, onPatch }) {
             >
                 <BalanceScheduleTable
                     rows={balanceRows}
-                    onThisMonthChange={(type, value) => patchThisMonthDeduction(onPatch, type, value)}
+                    onThisMonthChange={
+                        locked ? undefined : (type, value) => patchThisMonthDeduction(onPatch, type, value)
+                    }
                 />
             </FineFormCard>
         </div>

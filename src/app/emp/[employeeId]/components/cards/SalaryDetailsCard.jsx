@@ -113,6 +113,7 @@ export default function SalaryDetailsCard({
                         value: money(salaryFields.fuelAllowance),
                     },
                     { label: 'Other Allowance', value: money(salaryFields.otherAllowance) },
+                    { label: 'Employee Zoho Account', value: salaryFields.zohoAccountName || '—' },
                     {
                         label: 'Total Salary',
                         value: (() => {

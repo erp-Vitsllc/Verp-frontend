@@ -67,6 +67,8 @@ export function buildWorkDetailsInitialForm(employee, holdEntryOverride = null) 
         company: typeof effectiveWork.company === 'object'
             ? effectiveWork.company?._id
             : (effectiveWork.company || ''),
+        zohoCategoryAccountId: effectiveWork.zohoCategoryAccountId || '',
+        zohoCategoryAccountName: effectiveWork.zohoCategoryAccountName || '',
         enablePortalAccess: effectiveWork.enablePortalAccess || false,
         staffType: normalizeWorkLocationKey(effectiveWork.staffType),
     };

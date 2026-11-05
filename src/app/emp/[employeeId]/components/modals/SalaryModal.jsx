@@ -1,7 +1,9 @@
 'use client';
 
-import { useRef, useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import ZohoPayAccountSelect from '@/app/HRM/Asset/Vehicle/components/ZohoPayAccountSelect';
+import { useCompanyZohoOrganizationId } from '@/hooks/useCompanyZohoOrganizationId';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import {
     formatSalaryMonthYear,
@@ -34,6 +36,19 @@ export default function SalaryModal({
 }) {
     const { toast } = useToast();
     const offerLetterFileRef = useRef(null);
+    const salaryCompany = employee?.company;
+    const { organizationId: salaryZohoOrgId, loading: salaryZohoOrgLoading } = useCompanyZohoOrganizationId({
+        companyId: typeof salaryCompany === 'object'
+            ? (salaryCompany?._id || salaryCompany?.id || '')
+            : (salaryCompany || ''),
+        companyName: typeof salaryCompany === 'object'
+            ? (salaryCompany?.name || salaryCompany?.nickName || '')
+            : '',
+        explicitOrganizationId: typeof salaryCompany === 'object'
+            ? salaryCompany?.zohoOrganizationId
+            : '',
+        enabled: isOpen && Boolean(salaryCompany),
+    });
 
     const previousSalaryEndPreview = useMemo(() => {
         if (!salaryForm.fromDate || (mode !== 'increment' && mode !== 'edit')) return null;
@@ -312,6 +327,39 @@ export default function SalaryModal({
                                     readOnly
                                     className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-gray-100 text-gray-800 cursor-not-allowed"
                                 />
+                            </div>
+                        </div>
+
+                        <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                Employee Zoho Account
+                            </label>
+                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                {salaryZohoOrgId ? (
+                                    <ZohoPayAccountSelect
+                                        organizationId={salaryZohoOrgId}
+                                        value={salaryForm.zohoAccountId || ''}
+                                        name={salaryForm.zohoAccountName || ''}
+                                        placeholder="Select employee Zoho account"
+                                        disabled={savingSalary || uploadingDocument}
+                                        onChange={({ id, name }) => {
+                                            setSalaryForm((prev) => ({
+                                                ...prev,
+                                                zohoAccountId: id || '',
+                                                zohoAccountName: name || '',
+                                            }));
+                                        }}
+                                    />
+                                ) : (
+                                    <div className="flex h-10 items-center rounded-xl border border-[#E5E7EB] bg-gray-50 px-3 text-sm text-gray-400">
+                                        {salaryZohoOrgLoading
+                                            ? 'Loading Zoho accounts…'
+                                            : 'Link a Zoho organization on this employee\'s company'}
+                                    </div>
+                                )}
+                                <p className="text-xs text-gray-500">
+                                    Zoho Chart of Accounts for the company on Work Details.
+                                </p>
                             </div>
                         </div>
 

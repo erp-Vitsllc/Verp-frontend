@@ -1967,9 +1967,40 @@
     color: #64748b;
 }
 
+.spcc-flow__excel {
+    display: inline-flex;
+    margin-top: 6px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #1a56db;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 750;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.spcc-flow__excel:disabled {
+    color: #94a3b8;
+    cursor: default;
+}
+
 .spcc-flow__step.is-done .spcc-flow__dot {
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
     background: #047857;
     border-color: #047857;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 12px;
+    text-align: center;
+}
+
+.spcc-flow__step.is-done .spcc-flow__dot::before {
+    content: '✓';
 }
 
 .spcc-flow__step.is-current .spcc-flow__dot {
@@ -2091,13 +2122,125 @@
     background: var(--spcc-blue);
 }
 
+.spcc-tab-tools {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 0 0 8px 12px;
+    border-bottom: 1px solid var(--spcc-line);
+}
+
+.spcc-excel {
+    position: relative;
+}
+
+.spcc-excel__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid #d7dee8;
+    border-radius: 8px;
+    background: #fff;
+    color: #1e3a5f;
+    font-size: 12px;
+    font-weight: 650;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.spcc-excel__btn:hover,
+.spcc-excel__btn.is-open {
+    border-color: #93b4f8;
+    background: #eef4ff;
+    color: var(--spcc-blue);
+}
+
+.spcc-excel__menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 40;
+    min-width: 210px;
+    max-width: 280px;
+    padding: 6px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+}
+
+.spcc-excel__menu > button,
+.spcc-excel__list button,
+.spcc-excel__back {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    min-height: 32px;
+    padding: 6px 8px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #1e293b;
+    font-size: 12px;
+    font-weight: 650;
+    text-align: left;
+    cursor: pointer;
+}
+
+.spcc-excel__menu > button:hover,
+.spcc-excel__list button:hover,
+.spcc-excel__back:hover {
+    background: #f1f5f9;
+}
+
+.spcc-excel__back {
+    color: #64748b;
+    justify-content: flex-start;
+    border-bottom: 1px solid #eef2f7;
+    border-radius: 8px 8px 0 0;
+    margin-bottom: 4px;
+}
+
+.spcc-excel__list {
+    max-height: 260px;
+    overflow: auto;
+}
+
+.spcc-excel__list button span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.spcc-excel__list em {
+    flex: none;
+    font-style: normal;
+    font-size: 10px;
+    font-weight: 700;
+    color: #64748b;
+    background: #f1f5f9;
+    border-radius: 999px;
+    padding: 1px 6px;
+}
+
+.spcc-excel__empty {
+    margin: 8px;
+    font-size: 12px;
+    color: #64748b;
+}
+
 .spcc-tab-mode {
     display: flex;
     align-items: center;
     justify-content: flex-end;
     gap: 6px;
-    padding: 0 0 8px 12px;
-    border-bottom: 1px solid var(--spcc-line);
+    padding: 0;
+    border-bottom: 0;
 }
 
 .spcc-tab-mode__btn {
@@ -3214,6 +3357,13 @@
 
     .spcc-tabs-row {
         grid-template-columns: 1fr;
+    }
+
+    .spcc-tab-tools {
+        padding-left: 0;
+        border-bottom: 0;
+        padding-bottom: 0;
+        justify-content: flex-end;
     }
 
     .spcc-tab-mode {

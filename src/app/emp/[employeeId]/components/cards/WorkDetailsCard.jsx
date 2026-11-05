@@ -225,6 +225,20 @@ export default function WorkDetailsCard({
                         show: !isCompanyProfile && !!employee.status
                     },
                     {
+                        label: 'Category',
+                        value: employee.zohoCategoryAccountName || '—',
+                        show: !isCompanyProfile,
+                    },
+                    {
+                        label: 'Category (Pending Approval)',
+                        value: pendingWorkProposal?.proposedData?.zohoCategoryAccountName || '—',
+                        show:
+                            !isCompanyProfile &&
+                            pendingWorkProposal?.proposedData?.zohoCategoryAccountName !== undefined &&
+                            String(pendingWorkProposal.proposedData.zohoCategoryAccountName || '') !==
+                                String(employee.zohoCategoryAccountName || ''),
+                    },
+                    {
                         label: 'Work Status (Pending Approval)',
                         value: pendingWorkProposal?.proposedData?.status
                             ? formatWorkStatusDisplay({ status: pendingWorkProposal.proposedData.status })

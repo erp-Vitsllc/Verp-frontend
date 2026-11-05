@@ -25,6 +25,10 @@ export function getActiveSalaryOfferLetter(employee) {
     return { offerLetter: null, entryId: null };
 }
 
+function zohoAccountLabel(employee, active) {
+    return String(active?.zohoAccountName || employee?.zohoAccountName || '').trim();
+}
+
 /** Salary card fields: prefer top-level employee salary, fall back to active history entry. */
 export function getEffectiveSalaryFields(employee) {
     const topHasData =
@@ -45,6 +49,7 @@ export function getEffectiveSalaryFields(employee) {
             fuelAllowance: Number(fuelAllowance) || 0,
             otherAllowance: Number(employee.otherAllowance) || 0,
             additionalAllowances: employee.additionalAllowances || [],
+            zohoAccountName: zohoAccountLabel(employee, getActiveSalaryHistoryEntry(employee)),
         };
     }
 
@@ -57,6 +62,7 @@ export function getEffectiveSalaryFields(employee) {
             fuelAllowance: 0,
             otherAllowance: 0,
             additionalAllowances: [],
+            zohoAccountName: zohoAccountLabel(employee, null),
         };
     }
 
@@ -76,6 +82,7 @@ export function getEffectiveSalaryFields(employee) {
         fuelAllowance: Number(fuelAllowance) || 0,
         otherAllowance: Number(active.otherAllowance) || 0,
         additionalAllowances: active.additionalAllowances || [],
+        zohoAccountName: zohoAccountLabel(employee, active),
     };
 }
 

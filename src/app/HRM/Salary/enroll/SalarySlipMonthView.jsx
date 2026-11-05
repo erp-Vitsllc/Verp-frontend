@@ -46,6 +46,8 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
     const [dirty, setDirty] = useState(false);
+    const [canUpdate, setCanUpdate] = useState(false);
+    const [monthProcessed, setMonthProcessed] = useState(false);
     const [pdfUrl, setPdfUrl] = useState('');
     const [showPdf, setShowPdf] = useState(false);
     const [pdfLoading, setPdfLoading] = useState(false);
@@ -63,13 +65,19 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
             setLoading(true);
             setError('');
             setDirty(false);
+            setCanUpdate(false);
+            setMonthProcessed(false);
             setShowPdf(false);
             try {
                 const res = await axiosInstance.get(
                     `/Employee/salary-enroll/${encodeURIComponent(employeeId)}/historical/salary-slip`,
                     { params: { month: monthKey, format: 'json' }, skipToast: true },
                 );
-                if (!cancelled) setSlip(res.data?.slip || null);
+                if (!cancelled) {
+                    setSlip(res.data?.slip || null);
+                    setCanUpdate(res.data?.canUpdate !== false);
+                    setMonthProcessed(Boolean(res.data?.monthProcessed));
+                }
             } catch (err) {
                 if (!cancelled) {
                     setSlip(null);
@@ -100,6 +108,7 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
     }
 
     function patchSlip(section, updater) {
+        if (!canUpdate) return;
         setSlip((current) => {
             if (!current) return current;
             return applySlipSectionPatch(current, section, updater);
@@ -108,7 +117,7 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
     }
 
     async function saveMonth() {
-        if (!employeeId || !monthKey || !slip || saving) return;
+        if (!employeeId || !monthKey || !slip || saving || !canUpdate) return;
         setSaving(true);
         try {
             const res = await axiosInstance.put(
@@ -181,6 +190,11 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
     }
 
     const monthLabel = salarySlipMonthLabel(monthKey);
+    const updateTitle = canUpdate
+        ? undefined
+        : monthProcessed
+            ? 'Only Management can update this salary slip after the month is processed.'
+            : 'You do not have permission to update this salary slip.';
     const amounts = slipHeaderAmounts(slip);
     const displayName = slip?.employeeName || '—';
     const displayId = slip?.employeeId || employeeId || '—';
@@ -262,15 +276,17 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
                             >
                                 Salary history
                             </NavButton>
-                            <button
-                                type="button"
-                                onClick={saveMonth}
-                                disabled={!slip || saving || !dirty}
-                                className={PRIMARY_BTN}
-                            >
-                                {saving ? <Loader2 size={15} className="animate-spin" /> : null}
-                                Update
-                            </button>
+                            <span className="min-w-0" title={updateTitle}>
+                                <button
+                                    type="button"
+                                    onClick={saveMonth}
+                                    disabled={!slip || saving || !dirty || !canUpdate}
+                                    className={PRIMARY_BTN}
+                                >
+                                    {saving ? <Loader2 size={15} className="animate-spin" /> : null}
+                                    Update
+                                </button>
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -291,7 +307,7 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
                             {error}
                         </div>
                     ) : null}
-                    <SalarySlipCards slip={slip} onPatch={patchSlip} />
+                    <SalarySlipCards slip={slip} onPatch={patchSlip} locked={!canUpdate} />
                     {showPdf && pdfUrl ? (
                         <iframe
                             title={`Salary slip ${employeeId} ${monthKey}`}

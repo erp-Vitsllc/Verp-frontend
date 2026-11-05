@@ -253,12 +253,25 @@ export default function HourAdjustModal({
                 hourRequestType: parsed.hours === 0 ? 'waived' : 'authorized',
                 reason,
             });
+            const saved = response.data?.record;
+            const held = !saved
+                || String(saved.hourAdjustStatus || '') === 'approved'
+                || saved.deductionWaived === true;
+            const applied = response.data?.applied === true && held;
+            if (response.data?.applied === true && !held) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Deduction was not changed',
+                    description: 'The approval did not stay on this day. Approve it again.',
+                });
+                return;
+            }
+            const waived = parsed.hours === 0;
             toast({
-                title: mode === 'direct' ? 'Hours approved' : 'Request sent',
-                description:
-                    mode === 'direct'
-                        ? 'Deduction uses the approved hours.'
-                        : response.data?.message || 'Attendance stays unchanged until HR approves.',
+                title: applied ? (waived ? 'Deduction waived' : 'Hours approved') : 'Request sent',
+                description: applied
+                    ? (waived ? 'Nothing is deducted for this day.' : 'Deduction uses the approved hours.')
+                    : response.data?.message || 'Attendance stays unchanged until it is approved.',
             });
             notifyAttendancePendingInboxChanged();
             onSaved?.();

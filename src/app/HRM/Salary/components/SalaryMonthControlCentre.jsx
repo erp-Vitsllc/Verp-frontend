@@ -18,6 +18,9 @@ import { FALLBACK_WORK_LOCATIONS, normalizeWorkLocationKey, workLocationLabel } 
 import { toCalendarMonthDay, toPayrollMonthDay } from '../utils/payrollMonthDay';
 import { policyFormFromApi } from '../utils/salaryPolicyForm';
 import SalaryDmfApprovalPanel from './SalaryDmfApprovalPanel';
+import PayrollExcelMenu from './PayrollExcelMenu';
+import SalaryZohoJournalModal from './SalaryZohoJournalModal';
+import SalarySlotExpenseModal from './SalarySlotExpenseModal';
 import { monthPayrollProcessStatusLabel, payrollPendingForLabel } from '../utils/payrollApprovalStatus';
 import { handleNavigateFromListClick, navigateFromList } from '@/utils/listReturnNavigation';
 import { buildFineListPath } from '@/utils/fineNotificationRouting';
@@ -459,7 +462,7 @@ function SlotAmountDate({ total, dateLabel, status, employeeCount }) {
                 : status === 'pending_wps'
                     ? 'Check the WPS send'
                     : status === 'pending_update'
-                        ? 'Update salary'
+                        ? 'Update payment'
                         : status === 'rejected'
                             ? 'Rejected — back with Accounts'
                             : approved
@@ -538,7 +541,7 @@ function slotStatusLabel(status) {
     if (status === 'draft') return 'Draft';
     if (status === 'pending_hr') return 'Pending with HR';
     if (status === 'pending_wps') return 'WPS send';
-    if (status === 'pending_update') return 'Update salary';
+    if (status === 'pending_update') return 'Update payment';
     if (status === 'rejected') return 'Rejected';
     if (status === 'approved') return 'Updated';
     return '';
@@ -581,7 +584,7 @@ function slotWorkflowSteps(status, payType, accountsName, hrName) {
     }
     steps.push({
         key: 'salary',
-        title: 'Update salary',
+        title: 'Update payment',
         who: accountsName,
         mark: progress >= 5 ? 'done' : progress === 4 ? 'current' : 'wait',
     });
@@ -602,6 +605,8 @@ function SlotEditorModal({
     canDecide,
     canMarkWps,
     canSetUpdated,
+    canOpenExcel,
+    excelBusy,
     accountsName,
     hrName,
     onChange,
@@ -612,8 +617,8 @@ function SlotEditorModal({
     onApprove,
     onReject,
     onWpsUpdated,
-    onUpdateSalary,
-    onSetUpdated,
+    onUpdatePayment,
+    onOpenExcel,
 }) {
     const allRef = useRef(null);
     const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
@@ -803,6 +808,16 @@ function SlotEditorModal({
                                 {step.note && step.mark !== 'wait' ? (
                                     <span className="spcc-flow__who">{step.note}</span>
                                 ) : null}
+                                {canOpenExcel && step.mark !== 'wait' && (step.key === 'wps' || (step.key === 'salary' && payType === 'Cash')) ? (
+                                    <button
+                                        type="button"
+                                        className="spcc-flow__excel"
+                                        disabled={excelBusy || saving}
+                                        onClick={onOpenExcel}
+                                    >
+                                        {excelBusy ? 'Opening Excel…' : 'Open Excel'}
+                                    </button>
+                                ) : null}
                             </span>
                         </li>
                     ))}
@@ -936,6 +951,16 @@ function SlotEditorModal({
                     </div>
                 )}
                 <div className="spcc-slot-actions">
+                    {canOpenExcel && !canDecide && !canEdit ? (
+                        <button
+                            type="button"
+                            className="spcc-btn spcc-btn--ghost"
+                            disabled={excelBusy || saving}
+                            onClick={onOpenExcel}
+                        >
+                            {excelBusy ? 'Opening Excel…' : 'Open Excel'}
+                        </button>
+                    ) : null}
                     {canDecide ? (
                         rejectOpen ? (
                             <>
@@ -1010,16 +1035,13 @@ function SlotEditorModal({
                             <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onClose}>
                                 Close
                             </button>
-                            <button type="button" className="spcc-btn spcc-btn--ghost" onClick={onUpdateSalary}>
-                                Update salary
-                            </button>
                             <button
                                 type="button"
-                                className="spcc-btn spcc-btn--approve"
+                                className="spcc-btn spcc-btn--primary"
                                 disabled={saving}
-                                onClick={onSetUpdated}
+                                onClick={onUpdatePayment}
                             >
-                                Set as updated
+                                Update payment
                             </button>
                         </>
                     ) : (
@@ -1315,7 +1337,11 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const [paymentBatches, setPaymentBatches] = useState([]);
     const [slotEditor, setSlotEditor] = useState(null);
     const [savingPayment, setSavingPayment] = useState(false);
+    const [excelBusy, setExcelBusy] = useState(false);
+    const [zohoOpen, setZohoOpen] = useState(false);
+    const [expenseOpen, setExpenseOpen] = useState(false);
     const [activeSlot, setActiveSlot] = useState(1);
+    const openedSlotRef = useRef('');
 
     const load = useCallback(async () => {
         if (!parsed) {
@@ -1354,6 +1380,10 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         setApprovalPrompt(false);
         setSlotEditor(null);
         setSavingPayment(false);
+        setExcelBusy(false);
+        setZohoOpen(false);
+        setExpenseOpen(false);
+        openedSlotRef.current = '';
         setBlockersOpen(false);
         setBlockerFilter('');
         setBlockerEmployeeId('');
@@ -1522,6 +1552,38 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             })),
         ];
     }, [tabMode, derived.locationCards, monthRoster]);
+
+    const excelGroups = useMemo(() => {
+        const counts = new Map();
+        for (const emp of monthRoster) {
+            const key = normalizeWorkLocationKey(emp.staffType);
+            counts.set(key, (counts.get(key) || 0) + 1);
+        }
+        const labels = new Map(
+            derived.locationCards.map((loc) => [loc.key, displayGroupLabel(loc.label)]),
+        );
+        return [...counts.entries()]
+            .map(([key, count]) => ({
+                id: key,
+                label: labels.get(key) || displayGroupLabel(String(key || 'Group').replace(/-/g, ' ')),
+                count,
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    }, [monthRoster, derived.locationCards]);
+
+    const excelCompanies = useMemo(() => {
+        const counts = new Map();
+        for (const emp of monthRoster) {
+            const name = companyKeyOf(emp);
+            const key = name.toLowerCase();
+            const current = counts.get(key) || { id: name, label: name, count: 0 };
+            current.count += 1;
+            counts.set(key, current);
+        }
+        return [...counts.values()].sort((a, b) =>
+            a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+        );
+    }, [monthRoster]);
 
     const locationKeysSig = useMemo(
         () => derived.locationCards.map((loc) => loc.key).join('|'),
@@ -1904,6 +1966,25 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         });
     }
 
+    useEffect(() => {
+        if (loading || typeof window === 'undefined') return;
+        const id = String(new URLSearchParams(window.location.search).get('slot') || '').trim();
+        if (!id || openedSlotRef.current === id) return;
+        const batch = paymentBatches.find((item) => item.id === id);
+        if (!batch) return;
+        openedSlotRef.current = id;
+        setActiveSlot(Number(batch.paymentNo) || 1);
+        setSlotEditor({
+            id: batch.id,
+            slot: Number(batch.paymentNo) || 1,
+            companyName: batch.companyName || '',
+            selectedIds: [...(batch.selectedIds || [])],
+            status: batch.status || 'approved',
+            paymentMethod: batch.paymentMethod || '',
+            rejectReason: batch.rejectReason || '',
+        });
+    }, [loading, paymentBatches]);
+
     function openSavedSlot(item) {
         if (!item?.batch) return;
         setActiveSlot(item.slot);
@@ -1954,6 +2035,43 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             });
         } finally {
             setSavingPayment(false);
+        }
+    }
+
+    async function downloadSlotExcel() {
+        if (!parsed?.monthKey || !slotEditor?.id || excelBusy) return;
+        setExcelBusy(true);
+        try {
+            const res = await axiosInstance.get(
+                `/Employee/salary-register/${parsed.monthKey}/payments/${slotEditor.id}/excel`,
+                { responseType: 'blob', skipToast: true },
+            );
+            const blob = res.data;
+            const header = String(res.headers?.['content-disposition'] || res.headers?.get?.('content-disposition') || '');
+            const match = /filename="?([^"]+)"?/i.exec(header);
+            const filename = decodeURIComponent(match?.[1] || 'payroll.xlsx');
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            let description = 'Could not open the Excel.';
+            const data = error?.response?.data;
+            if (data && typeof data.text === 'function') {
+                try {
+                    const parsedError = JSON.parse(await data.text());
+                    if (parsedError?.message) description = parsedError.message;
+                } catch {
+                    description = 'Could not open the Excel.';
+                }
+            }
+            toast({ title: 'Excel', description });
+        } finally {
+            setExcelBusy(false);
         }
     }
 
@@ -2210,6 +2328,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const slotCanDecide = Boolean(slotEditor) && viewerIsSlotHr && slotEditor.status === 'pending_hr';
     const slotCanMarkWps = Boolean(slotEditor) && canCreateSlot && slotEditor.status === 'pending_wps';
     const slotCanSetUpdated = Boolean(slotEditor) && canCreateSlot && slotEditor.status === 'pending_update';
+    const slotCanOpenExcel = Boolean(slotEditor?.id) && ['pending_wps', 'pending_update', 'approved'].includes(slotEditor.status);
     const accountsStep = (monthDmf?.steps || []).find((step) => step.key === 'accounts');
     const hrStep = (monthDmf?.steps || []).find((step) => step.key === 'hr');
     const accountsName =
@@ -2272,6 +2391,17 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             onClick={openNewSlot}
                         >
                             Create slot
+                        </button>
+                    ) : null}
+                    {canCreateSlot ? (
+                        <button
+                            type="button"
+                            className="spcc-btn spcc-btn--primary"
+                            disabled={loading}
+                            title="Update this payroll in Zoho"
+                            onClick={() => setZohoOpen(true)}
+                        >
+                            Update Zoho
                         </button>
                     ) : null}
                     {dmfStatus === 'rejected' && monthDmf?.rejectReason ? (
@@ -2491,6 +2621,27 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                     </button>
                                                 ))}
                                             </nav>
+                                            <div className="spcc-tab-tools">
+                                            <PayrollExcelMenu
+                                                monthLabel={monthLabel}
+                                                groups={excelGroups}
+                                                companies={excelCompanies}
+                                                employeesOf={(kind, item) =>
+                                                    kind === 'group'
+                                                        ? monthRoster.filter(
+                                                            (emp) => normalizeWorkLocationKey(emp.staffType) === item.id,
+                                                        )
+                                                        : monthRoster.filter((emp) =>
+                                                            sameCompany(companyKeyOf(emp), item.id),
+                                                        )
+                                                }
+                                                onEmpty={(label) =>
+                                                    toast({
+                                                        title: 'No employees to download',
+                                                        description: label ? `Nothing enrolled in ${label}.` : undefined,
+                                                    })
+                                                }
+                                            />
                                             <div className="spcc-tab-mode" role="group" aria-label="Tab grouping">
                                                 <button
                                                     type="button"
@@ -2512,6 +2663,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                 >
                                                     Company
                                                 </button>
+                                            </div>
                                             </div>
                                         </div>
 
@@ -2719,16 +2871,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                         href={blockerReviewHref(item)}
                                                         className="spcc-ready-row"
                                                         title={blockerPendingCondition(item)}
-                                                        onClick={(event) =>
-                                                            handleNavigateFromListClick(
-                                                                event,
-                                                                router,
-                                                                blockerReviewHref(item),
-                                                                parsed?.monthKey
-                                                                    ? `/HRM/Salary/${parsed.monthKey}`
-                                                                    : '/HRM/Salary',
-                                                            )
-                                                        }
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
                                                     >
                                                         <span className="spcc-ready-copy">
                                                             <span className="spcc-ready-title">
@@ -2831,6 +2975,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                         canDecide={slotCanDecide}
                                         canMarkWps={slotCanMarkWps}
                                         canSetUpdated={slotCanSetUpdated}
+                                        canOpenExcel={slotCanOpenExcel}
+                                        excelBusy={excelBusy}
                                         accountsName={accountsName}
                                         hrName={hrName}
                                         onChange={(patch) =>
@@ -2849,19 +2995,40 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                         onApprove={() => saveSlot('approve')}
                                         onReject={(reason) => saveSlot('reject', { reason })}
                                         onWpsUpdated={() => saveSlot('wps_updated')}
-                                        onUpdateSalary={() =>
-                                            toast({
-                                                title: 'Zoho implementation is not done yet',
-                                                description: 'Salary update in Zoho is not connected.',
-                                            })
-                                        }
-                                        onSetUpdated={() => saveSlot('set_updated')}
+                                        onUpdatePayment={() => setExpenseOpen(true)}
+                                        onOpenExcel={downloadSlotExcel}
                                     />
                                 </div>
                             </div>,
                             document.body,
                         )
                         : null}
+
+                    <SalarySlotExpenseModal
+                        open={expenseOpen}
+                        monthKey={parsed?.monthKey || ''}
+                        paymentId={slotEditor?.id || ''}
+                        onClose={() => setExpenseOpen(false)}
+                        onSaved={(payment) => {
+                            const saved = paymentBatchFromApi(payment);
+                            if (!saved) return;
+                            setPaymentBatches((prev) => {
+                                const rest = prev.filter((item) => item.id !== saved.id);
+                                return [...rest, saved];
+                            });
+                            setSlotEditor((current) => (
+                                current && current.id === saved.id
+                                    ? { ...current, status: saved.status || 'approved' }
+                                    : current
+                            ));
+                        }}
+                    />
+
+                    <SalaryZohoJournalModal
+                        open={zohoOpen}
+                        monthKey={parsed?.monthKey || ''}
+                        onClose={() => setZohoOpen(false)}
+                    />
 
                     <PayrollBlockersModal
                         open={blockersOpen}
