@@ -2298,10 +2298,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         });
     }, [monthRoster, derived.pendingRequests, processedPaymentIds]);
     const monthPayrollReady = everyEmployeeReady;
-    // Accounts assignee, every employee Ready, and 100% readiness are commented so Submit stays available.
-    const showAccountsSubmit = true;
-    // const showAccountsSubmit =
-    //     canStartMonthApproval && everyEmployeeReady && readinessChecks.percent === 100;
+    const showAccountsSubmit =
+        canStartMonthApproval && everyEmployeeReady && readinessChecks.percent === 100;
     const approverOnlyTitle = pendingForLabel
         ? `Pending for ${pendingForLabel}. Only that approver can use this.`
         : 'Only the current payroll approver can use this.';
@@ -2377,8 +2375,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             disabled={loading}
                             title={`Submit ${monthLabel} payroll to HR`}
                             onClick={() => {
-                                // if (!monthPayrollReady || loading) return;
-                                if (loading) return;
+                                if (!monthPayrollReady || loading) return;
                                 setApprovalPrompt(true);
                             }}
                         >

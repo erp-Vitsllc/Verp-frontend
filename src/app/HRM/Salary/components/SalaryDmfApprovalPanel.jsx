@@ -94,11 +94,10 @@ export default function SalaryDmfApprovalPanel({
 
     useEffect(() => {
         if (!openStartConfirm) return undefined;
-        // Accounts canStart is commented so the confirm opens from the page Submit button.
-        // if (!showStart) {
-        //     onOpenStartConfirmChange?.(false);
-        //     return undefined;
-        // }
+        if (!showStart) {
+            onOpenStartConfirmChange?.(false);
+            return undefined;
+        }
         setConfirmStart(true);
         onOpenStartConfirmChange?.(false);
         return undefined;
