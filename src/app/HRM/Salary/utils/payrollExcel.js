@@ -72,12 +72,15 @@ function payrollLine(emp, index) {
     const other = emp?.otherAllowance != null
         ? money(emp.otherAllowance)
         : money(Math.max(0, monthly - basic));
-    const present = Number(emp?.presentDays);
+    const present = emp?.sheetPresentDays != null ? Number(emp.sheetPresentDays) : Number(emp?.presentDays);
     const ot = money(emp?.ot ?? emp?.extra);
     const rewards = emp?.rewardAdditions != null
         ? money(emp.rewardAdditions)
         : money(Math.max(0, money(emp?.extra) - ot));
-    const gross = emp?.grossSalary != null ? money(emp.grossSalary) : money(monthly + ot + rewards);
+    const gross = emp?.zohoSalary != null
+        ? money(emp.zohoSalary)
+        : (emp?.grossSalary != null ? money(emp.grossSalary) : money(monthly + ot + rewards));
+    const lossOfPay = emp?.sheetLossOfPay != null ? emp.sheetLossOfPay : emp?.lossOfPay;
     const split = emp?.fineAmount != null || emp?.sheetOtherDeduction != null;
     const company = String(emp?.companyName || '').trim();
     return {
@@ -89,7 +92,7 @@ function payrollLine(emp, index) {
         otherAllowance: other,
         monthly,
         presentDays: Number.isFinite(present) ? present : 0,
-        lossOfPay: money(emp?.lossOfPay),
+        lossOfPay: money(lossOfPay),
         ot,
         rewards,
         gross,
