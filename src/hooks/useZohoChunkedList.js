@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 
 const CHUNK_LIMIT = 400;
@@ -170,17 +170,6 @@ export function useZohoChunkedList({
         },
         [endpoint, fetchPage, orgId],
     );
-
-    const loadRef = useRef(load);
-    loadRef.current = load;
-
-    // ERP list follows the hourly Zoho sync without a manual refresh.
-    useEffect(() => {
-        const timer = window.setInterval(() => {
-            loadRef.current({ sync: false, quiet: true });
-        }, 60 * 1000);
-        return () => window.clearInterval(timer);
-    }, []);
 
     return {
         rows,

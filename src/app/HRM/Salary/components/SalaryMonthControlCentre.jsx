@@ -2894,6 +2894,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                     ) : null}
                                 </div>
                             </section>
+                            <PayrollHistoryCard dmf={monthDmf} batches={paymentBatches} />
                             <aside
                                 className="spcc-col-side spcc-ready-shift"
                                 style={{ '--spcc-ready-shift': `${readinessShift}px` }}
@@ -2999,7 +3000,6 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                     </div>
                                 </section>
                             </aside>
-                            <PayrollHistoryCard dmf={monthDmf} batches={paymentBatches} />
                         </div>
                     </div>
 

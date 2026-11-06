@@ -2163,18 +2163,16 @@ function AssetDetailsPageContent() {
         return latestHandover || null;
     }, [assetHistory]);
 
+    const toolsForceAssignReady = useMemo(() => {
+        if (!isAssetController || !asset || !isAssetAssignmentAcknowledgmentPending(asset)) return false;
+        if (String(asset.assignedToType || '').toLowerCase() === 'company') return false;
+        return true;
+    }, [asset, isAssetController]);
+
     const toolsAckEscalationReady = useMemo(() => {
         if (!isAssetController || !asset || !isAssetAssignmentAcknowledgmentPending(asset)) return false;
         if (String(asset.assignedToType || '').toLowerCase() === 'company') return false;
-        const ack = asset.pendingActionDetails?.toolsAssignmentAck;
-        if (ack?.escalationActive) return true;
-        if (!ack?.requestedAt) return false;
-        const start = new Date(ack.requestedAt);
-        if (Number.isNaN(start.getTime())) return false;
-        const startUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
-        const now = new Date();
-        const nowUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-        return Math.floor((nowUtc - startUtc) / 86400000) >= 3;
+        return true;
     }, [asset, isAssetController]);
 
     const liveHandoverDate = useMemo(() => {
@@ -3321,7 +3319,7 @@ function AssetDetailsPageContent() {
                         serviceHistoryCount={serviceHistoryCount}
                         primaryActionButtons={toolsHeaderPrimaryButtons}
                         forceAssignAction={
-                            toolsAckEscalationReady
+                            toolsForceAssignReady
                                 ? {
                                     disabled: toolsAckActionBusy != null,
                                     loading: toolsAckActionBusy === 'force',

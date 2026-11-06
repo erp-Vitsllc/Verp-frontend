@@ -35,7 +35,7 @@ export default function ToolsAssetProfileHeaderCards({
     returnActionsDisabled = false,
     /** Evaluated On Duty action — rendered beside RETURN while the asset is on leave. */
     onDutyAction = null,
-    /** Asset controller only, after 3 days with no assignment response. */
+    /** Asset controller only, while the employee has not accepted the assignment. */
     forceAssignAction = null,
 }) {
     const totalValue =

@@ -77,8 +77,6 @@ function PurchasesBillsPageContent() {
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
     const ensureTriedRef = useRef('');
-    const autoSyncedOrgRef = useRef('');
-    const pendingOrgSyncRef = useRef(false);
     const { connectZoho } = useZohoVendors({
         enabled: false,
         organizationId,
@@ -139,18 +137,7 @@ function PurchasesBillsPageContent() {
     useEffect(() => {
         if (!mounted || !organizationId) return;
 
-        if (autoSyncedOrgRef.current !== organizationId) {
-            autoSyncedOrgRef.current = organizationId;
-            pendingOrgSyncRef.current = true;
-            // Wait for page reset so the sync is not aborted by a second load.
-            if (currentPage !== 1) return;
-        }
-
-        const shouldSync = pendingOrgSyncRef.current;
-        if (shouldSync) pendingOrgSyncRef.current = false;
-
         void loadBills({
-            sync: shouldSync,
             page: currentPage,
             pageSize,
             search: debouncedSearch,

@@ -77,13 +77,6 @@ export default function CrmCustomersPage() {
         }
     }, []);
 
-    useEffect(() => {
-        const timer = window.setInterval(() => {
-            loadCustomers({ sync: false, quiet: true });
-        }, 60 * 1000);
-        return () => window.clearInterval(timer);
-    }, [loadCustomers]);
-
     const handleConnectZoho = useCallback(async () => {
         try {
             setError('');
