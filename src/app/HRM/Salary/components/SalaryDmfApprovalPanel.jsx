@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -60,8 +60,10 @@ export default function SalaryDmfApprovalPanel({
     const { toast } = useToast();
     const [busy, setBusy] = useState(false);
     const [confirmStart, setConfirmStart] = useState(false);
+    const [approveConfirm, setApproveConfirm] = useState(false);
     const [recallOpen, setRecallOpen] = useState(false);
     const [rejectOpen, setRejectOpen] = useState(false);
+    const openedMailAction = useRef('');
     const [rejectReason, setRejectReason] = useState('');
     const isMonth = kind === 'month';
     const stepOrder = isMonth ? MONTH_STEP_ORDER : FULL_STEP_ORDER;
@@ -96,8 +98,6 @@ export default function SalaryDmfApprovalPanel({
     const current = steps.find((step) => step.key === dmf?.currentStepKey) || steps.find((s) => s.status === 'pending');
 
     useEffect(() => {
-        if (!openStartConfirm) return undefined;
-        if (!showStart) {
         if (!isMonth) return undefined;
         const stage = String(payrollStage || '').trim().toLowerCase();
         const action = String(payrollAction || '').trim().toLowerCase();
@@ -113,6 +113,8 @@ export default function SalaryDmfApprovalPanel({
     }, [isMonth, payrollStage, payrollAction, monthKey, dmf?.currentStepKey, dmf?.canAct]);
 
     useEffect(() => {
+        if (!openStartConfirm) return undefined;
+        if (!showStart) {
             onOpenStartConfirmChange?.(false);
             return undefined;
         }
@@ -284,9 +286,9 @@ export default function SalaryDmfApprovalPanel({
                         </h3>
                         <p className="mt-3 text-sm text-slate-600">
                             {isMonth
-                                ? 'HR receives an email with a link that opens this payroll, and can approve or reject. Approval then goes to Management. A rejection emails Accounts and brings Submit back.'
-                                : 'This starts User → Accounts → HR → Management. After Management approves, VERP creates a Zoho Books bill.'}
                                 ? 'HR receives one payroll summary email and can approve or reject on this page. Approval then goes to Management. A rejection emails Accounts and brings Submit back.'
+                                : 'This starts User → Accounts → HR → Management. After Management approves, VERP creates a Zoho Books bill.'}
+                        </p>
                         <div className="mt-5 flex justify-end gap-2">
                             <button
                                 type="button"
@@ -307,8 +309,6 @@ export default function SalaryDmfApprovalPanel({
                     </div>
                 </div>
             ) : null}
-            {rejectOpen ? (
-                <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
             {recallOpen ? (
                 <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
                     <button
@@ -382,6 +382,8 @@ export default function SalaryDmfApprovalPanel({
                     </div>
                 </div>
             ) : null}
+            {rejectOpen ? (
+                <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
                     <button
                         type="button"
                         className="absolute inset-0 bg-slate-900/30"
