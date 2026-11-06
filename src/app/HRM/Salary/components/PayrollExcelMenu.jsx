@@ -8,6 +8,7 @@ export default function PayrollExcelMenu({
     monthLabel,
     groups = [],
     companies = [],
+    allCount = 0,
     employeesOf,
     onEmpty,
 }) {
@@ -36,8 +37,8 @@ export default function PayrollExcelMenu({
         setOpen((value) => !value);
     }
 
-    function choose(item) {
-        const rows = employeesOf?.(level, item) || [];
+    function choose(kind, item) {
+        const rows = employeesOf?.(kind, item) || [];
         if (!rows.length) {
             onEmpty?.(item.label);
             return;
@@ -66,6 +67,14 @@ export default function PayrollExcelMenu({
                 <div className="spcc-excel__menu" role="menu" aria-label="Download payroll Excel">
                     {level === 'root' ? (
                         <>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => choose('all', { id: 'all', label: 'All employees' })}
+                            >
+                                <span>All employees</span>
+                                <em>{allCount}</em>
+                            </button>
                             <button type="button" role="menuitem" onClick={() => setLevel('group')}>
                                 <span>Group</span>
                                 <ChevronRight size={14} aria-hidden="true" />
@@ -88,7 +97,7 @@ export default function PayrollExcelMenu({
                                             key={item.id}
                                             type="button"
                                             role="menuitem"
-                                            onClick={() => choose(item)}
+                                            onClick={() => choose(level, item)}
                                             title={item.label}
                                         >
                                             <span>{item.label}</span>

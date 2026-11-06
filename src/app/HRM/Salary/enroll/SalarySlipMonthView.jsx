@@ -47,6 +47,7 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
     const [saving, setSaving] = useState(false);
     const [dirty, setDirty] = useState(false);
     const [canUpdate, setCanUpdate] = useState(false);
+    const [editLock, setEditLock] = useState('');
     const [monthProcessed, setMonthProcessed] = useState(false);
     const [pdfUrl, setPdfUrl] = useState('');
     const [showPdf, setShowPdf] = useState(false);
@@ -66,6 +67,7 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
             setError('');
             setDirty(false);
             setCanUpdate(false);
+            setEditLock('');
             setMonthProcessed(false);
             setShowPdf(false);
             try {
@@ -76,6 +78,7 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
                 if (!cancelled) {
                     setSlip(res.data?.slip || null);
                     setCanUpdate(res.data?.canUpdate !== false);
+                    setEditLock(String(res.data?.editLock || ''));
                     setMonthProcessed(Boolean(res.data?.monthProcessed));
                 }
             } catch (err) {
@@ -192,9 +195,9 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
     const monthLabel = salarySlipMonthLabel(monthKey);
     const updateTitle = canUpdate
         ? undefined
-        : monthProcessed
-            ? 'Only Management can update this salary slip after the month is processed.'
-            : 'You do not have permission to update this salary slip.';
+        : editLock || (monthProcessed
+            ? 'This salary slip can no longer be edited.'
+            : 'You do not have permission to update this salary slip.');
     const amounts = slipHeaderAmounts(slip);
     const displayName = slip?.employeeName || '—';
     const displayId = slip?.employeeId || employeeId || '—';
@@ -242,6 +245,9 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
                                     {formatAed(amounts.otherSalary)}
                                 </span>
                             </p>
+                            {updateTitle ? (
+                                <p className="pt-2 text-sm font-semibold text-amber-800">{updateTitle}</p>
+                            ) : null}
                         </div>
                     </div>
 

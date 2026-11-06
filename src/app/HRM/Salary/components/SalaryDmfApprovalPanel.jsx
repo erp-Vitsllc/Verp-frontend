@@ -54,10 +54,13 @@ export default function SalaryDmfApprovalPanel({
     hideStart = false,
     openStartConfirm = false,
     onOpenStartConfirmChange,
+    payrollStage = '',
+    payrollAction = '',
 }) {
     const { toast } = useToast();
     const [busy, setBusy] = useState(false);
     const [confirmStart, setConfirmStart] = useState(false);
+    const [recallOpen, setRecallOpen] = useState(false);
     const [rejectOpen, setRejectOpen] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
     const isMonth = kind === 'month';
@@ -95,6 +98,21 @@ export default function SalaryDmfApprovalPanel({
     useEffect(() => {
         if (!openStartConfirm) return undefined;
         if (!showStart) {
+        if (!isMonth) return undefined;
+        const stage = String(payrollStage || '').trim().toLowerCase();
+        const action = String(payrollAction || '').trim().toLowerCase();
+        if (action !== 'approve' && action !== 'reject') return undefined;
+        if (stage !== 'hr' && stage !== 'management') return undefined;
+        if (String(dmf?.currentStepKey || '') !== stage || !dmf?.canAct) return undefined;
+        const token = `${monthKey}:${stage}:${action}`;
+        if (openedMailAction.current === token) return undefined;
+        openedMailAction.current = token;
+        if (action === 'reject') setRejectOpen(true);
+        else setApproveConfirm(true);
+        return undefined;
+    }, [isMonth, payrollStage, payrollAction, monthKey, dmf?.currentStepKey, dmf?.canAct]);
+
+    useEffect(() => {
             onOpenStartConfirmChange?.(false);
             return undefined;
         }
@@ -137,15 +155,23 @@ export default function SalaryDmfApprovalPanel({
 
     async function handleApprove() {
         const payload = await call('approve');
-        if (!payload) return;
+        if (!payload) return false;
         const next = payload?.dmf || payload;
-            toast({
-                title: isMonth
-                    ? String(next?.status || '').toLowerCase() === 'approved'
-                        ? 'Processed'
-                        : payrollApprovalStatusLabel(next)
-                    : payrollApprovalStatusLabel(next) || 'Approved',
-            });
+        toast({
+            title: isMonth
+                ? String(next?.status || '').toLowerCase() === 'approved'
+                    ? 'Processed'
+                    : payrollApprovalStatusLabel(next)
+                : payrollApprovalStatusLabel(next) || 'Approved',
+        });
+        return payload;
+    }
+
+    async function handleRecall() {
+        const payload = await call('recall');
+        if (!payload) return;
+        setRecallOpen(false);
+        toast({ title: payload?.message || 'Payroll recalled' });
     }
 
     async function handleReject() {
@@ -212,6 +238,17 @@ export default function SalaryDmfApprovalPanel({
             {payrollApprovalStatusLabel(dmf)}
         </span>
     );
+    const recallBtn = isMonth && dmf?.canRecall ? (
+        <button
+            type="button"
+            onClick={() => setRecallOpen(true)}
+            disabled={disabled}
+            className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:opacity-60"
+        >
+            Recall
+        </button>
+    ) : null;
+    const recallToHr = String(dmf?.currentStepKey || '') === 'management';
 
     const headerActions =
         status === 'approved' ? (
@@ -219,7 +256,10 @@ export default function SalaryDmfApprovalPanel({
                 {isMonth ? 'Processed' : 'Approved'}
             </span>
         ) : status === 'pending' ? (
-            actBtns
+            <>
+                {actBtns}
+                {recallBtn}
+            </>
         ) : showStart && !hideStart ? (
             startBtn
         ) : hideStart ? null : (
@@ -246,7 +286,7 @@ export default function SalaryDmfApprovalPanel({
                             {isMonth
                                 ? 'HR receives an email with a link that opens this payroll, and can approve or reject. Approval then goes to Management. A rejection emails Accounts and brings Submit back.'
                                 : 'This starts User → Accounts → HR → Management. After Management approves, VERP creates a Zoho Books bill.'}
-                        </p>
+                                ? 'HR receives one payroll summary email and can approve or reject on this page. Approval then goes to Management. A rejection emails Accounts and brings Submit back.'
                         <div className="mt-5 flex justify-end gap-2">
                             <button
                                 type="button"
@@ -269,6 +309,79 @@ export default function SalaryDmfApprovalPanel({
             ) : null}
             {rejectOpen ? (
                 <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+            {recallOpen ? (
+                <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+                    <button
+                        type="button"
+                        className="absolute inset-0 bg-slate-900/30"
+                        onClick={() => setRecallOpen(false)}
+                        aria-label="Close"
+                    />
+                    <div className="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+                        <h3 className="text-base font-bold text-slate-800">Recall this payroll?</h3>
+                        <p className="mt-3 text-sm text-slate-600">
+                            {recallToHr
+                                ? 'This takes the approval back from Management to HR. Accounts cannot recall it after HR has approved.'
+                                : 'This takes the approval back from HR to Accounts processing.'}
+                        </p>
+                        <div className="mt-5 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setRecallOpen(false)}
+                                className="h-10 rounded-xl border px-4 text-sm font-semibold"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleRecall}
+                                disabled={disabled}
+                                className="h-10 rounded-xl bg-slate-800 px-4 text-sm font-semibold text-white disabled:opacity-60"
+                            >
+                                {busy ? 'Recalling…' : 'Recall'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+            {approveConfirm ? (
+                <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+                    <button
+                        type="button"
+                        className="absolute inset-0 bg-slate-900/30"
+                        onClick={() => setApproveConfirm(false)}
+                        aria-label="Close"
+                    />
+                    <div className="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+                        <h3 className="text-base font-bold text-slate-800">Approve this payroll?</h3>
+                        <p className="mt-3 text-sm text-slate-600">
+                            {String(dmf?.currentStepKey || '') === 'management'
+                                ? 'Confirm Management approval. Create slot opens after this. Nothing is paid from the email link.'
+                                : 'Confirm HR approval. Management then receives the payroll summary. Nothing is approved from the email link.'}
+                        </p>
+                        <div className="mt-5 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setApproveConfirm(false)}
+                                className="h-10 rounded-xl border px-4 text-sm font-semibold"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    const payload = await handleApprove();
+                                    if (payload) setApproveConfirm(false);
+                                }}
+                                disabled={disabled}
+                                className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white disabled:opacity-60"
+                            >
+                                {busy ? 'Approving…' : 'Confirm approval'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
                     <button
                         type="button"
                         className="absolute inset-0 bg-slate-900/30"

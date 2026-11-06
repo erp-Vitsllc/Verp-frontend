@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
     ChevronDown,
     ChevronUp,
@@ -23,6 +23,7 @@ import SalaryZohoJournalModal from './SalaryZohoJournalModal';
 import SalarySlotExpenseModal from './SalarySlotExpenseModal';
 import { monthPayrollProcessStatusLabel, payrollPendingForLabel } from '../utils/payrollApprovalStatus';
 import { handleNavigateFromListClick, navigateFromList } from '@/utils/listReturnNavigation';
+import { salarySlipMonthHref } from '../enroll/salarySlipEdit';
 import { buildFineListPath } from '@/utils/fineNotificationRouting';
 import './SalaryMonthControlCentre.css';
 
@@ -172,6 +173,87 @@ function formatSlotDate(value) {
     const date = value instanceof Date ? value : value ? new Date(value) : null;
     if (!date || Number.isNaN(date.getTime())) return '—';
     return `${pad2(date.getDate())} ${MONTH_FULL[date.getMonth()].slice(0, 3)} ${date.getFullYear()}`;
+}
+
+function formatHistoryTime(value) {
+    const date = value instanceof Date ? value : value ? new Date(value) : null;
+    if (!date || Number.isNaN(date.getTime())) return '';
+    const clock = date.toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    return `${formatSlotDate(date)}, ${clock}`;
+}
+
+function historyActor(name) {
+    const label = String(name || '').trim();
+    return label || 'system';
+}
+
+function payrollHistoryEvents(dmf, batches) {
+    const events = [];
+    function add(at, label, actor) {
+        const date = at ? new Date(at) : null;
+        if (!date || Number.isNaN(date.getTime())) return;
+        events.push({
+            at: date.getTime(),
+            label,
+            actor: historyActor(actor),
+            timeLabel: formatHistoryTime(date),
+        });
+    }
+
+    if (dmf?.submittedAt) add(dmf.submittedAt, 'Salary sent to HR', dmf.submittedByName);
+    const steps = Array.isArray(dmf?.steps) ? dmf.steps : [];
+    const hr = steps.find((step) => step.key === 'hr');
+    const management = steps.find((step) => step.key === 'management');
+    if (hr?.status === 'approved') add(hr.actionedAt, 'Salary sent to Management', hr.actionedByName);
+    if (hr?.status === 'rejected') add(hr.actionedAt || dmf?.rejectedAt, 'Salary rejected', hr.actionedByName || dmf?.rejectedByName);
+    if (management?.status === 'approved') add(management.actionedAt, 'Salary processed', management.actionedByName);
+    if (management?.status === 'rejected') {
+        add(management.actionedAt || dmf?.rejectedAt, 'Salary rejected', management.actionedByName || dmf?.rejectedByName);
+    }
+    for (const batch of batches || []) {
+        const slotNo = Number(batch?.paymentNo) || 0;
+        if (!slotNo) continue;
+        add(batch.createdAt, `Slot ${slotNo} created`, batch.createdByName);
+    }
+    events.sort((a, b) => b.at - a.at);
+    return events;
+}
+
+function PayrollHistoryCard({ dmf, batches }) {
+    const [expanded, setExpanded] = useState(false);
+    const events = useMemo(() => payrollHistoryEvents(dmf, batches), [dmf, batches]);
+    const visible = expanded ? events : events.slice(0, 5);
+    return (
+        <section className="spcc-card spcc-card--panel spcc-card--history" aria-label="Payroll history">
+            <div className="spcc-card__head spcc-card__head--ready">
+                <div className="spcc-ready-head">
+                    <h2 className="spcc-card__title">History</h2>
+                    <p className="spcc-card__sub">Payroll and slot activity</p>
+                </div>
+            </div>
+            {visible.length ? (
+                <ul className="spcc-history">
+                    {visible.map((event) => (
+                        <li key={`${event.at}-${event.label}`} className="spcc-history__row">
+                            <span className="spcc-history__label">{event.label}</span>
+                            <span className="spcc-history__meta">({event.actor}) {event.timeLabel}</span>
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <p className="spcc-ready-empty">No payroll history yet.</p>
+            )}
+            {events.length > 5 ? (
+                <button
+                    type="button"
+                    className="spcc-history__more"
+                    onClick={() => setExpanded((open) => !open)}
+                >
+                    {expanded ? 'Show less' : 'More ...'}
+                </button>
+            ) : null}
+        </section>
+    );
 }
 
 function StatusPill({ tone, children }) {
@@ -430,6 +512,8 @@ function paymentBatchFromApi(row) {
         selectedIds: (row.selectedIds || row.employeeIds || []).map(String).filter(Boolean),
         processed: status === 'approved',
         createdAt: row.createdAt || null,
+        createdByName: String(row.createdByName || '').trim(),
+        zohoExpenseId: String(row.zohoExpenseId || '').trim(),
     };
 }
 
@@ -437,103 +521,63 @@ function paymentLabel(batch, index) {
     return Number(batch?.paymentNo) || index + 1;
 }
 
-function groupEmployeesByCompany(rows) {
-    const grouped = [];
-    const map = new Map();
-    for (const emp of rows || []) {
-        const key = companyKeyOf(emp);
-        if (!map.has(key)) {
-            const list = [];
-            map.set(key, list);
-            grouped.push([key, list]);
-        }
-        map.get(key).push(emp);
-    }
-    return grouped;
+function slotExcelFileName(monthLabel, slot) {
+    const type = slotPayTypeLabel(slot);
+    const cash = /^cash$/i.test(type);
+    const company = String(slot?.companyName || '').trim();
+    const bit = company ? ` - ${company}` : '';
+    const label = String(monthLabel || 'Payroll').trim() || 'Payroll';
+    return `${cash ? 'Cash Salary' : 'WPS'} ${label}${bit}.xlsx`.replace(/\s+/g, ' ').trim();
 }
 
-function SlotAmountDate({ total, dateLabel, status, employeeCount }) {
-    const approved = status === 'approved';
-    const caption =
-        status === 'draft'
-            ? `${employeeCount} employee${employeeCount === 1 ? '' : 's'}`
-            : status === 'pending_hr'
-                ? 'Pending with HR'
-                : status === 'pending_wps'
-                    ? 'Check the WPS send'
-                    : status === 'pending_update'
-                        ? 'Update payment'
-                        : status === 'rejected'
-                            ? 'Rejected — back with Accounts'
-                            : approved
-                                ? `${employeeCount} employee${employeeCount === 1 ? '' : 's'}`
-                                : 'No payment in this slot yet.';
-    return (
-        <div className="spcc-slot-summary">
-            <div className="spcc-slot-summary__row">
-                <span className="spcc-slot-summary__label">Total amount</span>
-                <span className="spcc-slot-summary__value tabular-nums">
-                    {approved ? formatMoney(total) : '—'}
-                </span>
-            </div>
-            <div className="spcc-slot-summary__row">
-                <span className="spcc-slot-summary__label">Date</span>
-                <span className="spcc-slot-summary__value">{dateLabel}</span>
-            </div>
-            <span className="spcc-metric__caption">{caption}</span>
-            {status === 'draft' ? <span className="spcc-slot-watermark">Draft</span> : null}
-        </div>
-    );
+function slotPayTypeLabel(slot) {
+    const stored = String(slot?.paymentMethod || '').trim();
+    if (/^cash$/i.test(stored)) return 'Cash';
+    if (/^wps$/i.test(stored)) return 'WPS';
+    if (stored) return stored;
+    const types = [];
+    const seen = new Set();
+    for (const emp of slot?.rows || []) {
+        const type = employeePayMethod(emp);
+        if (!type || seen.has(type)) continue;
+        seen.add(type);
+        types.push(type);
+    }
+    return types.join(', ');
+}
+
+function slotCompanyLabel(slot) {
+    const stored = String(slot?.companyName || '').trim();
+    if (stored) return stored;
+    return uniqueCompanyNames((slot?.rows || []).map((emp) => emp.companyName)).join(', ');
+}
+
+function slotIsZohoUpdated(slot) {
+    if (String(slot?.zohoExpenseId || '').trim()) return true;
+    return String(slot?.status || '') === 'approved';
 }
 
 function PaymentResultCard({ slot, active, onSelect }) {
     if (!slot) return null;
-    const grouped = groupEmployeesByCompany(slot.rows);
-
+    const typeLabel = slotPayTypeLabel(slot) || '—';
+    const company = slotCompanyLabel(slot) || '—';
+    const amount = formatMoney(slot.total);
+    const zohoUpdated = slotIsZohoUpdated(slot);
     return (
-        <section
-            className={`spcc-pay-result spcc-pay-result--row${active ? ' is-active' : ''}${slot.status === 'pending_hr' || slot.status === 'approved' ? ' is-updated' : ''
-                }`}
+        <button
+            type="button"
+            className={`spcc-pay-result spcc-pay-result--box${active ? ' is-active' : ''}${zohoUpdated ? ' is-updated' : ''}`}
             onClick={() => onSelect?.(slot)}
+            title={zohoUpdated ? `Slot ${slot.slot} updated in Zoho` : `Slot ${slot.slot}`}
         >
-            <div className="spcc-pay-result__identity">
-                <h3 className="spcc-pay-result__title">Slot {slot.slot}</h3>
-                <StatusPill tone={slot.status === 'approved' ? 'ok' : 'warn'}>
-                    {slotStatusLabel(slot.status) || 'Open'}
-                </StatusPill>
-            </div>
-            <SlotAmountDate
-                total={slot.total}
-                dateLabel={slot.dateLabel}
-                status={slot.status}
-                employeeCount={slot.rows.length}
-            />
-            <div className="spcc-pay-result__body">
-                {slot.rows.length ? (
-                    grouped.map(([company, list]) => (
-                        <div key={company} className="spcc-pay-result__group">
-                            <p className="spcc-pay-result__company">{company}</p>
-                            <ul className="spcc-pay-result__list">
-                                {list.map((emp) => {
-                                    const id = String(emp.employeeId || '');
-                                    return (
-                                        <li key={id} className="spcc-pay-result__row">
-                                            <span className="spcc-pay-name">
-                                                <span>{emp.name || id}</span>
-                                                <span className="spcc-pay-id">{id}</span>
-                                            </span>
-                                            <span className="tabular-nums">{formatMoney(employeeAmount(emp))}</span>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        </div>
-                    ))
-                ) : (
-                    <p className="spcc-pay-empty">No employees in this slot.</p>
-                )}
-            </div>
-        </section>
+            <h3 className="spcc-pay-result__title">Slot {slot.slot}</h3>
+            <p className="spcc-pay-result__amount">
+                <span>{typeLabel}</span>
+                <span className="spcc-pay-result__eq">=</span>
+                <span className="tabular-nums">{amount}</span>
+            </p>
+            <p className="spcc-pay-result__company">{company}</p>
+        </button>
     );
 }
 
@@ -606,6 +650,7 @@ function SlotEditorModal({
     canMarkWps,
     canSetUpdated,
     canOpenExcel,
+    excelFileName = '',
     excelBusy,
     accountsName,
     hrName,
@@ -815,7 +860,7 @@ function SlotEditorModal({
                                         disabled={excelBusy || saving}
                                         onClick={onOpenExcel}
                                     >
-                                        {excelBusy ? 'Opening Excel…' : 'Open Excel'}
+                                        {excelBusy ? 'Opening Excel…' : (excelFileName || 'Open Excel')}
                                     </button>
                                 ) : null}
                             </span>
@@ -958,7 +1003,7 @@ function SlotEditorModal({
                             disabled={excelBusy || saving}
                             onClick={onOpenExcel}
                         >
-                            {excelBusy ? 'Opening Excel…' : 'Open Excel'}
+                            {excelBusy ? 'Opening Excel…' : (excelFileName || 'Open Excel')}
                         </button>
                     ) : null}
                     {canDecide ? (
@@ -1313,6 +1358,9 @@ function PayrollBlockersModal({
 
 export default function SalaryMonthControlCentre({ monthKey }) {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const payrollStage = String(searchParams?.get('payrollStage') || '').trim().toLowerCase();
+    const payrollAction = String(searchParams?.get('payrollAction') || '').trim().toLowerCase();
     const { toast } = useToast();
     const { locations } = useWorkLocations();
     const parsed = useMemo(() => parseMonthKey(monthKey), [monthKey]);
@@ -2271,6 +2319,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                     companyName: batch.companyName || '',
                     paymentMethod: batch.paymentMethod || '',
                     rejectReason: batch.rejectReason || '',
+                    zohoExpenseId: batch.zohoExpenseId || '',
                 };
             })
             .sort((a, b) => a.slot - b.slot);
@@ -2353,7 +2402,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         Validate attendance and clear approvals before payroll starts.
                     </p>
                 </div>
-                <div className="spcc-hero__actions">
+                <div className="spcc-hero__actions" id="payroll-approval">
                     <SalaryDmfApprovalPanel
                         variant="actions"
                         kind="month"
@@ -2361,6 +2410,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         dmf={monthDmf}
                         ready
                         hideStart
+                        payrollStage={payrollStage}
+                        payrollAction={payrollAction}
                         openStartConfirm={Boolean(approvalPrompt)}
                         onOpenStartConfirmChange={setApprovalPrompt}
                         startButtonClass="spcc-btn spcc-btn--primary"
@@ -2626,15 +2677,18 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                 monthLabel={monthLabel}
                                                 groups={excelGroups}
                                                 companies={excelCompanies}
-                                                employeesOf={(kind, item) =>
-                                                    kind === 'group'
-                                                        ? monthRoster.filter(
+                                                allCount={monthRoster.length}
+                                                employeesOf={(kind, item) => {
+                                                    if (kind === 'all') return monthRoster;
+                                                    if (kind === 'group') {
+                                                        return monthRoster.filter(
                                                             (emp) => normalizeWorkLocationKey(emp.staffType) === item.id,
-                                                        )
-                                                        : monthRoster.filter((emp) =>
-                                                            sameCompany(companyKeyOf(emp), item.id),
-                                                        )
-                                                }
+                                                        );
+                                                    }
+                                                    return monthRoster.filter((emp) =>
+                                                        sameCompany(companyKeyOf(emp), item.id),
+                                                    );
+                                                }}
                                                 onEmpty={(label) =>
                                                     toast({
                                                         title: 'No employees to download',
@@ -2747,7 +2801,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                                 data-pay-employee={id}
                                                                 className={`spcc-pay-row${readinessEmployeeId === id ? ' is-selected' : ''}`}
                                                                 role="row"
-                                                                title={id ? 'Double-click to open salary slips' : undefined}
+                                                                title={id ? 'Double-click to open this month\'s salary slip' : undefined}
                                                                 onClick={(event) => {
                                                                     if (!id || event.detail > 1) return;
                                                                     setReadinessEmployeeId((current) => {
@@ -2757,13 +2811,11 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                                     });
                                                                 }}
                                                                 onDoubleClick={() => {
-                                                                    if (!id) return;
+                                                                    if (!id || !parsed?.monthKey) return;
                                                                     navigateFromList(
                                                                         router,
-                                                                        `/HRM/Salary/enroll/${encodeURIComponent(id)}`,
-                                                                        parsed?.monthKey
-                                                                            ? `/HRM/Salary/${parsed.monthKey}`
-                                                                            : '/HRM/Salary',
+                                                                        salarySlipMonthHref(id, parsed.monthKey),
+                                                                        `/HRM/Salary/${parsed.monthKey}`,
                                                                     );
                                                                 }}
                                                             >
@@ -2947,6 +2999,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                     </div>
                                 </section>
                             </aside>
+                            <PayrollHistoryCard dmf={monthDmf} batches={paymentBatches} />
                         </div>
                     </div>
 
@@ -2976,6 +3029,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                         canMarkWps={slotCanMarkWps}
                                         canSetUpdated={slotCanSetUpdated}
                                         canOpenExcel={slotCanOpenExcel}
+                                        excelFileName={slotExcelFileName(monthLabel, slotEditor)}
                                         excelBusy={excelBusy}
                                         accountsName={accountsName}
                                         hrName={hrName}
