@@ -4165,7 +4165,7 @@ export default function EmployeeInformationDashboard({
                     ? `${sandwichRows.length} weekly off or holiday day${sandwichRows.length === 1 ? '' : 's'} between leave × ${dayRate}`
                     : 'A weekly off or holiday between leave days deducts 1 day.',
             },
-        ].filter((row) => (row.key !== 'on_leave' && row.key !== 'sandwich') || Number(row.count) > 0);
+        ].filter((row) => row.key !== 'on_leave' || Number(row.count) > 0);
     }, [countedRecords, monthRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts, holidayDates, offWeekdays, countFrom, countTo, payRates, employee.workLocation, employee.salaryCurrency]);
     const deductionDetailRows = useMemo(() => {
         const enclosedOff = sandwichLeaveByDate({
@@ -5097,7 +5097,7 @@ export default function EmployeeInformationDashboard({
                                               : row.count == null || row.count === ''
                                               ? '—'
                                               : leaveRow
-                                                ? (Number(row.count) ? `${Number(row.count).toFixed(1)} ${Number(row.count) === 1 ? 'Day' : 'Days'}` : '—')
+                                                ? (Number(row.count) ? `${Number(row.count).toFixed(1)} ${Number(row.count) === 1 ? 'Day' : 'Days'}` : 0)
                                                 : row.count;
                                         return (
                                             <tr key={`${row.key}-${index}`} className="border-t border-[#F4F7FB]">
