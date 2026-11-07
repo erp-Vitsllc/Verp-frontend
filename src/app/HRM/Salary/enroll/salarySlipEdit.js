@@ -100,39 +100,53 @@ function isApprovedLiability(row) {
     return total > 0 || thisMonth > 0 || row.approved === true;
 }
 
+/** Settled when the slip row itself says Paid, and not "Not Paid". */
+function liabilityMarkedPaid(row) {
+    const status = String(row?.unpaidStatus || '').trim().toLowerCase();
+    if (!status || status.includes('not paid')) return false;
+    return /\bpaid\b/.test(status);
+}
+
+/** Amount still owed on this salary slip: Not Paid installments for this month and earlier months. */
+function unpaidOfLiability(row, readTotal, readPaid) {
+    if (!row || liabilityMarkedPaid(row)) return 0;
+    if (row.dueAmount != null && row.dueAmount !== '') {
+        return money(Math.max(0, money(row.dueAmount)));
+    }
+    if (row.remainingAmount != null && row.remainingAmount !== '') {
+        return money(Math.max(0, money(row.remainingAmount)));
+    }
+    const original = money(readTotal(row));
+    const paid = money(typeof readPaid === 'function' ? readPaid(row) : 0);
+    return money(Math.max(0, original - paid));
+}
+
 function liabilitySummary(type, rows, readTotal, readPaid, readThisMonth) {
     const list = (Array.isArray(rows) ? rows : []).filter(isApprovedLiability);
-    const total = sumMoney(list, readTotal);
-    const employeePay = sumMoney(list, readPaid);
+    const open = list.filter((row) => unpaidOfLiability(row, readTotal, readPaid) > 0);
+    const total = money(open.reduce((sum, row) => sum + unpaidOfLiability(row, readTotal, readPaid), 0));
     const thisMonthDeduction = sumMoney(list, readThisMonth);
-    const pending = money(Math.max(0, total - employeePay));
     return {
         type,
-        count: list.length,
-        label: `${type} (${list.length})`,
+        count: open.length,
+        label: `${type} (${open.length})`,
         total,
-        pending,
-        balance: pending,
         thisMonthDeduction,
         remainingAfterDeduction: money(Math.max(0, total - thisMonthDeduction)),
     };
 }
 
-function totalOfLiability(row, readTotal) {
-    return money(Math.max(0, money(readTotal(row))));
-}
-
-/** This-month deduction cannot exceed Total. Values at or under Total are allowed. */
+/** This-month deduction cannot exceed the Not Paid total. Values at or under Total are allowed. */
 export function clampThisMonthDeduction(value, limit) {
     const cap = money(limit);
     if (cap <= 0) return 0;
     return money(Math.min(Math.max(0, money(value)), cap));
 }
 
-function allocateThisMonth(rows, requested, predicate, readTotal) {
+function allocateThisMonth(rows, requested, predicate, readTotal, readPaid) {
     const list = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
     const targets = list.filter((row) => (!predicate || predicate(row)) && isApprovedLiability(row));
-    const weights = targets.map((row) => totalOfLiability(row, readTotal));
+    const weights = targets.map((row) => unpaidOfLiability(row, readTotal, readPaid));
     const cap = money(weights.reduce((sum, value) => sum + value, 0));
     let left = clampThisMonthDeduction(requested, cap);
     const weightSum = weights.reduce((sum, value) => sum + value, 0);
@@ -190,6 +204,7 @@ export function applyCategoryThisMonthOnDraft(draft, type, rawAmount) {
         rawAmount,
         spec.predicate,
         spec.readTotal,
+        spec.readPaid,
     );
     draft.thisMonthOverrides = {
         ...(draft.thisMonthOverrides || {}),
@@ -199,8 +214,10 @@ export function applyCategoryThisMonthOnDraft(draft, type, rawAmount) {
 }
 
 /**
- * Approved loan, fine, utility and salary advance for this employee.
- * This month deduction is limited by Total. Remaining is Total minus this month's deduction.
+ * Not Paid loan, fine, utility and salary advance for this employee.
+ * Total is the Not Paid amount for this salary month and earlier months.
+ * Later installments stay off this slip. This month deduction cannot exceed Total.
+ * Remaining is Total minus this month's deduction.
  */
 export function buildSalarySlipBalanceRows(slip) {
     const loans = Array.isArray(slip?.loanSchedule) ? slip.loanSchedule : [];

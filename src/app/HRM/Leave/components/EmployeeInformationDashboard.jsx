@@ -1432,6 +1432,7 @@ function attendanceDeductionAmount(record, week, daily, policy, mispunchAmounts)
 
 const ATTENDANCE_DEDUCTION_LABEL = {
     on_leave: 'Annual Leave',
+    sandwich: 'Sandwich Leave',
     authorized_leave: 'Authorized Leave',
     unauthorized_leave: 'Unauthorized Leave',
     late_arrived: 'Late In',
@@ -1441,12 +1442,28 @@ const ATTENDANCE_DEDUCTION_LABEL = {
 
 const ATTENDANCE_TYPE_RANK = {
     on_leave: 0,
+    sandwich: 0,
     authorized_leave: 1,
     unauthorized_leave: 1,
     late_arrived: 2,
     early_go: 3,
     mispunch: 4,
 };
+
+/** Deduction list only. An approved annual leave request is not authorized or unauthorized leave. */
+function shownDeductionKind(row) {
+    const status = String(row?.statusKey || '');
+    if (status === 'sandwich') return 'sandwich';
+    const approved = String(row?.leaveRequestStatus || '').toLowerCase() === 'approved';
+    const requested = String(row?.requestedStatusKey || '').trim();
+    const requestKind = String(row?.leaveRequestKind || '').trim();
+    if (status === 'on_leave' || (approved && (requested === 'on_leave' || requestKind === 'future_annual'))) {
+        return 'on_leave';
+    }
+    if (approved && requested === 'sick_leave') return 'sick_leave';
+    if (approved && requested === 'compoff_leave') return 'compoff_leave';
+    return deductionKind(row);
+}
 
 function incrementalPolicyAmount(count, rule, daily) {
     if (!rule || count <= 0) return 0;
@@ -1526,9 +1543,9 @@ function formatLossHours(hours) {
 }
 
 function attendanceDeductionRows(records, policy, week, daily) {
-    const labeled = (records || []).filter((row) => ATTENDANCE_DEDUCTION_LABEL[deductionKind(row)]);
+    const labeled = (records || []).filter((row) => ATTENDANCE_DEDUCTION_LABEL[shownDeductionKind(row)]);
     const mispunchAmounts = mispunchDayAmounts(
-        labeled.filter((row) => deductionKind(row) === 'mispunch'),
+        labeled.filter((row) => shownDeductionKind(row) === 'mispunch'),
         policy,
         daily,
     );
@@ -1542,8 +1559,15 @@ function attendanceDeductionRows(records, policy, week, daily) {
     for (const monthRows of byMonth.values()) {
         const ordered = [...monthRows].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
         ordered.forEach((record) => {
-            const key = deductionKind(record);
-            const amount = attendanceDeductionAmount(record, week, daily, policy, mispunchAmounts);
+            const key = shownDeductionKind(record);
+            const punchOnly = key === 'late_arrived' || key === 'early_go' || key === 'mispunch';
+            const amount = key === 'sandwich'
+                ? money2(Number(daily) || 0)
+                : attendanceDeductionAmount(record, week, daily, policy, mispunchAmounts);
+            if (punchOnly && !(amount > 0)) return;
+            const lossHours = key === 'sandwich'
+                ? (dayHoursOf(week, record?.date) || 9)
+                : deductionLossHours(record, week);
             rows.push({
                 id: String(record?._id || `${record?.date}-${key}`),
                 section: 'attendance',
@@ -1551,7 +1575,9 @@ function attendanceDeductionRows(records, policy, week, daily) {
                 sort: String(record?.date || ''),
                 date: formatDayLabel(record?.date),
                 type: ATTENDANCE_DEDUCTION_LABEL[key],
-                detail: deductionEventDetail(record, week),
+                detail: key === 'sandwich'
+                    ? 'Weekly off or holiday between leave'
+                    : deductionEventDetail(record, week),
                 in: formatClock12(record?.timeIn),
                 out: (
                     <NextDayCheckoutTime
@@ -1564,7 +1590,7 @@ function attendanceDeductionRows(records, policy, week, daily) {
                         })}
                     />
                 ),
-                lossHrs: formatLossHours(deductionLossHours(record, week)),
+                lossHrs: formatLossHours(lossHours),
                 amount: formatAedNumber(amount),
             });
         });
@@ -1597,6 +1623,8 @@ function financialDeductionRows({ fines, loans, advances, utilityItems, from, to
     (utilityItems || []).forEach((row) => {
         if (!(n(row.amount) > 0)) return;
         const month = /^\d{4}-\d{2}$/.test(String(row.billMonth || '')) ? row.billMonth : '';
+        const endMonth = String(to || '').match(/^(\d{4}-\d{2})/)?.[1] || '';
+        if (month && endMonth && month > endMonth) return;
         if (period !== 'month' && month && !months.has(month)) return;
         if (period !== 'month' && !month) return;
         rows.push({
@@ -3781,9 +3809,11 @@ export default function EmployeeInformationDashboard({
         0,
     );
     const fineOutstanding = fines.reduce((sum, row) => sum + n(row.outstanding), 0);
-    const utilityOutstanding = utilityItems.length
-        ? utilityItems.reduce((sum, row) => sum + n(row.amount), 0)
-        : n(financial.utility?.outstanding);
+    const utilityOutstanding = utilityItems.reduce((sum, row) => {
+        const month = String(row?.billMonth || '').match(/^(\d{4}-\d{2})/)?.[1] || '';
+        if (monthKey && month && month > monthKey) return sum;
+        return sum + n(row.amount);
+    }, 0);
 
     const monthRewardLabel = formatMonthLabel(monthKey);
     const monthRewards = rewards.filter(
@@ -4030,7 +4060,7 @@ export default function EmployeeInformationDashboard({
         }));
         const deductionSource = countedRecords;
         const authDays = money2(deductionSource.reduce((sum, row) => {
-            if (deductionKind(row) !== 'authorized_leave') return sum;
+            if (shownDeductionKind(row) !== 'authorized_leave') return sum;
             if (row?.deductionWaived === true || hoursForgiven(row)) return sum;
             const share = explicitAuthorizedHourShare(row);
             const weight = leaveDayWeight(row, true);
@@ -4038,7 +4068,8 @@ export default function EmployeeInformationDashboard({
         }, 0));
         const unauthDays = money2(deductionSource.reduce((sum, row) => {
             if (row?.deductionWaived === true || hoursForgiven(row)) return sum;
-            const key = deductionKind(row);
+            const key = shownDeductionKind(row);
+            if (key === 'on_leave' || key === 'sandwich' || key === 'sick_leave') return sum;
             if (key === 'unauthorized_leave') return sum + leaveDayWeight(row, false);
             const punched = Boolean(String(row?.timeIn || '').trim() || String(row?.timeOut || '').trim());
             if ((key === 'not_marked' || key === 'absent' || key === '') && row?.date && !punched) return sum + 1;
@@ -4072,7 +4103,7 @@ export default function EmployeeInformationDashboard({
             ? 'Flexible time deducts only the missed hours. Late arrival and early go do not use the salary policy.'
             : 'Until approval this uses the unauthorized leave rate. After approval, only the approved hours are deducted.';
         const missedRule = mispunchPolicyRule(policy);
-        const annualDays = deductionSource.filter((row) => deductionKind(row) === 'on_leave').length;
+        const annualDays = deductionSource.filter((row) => shownDeductionKind(row) === 'on_leave').length;
         return [
             {
                 key: 'late_arrived',
@@ -4109,7 +4140,7 @@ export default function EmployeeInformationDashboard({
                 type: 'Authorized leave',
                 count: authDays,
                 amount: money2(deductionSource.reduce((sum, row) => {
-                    if (deductionKind(row) !== 'authorized_leave') return sum;
+                    if (shownDeductionKind(row) !== 'authorized_leave') return sum;
                     return sum + attendanceDeductionAmount(row, scheduleWeek, daily, policy);
                 }, 0)),
                 note: authDays
@@ -4134,7 +4165,7 @@ export default function EmployeeInformationDashboard({
                     ? `${sandwichRows.length} weekly off or holiday day${sandwichRows.length === 1 ? '' : 's'} between leave × ${dayRate}`
                     : 'A weekly off or holiday between leave days deducts 1 day.',
             },
-        ].filter((row) => row.key !== 'on_leave' || Number(row.count) > 0);
+        ].filter((row) => (row.key !== 'on_leave' && row.key !== 'sandwich') || Number(row.count) > 0);
     }, [countedRecords, monthRecords, profile?.leavePolicy, salaryBasis.daily, scheduleWeek, mispunchAmounts, holidayDates, offWeekdays, countFrom, countTo, payRates, employee.workLocation, employee.salaryCurrency]);
     const deductionDetailRows = useMemo(() => {
         const enclosedOff = sandwichLeaveByDate({
@@ -4199,32 +4230,36 @@ export default function EmployeeInformationDashboard({
         Array.isArray(slipPay.deductions) &&
         slipPay.deductions.length,
     );
-    const salaryTableRows = usingSlipPay
-        ? slipPay.deductions.map((row) => ({
-            key: String(row.component || 'deduction'),
-            type: String(row.component || 'Deduction'),
-            count: row.basis || '',
-            amount: Number(row.amount) || 0,
-            slipLine: true,
-        }))
+    const attendanceTableRows = deductionRows.map((row) => ({
+        ...row,
+        type: ({
+            'Late arrival': 'Late In',
+            'Early go': 'Late Out',
+            'Missed punch': 'Missed Punch',
+            'Annual leave': 'Annual Leave',
+            'Authorized leave': 'Authorized Leave',
+            'Unauthorized leave': 'Unauthorized Leave',
+            'Sandwich leave': 'Sandwich Leave',
+        })[row.type] || row.type,
+    }));
+    const slipMoneyNames = new Set(['Salary Advance', 'Loan', 'Fine', 'Utility Excess']);
+    const moneyTableRows = usingSlipPay
+        ? slipPay.deductions
+            .filter((row) => slipMoneyNames.has(String(row.component || '')))
+            .map((row) => ({
+                key: String(row.component || 'deduction'),
+                type: String(row.component || 'Deduction'),
+                count: row.basis || '',
+                amount: Number(row.amount) || 0,
+                slipLine: true,
+            }))
         : [
-            ...deductionRows.map((row) => ({
-                ...row,
-                type: ({
-                    'Late in': 'Late In',
-                    'Late out': 'Early Out',
-                    'Missed punch': 'Missed Punch',
-                    'Annual leave': 'Annual Leave',
-                    'Authorized leave': 'Authorized Leave',
-                    'Unauthorized leave': 'Unauthorized Leave',
-                    'Sandwich leave': 'Sandwich Leave',
-                })[row.type] || row.type,
-            })),
             { key: 'fine', type: 'Fine', count: null, amount: fineOutstanding },
             { key: 'utility', type: 'Utility Excess', count: null, amount: utilityOutstanding },
             { key: 'loan_recovery', type: 'Loan Recovery', count: null, amount: loanOutstanding },
             { key: 'advance_recovery', type: 'Advance Recovery', count: null, amount: advanceOutstanding },
         ];
+    const salaryTableRows = [...attendanceTableRows, ...moneyTableRows];
     const companyDeductionKeys = new Set(['fine', 'utility', 'loan_recovery', 'advance_recovery']);
     const salaryDeductionTotal = deductionRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
     const companyDeductionTotal = salaryTableRows.reduce(
@@ -4234,8 +4269,9 @@ export default function EmployeeInformationDashboard({
     const salaryDeductionAed = payCurrencyCode(employee) === 'AED'
         ? salaryDeductionTotal
         : aedEquivalent(salaryDeductionTotal, payCurrencyCode(employee), payRates);
+    const shownDeductionTotal = salaryTableRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
     const deductionTotalLabel = usingSlipPay
-        ? formatAed(slipPay.deduction, 2)
+        ? formatAed(shownDeductionTotal, 2)
         : salaryDeductionAed == null
             ? payMoney(salaryDeductionTotal, 2)
             : formatAed((Number(salaryDeductionAed) || 0) + companyDeductionTotal, 2);

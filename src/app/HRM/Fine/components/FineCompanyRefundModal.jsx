@@ -194,6 +194,7 @@ export default function FineCompanyRefundModal({
 }) {
     const { toast } = useToast();
     const fileInputRef = useRef(null);
+    const prefilledAccountRef = useRef(false);
     const [date, setDate] = useState(todayInputValue());
     const [reference, setReference] = useState('');
     const [receivedVia, setReceivedVia] = useState('Cash');
@@ -302,6 +303,11 @@ export default function FineCompanyRefundModal({
     }, [fines, utilityBills, loans, isUtilityMode, isLoanMode]);
 
     const selectedRow = fineRows.find((r) => r.key === selectedFineKey) || null;
+    const utilityPrefillAccountId = String(
+        fineRows.find((row) => row.utilityBill)?.utilityBill?.partyAccountId ||
+            fineRows.find((row) => row.utilityBill)?.utilityBill?.expenseAccountId ||
+            '',
+    ).trim();
 
     const bankOptions = useMemo(
         () =>
@@ -371,10 +377,18 @@ export default function FineCompanyRefundModal({
     // (parent re-renders recreate balance getters and were wiping dropdown selections).
     useEffect(() => {
         if (!isOpen) return;
+        prefilledAccountRef.current = false;
         setDate(todayInputValue());
         setReference(fineRows[0]?.paymentNo || '');
         setReceivedVia('Cash');
-        setDescription('');
+        const openedBill = fineRows.find((row) => row.utilityBill)?.utilityBill;
+        setDescription(
+            openedBill
+                ? `Expense Refund · Utility ${openedBill.utilityType || ''} ${openedBill.billMonth || ''} · Acc ${openedBill.accountNo || ''}`
+                      .replace(/\s+/g, ' ')
+                      .trim()
+                : '',
+        );
         setBankAccountId('');
         setExpenseAccountId('');
         const firstVendor = String(
@@ -562,6 +576,17 @@ export default function FineCompanyRefundModal({
             setReconnectLoading(false);
         }
     }, [organizationId, toast]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        if (prefilledAccountRef.current || !utilityPrefillAccountId || !flatFromAccounts.length) return;
+        const match = flatFromAccounts.find(
+            (account) => String(account.value) === utilityPrefillAccountId,
+        );
+        if (!match) return;
+        prefilledAccountRef.current = true;
+        setExpenseAccountId(String(match.value));
+    }, [isOpen, utilityPrefillAccountId, flatFromAccounts]);
 
     useEffect(() => {
         if (!isOpen || !organizationId) return undefined;

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Calendar, Car, ChevronDown, ExternalLink, Receipt, X } from 'lucide-react';
+import { Calendar, Car, ChevronDown, ExternalLink, Receipt, Wallet, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { navHrefProps } from '@/utils/linkContextMenu';
 import { getAssetStatusBadgeClass } from '@/utils/assetStatusHelpers';
@@ -14,9 +14,10 @@ import {
 } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillsStorage';
 import { fetchUtilityEntries, fetchUtilityEntry } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillsApi';
 import { formatBillMoney } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillStats';
-import ViewBillModal from '@/app/HRM/Asset/UtilityBills/components/ViewBillModal';
 import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
-import { isAccountsFinanceUser } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
+import FinePayChoiceModal from '@/app/HRM/Fine/components/FinePayChoiceModal';
+import UtilityEmployeePayModal from '@/app/HRM/Asset/UtilityBills/components/UtilityEmployeePayModal';
+import { isActiveFlowchartAccountsUser } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
 import { useToast } from '@/hooks/use-toast';
 
 const MONTH_SHORT = [
@@ -61,22 +62,6 @@ function getBillDate(bill) {
 function billSortTime(bill) {
     const d = getBillDate(bill);
     return d ? d.getTime() : 0;
-}
-
-function billStatusBadgeClass(status) {
-    const s = String(status || '');
-    if (s === 'Paid') return 'bg-teal-50 text-teal-800 border-teal-200';
-    if (s === 'Rejected') return 'bg-red-50 text-red-700 border-red-200';
-    // Approved / Pending Accounts / Pending HR → Not Paid
-    return 'bg-orange-50 text-orange-700 border-orange-200';
-}
-
-/** Employee Utility Bills: Paid / Not Paid only (no workflow labels). */
-function employeeUtilityBillStatusLabel(bill) {
-    if (!bill) return '';
-    if (String(bill.status || '') === 'Paid') return 'Paid';
-    if (String(bill.status || '') === 'Rejected') return 'Rejected';
-    return 'Not Paid';
 }
 
 function employeeIdCandidates(employee) {
@@ -138,14 +123,44 @@ function entryFromPayableBill(bill) {
     };
 }
 
-function billAbsDifference(bill) {
-    const fromField = Number(bill?.differenceAmount);
-    if (Number.isFinite(fromField) && Math.abs(fromField) > 0.009) {
-        return Math.abs(fromField);
+function companyPayDisplay(bill, employeePortion) {
+    const stored = Number(bill?.companyPayAmount);
+    if (Number.isFinite(stored) && stored > 0.009) return stored;
+    const amount = Number(bill?.amount) || 0;
+    if (employeePortion > 0.009) return Math.max(0, amount - employeePortion);
+    return amount;
+}
+
+function fallbackPortion(bill, employee, party) {
+    const portion = employeePayableShareAmount(bill, employee);
+    const status = String(bill?.status || '');
+    if (status === 'Rejected') {
+        return { status: 'Rejected', outstanding: 0, portion, canPay: false };
     }
-    const contract = Number(bill?.monthlyRental) || 0;
-    const actual = Number(bill?.amount) || 0;
-    return Math.abs(contract - actual);
+    const partyPaid = String(party?.status || '').toLowerCase() === 'paid';
+    if (partyPaid) {
+        const employeePaid = String(party?.paymentMode || '') === 'Employee';
+        return {
+            status: employeePaid ? 'Paid Employee' : 'Paid',
+            outstanding: 0,
+            portion,
+            canPay: false,
+        };
+    }
+    const collectible = status === 'Approved' || status === 'Paid';
+    return {
+        status: 'Not Paid',
+        outstanding: portion,
+        portion,
+        canPay: collectible && portion > 0.009,
+    };
+}
+
+function portionStatusClass(status) {
+    if (status === 'Paid' || status === 'Paid Employee') return 'font-semibold text-emerald-700';
+    if (status === 'Rejected') return 'font-semibold text-red-600';
+    if (status === 'Not Paid') return 'font-semibold text-amber-700';
+    return 'text-slate-500';
 }
 
 function assigneeMatchesEmployee(assignedTo, employee) {
@@ -201,7 +216,8 @@ export default function EmployeeSalaryVehicleUtilityPanel({
     const [billsByEntry, setBillsByEntry] = useState({});
     const [loadingBills, setLoadingBills] = useState(false);
     const [expandedEntries, setExpandedEntries] = useState(() => new Set());
-    const [viewBill, setViewBill] = useState(null);
+    /** utilityBillId → server settlement (status, outstanding, canPay) */
+    const [portionByBillId, setPortionByBillId] = useState({});
     /** utilityBillId → PartyExpense Not Paid / Paid for difference */
     const [differencePayByBillId, setDifferencePayByBillId] = useState({});
     /** 'day' | 'month' | 'year' */
@@ -212,11 +228,17 @@ export default function EmployeeSalaryVehicleUtilityPanel({
     const [filterYear, setFilterYear] = useState('');
     const [utilityRefundOpen, setUtilityRefundOpen] = useState(false);
     const [utilityRefundBills, setUtilityRefundBills] = useState([]);
+    const [payChoiceOpen, setPayChoiceOpen] = useState(false);
+    const [payChoiceBill, setPayChoiceBill] = useState(null);
+    const [utilityEmployeePayOpen, setUtilityEmployeePayOpen] = useState(false);
 
-    const isAccountsUser = useMemo(
-        () => isAccountsFinanceUser(currentUser, accountsFlowchartRows),
-        [currentUser, accountsFlowchartRows],
-    );
+    const isAccountsUser = useMemo(() => {
+        if (!currentUser) return false;
+        if (currentUser.isAdmin || currentUser.role === 'admin' || currentUser.isSystemSuperUser) {
+            return true;
+        }
+        return isActiveFlowchartAccountsUser(currentUser, accountsFlowchartRows);
+    }, [currentUser, accountsFlowchartRows]);
 
     const businessEmployeeId = String(employee?.employeeId || '').trim();
     const loadFleet = useCallback(async () => {
@@ -249,6 +271,7 @@ export default function EmployeeSalaryVehicleUtilityPanel({
         if (!list.length && !payable.length) {
             setBillsByEntry({});
             setDifferencePayByBillId({});
+            setPortionByBillId({});
             return;
         }
         setLoadingBills(true);
@@ -301,12 +324,37 @@ export default function EmployeeSalaryVehicleUtilityPanel({
             payable.forEach(placeBill);
             setBillsByEntry(map);
 
-            // Difference pay status (separate from main vendor bill Paid).
-            const businessEmployeeId = String(employee?.employeeId || '').trim();
-            if (businessEmployeeId) {
+            const billIds = Object.values(map)
+                .flat()
+                .map((bill) => String(bill?._id || bill?.id || '').trim())
+                .filter(Boolean);
+            const profileEmployeeId = String(employee?.employeeId || '').trim();
+            if (profileEmployeeId && billIds.length) {
+                try {
+                    const statusRes = await axiosInstance.post(
+                        '/UtilityBill/employee-portion-status',
+                        { employeeId: profileEmployeeId, billIds },
+                        { skipToast: true },
+                    );
+                    const rows = Array.isArray(statusRes.data?.rows) ? statusRes.data.rows : [];
+                    const byId = {};
+                    rows.forEach((row) => {
+                        const id = String(row?.billId || '').trim();
+                        if (id) byId[id] = row;
+                    });
+                    setPortionByBillId(byId);
+                } catch {
+                    setPortionByBillId({});
+                }
+            } else {
+                setPortionByBillId({});
+            }
+
+            // Party balance paid/unpaid, used until the portion status request returns.
+            if (profileEmployeeId) {
                 try {
                     const expRes = await axiosInstance.get('/Expense', {
-                        params: { employeeId: businessEmployeeId },
+                        params: { employeeId: profileEmployeeId },
                         skipToast: true,
                     });
                     const rows = Array.isArray(expRes.data?.rows) ? expRes.data.rows : [];
@@ -318,6 +366,7 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                         byBill[billId] = {
                             id: row.id,
                             status: row.status || 'Not Paid',
+                            paymentMode: row.paymentMode || '',
                             amount: Number(row.amount) || 0,
                             partyAccountId: row.partyAccountId || '',
                             partyAccountName: row.partyAccountName || '',
@@ -424,42 +473,58 @@ export default function EmployeeSalaryVehicleUtilityPanel({
         if (mode === 'Utility Bills') loadUtilities();
     }, [mode, loadUtilities]);
 
-    const handleDifferencePay = useCallback(
+    const portionFor = useCallback(
         (bill) => {
-            const diffAmount = billAbsDifference(bill);
-            if (diffAmount <= 0.009) return;
+            const saved = portionByBillId[String(bill?._id || '')];
+            if (saved) return saved;
+            return fallbackPortion(
+                bill,
+                employee,
+                differencePayByBillId[String(bill?._id || '')],
+            );
+        },
+        [portionByBillId, employee, differencePayByBillId],
+    );
 
+    const openExpenseRefund = useCallback((bill) => {
+        const outstanding = Number(bill?.employeePortionOutstanding);
+        const amount = Number.isFinite(outstanding) && outstanding > 0.009 ? outstanding : 0;
+        if (amount <= 0.009) return;
+        const expenseMeta = differencePayByBillId[String(bill?._id || '')] || {};
+        setUtilityRefundBills([
+            {
+                ...bill,
+                differenceAmount: amount,
+                employeePortionOutstanding: amount,
+                zohoOrganizationId: bill.zohoOrganizationId || expenseMeta.zohoOrganizationId || '',
+                partyAccountId: bill.partyAccountId || expenseMeta.partyAccountId || '',
+                partyAccountName: bill.partyAccountName || expenseMeta.partyAccountName || '',
+                partyAccountCode: bill.partyAccountCode || expenseMeta.partyAccountCode || '',
+                expenseAccountId: bill.expenseAccountId || expenseMeta.partyAccountId || '',
+            },
+        ]);
+        setUtilityRefundOpen(true);
+    }, [differencePayByBillId]);
+
+    const openUtilityPayChoice = useCallback(
+        (bill) => {
+            const settlement = portionFor(bill);
+            if (!settlement?.canPay) return;
             if (!isAccountsUser) {
                 toast({
                     variant: 'destructive',
                     title: 'Accounts only',
-                    description:
-                        'Only Accounts can record utility Expense Refunds from this profile.',
+                    description: 'Only Accounts can record utility payment from this profile.',
                 });
                 return;
             }
-
-            const expenseMeta = differencePayByBillId[String(bill._id)] || {};
-            const amount =
-                Number(expenseMeta.amount) > 0 ? Number(expenseMeta.amount) : diffAmount;
-
-            setUtilityRefundBills([
-                {
-                    ...bill,
-                    differenceAmount: amount,
-                    zohoOrganizationId:
-                        bill.zohoOrganizationId || expenseMeta.zohoOrganizationId || '',
-                    partyAccountId:
-                        bill.partyAccountId || expenseMeta.partyAccountId || '',
-                    partyAccountName:
-                        bill.partyAccountName || expenseMeta.partyAccountName || '',
-                    partyAccountCode:
-                        bill.partyAccountCode || expenseMeta.partyAccountCode || '',
-                },
-            ]);
-            setUtilityRefundOpen(true);
+            setPayChoiceBill({
+                ...bill,
+                employeePortionOutstanding: Number(settlement.outstanding) || 0,
+            });
+            setPayChoiceOpen(true);
         },
-        [differencePayByBillId, isAccountsUser, toast],
+        [isAccountsUser, portionFor, toast],
     );
 
     // Profile `employee.assets` is already scoped to this employee.
@@ -836,134 +901,101 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                                                             : 'No bills recorded for this utility.'}
                                                     </p>
                                                 ) : (
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between px-1 pb-1">
-                                                            <span className="text-[11px] font-semibold text-slate-400">
-                                                                {entryBills.length} bill
-                                                                {entryBills.length === 1 ? '' : 's'}
-                                                            </span>
-                                                            <span className="text-[11px] font-semibold text-slate-500 tabular-nums">
-                                                                Total {formatBillMoney(totalActual)}
-                                                            </span>
+                                                    <div className="overflow-x-auto rounded-lg border border-slate-100 bg-white">
+                                                        <table className="w-full min-w-[760px] table-auto">
+                                                            <thead>
+                                                                <tr className="border-b border-slate-100 bg-slate-50/80">
+                                                                    <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                                                        Month
+                                                                    </th>
+                                                                    <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                                                        Bill amount
+                                                                    </th>
+                                                                    <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                                                        Company pay
+                                                                    </th>
+                                                                    <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                                                        Employee portion
+                                                                    </th>
+                                                                    <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                                                        Status
+                                                                    </th>
+                                                                    <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                                                        Pay
+                                                                    </th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {entryBills.map((bill) => {
+                                                                    const settlement = portionFor(bill);
+                                                                    const employeePortion =
+                                                                        Number(settlement.portion) || 0;
+                                                                    const companyPay = companyPayDisplay(
+                                                                        bill,
+                                                                        employeePortion,
+                                                                    );
+                                                                    const statusLabel =
+                                                                        settlement.status || 'Not Paid';
+                                                                    const showPay =
+                                                                        Boolean(settlement.canPay) &&
+                                                                        isAccountsUser;
+                                                                    return (
+                                                                        <tr
+                                                                            key={bill._id}
+                                                                            className="border-b border-slate-50 last:border-0"
+                                                                        >
+                                                                            <td className="px-3 py-2.5">
+                                                                                <span className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
+                                                                                    <Calendar
+                                                                                        size={13}
+                                                                                        className="text-slate-400 shrink-0"
+                                                                                    />
+                                                                                    {monthLabelFromKey(
+                                                                                        billMonthKey(bill),
+                                                                                    )}
+                                                                                </span>
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-700">
+                                                                                {formatBillMoney(
+                                                                                    Number(bill.amount) || 0,
+                                                                                )}
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-700">
+                                                                                {formatBillMoney(companyPay)}
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-700">
+                                                                                {formatBillMoney(employeePortion)}
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5 text-xs">
+                                                                                <span className={portionStatusClass(statusLabel)}>
+                                                                                    {statusLabel}
+                                                                                </span>
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5">
+                                                                                {showPay ? (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() =>
+                                                                                            openUtilityPayChoice(bill)
+                                                                                        }
+                                                                                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide text-white hover:bg-emerald-700"
+                                                                                        title="Accounts only. Expense collects the unpaid employee portion."
+                                                                                    >
+                                                                                        <Wallet size={12} />
+                                                                                        Pay
+                                                                                    </button>
+                                                                                ) : (
+                                                                                    <span className="text-gray-400">—</span>
+                                                                                )}
+                                                                            </td>
+                                                                        </tr>
+                                                                    );
+                                                                })}
+                                                            </tbody>
+                                                        </table>
+                                                        <div className="flex justify-end border-t border-slate-100 px-3 py-2 text-[11px] font-semibold text-slate-500 tabular-nums">
+                                                            Total {formatBillMoney(totalActual)}
                                                         </div>
-                                                        {entryBills.map((bill) => {
-                                                            const contract =
-                                                                Number(bill.monthlyRental) || 0;
-                                                            const actual = Number(bill.amount) || 0;
-                                                            const difference = contract - actual;
-                                                            const absDiff = billAbsDifference(bill);
-                                                            const myShare = employeePayableShareAmount(
-                                                                bill,
-                                                                employee,
-                                                            );
-                                                            const canDifferencePay =
-                                                                absDiff > 0.009 &&
-                                                                billPayableToEmployee(
-                                                                    bill,
-                                                                    employee,
-                                                                ) &&
-                                                                (bill.status === 'Approved' ||
-                                                                    bill.status === 'Paid') &&
-                                                                isAccountsUser;
-                                                            const diffExpense =
-                                                                differencePayByBillId[
-                                                                    String(bill._id)
-                                                                ];
-                                                            const diffAlreadyPaid =
-                                                                String(
-                                                                    diffExpense?.status || '',
-                                                                ).toLowerCase() === 'paid';
-                                                            return (
-                                                                <div
-                                                                    key={bill._id}
-                                                                    className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
-                                                                >
-                                                                    <div className="flex items-center gap-2 min-w-[8rem]">
-                                                                        <Calendar
-                                                                            size={13}
-                                                                            className="text-slate-400 shrink-0"
-                                                                        />
-                                                                        <span className="text-xs font-bold text-slate-700">
-                                                                            {monthLabelFromKey(
-                                                                                billMonthKey(bill),
-                                                                            )}
-                                                                        </span>
-                                                                    </div>
-                                                                    <span
-                                                                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${billStatusBadgeClass(bill.status)}`}
-                                                                    >
-                                                                        {employeeUtilityBillStatusLabel(bill)}
-                                                                    </span>
-                                                                    {myShare > 0.009 ? (
-                                                                        <span className="inline-flex items-center rounded-md border border-purple-100 bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-700 tabular-nums">
-                                                                            Your share{' '}
-                                                                            {formatBillMoney(myShare)}
-                                                                        </span>
-                                                                    ) : null}
-                                                                    <div className="flex items-center gap-4 text-xs tabular-nums ml-auto">
-                                                                        <span className="text-slate-500">
-                                                                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mr-1">
-                                                                                Contract
-                                                                            </span>
-                                                                            {formatBillMoney(contract)}
-                                                                        </span>
-                                                                        <span
-                                                                            className={
-                                                                                actual > contract
-                                                                                    ? 'text-red-600'
-                                                                                    : 'text-slate-700'
-                                                                            }
-                                                                        >
-                                                                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mr-1">
-                                                                                Actual
-                                                                            </span>
-                                                                            {formatBillMoney(actual)}
-                                                                        </span>
-                                                                        <span
-                                                                            className={
-                                                                                difference < 0
-                                                                                    ? 'text-red-600'
-                                                                                    : difference > 0
-                                                                                      ? 'text-emerald-600'
-                                                                                      : 'text-slate-400'
-                                                                            }
-                                                                        >
-                                                                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mr-1">
-                                                                                Diff
-                                                                            </span>
-                                                                            {formatBillMoney(difference)}
-                                                                        </span>
-                                                                    </div>
-                                                                    {canDifferencePay ? (
-                                                                        diffAlreadyPaid ? (
-                                                                            <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
-                                                                                Diff Paid
-                                                                            </span>
-                                                                        ) : (
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() =>
-                                                                                    handleDifferencePay(
-                                                                                        bill,
-                                                                                    )
-                                                                                }
-                                                                                className="inline-flex items-center rounded-md bg-amber-500 hover:bg-amber-600 px-2.5 py-1 text-[11px] font-bold text-white"
-                                                                                title="Pay difference — Expense Refund (Zoho Banking)"
-                                                                            >
-                                                                                Difference Pay
-                                                                            </button>
-                                                                        )
-                                                                    ) : null}
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => setViewBill(bill)}
-                                                                        className="inline-flex items-center rounded-md bg-teal-500 hover:bg-teal-600 px-2.5 py-1 text-[11px] font-bold text-white"
-                                                                    >
-                                                                        View
-                                                                    </button>
-                                                                </div>
-                                                            );
-                                                        })}
                                                     </div>
                                                 )}
                                             </div>
@@ -976,10 +1008,51 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                 ))
             )}
 
-            <ViewBillModal
-                isOpen={Boolean(viewBill)}
-                onClose={() => setViewBill(null)}
-                bill={viewBill}
+            <FinePayChoiceModal
+                isOpen={payChoiceOpen}
+                title="Pay Utility"
+                fineId={
+                    payChoiceBill
+                        ? [payChoiceBill.utilityType, payChoiceBill.billMonth, payChoiceBill.accountNo]
+                              .filter(Boolean)
+                              .join(' · ')
+                        : ''
+                }
+                showVendorCredit={false}
+                showEmployeePay
+                employeePayLabel="Employee Pay"
+                employeePayHint="Salary or cash. Marks Paid Employee. Emails the invoice to the employee. No Zoho entry."
+                onClose={() => {
+                    setPayChoiceOpen(false);
+                    setPayChoiceBill(null);
+                }}
+                onExpenseRefund={() => {
+                    const selected = payChoiceBill;
+                    setPayChoiceOpen(false);
+                    if (selected) openExpenseRefund(selected);
+                }}
+                onEmployeePay={() => {
+                    setPayChoiceOpen(false);
+                    setUtilityEmployeePayOpen(true);
+                }}
+            />
+
+            <UtilityEmployeePayModal
+                isOpen={utilityEmployeePayOpen}
+                bill={payChoiceBill}
+                employeeId={businessEmployeeId}
+                employee={employee}
+                outstanding={Number(payChoiceBill?.employeePortionOutstanding) || 0}
+                onClose={() => {
+                    setUtilityEmployeePayOpen(false);
+                    setPayChoiceBill(null);
+                }}
+                onSuccess={() => {
+                    setUtilityEmployeePayOpen(false);
+                    setPayChoiceBill(null);
+                    if (mode === 'Utility Bills') void loadUtilities();
+                    onUtilityRefundSuccess?.();
+                }}
             />
 
             <FineCompanyRefundModal
@@ -988,6 +1061,7 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                 employeeId={businessEmployeeId}
                 fines={[]}
                 utilityBills={utilityRefundBills}
+                getUtilityBalance={(row) => Number(row?.employeePortionOutstanding) || 0}
                 onClose={() => {
                     setUtilityRefundOpen(false);
                     setUtilityRefundBills([]);

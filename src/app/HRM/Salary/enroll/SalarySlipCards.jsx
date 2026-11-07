@@ -191,8 +191,6 @@ function PayableMiniCard({ title, hint, value, tone = 'net' }) {
 const BALANCE_HEADERS = [
     'Type',
     'Total',
-    'Pending',
-    'Balance',
     'This month deduction',
     'Remaining after deduction',
 ];
@@ -200,7 +198,7 @@ const BALANCE_HEADERS = [
 function BalanceScheduleTable({ rows, onThisMonthChange }) {
     return (
         <div className="overflow-x-auto rounded-xl border border-[#EEF2F6]">
-            <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[640px] border-collapse text-left text-sm">
                 <thead>
                     <tr className="bg-[#F8FAFC]">
                         {BALANCE_HEADERS.map((title) => (
@@ -218,12 +216,6 @@ function BalanceScheduleTable({ rows, onThisMonthChange }) {
                             </td>
                             <td className={`whitespace-nowrap px-3 py-3 tabular-nums ${amountToneClass('earn')}`}>
                                 {formatAed(row.total)}
-                            </td>
-                            <td className="whitespace-nowrap px-3 py-3 tabular-nums text-[#64748B]">
-                                {formatAed(row.pending)}
-                            </td>
-                            <td className="whitespace-nowrap px-3 py-3 tabular-nums text-[#64748B]">
-                                {formatAed(row.balance)}
                             </td>
                             <td className="whitespace-nowrap px-3 py-2">
                                 <AmountCell
@@ -807,7 +799,7 @@ export default function SalarySlipCards({ slip, onPatch, locked = false }) {
                 iconBg="bg-slate-50"
                 iconColor="text-slate-600"
                 title="Deduction"
-                subtitle="This employee only. Unpaid prior-month loan, fine, utility and advance parts carry into this month. This month deduction cannot exceed Total. Remaining = Total − this month deduction."
+                subtitle="This employee only. Total is Not Paid loan, fine, utility and salary advance for this salary month and earlier months. Later months stay off this slip. This month deduction cannot exceed Total. Remaining = Total − this month deduction."
             >
                 <BalanceScheduleTable
                     rows={balanceRows}
