@@ -45,19 +45,20 @@ const FORMULA_EARNINGS = new Set(['Overtime Hours', 'Overtime Days']);
 const FORMULA_DEDUCTIONS = new Set(['Authorized Leave', 'Unauthorized Leave']);
 
 const LOSS_OF_PAY_ROWS = [
-    { name: 'Authorized Leave', dayKey: 'authorized', multiplierKey: 'authorized' },
-    { name: 'Unauthorized Leave', dayKey: 'unauthorized', multiplierKey: 'unauthorized' },
-    { name: 'Late Arrival', attendanceComponent: 'Late in' },
-    { name: 'Early Out', attendanceComponent: 'Late out' },
-    { name: 'Annual Leave', dayKey: 'annual', multiplierKey: 'annual' },
-    { name: 'Comp off leave', dayKey: 'compOff', daysOnly: true },
+    { name: 'Late In', attendanceComponent: 'Late in', group: 'attendance' },
+    { name: 'Late Out', attendanceComponent: 'Late out', group: 'attendance' },
+    { name: 'Missed Punch', attendanceComponent: 'Missed Punch', group: 'attendance' },
+    { name: 'Authorized Leave', dayKey: 'authorized', multiplierKey: 'authorized', group: 'leave' },
+    { name: 'Unauthorized Leave', dayKey: 'unauthorized', multiplierKey: 'unauthorized', group: 'leave' },
+    { name: 'Sandwich Leave', attendanceComponent: 'Sandwich Leave', group: 'leave' },
+    { name: 'Annual Leave', dayKey: 'annual', multiplierKey: 'annual', group: 'leave', hideWhenZero: true },
 ];
 
 const OTHER_DEDUCTION_ROWS = [
+    { name: 'Salary Advance', timesKey: 'salaryAdvance' },
     { name: 'Loan', timesKey: 'loan' },
     { name: 'Fine', timesKey: 'fine' },
     { name: 'Utility Excess', timesKey: 'utilityExcess' },
-    { name: 'Salary Advance', timesKey: 'salaryAdvance' },
 ];
 
 function parseLeadingNumber(value) {
@@ -110,13 +111,6 @@ function formulaEarningAmount(slip, name) {
     if (name === 'Overtime Hours') return money((daily / 10) * overtimeHoursCount(slip));
     if (name === 'Overtime Days') return money(daily * overtimeDaysCount(slip));
     return null;
-}
-
-function formulaLeaveAmount(daily, days, multiplier) {
-    const times = Number(multiplier);
-    const count = Number(days) || 0;
-    const rate = Number.isFinite(times) ? times : 0;
-    return money((Number(daily) || 0) * rate * count);
 }
 
 function formatQty(value) {
@@ -615,20 +609,15 @@ export default function SalarySlipCards({ slip, onPatch, locked = false }) {
     const annualEarningTotal = money(leaveSalaryAmount + airTicketAmount);
 
     const lopRows = LOSS_OF_PAY_ROWS.filter((item) => {
-        const isLeaveRow =
-            item.name === 'Authorized Leave' ||
-            item.name === 'Unauthorized Leave' ||
-            item.name === 'Annual Leave' ||
-            item.name === 'Comp off leave';
-        const isLateRow = item.name === 'Late Arrival' || item.name === 'Early Out';
-        if ((excludeLeave || excludeAttendance) && isLeaveRow) return false;
-        if (excludeAttendance && isLateRow) return false;
+        if (item.hideWhenZero && !(Number(lopDays[item.dayKey]) > 0)) return false;
+        if ((excludeLeave || excludeAttendance) && item.group === 'leave') return false;
+        if (excludeAttendance && item.group === 'attendance') return false;
         return true;
     }).map((item, index) => {
         if (item.attendanceComponent) {
             const source = pickComponent(slip?.deductions, item.attendanceComponent);
             const amount = money(source.amount);
-            const period = String(source.basis || '').trim() || '0 events';
+            const period = String(source.basis || '').trim() || '0';
             return {
                 key: item.name,
                 sl: index + 1,
@@ -640,18 +629,10 @@ export default function SalarySlipCards({ slip, onPatch, locked = false }) {
         }
         const days =
             Number(lopDays[item.dayKey]) ||
-            parseLeadingNumber(
-                item.dayKey === 'compOff'
-                    ? slip?.attendance?.compOffLeave
-                    : pickComponent(slip?.deductions, item.name).basis,
-            );
+            parseLeadingNumber(pickComponent(slip?.deductions, item.name).basis);
         const multiplier = multipliers[item.multiplierKey];
-        const amount = FORMULA_DEDUCTIONS.has(item.name)
-            ? formulaLeaveAmount(daySalaryOf(slip), days, multiplier)
-            : liveDeductionAmount(slip, item.name);
-        const period = item.daysOnly
-            ? unitLabel(days, days === 1 ? 'day' : 'days')
-            : daysTimesLabel(days, multiplier);
+        const amount = money(pickComponent(slip?.deductions, item.name).amount);
+        const period = daysTimesLabel(days, multiplier);
         return {
             key: item.name,
             sl: index + 1,
