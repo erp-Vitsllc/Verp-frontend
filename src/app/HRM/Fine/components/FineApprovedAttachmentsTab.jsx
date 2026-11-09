@@ -379,7 +379,7 @@ export default function FineApprovedAttachmentsTab({
                 <div className="mt-4">
                     <LoanPaymentReceiptsExpandPanel
                         receipts={invoiceReceipts}
-                        emptyMessage="No payment invoices yet"
+                        emptyMessage="No payment receipts yet"
                         moduleId="hrm_fine"
                         onViewDocument={(doc) => {
                             if (!doc) return;

@@ -2964,7 +2964,7 @@ function FineDetailsPageContent() {
                         fineId={fine?.fineId || ''}
                         showEmployeePay
                         employeePayLabel="Employee Pay"
-                        employeePayHint="Salary or cash. Marks Paid Employee. Emails the invoice to the employee. No Zoho entry."
+                        employeePayHint="Salary or cash. Marks Paid Employee. Emails the receipt to the employee. No Zoho entry."
                         onClose={() => setFinePayChoiceOpen(false)}
                         onExpenseRefund={() => {
                             setFinePayChoiceOpen(false);

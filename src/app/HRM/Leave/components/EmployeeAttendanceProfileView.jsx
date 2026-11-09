@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
     AlertTriangle,
     ArrowRight,
@@ -1016,7 +1016,16 @@ function downloadSummaryCsv(profile) {
 export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     const router = useRouter();
     const pathname = usePathname();
-    const [year, setYear] = useState(currentDubaiYear);
+    const searchParams = useSearchParams();
+    const monthFromUrl = String(searchParams.get('month') || '').trim();
+    const yearFromMonth = /^(\d{4})-\d{2}$/.exec(monthFromUrl)?.[1];
+    const [year, setYear] = useState(() => Number(yearFromMonth) || currentDubaiYear);
+
+    useEffect(() => {
+        const nextYear = Number(yearFromMonth);
+        if (!nextYear) return;
+        setYear((current) => (current === nextYear ? current : nextYear));
+    }, [yearFromMonth]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [profile, setProfile] = useState(null);

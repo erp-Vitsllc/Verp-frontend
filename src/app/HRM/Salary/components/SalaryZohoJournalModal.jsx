@@ -112,7 +112,7 @@ function Field({ label, required, children }) {
     );
 }
 
-export default function SalaryZohoJournalModal({ open, monthKey, onClose }) {
+export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPublished }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -248,6 +248,18 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose }) {
         return rows;
     }
 
+    function accountCaption(line) {
+        const employeeName = String(line?.personName || '').trim();
+        const savedAccount = String(line?.accountName || '').trim();
+        const unmatched = !String(line?.accountId || '').trim();
+        const parts = [];
+        if (line?.kind === 'employee' && employeeName) parts.push(employeeName);
+        if (unmatched && savedAccount && savedAccount !== 'No category' && savedAccount !== employeeName) {
+            parts.push(savedAccount);
+        }
+        return parts;
+    }
+
     function onFiles(event) {
         const picked = Array.from(event.target.files || []);
         const next = [...(form?.files || [])];
@@ -306,11 +318,13 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose }) {
         setSaving(true);
         const saved = [];
         try {
-            for (const org of targets) {
+            for (let index = 0; index < targets.length; index += 1) {
+                const org = targets[index];
                 const draft = forms[org.organizationId];
                 const payload = {
                     organizationId: org.organizationId,
                     organizationLabel: org.label,
+                    finalize: status === 'published' && index === targets.length - 1,
                     journalDate: draft.journalDate,
                     reverseJournalDate: draft.reverseDate,
                     publishReverseOnly: draft.publishReverseOnly,
@@ -355,6 +369,7 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose }) {
                 title: status === 'draft' ? 'Draft saved in Zoho' : 'Published in Zoho',
                 description: saved.join(' '),
             });
+            if (status === 'published') onPublished?.();
             onClose?.();
         } finally {
             setSaving(false);
@@ -492,12 +507,13 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose }) {
                                             <td className="px-2 py-2">
                                                 <select
                                                     value={line.accountId}
+                                                    title={accountCaption(line).join(' · ') || 'Account'}
                                                     onChange={(event) => {
                                                         const accountId = event.target.value;
                                                         const account = accountOptions(line).find((row) => String(row.account_id || row.id || '') === accountId);
                                                         updateLine(line.key, {
                                                             accountId,
-                                                            accountName: account?.account_name || account?.name || '',
+                                                            accountName: account?.account_name || account?.name || line.accountName || '',
                                                         });
                                                     }}
                                                     className={cellInput}
@@ -508,6 +524,11 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose }) {
                                                         return <option key={id} value={id}>{account.account_name || account.name}</option>;
                                                     })}
                                                 </select>
+                                                {accountCaption(line).length ? (
+                                                    <p className="mt-1 max-w-[240px] px-0.5 text-xs font-semibold leading-snug text-slate-700" title={accountCaption(line).join(' · ')}>
+                                                        {accountCaption(line).join(' · ')}
+                                                    </p>
+                                                ) : null}
                                             </td>
                                             <td className="px-2 py-2">
                                                 <input

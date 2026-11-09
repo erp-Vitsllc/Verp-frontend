@@ -165,10 +165,12 @@ function formatDisplayTime(value) {
     return value;
 }
 
-function attendanceProfileHref(employeeId) {
+function attendanceProfileHref(employeeId, dateKey) {
     const id = String(employeeId || '').trim();
     if (!/^[a-f\d]{24}$/i.test(id)) return '';
-    return `/HRM/Leave/${encodeURIComponent(id)}`;
+    const month = String(dateKey || '').trim().slice(0, 7);
+    const base = `/HRM/Leave/${encodeURIComponent(id)}`;
+    return /^\d{4}-\d{2}$/.test(month) ? `${base}?month=${encodeURIComponent(month)}` : base;
 }
 
 function shortEmployeeName(name) {
@@ -1521,7 +1523,7 @@ function EmployeeRow({
     const [menuOpen, setMenuOpen] = useState(false);
     const [anchorRect, setAnchorRect] = useState(null);
     const buttonRef = useRef(null);
-    const profileHref = attendanceProfileHref(employee.id);
+    const profileHref = attendanceProfileHref(employee.id, dateKey);
 
     const openMenu = () => {
         const rect = buttonRef.current?.getBoundingClientRect();

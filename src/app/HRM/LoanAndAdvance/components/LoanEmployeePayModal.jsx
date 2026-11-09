@@ -194,7 +194,7 @@ export default function LoanEmployeePayModal({
             });
             toast({
                 title: 'Payment recorded',
-                description: `${isAdvance ? 'Advance' : 'Loan'} payment recorded. Invoice emailed to the employee.`,
+                description: `${isAdvance ? 'Advance' : 'Loan'} payment recorded. Receipt emailed to the employee.`,
                 variant: 'success',
                 className: 'bg-green-50 border-green-200 text-green-800',
             });

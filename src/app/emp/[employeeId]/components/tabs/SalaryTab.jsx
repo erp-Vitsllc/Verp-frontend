@@ -4154,8 +4154,8 @@ export default function SalaryTab({
                                                             <td colSpan={12} className="bg-gray-50/50 p-4">
                                                                 <LoanPaymentReceiptsExpandPanel
                                                                     receipts={invoiceReceipts}
-                                                                    title="Payment invoices"
-                                                                    emptyMessage="No payment invoices yet"
+                                                                    title="Payment receipts"
+                                                                    emptyMessage="No payment receipts yet"
                                                                     onPaymentsChanged={refreshEmployeePayments}
                                                                     moduleId="hrm_fine"
                                                                     allowDownload={accSalaryFines?.download}
@@ -6387,7 +6387,7 @@ export default function SalaryTab({
                 fineId={finePayChoiceFine?.fineId || ''}
                 showEmployeePay
                 employeePayLabel="Employee Pay"
-                employeePayHint="Salary or cash. Marks Paid Employee. Emails the invoice to the employee. No Zoho entry."
+                employeePayHint="Salary or cash. Marks Paid Employee. Emails the receipt to the employee. No Zoho entry."
                 onClose={() => {
                     setFinePayChoiceOpen(false);
                     setFinePayChoiceFine(null);
@@ -6431,7 +6431,7 @@ export default function SalaryTab({
                 showVendorCredit={false}
                 showEmployeePay
                 employeePayLabel="Employee Pay"
-                employeePayHint="Salary or cash. Marks Paid Employee. Emails the invoice to the employee. No Zoho entry."
+                employeePayHint="Salary or cash. Marks Paid Employee. Emails the receipt to the employee. No Zoho entry."
                 onClose={() => {
                     setLoanPayChoiceOpen(false);
                     setLoanPayChoiceLoan(null);

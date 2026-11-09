@@ -78,6 +78,56 @@ export function summaryBillStatus(bill) {
     return SUMMARY_STATUS.NOT_PAID;
 }
 
+function assignedIsCompany(row) {
+    return String(row?.assignedToType || '').trim().toLowerCase() === 'company';
+}
+
+/** The negative difference an assigned employee still has to pay. A company has none. */
+export function employeeDifferencePayable(row) {
+    if (assignedIsCompany(row)) return 0;
+    const difference = Number(row?.difference);
+    if (Number.isFinite(difference) && difference < -0.009) return Math.abs(difference);
+    return 0;
+}
+
+function employeeDifferenceSettled(row, payable) {
+    const bill = row?.bill || {};
+    const paid = Number(bill.employeePortionPaidAmount);
+    if (Number.isFinite(paid) && paid + 0.009 >= payable) return true;
+    if (bill.employeeDifferencePaid !== true) return false;
+    const portion = Number(bill.employeePortionAmount);
+    return !(portion > 0.009) || portion + 0.009 >= payable;
+}
+
+/**
+ * Difference colour:
+ * green when the assigned employee has paid it,
+ * red while that employee portion is still unpaid,
+ * neutral when a company is assigned or there is nothing to pay.
+ */
+export function differenceDisplayTone(row) {
+    if (assignedIsCompany(row)) return 'neutral';
+    const difference = Number(row?.difference);
+    if (!Number.isFinite(difference) || Math.abs(difference) <= 0.009) return 'neutral';
+    if (difference > 0.009) return 'green';
+    const payable = employeeDifferencePayable(row);
+    if (payable <= 0.009) return 'neutral';
+    return employeeDifferenceSettled(row, payable) ? 'green' : 'red';
+}
+
+export function monthDifferenceTone(rows) {
+    const tones = (Array.isArray(rows) ? rows : []).map((row) => differenceDisplayTone(row));
+    if (tones.includes('red')) return 'red';
+    if (tones.includes('green')) return 'green';
+    return 'neutral';
+}
+
+export function differenceToneClass(tone) {
+    if (tone === 'red') return 'text-red-600';
+    if (tone === 'green') return 'text-emerald-600';
+    return 'text-gray-700';
+}
+
 export function summaryStatusBadgeClass(status) {
     const s = String(status || '').toLowerCase();
     if (s === SUMMARY_STATUS.PAID) return 'bg-teal-50 text-teal-800 border-teal-200';

@@ -510,7 +510,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                                         onClick={() => setSelectedInvoice(row.payment)}
                                                         className="text-blue-600 hover:text-blue-700 text-xs font-semibold"
                                                     >
-                                                        View Invoice
+                                                        View Receipt
                                                     </button>
                                                 ) : row.billLink ? (
                                                     <button
@@ -541,7 +541,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
                             <h3 className="text-lg font-black text-gray-800 uppercase tracking-widest flex items-center gap-2">
                                 <FileText className="text-blue-600" size={20} />
-                                Payment Invoice
+                                Payment Receipt
                             </h3>
                             <button
                                 type="button"

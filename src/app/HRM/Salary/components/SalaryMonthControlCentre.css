@@ -333,6 +333,39 @@
     color: var(--spcc-ink);
 }
 
+.spcc-pay-result__slot {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 750;
+    line-height: 1.2;
+    color: var(--spcc-ink);
+}
+
+.spcc-pay-result__pending {
+    margin: 0;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: #64748b;
+}
+
+.spcc-pay-result__type {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1.3;
+    color: var(--spcc-ink);
+}
+
+.spcc-pay-result__total {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--spcc-ink);
+    word-break: break-word;
+}
+
 .spcc-pay-result__amount {
     margin: 0;
     font-size: 12px;
@@ -354,12 +387,12 @@
 
 .spcc-pay-result__company {
     margin: 0;
-    font-size: 11px;
-    font-weight: 650;
-    line-height: 1.35;
+    font-size: 20px;
+    font-weight: 750;
+    line-height: 1.15;
     letter-spacing: 0;
     text-transform: none;
-    color: #64748b;
+    color: var(--spcc-ink);
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -1562,6 +1595,37 @@
     flex: 1;
 }
 
+.spcc-salary-split {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.spcc-salary-split__item {
+    min-width: 0;
+}
+
+.spcc-salary-split__item span {
+    display: block;
+    font-size: 9px;
+    font-weight: 650;
+    line-height: 1.2;
+    color: #64748b;
+}
+
+.spcc-salary-split__item strong {
+    display: block;
+    margin-top: 2px;
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 750;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+    color: var(--spcc-ink);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .spcc-metric-tile {
     display: flex;
     flex-direction: column;
@@ -1894,20 +1958,62 @@
     color: #047857;
 }
 
+.spcc-pay-result.is-draft {
+    background: #fff;
+    border-color: var(--spcc-line);
+}
+
+.spcc-pay-result.is-pending,
+.spcc-pay-result.is-pending.is-active {
+    background: var(--spcc-amber-bg);
+    border-color: #e3a008;
+    box-shadow: none;
+}
+
+.spcc-pay-result.is-pending .spcc-pay-result__slot,
+.spcc-pay-result.is-pending .spcc-pay-result__type,
+.spcc-pay-result.is-pending .spcc-pay-result__total,
+.spcc-pay-result.is-pending .spcc-pay-result__company {
+    color: var(--spcc-amber);
+}
+
+.spcc-pay-result.is-pending .spcc-pay-result__pending {
+    color: #8a5a12;
+}
+
+.spcc-pay-result.is-done,
+.spcc-pay-result.is-done.is-active,
 .spcc-pay-result.is-updated,
 .spcc-pay-result.is-updated.is-active {
-    border-color: #34d399;
-    background: #d1fae5;
-    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.16);
+    background: var(--spcc-green-bg);
+    border-color: #84e1bc;
+    box-shadow: none;
 }
 
+.spcc-pay-result.is-done .spcc-pay-result__slot,
+.spcc-pay-result.is-done .spcc-pay-result__type,
+.spcc-pay-result.is-done .spcc-pay-result__total,
+.spcc-pay-result.is-done .spcc-pay-result__company,
 .spcc-pay-result.is-updated .spcc-pay-result__title,
-.spcc-pay-result.is-updated .spcc-pay-result__amount {
-    color: #047857;
+.spcc-pay-result.is-updated .spcc-pay-result__amount,
+.spcc-pay-result.is-updated .spcc-pay-result__type,
+.spcc-pay-result.is-updated .spcc-pay-result__total,
+.spcc-pay-result.is-updated .spcc-pay-result__company {
+    color: var(--spcc-green);
 }
 
-.spcc-pay-result.is-updated .spcc-pay-result__company {
-    color: #059669;
+.spcc-pay-result.is-done .spcc-pay-result__pending,
+.spcc-pay-result.is-updated .spcc-pay-result__pending {
+    color: #046c4e;
+}
+
+.spcc-pay-result.is-pending.is-active {
+    box-shadow: 0 0 0 3px rgba(227, 160, 8, 0.28);
+}
+
+.spcc-pay-result.is-done.is-active,
+.spcc-pay-result.is-updated.is-active {
+    box-shadow: 0 0 0 3px rgba(3, 84, 63, 0.16);
 }
 
 .spcc-slot-switch {
@@ -2389,7 +2495,7 @@
 .spcc-pay-row {
     display: grid;
     grid-template-columns:
-        2rem minmax(0, 1.4fr) minmax(0, 0.72fr) minmax(0, 0.72fr) minmax(0, 0.58fr) minmax(0, 0.58fr) minmax(0, 0.68fr) minmax(0, 0.9fr);
+        2rem minmax(0, 1.3fr) minmax(0, 0.66fr) minmax(0, 0.66fr) minmax(0, 0.54fr) minmax(0, 0.5fr) minmax(0, 0.62fr) minmax(0, 0.66fr) minmax(2.6rem, 0.38fr) minmax(3.4rem, 0.5fr) minmax(0, 0.82fr);
     gap: 8px;
     align-items: center;
     padding: 6px 2px;

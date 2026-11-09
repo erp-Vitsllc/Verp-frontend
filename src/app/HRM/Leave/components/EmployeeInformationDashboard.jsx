@@ -3194,6 +3194,7 @@ function FigureLine({ value, singular, plural, noteValue, noteSingular, notePlur
 
 function EmployeeProfileSwitcher({ employeeMongoId, name }) {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const rootRef = useRef(null);
     const searchRef = useRef(null);
     const [open, setOpen] = useState(false);
@@ -3264,7 +3265,11 @@ function EmployeeProfileSwitcher({ employeeMongoId, name }) {
         setOpen(false);
         setQuery('');
         if (!id || id === String(employeeMongoId || '')) return;
-        router.push(`/HRM/Leave/${id}`);
+        const params = new URLSearchParams();
+        const month = String(searchParams.get('month') || '').trim();
+        if (/^\d{4}-\d{2}$/.test(month)) params.set('month', month);
+        const query = params.toString();
+        router.push(query ? `/HRM/Leave/${id}?${query}` : `/HRM/Leave/${id}`);
     }
 
     return (
@@ -3420,6 +3425,14 @@ export default function EmployeeInformationDashboard({
         const fromUrl = String(searchParams.get('group') || '').trim();
         setGroupKey((current) => (current === fromUrl ? current : fromUrl));
     }, [searchParams]);
+
+    useEffect(() => {
+        if (!/^\d{4}-\d{2}$/.test(monthFromUrl)) return;
+        setMonthKey((current) => (current === monthFromUrl ? current : monthFromUrl));
+        const nextYear = Number(monthFromUrl.slice(0, 4));
+        if (nextYear) onYearChange?.(nextYear);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [monthFromUrl]);
 
     useEffect(() => {
         if (!groupMenuOpen) return undefined;
@@ -4461,11 +4474,15 @@ export default function EmployeeInformationDashboard({
     }
 
     function selectMonth(nextKey) {
-        if (!choices.includes(nextKey)) return;
+        if (!/^\d{4}-\d{2}$/.test(String(nextKey || '')) || !choices.includes(nextKey)) return;
         setMonthKey(nextKey);
         setPeriod('month');
         const nextYear = Number(String(nextKey).slice(0, 4));
         if (nextYear) onYearChange?.(nextYear);
+        const params = new URLSearchParams(searchParams.toString());
+        params.set('month', nextKey);
+        const query = params.toString();
+        syncBrowserUrl(query ? `${pathname}?${query}` : pathname);
     }
 
     function shiftMonth(delta) {

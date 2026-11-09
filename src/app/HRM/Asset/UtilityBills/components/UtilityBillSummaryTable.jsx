@@ -7,8 +7,11 @@ import { useToast } from '@/hooks/use-toast';
 import ViewBillModal from './ViewBillModal';
 import { fetchUtilityBillById } from '../utils/utilityBillsApi';
 import {
+    differenceDisplayTone,
+    differenceToneClass,
     filterSummaryRows,
     formatSummaryMoney,
+    monthDifferenceTone,
     SUMMARY_STATUS,
     summaryStatusBadgeClass,
 } from '../utils/utilityBillSummary';
@@ -27,15 +30,9 @@ const BILL_COLUMNS = [
     { key: 'contractAmount', label: 'Contract Amount', type: 'number' },
     { key: 'billAmount', label: 'Bill Amount', type: 'number' },
     { key: 'difference', label: 'Difference', type: 'number' },
-    { key: 'status', label: 'Status', type: 'string' },
+    { key: 'status', label: 'Vendor payment status', type: 'string' },
 ];
 
-function differenceClass(difference) {
-    if (difference == null || !Number.isFinite(Number(difference))) return 'text-gray-400';
-    if (difference < 0) return 'text-red-600';
-    if (difference > 0) return 'text-emerald-600';
-    return 'text-gray-700';
-}
 
 function StatusBadge({ status }) {
     return (
@@ -359,7 +356,7 @@ function FragmentMonth({
                     {formatSummaryMoney(monthRow.billAmount)}
                 </td>
                 <td
-                    className={`px-2 sm:px-4 lg:px-6 py-2.5 sm:py-3 whitespace-nowrap text-xs sm:text-sm tabular-nums ${differenceClass(monthRow.difference)}`}
+                    className={`px-2 sm:px-4 lg:px-6 py-2.5 sm:py-3 whitespace-nowrap text-xs sm:text-sm tabular-nums ${differenceToneClass(monthDifferenceTone(monthRow.bills))}`}
                 >
                     {formatSummaryMoney(monthRow.difference)}
                 </td>
@@ -429,7 +426,7 @@ function FragmentMonth({
                                                         : '—'}
                                                 </td>
                                                 <td
-                                                    className={`px-2 sm:px-3 py-2 whitespace-nowrap tabular-nums ${differenceClass(row.difference)}`}
+                                                    className={`px-2 sm:px-3 py-2 whitespace-nowrap tabular-nums ${differenceToneClass(differenceDisplayTone(row))}`}
                                                 >
                                                     {row.billId
                                                         ? formatSummaryMoney(row.difference)

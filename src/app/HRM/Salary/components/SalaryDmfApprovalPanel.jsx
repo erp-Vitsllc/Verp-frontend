@@ -11,7 +11,7 @@ const MONTH_STEP_ORDER = ['accounts', 'hr', 'management'];
 const FULL_STEP_ORDER = ['user1', 'accounts', 'hr', 'management'];
 
 function monthChainCopy() {
-    return 'Accounts submits when readiness is 100% and every employee is Ready. HR approves or rejects, then Management. A rejection emails Accounts and brings Submit back. Create slot opens after Management approves.';
+    return 'Accounts submits when readiness is 100% and every employee is Ready. HR approves or rejects, then Management. A rejection emails Accounts and brings Submit back. Update Zoho opens after Management approves. Create slot opens after the Zoho journal is published.';
 }
 
 function prettyDate(value) {
@@ -356,7 +356,7 @@ export default function SalaryDmfApprovalPanel({
                         <h3 className="text-base font-bold text-slate-800">Approve this payroll?</h3>
                         <p className="mt-3 text-sm text-slate-600">
                             {String(dmf?.currentStepKey || '') === 'management'
-                                ? 'Confirm Management approval. Create slot opens after this. Nothing is paid from the email link.'
+                                ? 'Confirm Management approval. Update Zoho opens after this. Create slot opens after the journal is published. Nothing is paid from the email link.'
                                 : 'Confirm HR approval. Management then receives the payroll summary. Nothing is approved from the email link.'}
                         </p>
                         <div className="mt-5 flex justify-end gap-2">

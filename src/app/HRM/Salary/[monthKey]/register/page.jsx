@@ -13,19 +13,20 @@ import SalaryHeaderActions from '../../components/SalaryHeaderActions';
 
 function formatAed(value) {
     const n = Number(value) || 0;
-    return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 const ROW_GRID =
-    'grid w-full min-w-[720px] items-center gap-x-2 sm:gap-x-3 ' +
-    'grid-cols-[2.25rem_minmax(6.5rem,0.9fr)_minmax(8rem,1.3fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_3.25rem_4.25rem]';
+    'grid w-full min-w-[860px] items-center gap-x-2 sm:gap-x-3 ' +
+    'grid-cols-[2.25rem_minmax(6.5rem,0.9fr)_minmax(8rem,1.3fr)_minmax(5.5rem,0.9fr)_minmax(5.5rem,0.9fr)_minmax(5.5rem,0.9fr)_minmax(5.5rem,0.9fr)_3.25rem_4.25rem]';
 
 const COLUMNS = [
     { key: 'slNo', label: 'SL' },
     { key: 'employeeId', label: 'Employee ID' },
     { key: 'name', label: 'Employee' },
     { key: 'monthlySalary', label: 'Monthly Salary' },
-    { key: 'actualSalary', label: 'Actual Salary' },
+    { key: 'grossSalary', label: 'Gross Salary' },
+    { key: 'actualSalary', label: 'Net Salary' },
     { key: 'basicSalary', label: 'Basic Salary' },
     { key: 'ot', label: 'OT', compact: true },
     { key: 'deduction', label: 'Deduction', compact: true },
@@ -96,7 +97,7 @@ export default function SalaryMonthRegisterPage() {
                         ) : null}
 
                         <div className="w-full max-w-full overflow-x-auto">
-                            <div className="min-w-[720px]">
+                            <div className="min-w-[860px]">
                                 <div className={`${ROW_GRID} px-3 sm:px-4 py-2 text-gray-700`}>
                                     {COLUMNS.map((col) => (
                                         <span
@@ -132,7 +133,12 @@ export default function SalaryMonthRegisterPage() {
                                                 </span>
                                                 <span className="truncate">{row.name}</span>
                                                 <span className="tabular-nums">{formatAed(row.monthlySalary)}</span>
-                                                <span className="tabular-nums">{formatAed(row.actualSalary)}</span>
+                                                <span className="tabular-nums" title="Zoho salary on the salary slip">
+                                                    {formatAed(row.grossSalary)}
+                                                </span>
+                                                <span className="tabular-nums" title="Net salary payable on the salary slip">
+                                                    {formatAed(row.actualSalary)}
+                                                </span>
                                                 <span className="tabular-nums">{formatAed(row.basicSalary)}</span>
                                                 <span className="tabular-nums text-[11px]">{formatAed(row.ot)}</span>
                                                 <span className="tabular-nums text-[11px]">

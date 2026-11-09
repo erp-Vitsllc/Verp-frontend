@@ -32,19 +32,20 @@ import { syncBrowserUrl } from '@/utils/listReturnNavigation';
 
 function formatAed(value) {
     const n = Number(value) || 0;
-    return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 const MONTH_ROW_GRID =
-    'grid w-full min-w-[880px] items-center gap-x-2 sm:gap-x-3 ' +
-    'grid-cols-[2.25rem_minmax(7.5rem,1.1fr)_minmax(6.5rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_3.25rem_4.25rem_minmax(6.5rem,0.9fr)_minmax(7.5rem,1fr)]';
+    'grid w-full min-w-[1040px] items-center gap-x-2 sm:gap-x-3 ' +
+    'grid-cols-[2.25rem_minmax(7rem,1.05fr)_minmax(6rem,0.9fr)_minmax(5.5rem,0.85fr)_minmax(5.5rem,0.85fr)_minmax(5.5rem,0.85fr)_minmax(5.5rem,0.8fr)_3.25rem_4.25rem_minmax(6.25rem,0.85fr)_minmax(7rem,0.95fr)]';
 
 const COLUMNS = [
     { key: 'slNo', label: 'SL', className: 'text-left' },
     { key: 'month', label: 'Month', className: 'text-left' },
     { key: 'enrollUser', label: 'Enroll User', className: 'text-left' },
     { key: 'monthlySalary', label: 'Monthly Salary', className: 'text-left' },
-    { key: 'actualSalary', label: 'Actual Salary', className: 'text-left' },
+    { key: 'grossSalary', label: 'Gross Salary', className: 'text-left' },
+    { key: 'actualSalary', label: 'Net Salary', className: 'text-left' },
     { key: 'basicSalary', label: 'Basic Salary', className: 'text-left' },
     { key: 'ot', label: 'OT', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
     { key: 'deduction', label: 'Deduction', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
@@ -384,20 +385,20 @@ function SalaryPageContent() {
                             <div className="min-w-[880px]">
                                 <div className="flex items-center">
                                     <div className={`${MONTH_ROW_GRID} min-w-0 flex-1 px-3 sm:px-4 py-2 text-gray-700`}>
-                                    {COLUMNS.map((col) => (
-                                        <span
-                                            key={col.key}
-                                            className={
-                                                col.compact
-                                                    ? 'text-[9px] font-semibold tracking-normal text-gray-600'
-                                                    : `text-[10px] sm:text-xs font-semibold uppercase tracking-wider ${col.className}`
-                                            }
-                                        >
-                                            {col.key === 'enrollUser' && employeeId
-                                                ? 'Employee'
-                                                : col.label}
-                                        </span>
-                                    ))}
+                                        {COLUMNS.map((col) => (
+                                            <span
+                                                key={col.key}
+                                                className={
+                                                    col.compact
+                                                        ? 'text-[9px] font-semibold tracking-normal text-gray-600'
+                                                        : `text-[10px] sm:text-xs font-semibold uppercase tracking-wider ${col.className}`
+                                                }
+                                            >
+                                                {col.key === 'enrollUser' && employeeId
+                                                    ? 'Employee'
+                                                    : col.label}
+                                            </span>
+                                        ))}
                                     </div>
                                     {showApprovalCol ? (
                                         <span className={APPROVAL_COL_CLASS}>Approval</span>
@@ -446,16 +447,15 @@ function SalaryPageContent() {
                                     </div>
                                 ) : (
                                     <div
-                                        className={`flex flex-col gap-1.5 bg-white p-1 rounded-xl border border-gray-100 ${
-                                            filtering ? 'opacity-60' : ''
-                                        }`}
+                                        className={`flex flex-col gap-1.5 bg-white p-1 rounded-xl border border-gray-100 ${filtering ? 'opacity-60' : ''
+                                            }`}
                                         aria-label="Salary months"
                                     >
                                         {months.map((row) => (
-                                                <div
-                                                    key={row.monthKey}
-                                                    className="flex items-stretch rounded-lg hover:bg-slate-50"
-                                                >
+                                            <div
+                                                key={row.monthKey}
+                                                className="flex items-stretch rounded-lg hover:bg-slate-50"
+                                            >
                                                 <NavButton
                                                     href={`/HRM/Salary/${row.monthKey}`}
                                                     className={`${MONTH_ROW_GRID} flex-1 min-w-0 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-bold whitespace-nowrap transition-all text-left text-slate-600 hover:text-blue-600 no-underline`}
@@ -470,7 +470,10 @@ function SalaryPageContent() {
                                                     <span className="tabular-nums font-semibold">
                                                         {formatAed(row.monthlySalary)}
                                                     </span>
-                                                    <span className="tabular-nums font-semibold">
+                                                    <span className="tabular-nums font-semibold" title="Zoho salary on the salary slip">
+                                                        {formatAed(row.grossSalary)}
+                                                    </span>
+                                                    <span className="tabular-nums font-semibold" title="Net salary payable on the salary slip">
                                                         {formatAed(row.actualSalary)}
                                                     </span>
                                                     <span className="tabular-nums font-semibold">
@@ -498,8 +501,8 @@ function SalaryPageContent() {
                                                             row.paymentStatus === 'Paid'
                                                                 ? 'text-[11px] font-semibold text-emerald-700'
                                                                 : row.paymentStatus === 'Partially paid'
-                                                                  ? 'text-[11px] font-semibold text-amber-700'
-                                                                  : 'text-[11px] font-semibold text-slate-500'
+                                                                    ? 'text-[11px] font-semibold text-amber-700'
+                                                                    : 'text-[11px] font-semibold text-slate-500'
                                                         }
                                                     >
                                                         {row.paymentStatus || 'Not paid'}
@@ -549,7 +552,7 @@ function SalaryPageContent() {
                                                         <Trash2 size={15} />
                                                     </button>
                                                 ) : null}
-                                                </div>
+                                            </div>
                                         ))}
                                     </div>
                                 )}

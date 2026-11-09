@@ -306,6 +306,30 @@ function MetricCard({ code, codeTone, title, pill, pillTone, onClick, active, ch
     );
 }
 
+function SalarySplitStat({ monthly, gross, net, hint, title }) {
+    const parts = [
+        ['Monthly', monthly],
+        ['Gross (Zoho)', gross],
+        ['Net (payable)', net],
+    ];
+    return (
+        <div className="spcc-metric-tile" title={title || undefined}>
+            <div className="spcc-metric-stat__head">
+                <span className="spcc-metric-stat__label">Salary</span>
+                {hint ? <span className="spcc-metric-stat__hint">{hint}</span> : null}
+            </div>
+            <div className="spcc-salary-split">
+                {parts.map(([label, value]) => (
+                    <div key={label} className="spcc-salary-split__item" title={`${label} ${formatMoney(value)}`}>
+                        <span>{label}</span>
+                        <strong className="tabular-nums">{formatMoney(value)}</strong>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 function RatioStat({ label, part, total, money, hint, percent, title }) {
     const hasTotal = total != null && total !== '';
     const bar = !hasTotal
@@ -347,12 +371,30 @@ function itemIsDue(item) {
     return waitingDayCount(item) >= 1;
 }
 
+/** Net salary payable on the salary slip: earnings and annual leave, minus loss of pay and deductions. */
+function employeeNetPayable(emp) {
+    if (emp?.netSalaryPayable != null && emp.netSalaryPayable !== '') {
+        return Number(emp.netSalaryPayable) || 0;
+    }
+    if (emp?.actualSalary != null && emp.actualSalary !== '') {
+        return Number(emp.actualSalary) || 0;
+    }
+    return Number(emp?.monthlySalary) || 0;
+}
+
 function employeeAmount(emp) {
-    return Number(emp?.actualSalary ?? emp?.monthlySalary) || 0;
+    return employeeNetPayable(emp);
 }
 
 function employeeExtra(emp) {
     return Number(emp?.extra ?? emp?.ot) || 0;
+}
+
+/** Zoho salary card on the salary slip. */
+function employeeGross(emp) {
+    if (emp?.zohoSalary != null && emp.zohoSalary !== '') return Number(emp.zohoSalary) || 0;
+    if (emp?.grossSalary != null && emp.grossSalary !== '') return Number(emp.grossSalary) || 0;
+    return Number(emp?.monthlySalary) || 0;
 }
 
 function employeeIdKey(value) {
@@ -418,15 +460,21 @@ function comparePaymentEmployee(a, b, key, dir) {
     return mul * compareText(a?.name || a?.employeeId, b?.name || b?.employeeId);
 }
 
-function comparePayrollRow(a, b, key, dir, processedIds) {
+function comparePayrollRow(a, b, key, dir, processedIds, slotNoByEmployee) {
     const mul = dir === 'desc' ? -1 : 1;
     if (key === 'monthly') return mul * compareNumber(a?.monthlySalary, b?.monthlySalary);
     if (key === 'basic') return mul * compareNumber(a?.basicSalary, b?.basicSalary);
     if (key === 'deduction') return mul * compareNumber(a?.deduction, b?.deduction);
     if (key === 'extra') return mul * compareNumber(employeeExtra(a), employeeExtra(b));
+    if (key === 'gross') return mul * compareNumber(employeeGross(a), employeeGross(b));
     if (key === 'net') {
-        return mul * compareNumber(a?.actualSalary ?? a?.monthlySalary, b?.actualSalary ?? b?.monthlySalary);
+        return mul * compareNumber(employeeNetPayable(a), employeeNetPayable(b));
     }
+    if (key === 'slot') {
+        const slotOf = (emp) => Number(slotNoByEmployee?.get(employeeIdKey(emp?.employeeId))) || 0;
+        return mul * (slotOf(a) - slotOf(b));
+    }
+    if (key === 'payType') return mul * compareText(employeePayMethod(a), employeePayMethod(b));
     if (key === 'status') {
         const statusOf = (emp) =>
             processedIds.has(String(emp?.employeeId || ''))
@@ -557,33 +605,71 @@ function slotIsZohoUpdated(slot) {
     return String(slot?.status || '') === 'approved';
 }
 
-function PaymentResultCard({ slot, active, onSelect }) {
+/** Draft stays white. Any step still with HR or Accounts is yellow. Finished or Zoho-updated is green. */
+function slotCardTone(slot) {
+    if (slotIsZohoUpdated(slot)) return 'done';
+    const status = String(slot?.status || '');
+    if (status === 'draft' || status === 'new' || !status) return 'draft';
+    return 'pending';
+}
+
+function assigneeOf(step, people) {
+    const name = String(step?.assignedToName || step?.actionedByName || '').trim();
+    const id = employeeIdKey(step?.assignedToEmployeeId);
+    const match = (people || []).find((emp) => {
+        if (id && employeeIdKey(emp?.employeeId) === id) return true;
+        const empName = String(emp?.name || `${emp?.firstName || ''} ${emp?.lastName || ''}`).trim();
+        return Boolean(name) && empName.toLowerCase() === name.toLowerCase();
+    });
+    const role = String(step?.role || step?.label || '').trim();
+    return {
+        name: name || role,
+        designation: String(match?.designation || '').trim() || role,
+    };
+}
+
+function slotPendingLine(slot, holders) {
+    const status = String(slot?.status || '');
+    if (status === 'approved') return 'Updated';
+    const holder = status === 'pending_hr' ? holders?.hr : holders?.accounts;
+    const name = String(holder?.name || '').trim();
+    const designation = String(holder?.designation || '').trim();
+    const who = name && designation && designation.toLowerCase() !== name.toLowerCase()
+        ? `${name} (${designation})`
+        : name || designation;
+    if (who) return `Pending with ${who}`;
+    return status === 'pending_hr' ? 'Pending with HR' : 'Pending with Accounts';
+}
+
+function PaymentResultCard({ slot, active, onSelect, holders }) {
     if (!slot) return null;
     const typeLabel = slotPayTypeLabel(slot) || '—';
     const company = slotCompanyLabel(slot) || '—';
-    const amount = formatMoney(slot.total);
-    const zohoUpdated = slotIsZohoUpdated(slot);
+    const amount = `AED ${formatMoney(slot.total)}`;
+    const pending = slotPendingLine(slot, holders);
+    const tone = slotCardTone(slot);
     return (
         <button
             type="button"
-            className={`spcc-pay-result spcc-pay-result--box${active ? ' is-active' : ''}${zohoUpdated ? ' is-updated' : ''}`}
+            className={`spcc-pay-result spcc-pay-result--box is-${tone}${active ? ' is-active' : ''}`}
             onClick={() => onSelect?.(slot)}
-            title={zohoUpdated ? `Slot ${slot.slot} updated in Zoho` : `Slot ${slot.slot}`}
+            title={`Slot ${slot.slot}. ${pending}. ${typeLabel}. ${amount}. ${company}`}
         >
-            <h3 className="spcc-pay-result__title">Slot {slot.slot}</h3>
-            <p className="spcc-pay-result__amount">
-                <span>{typeLabel}</span>
-                <span className="spcc-pay-result__eq">=</span>
-                <span className="tabular-nums">{amount}</span>
-            </p>
+            <p className="spcc-pay-result__slot">Slot {slot.slot}</p>
+            <p className="spcc-pay-result__pending">{pending}</p>
+            <p className="spcc-pay-result__type">{typeLabel}</p>
+            <p className="spcc-pay-result__total tabular-nums">{amount}</p>
             <p className="spcc-pay-result__company">{company}</p>
         </button>
     );
 }
 
-function slotStatusLabel(status) {
+function slotStatusLabel(status, hrName) {
     if (status === 'draft') return 'Draft';
-    if (status === 'pending_hr') return 'Pending with HR';
+    if (status === 'pending_hr') {
+        const name = String(hrName || '').trim();
+        return name && name.toLowerCase() !== 'hr' ? `Pending with ${name} (HR)` : 'Pending with HR';
+    }
     if (status === 'pending_wps') return 'WPS send';
     if (status === 'pending_update') return 'Update payment';
     if (status === 'rejected') return 'Rejected';
@@ -677,8 +763,15 @@ function SlotEditorModal({
     }, [editor?.id, editor?.status]);
     const companyName = String(editor?.companyName || '').trim();
     const slotStatus = String(editor?.status || 'new');
+    const storedType = String(editor?.paymentMethod || '').trim();
+    const createdType = storedType === 'Cash' || storedType === 'WPS' ? storedType : '';
+    const hrReview = slotStatus === 'pending_hr';
+    // HR can add or remove employees of the salary type Accounts saved. No type means the list stays fixed.
+    const hrCanPick = Boolean(canDecide && hrReview && createdType);
     // Draft and new slots are still being picked. Rejected slots go back to Accounts to change the pick.
-    const showAllEmployees = slotStatus === 'new' || slotStatus === 'draft' || slotStatus === 'rejected';
+    const showAllEmployees =
+        slotStatus === 'new' || slotStatus === 'draft' || slotStatus === 'rejected' || hrCanPick;
+    const canPickEmployees = canEdit || hrCanPick;
     const selected = useMemo(
         () => new Set((editor?.selectedIds || []).map((id) => String(id))),
         [editor?.selectedIds],
@@ -709,8 +802,8 @@ function SlotEditorModal({
         return types.size === 1 ? [...types][0] : '';
     }, [employees, selected]);
 
-    const storedType = String(editor?.paymentMethod || '').trim();
-    const payType = storedType === 'Cash' || storedType === 'WPS' ? storedType : lockedType;
+    const payType = createdType || lockedType;
+    const activeType = hrReview && createdType ? createdType : typeFilter;
     const workflow = slotWorkflowSteps(editor?.status || 'new', payType, accountsName, hrName);
 
     const rows = useMemo(() => {
@@ -724,20 +817,21 @@ function SlotEditorModal({
             return !idIsClaimed(claimedKeys, id);
         });
         const typed =
-            typeFilter === 'both'
+            activeType === 'both'
                 ? list
                 : list.filter((emp) => {
-                    if (employeePayMethod(emp) === typeFilter) return true;
+                    if (employeePayMethod(emp) === activeType) return true;
                     return showAllEmployees && selected.has(String(emp.employeeId || ''));
                 });
         return [...typed].sort((a, b) =>
             comparePaymentEmployee(a, b, sort.key === 'amount' ? 'amount' : 'name', sort.dir),
         );
-    }, [employees, companyName, claimedKeys, selected, showAllEmployees, typeFilter, sort]);
+    }, [employees, companyName, claimedKeys, selected, showAllEmployees, activeType, sort]);
 
     const selectableIds = rows
         .filter((emp) => {
             const method = employeePayMethod(emp);
+            if (createdType && method !== createdType) return false;
             return !lockedType || method === lockedType;
         })
         .map((emp) => String(emp.employeeId || ''))
@@ -768,29 +862,34 @@ function SlotEditorModal({
     }
 
     function toggleOne(emp, checked) {
-        if (!canEdit) return;
+        if (!canPickEmployees) return;
         const id = String(emp.employeeId || '');
         if (!id || idIsClaimed(claimedKeys, id)) return;
         const method = employeePayMethod(emp);
-        if (checked && lockedType && method !== lockedType) return;
+        if (checked && createdType && method !== createdType) return;
+        if (checked && !createdType && lockedType && method !== lockedType) return;
         const next = new Set(selected);
         if (checked) next.add(id);
         else next.delete(id);
-        onChange({ selectedIds: [...next], paymentMethod: next.size ? method : '' });
+        onChange({
+            selectedIds: [...next],
+            paymentMethod: hrCanPick ? createdType : next.size ? method : '',
+        });
     }
 
     function toggleAll(checked) {
-        if (!canEdit) return;
+        if (!canPickEmployees) return;
         const next = new Set(selected);
         selectableIds.forEach((id) => {
             if (checked) next.add(id);
             else next.delete(id);
         });
-        const method = lockedType || (typeFilter !== 'both' ? typeFilter : '');
-        onChange({ selectedIds: [...next], paymentMethod: method });
+        const method = createdType || lockedType || (activeType !== 'both' ? activeType : '');
+        onChange({ selectedIds: [...next], paymentMethod: hrCanPick ? createdType : method });
     }
 
-    const selectAllEnabled = canEdit && selectableIds.length > 0 && (Boolean(lockedType) || typeFilter !== 'both');
+    const selectAllEnabled =
+        canPickEmployees && selectableIds.length > 0 && (Boolean(createdType || lockedType) || activeType !== 'both');
 
     const slotTitle = editor.status === 'new' ? 'New slot' : `Slot ${editor.slot || ''}`;
 
@@ -803,7 +902,7 @@ function SlotEditorModal({
                         {companyName || 'Create salary slot'}
                     </h3>
                     {editor.status && editor.status !== 'new' ? (
-                        <p className="spcc-batch__sub">{slotStatusLabel(editor.status)}</p>
+                        <p className="spcc-batch__sub">{slotStatusLabel(editor.status, hrName)}</p>
                     ) : (
                         <p className="spcc-batch__sub">Pick a company, then choose who is paid in this slot.</p>
                     )}
@@ -888,8 +987,8 @@ function SlotEditorModal({
                         <label className="spcc-slot-type">
                             <span>Salary type</span>
                             <select
-                                value={typeFilter}
-                                disabled={!companyName}
+                                value={hrReview && createdType ? createdType : typeFilter}
+                                disabled={!companyName || hrReview || !canEdit}
                                 onChange={(event) => setTypeFilter(event.target.value)}
                             >
                                 <option value="both">Both</option>
@@ -898,10 +997,12 @@ function SlotEditorModal({
                             </select>
                         </label>
                     </div>
-                    {showAllEmployees && companyName && !lockedType && typeFilter === 'both' ? (
+                    {showAllEmployees && companyName && !hrReview && !lockedType && !createdType && typeFilter === 'both' ? (
                         <p className="spcc-slot-note">A slot uses one salary type. Filter to WPS or Cash to select every employee.</p>
                     ) : null}
-                    {lockedType ? <p className="spcc-slot-note">This slot is {lockedType} only.</p> : null}
+                    {createdType || lockedType ? (
+                        <p className="spcc-slot-note">This slot is {createdType || lockedType} only.</p>
+                    ) : null}
 
                     <div className="spcc-batch__list">
                         {companyName ? (
@@ -935,8 +1036,11 @@ function SlotEditorModal({
                                         const id = String(emp.employeeId || '');
                                         const method = employeePayMethod(emp);
                                         const checked = selected.has(id);
-                                        const typeLocked = Boolean(lockedType) && method !== lockedType;
-                                        const disabled = !canEdit || typeLocked || idIsClaimed(claimedKeys, id);
+                                        const typeLocked =
+                                            Boolean(createdType || lockedType) &&
+                                            method !== (createdType || lockedType) &&
+                                            !checked;
+                                        const disabled = !canPickEmployees || typeLocked || idIsClaimed(claimedKeys, id);
                                         return (
                                             <label
                                                 key={id}
@@ -1034,7 +1138,12 @@ function SlotEditorModal({
                                 >
                                     Reject
                                 </button>
-                                <button type="button" className="spcc-btn spcc-btn--approve" disabled={saving} onClick={onApprove}>
+                                <button
+                                    type="button"
+                                    className="spcc-btn spcc-btn--approve"
+                                    disabled={saving || !selected.size}
+                                    onClick={onApprove}
+                                >
                                     Approve
                                 </button>
                             </>
@@ -1058,7 +1167,7 @@ function SlotEditorModal({
                                 disabled={saving || !companyName || !selected.size}
                                 onClick={onApply}
                             >
-                                Apply
+                                Submit for approval
                             </button>
                         </>
                     ) : canMarkWps ? (
@@ -1871,6 +1980,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     }, [monthRoster, tab, tabMode]);
 
     const cardStats = useMemo(() => {
+        let salaryMonthly = 0;
         let salaryGross = 0;
         let salaryNet = 0;
         let deduction = 0;
@@ -1880,15 +1990,10 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         let cashCount = 0;
         let cashAmount = 0;
         for (const emp of payrollRows) {
-            const monthly = Number(emp.monthlySalary) || 0;
-            const net = Number(emp.actualSalary ?? emp.monthlySalary) || 0;
-            const hasSlipSplit = emp.lossOfPay != null || emp.otherDeduction != null;
-            const lossOfPay = Number(emp.lossOfPay) || 0;
-            const otherDeduction = Number(emp.otherDeduction) || 0;
-            const employeeGross = hasSlipSplit ? monthly - lossOfPay : monthly;
-            const employeeNet = hasSlipSplit ? employeeGross - otherDeduction : net;
-            salaryGross += employeeGross;
-            salaryNet += employeeNet;
+            const net = employeeNetPayable(emp);
+            salaryMonthly += Number(emp.monthlySalary) || 0;
+            salaryGross += employeeGross(emp);
+            salaryNet += net;
             deduction += Number(emp.deduction) || 0;
             extra += employeeExtra(emp);
             if (employeePayMethod(emp) === 'WPS') {
@@ -1901,6 +2006,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         }
         return {
             enrolled: payrollRows.length,
+            salaryMonthly,
             salaryGross,
             salaryNet,
             wpsCount,
@@ -1923,12 +2029,28 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         return ids;
     }, [paymentBatches]);
 
+    const slotNoByEmployee = useMemo(() => {
+        const map = new Map();
+        const batches = paymentBatches
+            .filter((batch) => batch.status !== 'cancelled')
+            .map((batch, index) => ({ batch, slot: paymentLabel(batch, index) }))
+            .sort((a, b) => a.slot - b.slot);
+        for (const { batch, slot } of batches) {
+            for (const id of batch.selectedIds || []) {
+                const key = employeeIdKey(id);
+                if (!key || map.has(key)) continue;
+                map.set(key, slot);
+            }
+        }
+        return map;
+    }, [paymentBatches]);
+
     const sortedPayrollRows = useMemo(
         () =>
             [...payrollRows].sort((a, b) =>
-                comparePayrollRow(a, b, payrollSort.key, payrollSort.dir, processedPaymentIds),
+                comparePayrollRow(a, b, payrollSort.key, payrollSort.dir, processedPaymentIds, slotNoByEmployee),
             ),
-        [payrollRows, payrollSort, processedPaymentIds],
+        [payrollRows, payrollSort, processedPaymentIds, slotNoByEmployee],
     );
 
     const placeReadinessCard = useCallback((employeeId) => {
@@ -1980,6 +2102,13 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             toast({
                 title: 'Create slot is locked',
                 description: 'Create slot opens after Management approves, and only for the flowchart Accounts assignee.',
+            });
+            return;
+        }
+        if (!monthDmf?.zohoJournalUpdated) {
+            toast({
+                title: 'Create slot is locked',
+                description: 'Create slot opens after the Zoho journal is published.',
             });
             return;
         }
@@ -2055,7 +2184,12 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         const selectedIds = (slotEditor.selectedIds || [])
             .map((id) => String(id || ''))
             .filter((id) => allowedIds.has(id));
-        if ((action === 'draft' || action === 'apply') && (!slotEditor.companyName || !selectedIds.length)) return;
+        if (
+            (action === 'draft' || action === 'apply' || action === 'approve') &&
+            (!slotEditor.companyName || !selectedIds.length)
+        ) {
+            return;
+        }
         setSavingPayment(true);
         try {
             const path = slotEditor.id
@@ -2125,7 +2259,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
 
     async function handleValidate() {
         if (!parsed?.monthKey) return;
-        if (!monthDmf?.canAct && !monthDmf?.canStart) return;
+        if (!monthDmf?.canValidate && !monthDmf?.canAct && !monthDmf?.canStart) return;
         const beforeIds = new Set(
             (Array.isArray(register?.enrollmentOverview?.pendingRequests)
                 ? register.enrollmentOverview.pendingRequests
@@ -2165,7 +2299,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                     toast({
                         title: 'Payroll is 100% ready',
                         description: monthDmf?.canStart
-                            ? 'Click Submit. HR gets an email with a link to this payroll, then Management. Create slot opens after Management approves.'
+                            ? 'Click Submit. HR gets an email with a link to this payroll, then Management. Update Zoho opens after that. Create slot opens after the journal is published.'
                             : 'Submit is with the flowchart Accounts assignee.',
                     });
                     return;
@@ -2179,9 +2313,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                 }
                 toast({
                     title: 'Processed',
-                    description: monthDmf?.canCreateSlot
+                    description: monthDmf?.zohoJournalUpdated
                         ? 'Create slot is available for Accounts.'
-                        : 'Salary slots are open for the flowchart Accounts assignee.',
+                        : 'Publish the Zoho journal. Create slot opens after that.',
                 });
                 return;
             }
@@ -2332,6 +2466,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const canActOnMonthApproval = Boolean(monthDmf?.canAct);
     const canCreateSlot = Boolean(monthDmf?.canCreateSlot);
     const canUseApproverActions = canStartMonthApproval || canActOnMonthApproval;
+    const canValidatePayroll = Boolean(monthDmf?.canValidate) || canUseApproverActions;
     const everyEmployeeReady = useMemo(() => {
         const enrolled = monthRoster.filter((emp) => employeeIdKey(emp.employeeId));
         if (!enrolled.length) return false;
@@ -2365,8 +2500,10 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         return ids;
     }, [paymentBatches]);
     const enrolledForSlots = monthRoster.filter((emp) => employeeIdKey(emp.employeeId));
+    const zohoJournalUpdated = Boolean(monthDmf?.zohoJournalUpdated);
     const canOpenNewSlot =
         canCreateSlot &&
+        zohoJournalUpdated &&
         enrolledForSlots.some((emp) => !heldEmployeeKeys.has(employeeIdKey(emp.employeeId)));
     const nextSlotNo = (salarySlots[salarySlots.length - 1]?.slot || 0) + 1;
     const activeSlotData = salarySlots.find((item) => item.slot === activeSlot) || salarySlots[0];
@@ -2383,6 +2520,11 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const accountsName =
         String(accountsStep?.assignedToName || accountsStep?.actionedByName || 'Accounts').trim() || 'Accounts';
     const hrName = String(hrStep?.assignedToName || hrStep?.actionedByName || 'HR').trim() || 'HR';
+    const slotPeople = register?.enrollmentOverview?.employees || monthRoster;
+    const slotHolders = {
+        accounts: assigneeOf(accountsStep, slotPeople),
+        hr: assigneeOf(hrStep, slotPeople),
+    };
 
     if (!parsed) {
         return (
@@ -2433,17 +2575,6 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             Submit
                         </button>
                     ) : null}
-                    {canOpenNewSlot ? (
-                        <button
-                            type="button"
-                            className="spcc-btn spcc-btn--primary"
-                            disabled={loading || savingPayment}
-                            title="Create a salary slot"
-                            onClick={openNewSlot}
-                        >
-                            Create slot
-                        </button>
-                    ) : null}
                     {canCreateSlot ? (
                         <button
                             type="button"
@@ -2453,6 +2584,17 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             onClick={() => setZohoOpen(true)}
                         >
                             Update Zoho
+                        </button>
+                    ) : null}
+                    {canOpenNewSlot ? (
+                        <button
+                            type="button"
+                            className="spcc-btn spcc-btn--primary"
+                            disabled={loading || savingPayment}
+                            title="Create a salary slot"
+                            onClick={openNewSlot}
+                        >
+                            Create slot
                         </button>
                     ) : null}
                     {dmfStatus === 'rejected' && monthDmf?.rejectReason ? (
@@ -2470,8 +2612,8 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                     <button
                         type="button"
                         className="spcc-btn spcc-btn--ghost"
-                        disabled={!canUseApproverActions}
-                        title={canUseApproverActions ? 'Validate payroll' : approverOnlyTitle}
+                        disabled={!canValidatePayroll}
+                        title={canValidatePayroll ? 'Validate payroll' : 'Accounts and HR can validate payroll.'}
                         onClick={handleValidate}
                     >
                         Validate payroll
@@ -2542,17 +2684,15 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                 : `Employees shown for ${view.groupLabel}`
                                         }
                                     />
-                                    <RatioStat
-                                        label="Salary"
-                                        part={cardStats.salaryGross}
-                                        total={cardStats.salaryNet}
-                                        money
-                                        hint="gross / net salary"
-                                        percent={ratioPercent(cardStats.salaryNet, cardStats.salaryGross)}
+                                    <SalarySplitStat
+                                        monthly={cardStats.salaryMonthly}
+                                        gross={cardStats.salaryGross}
+                                        net={cardStats.salaryNet}
+                                        hint={tab === ALL_TAB_KEY ? 'this month' : view.groupLabel}
                                         title={
                                             tab === ALL_TAB_KEY
-                                                ? 'Gross is monthly salary minus leave, late in, early out, and missed punch. Net salary is that gross minus loan, fine, utility, and salary advance.'
-                                                : `Gross and net salary for ${view.groupLabel}. Gross is monthly salary minus leave, late in, early out, and missed punch. Net salary subtracts loan, fine, utility, and salary advance.`
+                                                ? 'Monthly salary, Zoho gross salary, and net salary payable for every employee this month.'
+                                                : `Monthly salary, Zoho gross salary, and net salary payable for ${view.groupLabel}.`
                                         }
                                     />
                                 </MetricCard>
@@ -2749,7 +2889,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                             onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
                                                         />
                                                     </span>
-                                                    <span>
+                                                    <span title="Loss of pay from the salary slip, plus this month's loan, fine, advance and utility">
                                                         <SortHeader
                                                             label="Deduction"
                                                             column="deduction"
@@ -2757,7 +2897,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                             onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
                                                         />
                                                     </span>
-                                                    <span>
+                                                    <span title="Overtime, reward, phone, leave salary and air ticket on the salary slip">
                                                         <SortHeader
                                                             label="Extra"
                                                             column="extra"
@@ -2765,10 +2905,34 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                             onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
                                                         />
                                                     </span>
-                                                    <span>
+                                                    <span title="Zoho salary on the salary slip">
+                                                        <SortHeader
+                                                            label="Gross salary"
+                                                            column="gross"
+                                                            sort={payrollSort}
+                                                            onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
+                                                        />
+                                                    </span>
+                                                    <span title="Net salary payable on the salary slip">
                                                         <SortHeader
                                                             label="Net salary"
                                                             column="net"
+                                                            sort={payrollSort}
+                                                            onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
+                                                        />
+                                                    </span>
+                                                    <span title="Salary slot this employee is in">
+                                                        <SortHeader
+                                                            label="Slot no"
+                                                            column="slot"
+                                                            sort={payrollSort}
+                                                            onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
+                                                        />
+                                                    </span>
+                                                    <span title="WPS or Cash">
+                                                        <SortHeader
+                                                            label="Salary type"
+                                                            column="payType"
                                                             sort={payrollSort}
                                                             onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
                                                         />
@@ -2794,7 +2958,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                             : pending
                                                                 ? employeePendingStatusLabel(pendingItems)
                                                                 : 'Ready';
-                                                        const netSalary = emp.actualSalary ?? emp.monthlySalary;
+                                                        const netSalary = employeeNetPayable(emp);
                                                         return (
                                                             <div
                                                                 key={emp.employeeId || emp.slNo || index}
@@ -2825,7 +2989,12 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                                 <span className="tabular-nums">{formatMoney(emp.basicSalary)}</span>
                                                                 <span className="tabular-nums">{formatMoney(emp.deduction)}</span>
                                                                 <span className="tabular-nums">{formatMoney(employeeExtra(emp))}</span>
+                                                                <span className="tabular-nums">{formatMoney(employeeGross(emp))}</span>
                                                                 <span className="tabular-nums">{formatMoney(netSalary)}</span>
+                                                                <span className="tabular-nums">
+                                                                    {slotNoByEmployee.get(employeeIdKey(id)) || 'n/a'}
+                                                                </span>
+                                                                <span>{employeePayMethod(emp)}</span>
                                                                 <span onClick={(event) => event.stopPropagation()}>
                                                                     {blockerCount > 0 ? (
                                                                         <button
@@ -2867,6 +3036,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                             key={slot.batch?.id || slot.slot}
                                             slot={slot}
                                             active={activeSlotData?.slot === slot.slot}
+                                            holders={slotHolders}
                                             onSelect={openSavedSlot}
                                         />
                                     ))}
@@ -2883,6 +3053,14 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                 Create slot
                                             </span>
                                         </button>
+                                    ) : dmfApproved && !zohoJournalUpdated ? (
+                                        <div className="spcc-pay-add spcc-pay-add--row is-locked">
+                                            <span className="spcc-pay-add__kicker">Locked</span>
+                                            <span className="spcc-pay-add__title">Slot {nextSlotNo}</span>
+                                            <span className="spcc-btn spcc-btn--ghost spcc-pay-add__btn">
+                                                After Zoho
+                                            </span>
+                                        </div>
                                     ) : !dmfApproved ? (
                                         <div className="spcc-pay-add spcc-pay-add--row is-locked">
                                             <span className="spcc-pay-add__kicker">Locked</span>
@@ -3082,6 +3260,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         open={zohoOpen}
                         monthKey={parsed?.monthKey || ''}
                         onClose={() => setZohoOpen(false)}
+                        onPublished={() => {
+                            setMonthDmf((current) => ({ ...(current || {}), zohoJournalUpdated: true }));
+                        }}
                     />
 
                     <PayrollBlockersModal

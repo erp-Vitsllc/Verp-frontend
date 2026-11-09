@@ -69,7 +69,7 @@ export default function PaymentReceiptPage() {
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 bg-white border-b border-gray-200 print:hidden">
                 <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                        Payment Invoice
+                        Payment Receipt
                     </p>
                     <p className="text-sm font-bold text-gray-800">
                         {payment?.paymentId || paymentKey || '—'}

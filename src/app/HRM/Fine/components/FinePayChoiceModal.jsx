@@ -16,7 +16,7 @@ export default function FinePayChoiceModal({
     title = 'Pay Fine',
     fineId = '',
     employeePayLabel = 'Pay by Employee',
-    employeePayHint = 'Salary or cash. Emails the same receipt invoice to the employee.',
+    employeePayHint = 'Salary or cash. Emails the receipt to the employee.',
 }) {
     if (!isOpen) return null;
 

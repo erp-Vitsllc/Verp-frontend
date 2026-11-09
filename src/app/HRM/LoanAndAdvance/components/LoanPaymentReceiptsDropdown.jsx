@@ -78,8 +78,8 @@ export default function LoanPaymentReceiptsExpandPanel({
     requestDocTitle = 'Loan request document',
     requestDocSubtitle = 'Original application attachment',
     extraDocuments = [],
-    emptyMessage = 'No repayment invoices yet',
-    title = 'Payment invoices',
+    emptyMessage = 'No repayment receipts yet',
+    title = 'Payment receipts',
     onViewRequestAttachment,
     onPaymentsChanged,
     moduleId = 'hrm_loan',
@@ -143,7 +143,7 @@ export default function LoanPaymentReceiptsExpandPanel({
                     </h4>
                 </div>
                 <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 italic">
-                    Invoice + attachment (when uploaded on pay)
+                    Receipt + attachment (when uploaded on pay)
                 </span>
             </div>
 
@@ -223,7 +223,7 @@ export default function LoanPaymentReceiptsExpandPanel({
                                         title={
                                             retry
                                                 ? pay.zohoSyncError || 'Zoho not posted — use Retry Zoho'
-                                                : 'Open invoice in new tab'
+                                                : 'Open receipt in new tab'
                                         }
                                     >
                                         <td className="px-4 py-3 text-slate-400 font-bold text-xs">
@@ -286,7 +286,7 @@ export default function LoanPaymentReceiptsExpandPanel({
                                                     onClick={() => openPaymentReceiptInNewTab(pay)}
                                                     className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900 font-bold text-[10px] uppercase tracking-widest ml-auto"
                                                 >
-                                                    Invoice
+                                                    Receipt
                                                     <ExternalLink size={12} />
                                                 </button>
                                             )}

@@ -100,53 +100,63 @@ function isApprovedLiability(row) {
     return total > 0 || thisMonth > 0 || row.approved === true;
 }
 
-/** Settled when the slip row itself says Paid, and not "Not Paid". */
+/** Settled only when the row is fully paid. Partially paid balances stay open. */
 function liabilityMarkedPaid(row) {
-    const status = String(row?.unpaidStatus || '').trim().toLowerCase();
-    if (!status || status.includes('not paid')) return false;
+    const status = String(row?.unpaidStatus || row?.status || '').trim().toLowerCase();
+    if (!status || status.includes('not paid') || status.includes('partial')) return false;
     return /\bpaid\b/.test(status);
 }
 
-/** Amount still owed on this salary slip: Not Paid installments for this month and earlier months. */
-function unpaidOfLiability(row, readTotal, readPaid) {
+/** Full amount this employee still has to pay. Not paid and partially paid both count. */
+function outstandingOfLiability(row, readTotal, readPaid) {
     if (!row || liabilityMarkedPaid(row)) return 0;
-    if (row.dueAmount != null && row.dueAmount !== '') {
-        return money(Math.max(0, money(row.dueAmount)));
-    }
     if (row.remainingAmount != null && row.remainingAmount !== '') {
         return money(Math.max(0, money(row.remainingAmount)));
     }
     const original = money(readTotal(row));
     const paid = money(typeof readPaid === 'function' ? readPaid(row) : 0);
-    return money(Math.max(0, original - paid));
+    if (original > 0 || paid > 0) return money(Math.max(0, original - paid));
+    if (row.dueAmount != null && row.dueAmount !== '') {
+        return money(Math.max(0, money(row.dueAmount)));
+    }
+    return 0;
+}
+
+/** This salary month's deduction share. Earlier and later amounts stay out of this figure. */
+function monthShareOf(row) {
+    if (!row || liabilityMarkedPaid(row)) return 0;
+    if (row.monthShare != null && row.monthShare !== '') return money(Math.max(0, row.monthShare));
+    return money(row.thisMonthAmount ?? row.thisMonth);
 }
 
 function liabilitySummary(type, rows, readTotal, readPaid, readThisMonth) {
     const list = (Array.isArray(rows) ? rows : []).filter(isApprovedLiability);
-    const open = list.filter((row) => unpaidOfLiability(row, readTotal, readPaid) > 0);
-    const total = money(open.reduce((sum, row) => sum + unpaidOfLiability(row, readTotal, readPaid), 0));
-    const thisMonthDeduction = sumMoney(list, readThisMonth);
+    const open = list.filter((row) => outstandingOfLiability(row, readTotal, readPaid) > 0);
+    const total = money(open.reduce((sum, row) => sum + outstandingOfLiability(row, readTotal, readPaid), 0));
+    const monthShare = money(open.reduce((sum, row) => sum + monthShareOf(row), 0));
+    const thisMonthDeduction = money(Math.min(sumMoney(list, readThisMonth), monthShare));
     return {
         type,
         count: open.length,
         label: `${type} (${open.length})`,
         total,
+        monthShare,
         thisMonthDeduction,
         remainingAfterDeduction: money(Math.max(0, total - thisMonthDeduction)),
     };
 }
 
-/** This-month deduction cannot exceed the Not Paid total. Values at or under Total are allowed. */
+/** This-month deduction can be this month's share or less. It cannot exceed that share. */
 export function clampThisMonthDeduction(value, limit) {
     const cap = money(limit);
     if (cap <= 0) return 0;
     return money(Math.min(Math.max(0, money(value)), cap));
 }
 
-function allocateThisMonth(rows, requested, predicate, readTotal, readPaid) {
+function allocateThisMonth(rows, requested, predicate) {
     const list = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
     const targets = list.filter((row) => (!predicate || predicate(row)) && isApprovedLiability(row));
-    const weights = targets.map((row) => unpaidOfLiability(row, readTotal, readPaid));
+    const weights = targets.map((row) => monthShareOf(row));
     const cap = money(weights.reduce((sum, value) => sum + value, 0));
     let left = clampThisMonthDeduction(requested, cap);
     const weightSum = weights.reduce((sum, value) => sum + value, 0);
@@ -203,8 +213,6 @@ export function applyCategoryThisMonthOnDraft(draft, type, rawAmount) {
         draft[spec.listKey],
         rawAmount,
         spec.predicate,
-        spec.readTotal,
-        spec.readPaid,
     );
     draft.thisMonthOverrides = {
         ...(draft.thisMonthOverrides || {}),
@@ -214,10 +222,9 @@ export function applyCategoryThisMonthOnDraft(draft, type, rawAmount) {
 }
 
 /**
- * Not Paid loan, fine, utility and salary advance for this employee.
- * Total is the Not Paid amount for this salary month and earlier months.
- * Later installments stay off this slip. This month deduction cannot exceed Total.
- * Remaining is Total minus this month's deduction.
+ * Open loan, fine, utility and salary advance for this employee.
+ * Total outstanding is the full not-paid or partially paid balance.
+ * This month deduction is only this month's share, or less.
  */
 export function buildSalarySlipBalanceRows(slip) {
     const loans = Array.isArray(slip?.loanSchedule) ? slip.loanSchedule : [];
@@ -394,8 +401,25 @@ function pushDetailsIntoDeductions(slip) {
         if (deductionLineOverridden(overrides, row.category)) continue;
         deductions = setDeductionAmount(deductions, row.category, row.total);
     }
-    for (const loan of slip.loanSchedule || []) {
-        deductions = setDeductionAmount(deductions, loan.type, loan.thisMonthAmount ?? loan.thisMonth);
+    const loans = Array.isArray(slip.loanSchedule) ? slip.loanSchedule : [];
+    if (loans.length) {
+        const monthTotal = (rows, predicate) =>
+            money(
+                rows.reduce((sum, row) => {
+                    if (predicate && !predicate(row)) return sum;
+                    return sum + money(row?.thisMonthAmount ?? row?.thisMonth);
+                }, 0),
+            );
+        deductions = setDeductionAmount(
+            deductions,
+            'Salary Advance',
+            monthTotal(loans, (row) => /advance/i.test(String(row?.type || ''))),
+        );
+        deductions = setDeductionAmount(
+            deductions,
+            'Loan',
+            monthTotal(loans, (row) => !/advance/i.test(String(row?.type || ''))),
+        );
     }
     const fineTotal = (slip.fines || []).reduce(
         (sum, row) => sum + money(row.thisMonthAmount ?? row.thisMonth),

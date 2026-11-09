@@ -125,7 +125,9 @@ function EmployeeMonthCalendar({ employee, monthKey, todayKey, holidayDates, off
         start: startOfWeek(startOfMonth(anchor), { weekStartsOn: 1 }),
         end: endOfWeek(endOfMonth(anchor), { weekStartsOn: 1 }),
     });
-    const href = `/HRM/Leave/${employee.id}`;
+    const href = /^\d{4}-\d{2}$/.test(String(monthKey || ''))
+        ? `/HRM/Leave/${employee.id}?month=${encodeURIComponent(monthKey)}`
+        : `/HRM/Leave/${employee.id}`;
     const visibleFrom = String(employee.visibleFrom || '');
 
     return (

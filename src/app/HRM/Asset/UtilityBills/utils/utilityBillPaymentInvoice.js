@@ -36,7 +36,7 @@ export async function loadUtilityBillPaymentInvoice(bill, client = axiosInstance
         return {
             payment: null,
             error:
-                'No payment invoice found for this bill yet. Complete payment in Accounts → Payments first.',
+                'No payment receipt found for this bill yet. Complete payment in Accounts → Payments first.',
         };
     }
     return { payment };

@@ -2,16 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Calendar, Car, ChevronDown, ExternalLink, Receipt, Wallet, X } from 'lucide-react';
+import { Calendar, Car, ExternalLink, Receipt, Wallet, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { navHrefProps } from '@/utils/linkContextMenu';
 import { getAssetStatusBadgeClass } from '@/utils/assetStatusHelpers';
 import { MonthYearPicker } from '@/components/ui/month-year-picker';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
-import {
-    formatCellValue,
-    getMonthlyRentalAmount,
-} from '@/app/HRM/Asset/UtilityBills/utils/utilityBillsStorage';
 import { fetchUtilityEntries, fetchUtilityEntry } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillsApi';
 import { formatBillMoney } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillStats';
 import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
@@ -157,10 +153,37 @@ function fallbackPortion(bill, employee, party) {
 }
 
 function portionStatusClass(status) {
-    if (status === 'Paid' || status === 'Paid Employee') return 'font-semibold text-emerald-700';
-    if (status === 'Rejected') return 'font-semibold text-red-600';
+    if (status === 'Paid') return 'font-semibold text-emerald-700';
     if (status === 'Not Paid') return 'font-semibold text-amber-700';
     return 'text-slate-500';
+}
+
+/** Status is only whether this employee paid their portion. A zero portion is nothing to collect. */
+function employeeUtilityPayView(settlement) {
+    const portion = Number(settlement?.portion) || 0;
+    if (portion <= 0.009) {
+        return { portionText: 'N/A', status: 'Paid', payOk: true };
+    }
+    const rawStatus = String(settlement?.status || '');
+    const outstanding = Number(settlement?.outstanding);
+    const employeePaid =
+        rawStatus === 'Paid' ||
+        rawStatus === 'Paid Employee' ||
+        (Number.isFinite(outstanding) && outstanding <= 0.009 && rawStatus !== 'Not Paid');
+    if (employeePaid) return { portionText: '', status: 'Paid', payOk: true };
+    return { portionText: '', status: 'Not Paid', payOk: false };
+}
+
+function simCardNumber(entry, bill) {
+    const value = String(
+        bill?.accountNo ||
+            bill?.simNumber ||
+            entry?.values?.accountNumber ||
+            entry?.values?.accountNo ||
+            entry?.values?.simNumber ||
+            '',
+    ).trim();
+    return value || '—';
 }
 
 function assigneeMatchesEmployee(assignedTo, employee) {
@@ -215,7 +238,6 @@ export default function EmployeeSalaryVehicleUtilityPanel({
     const [loadingUtilities, setLoadingUtilities] = useState(false);
     const [billsByEntry, setBillsByEntry] = useState({});
     const [loadingBills, setLoadingBills] = useState(false);
-    const [expandedEntries, setExpandedEntries] = useState(() => new Set());
     /** utilityBillId → server settlement (status, outstanding, canPay) */
     const [portionByBillId, setPortionByBillId] = useState({});
     /** utilityBillId → PartyExpense Not Paid / Paid for difference */
@@ -543,23 +565,6 @@ export default function EmployeeSalaryVehicleUtilityPanel({
         return Array.from(map.values());
     }, [fleetVehicles, vehiclesFromAssets]);
 
-    const utilitiesByType = useMemo(() => {
-        const groups = new Map();
-        (utilityEntries || []).forEach((entry) => {
-            const typeName = String(entry.type || 'Other').trim() || 'Other';
-            if (!groups.has(typeName)) groups.set(typeName, []);
-            groups.get(typeName).push(entry);
-        });
-        return Array.from(groups.entries())
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([type, rows]) => ({
-                type,
-                rows: rows.sort(
-                    (x, y) => new Date(y.createdAt || 0).getTime() - new Date(x.createdAt || 0).getTime(),
-                ),
-            }));
-    }, [utilityEntries]);
-
     const availableYears = useMemo(() => {
         const set = new Set();
         Object.values(billsByEntry).forEach((list) =>
@@ -610,14 +615,29 @@ export default function EmployeeSalaryVehicleUtilityPanel({
         [billsByEntry, billMatchesFilter, utilityEntries, employee],
     );
 
-    const toggleEntry = useCallback((entryId) => {
-        setExpandedEntries((prev) => {
-            const next = new Set(prev);
-            if (next.has(entryId)) next.delete(entryId);
-            else next.add(entryId);
-            return next;
+    const utilityBillRows = useMemo(() => {
+        const rows = [];
+        (utilityEntries || []).forEach((entry) => {
+            billsForEntry(entry.id).forEach((bill) => {
+                const settlement = portionFor(bill);
+                const payView = employeeUtilityPayView(settlement);
+                rows.push({
+                    entry,
+                    bill,
+                    unpaid: payView.status === 'Not Paid',
+                    employeePortion: Number(settlement?.portion) || 0,
+                });
+            });
         });
-    }, []);
+        rows.sort((a, b) => {
+            if (a.unpaid !== b.unpaid) return a.unpaid ? -1 : 1;
+            if (a.unpaid && a.employeePortion !== b.employeePortion) {
+                return b.employeePortion - a.employeePortion;
+            }
+            return billSortTime(b.bill) - billSortTime(a.bill);
+        });
+        return rows;
+    }, [utilityEntries, billsForEntry, portionFor]);
 
     const clearFilter = useCallback(() => {
         setDayStart('');
@@ -720,7 +740,6 @@ export default function EmployeeSalaryVehicleUtilityPanel({
         );
     }
 
-    // Utility Bills — each utility (entry) grouped by type, expandable to show its bills
     const filterModes = [
         { id: 'day', label: 'Day to Day' },
         { id: 'month', label: 'Month' },
@@ -733,8 +752,7 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                 <div className="flex items-center gap-2 text-slate-600">
                     <Receipt size={18} className="text-teal-600" />
                     <p className="text-sm font-medium">
-                        Utility bills assigned to this employee, or where they are Payable to —
-                        expand a utility to see its bills
+                        Utility bills for this employee. Status is whether the employee paid their portion.
                     </p>
                 </div>
             </div>
@@ -809,203 +827,89 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                 ) : null}
             </div>
 
-            {loadingUtilities ? (
+            {loadingUtilities || loadingBills ? (
                 <p className="py-12 text-center text-sm text-gray-400">Loading utilities…</p>
-            ) : utilitiesByType.length === 0 ? (
+            ) : utilityBillRows.length === 0 ? (
                 <p className="py-12 text-center text-sm text-gray-400">
-                    No utility bills assigned or payable to this employee
+                    {hasActiveFilter
+                        ? 'No bills match this filter.'
+                        : 'No utility bills assigned or payable to this employee'}
                 </p>
             ) : (
-                utilitiesByType.map(({ type, rows }) => (
-                    <div
-                        key={type}
-                        className="rounded-xl border border-slate-100 bg-slate-50/50 overflow-hidden"
-                    >
-                        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-100 bg-white">
-                            <h4 className="text-sm font-bold text-slate-800">{type}</h4>
-                            <span className="text-[11px] font-semibold text-slate-400 tabular-nums">
-                                {rows.length} utilit{rows.length === 1 ? 'y' : 'ies'}
-                            </span>
-                        </div>
-
-                        <div className="divide-y divide-slate-100">
-                            {rows.map((entry) => {
-                                const href = `/HRM/Asset/UtilityBills/details/${encodeURIComponent(entry.id)}`;
-                                const expanded = expandedEntries.has(entry.id);
-                                const entryBills = billsForEntry(entry.id);
-                                const totalActual = entryBills.reduce(
-                                    (s, b) => s + (Number(b.amount) || 0),
-                                    0,
-                                );
-                                const provider =
-                                    formatCellValue('provider', entry.values) || 'Utility';
+                <div className="overflow-x-auto rounded-xl border border-slate-100 bg-white">
+                    <table className="w-full min-w-[860px] table-auto">
+                        <thead>
+                            <tr className="border-b border-slate-100 bg-slate-50/80">
+                                {['Month', 'SIM card no', 'Bill amount', 'Company pay', 'Employee portion', 'Status', 'Pay'].map((heading) => (
+                                    <th
+                                        key={heading}
+                                        className={`px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 ${
+                                            heading === 'Bill amount' || heading === 'Company pay' || heading === 'Employee portion'
+                                                ? 'text-right'
+                                                : 'text-left'
+                                        }`}
+                                    >
+                                        {heading}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {utilityBillRows.map(({ entry, bill }) => {
+                                const settlement = portionFor(bill);
+                                const employeePortion = Number(settlement.portion) || 0;
+                                const companyPay = companyPayDisplay(bill, employeePortion);
+                                const payView = employeeUtilityPayView(settlement);
+                                const showPay =
+                                    payView.status === 'Not Paid' &&
+                                    Boolean(settlement.canPay) &&
+                                    isAccountsUser;
                                 return (
-                                    <div key={entry.id} className="bg-white">
-                                        <div className="flex items-center gap-3 px-4 py-3">
-                                            <button
-                                                type="button"
-                                                onClick={() => toggleEntry(entry.id)}
-                                                className="flex flex-1 items-center gap-3 text-left min-w-0"
-                                            >
-                                                <span
-                                                    className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors ${
-                                                        expanded
-                                                            ? 'bg-teal-100 text-teal-700'
-                                                            : 'bg-slate-100 text-slate-400'
-                                                    }`}
-                                                >
-                                                    <ChevronDown
-                                                        size={15}
-                                                        className={`transition-transform duration-200 ${
-                                                            expanded ? 'rotate-0' : '-rotate-90'
-                                                        }`}
-                                                    />
-                                                </span>
-                                                <span className="min-w-0">
-                                                    <span className="block text-sm font-semibold text-slate-800 truncate">
-                                                        {provider}
-                                                    </span>
-                                                    <span className="block text-[11px] text-slate-400 truncate">
-                                                        {entry.values?.accountNumber
-                                                            ? `Acc ${entry.values.accountNumber}`
-                                                            : 'No account number'}
-                                                        {getMonthlyRentalAmount(entry)
-                                                            ? ` · Rental ${formatCellValue('monthlyRental', entry.values)}`
-                                                            : ''}
-                                                    </span>
-                                                </span>
-                                            </button>
-                                            <span className="hidden sm:inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-500 tabular-nums shrink-0">
-                                                {entryBills.length} bill{entryBills.length === 1 ? '' : 's'}
+                                    <tr key={bill._id || `${entry.id}-${billMonthKey(bill)}`} className="border-b border-slate-50 last:border-0">
+                                        <td className="px-3 py-2.5">
+                                            <span className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
+                                                <Calendar size={13} className="shrink-0 text-slate-400" />
+                                                {monthLabelFromKey(billMonthKey(bill))}
                                             </span>
-                                            <button
-                                                type="button"
-                                                onClick={() => router.push(href)}
-                                                {...navHrefProps(href)}
-                                                className="inline-flex items-center gap-1 text-teal-600 hover:text-teal-700 text-xs font-semibold shrink-0"
-                                            >
-                                                Open <ExternalLink size={12} />
-                                            </button>
-                                        </div>
-
-                                        {expanded ? (
-                                            <div className="border-t border-slate-100 bg-slate-50/60 px-3 py-3">
-                                                {loadingBills ? (
-                                                    <p className="py-4 text-center text-xs text-slate-400">
-                                                        Loading bills…
-                                                    </p>
-                                                ) : entryBills.length === 0 ? (
-                                                    <p className="py-4 text-center text-xs text-slate-400">
-                                                        {hasActiveFilter
-                                                            ? 'No bills match this filter.'
-                                                            : 'No bills recorded for this utility.'}
-                                                    </p>
-                                                ) : (
-                                                    <div className="overflow-x-auto rounded-lg border border-slate-100 bg-white">
-                                                        <table className="w-full min-w-[760px] table-auto">
-                                                            <thead>
-                                                                <tr className="border-b border-slate-100 bg-slate-50/80">
-                                                                    <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                                                                        Month
-                                                                    </th>
-                                                                    <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                                                                        Bill amount
-                                                                    </th>
-                                                                    <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                                                                        Company pay
-                                                                    </th>
-                                                                    <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                                                                        Employee portion
-                                                                    </th>
-                                                                    <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                                                                        Status
-                                                                    </th>
-                                                                    <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                                                                        Pay
-                                                                    </th>
-                                                                </tr>
-                                                            </thead>
-                                                            <tbody>
-                                                                {entryBills.map((bill) => {
-                                                                    const settlement = portionFor(bill);
-                                                                    const employeePortion =
-                                                                        Number(settlement.portion) || 0;
-                                                                    const companyPay = companyPayDisplay(
-                                                                        bill,
-                                                                        employeePortion,
-                                                                    );
-                                                                    const statusLabel =
-                                                                        settlement.status || 'Not Paid';
-                                                                    const showPay =
-                                                                        Boolean(settlement.canPay) &&
-                                                                        isAccountsUser;
-                                                                    return (
-                                                                        <tr
-                                                                            key={bill._id}
-                                                                            className="border-b border-slate-50 last:border-0"
-                                                                        >
-                                                                            <td className="px-3 py-2.5">
-                                                                                <span className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
-                                                                                    <Calendar
-                                                                                        size={13}
-                                                                                        className="text-slate-400 shrink-0"
-                                                                                    />
-                                                                                    {monthLabelFromKey(
-                                                                                        billMonthKey(bill),
-                                                                                    )}
-                                                                                </span>
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-700">
-                                                                                {formatBillMoney(
-                                                                                    Number(bill.amount) || 0,
-                                                                                )}
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-700">
-                                                                                {formatBillMoney(companyPay)}
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-700">
-                                                                                {formatBillMoney(employeePortion)}
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5 text-xs">
-                                                                                <span className={portionStatusClass(statusLabel)}>
-                                                                                    {statusLabel}
-                                                                                </span>
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5">
-                                                                                {showPay ? (
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        onClick={() =>
-                                                                                            openUtilityPayChoice(bill)
-                                                                                        }
-                                                                                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide text-white hover:bg-emerald-700"
-                                                                                        title="Accounts only. Expense collects the unpaid employee portion."
-                                                                                    >
-                                                                                        <Wallet size={12} />
-                                                                                        Pay
-                                                                                    </button>
-                                                                                ) : (
-                                                                                    <span className="text-gray-400">—</span>
-                                                                                )}
-                                                                            </td>
-                                                                        </tr>
-                                                                    );
-                                                                })}
-                                                            </tbody>
-                                                        </table>
-                                                        <div className="flex justify-end border-t border-slate-100 px-3 py-2 text-[11px] font-semibold text-slate-500 tabular-nums">
-                                                            Total {formatBillMoney(totalActual)}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ) : null}
-                                    </div>
+                                        </td>
+                                        <td className="px-3 py-2.5 text-xs font-semibold text-slate-700">
+                                            {simCardNumber(entry, bill)}
+                                        </td>
+                                        <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-700">
+                                            {formatBillMoney(Number(bill.amount) || 0)}
+                                        </td>
+                                        <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-700">
+                                            {formatBillMoney(companyPay)}
+                                        </td>
+                                        <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-700">
+                                            {payView.portionText === 'N/A' ? 'N/A' : formatBillMoney(employeePortion)}
+                                        </td>
+                                        <td className="px-3 py-2.5 text-xs">
+                                            <span className={portionStatusClass(payView.status)}>{payView.status}</span>
+                                        </td>
+                                        <td className="px-3 py-2.5">
+                                            {payView.payOk ? (
+                                                <span className="text-xs font-semibold text-emerald-700">OK</span>
+                                            ) : showPay ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openUtilityPayChoice(bill)}
+                                                    className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide text-white hover:bg-emerald-700"
+                                                    title="Accounts only. Collects the unpaid employee portion."
+                                                >
+                                                    <Wallet size={12} />
+                                                    Pay
+                                                </button>
+                                            ) : (
+                                                <span className="text-gray-400">—</span>
+                                            )}
+                                        </td>
+                                    </tr>
                                 );
                             })}
-                        </div>
-                    </div>
-                ))
+                        </tbody>
+                    </table>
+                </div>
             )}
 
             <FinePayChoiceModal
@@ -1021,7 +925,7 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                 showVendorCredit={false}
                 showEmployeePay
                 employeePayLabel="Employee Pay"
-                employeePayHint="Salary or cash. Marks Paid Employee. Emails the invoice to the employee. No Zoho entry."
+                employeePayHint="Salary or cash. Marks Paid Employee. Emails the receipt to the employee. No Zoho entry."
                 onClose={() => {
                     setPayChoiceOpen(false);
                     setPayChoiceBill(null);

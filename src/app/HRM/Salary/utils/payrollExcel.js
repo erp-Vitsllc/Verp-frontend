@@ -100,7 +100,7 @@ function payrollLine(emp, index) {
         advance: split ? money(emp?.advanceAmount) : 0,
         loan: split ? money(emp?.loanAmount) : 0,
         otherDeduction: split ? money(emp?.sheetOtherDeduction) : money(emp?.otherDeduction),
-        net: money(emp?.actualSalary ?? emp?.monthlySalary),
+        net: money(emp?.netSalaryPayable ?? emp?.actualSalary ?? emp?.monthlySalary),
     };
 }
 
