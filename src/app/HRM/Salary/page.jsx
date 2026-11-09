@@ -38,8 +38,8 @@ function formatAed(value) {
 const MONTH_HEAD = 'whitespace-nowrap text-left text-[11px] font-semibold leading-none text-gray-500';
 
 const MONTH_ROW_GRID =
-    'grid w-full min-w-[1120px] items-center gap-x-3 ' +
-    'grid-cols-[2.25rem_minmax(6.5rem,0.9fr)_minmax(6.75rem,0.85fr)_minmax(7.4rem,0.95fr)_minmax(6.8rem,0.85fr)_minmax(6.4rem,0.8fr)_minmax(6.6rem,0.82fr)_3.25rem_minmax(5.4rem,0.7fr)_minmax(5.2rem,0.68fr)_minmax(6.2rem,0.75fr)]';
+    'grid w-full min-w-[1320px] items-center gap-x-4 ' +
+    'grid-cols-[2.25rem_minmax(6.5rem,0.9fr)_minmax(6.75rem,0.85fr)_minmax(7.4rem,0.95fr)_minmax(6.8rem,0.85fr)_minmax(6.4rem,0.8fr)_minmax(6.6rem,0.82fr)_minmax(6.75rem,0.8fr)_minmax(6.75rem,0.8fr)_minmax(5.2rem,0.68fr)_minmax(6.2rem,0.75fr)]';
 
 const COLUMNS = [
     { key: 'slNo', label: 'SL' },
@@ -384,7 +384,7 @@ function SalaryPageContent() {
                         ) : null}
 
                         <div className="w-full max-w-full overflow-x-auto">
-                            <div className="min-w-[1120px]">
+                            <div className="min-w-[1320px]">
                                 <div className="flex items-center">
                                     <div className={`${MONTH_ROW_GRID} min-w-0 flex-1 px-3 sm:px-4 py-2`}>
                                         {COLUMNS.map((col) => (

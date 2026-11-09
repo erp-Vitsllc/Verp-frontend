@@ -33,6 +33,19 @@ function buildFineWorkflowSteps(fine, workflow = []) {
         .map((step, index) => ({ ...step, id: index + 1 }));
 }
 
+/** Done and current steps stay in order. Steps not started yet move to the end. */
+function sortFineTrackerSteps(steps, fine, workflow = []) {
+    const activeId = getFineCurrentActiveStepId(fine, steps, workflow);
+    const reached = [];
+    const later = [];
+    for (const step of steps) {
+        const started = isFineWorkflowStepApproved(step, fine, workflow) || step.id === activeId;
+        if (started) reached.push(step);
+        else later.push(step);
+    }
+    return [...reached, ...later].map((step, index) => ({ ...step, id: index + 1 }));
+}
+
 function isHrApprovalDone(fine, workflow = []) {
     return Boolean(fine?.hrApprovedBy) || workflow.some((w) => w.role === 'HR' && w.status === 'Approved');
 }
@@ -224,7 +237,7 @@ export default function FineWorkflowHistoryPanel({ fine }) {
     const events = useMemo(() => {
         if (!fine) return [];
         const workflow = fine.workflow || [];
-        const steps = buildFineWorkflowSteps(fine, workflow);
+        const steps = sortFineTrackerSteps(buildFineWorkflowSteps(fine, workflow), fine, workflow);
         const isRejected = fine.fineStatus === 'Rejected';
         const currentActive = getFineCurrentActiveStepId(fine, steps, workflow);
 
