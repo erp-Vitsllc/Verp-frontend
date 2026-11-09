@@ -207,7 +207,7 @@
 .spcc-pay-result {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
     gap: 4px;
     border: 1px solid var(--spcc-line);
     border-radius: 14px;
@@ -215,7 +215,7 @@
     padding: 10px 12px;
     overflow: hidden;
     cursor: pointer;
-    text-align: left;
+    text-align: center;
     font: inherit;
     color: inherit;
     width: 100%;
@@ -230,7 +230,7 @@
 .spcc-pay-add {
     display: flex;
     flex-direction: column;
-    align-items: stretch;
+    align-items: center;
     justify-content: flex-start;
     gap: 4px;
     padding: 14px;
@@ -239,7 +239,7 @@
     background: #f8fbff;
     color: var(--spcc-blue);
     cursor: pointer;
-    text-align: left;
+    text-align: center;
     font: inherit;
 }
 
@@ -335,33 +335,45 @@
 
 .spcc-pay-result__slot {
     margin: 0;
+    width: 100%;
     font-size: 11px;
     font-weight: 750;
     line-height: 1.2;
+    text-align: center;
     color: var(--spcc-ink);
 }
 
 .spcc-pay-result__pending {
     margin: 0;
-    font-size: 10px;
+    width: 100%;
+    max-width: 100%;
+    font-size: 11px;
     font-weight: 600;
-    line-height: 1.3;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: #64748b;
 }
 
 .spcc-pay-result__type {
     margin: 0;
-    font-size: 13px;
-    font-weight: 650;
-    line-height: 1.3;
+    width: 100%;
+    font-size: 16px;
+    font-weight: 750;
+    line-height: 1.2;
+    text-align: center;
     color: var(--spcc-ink);
 }
 
 .spcc-pay-result__total {
     margin: 0;
-    font-size: 16px;
-    font-weight: 700;
+    width: 100%;
+    font-size: 13px;
+    font-weight: 650;
     line-height: 1.25;
+    text-align: center;
     color: var(--spcc-ink);
     word-break: break-word;
 }
@@ -387,16 +399,17 @@
 
 .spcc-pay-result__company {
     margin: 0;
-    font-size: 20px;
+    width: 100%;
+    font-size: 18px;
     font-weight: 750;
     line-height: 1.15;
     letter-spacing: 0;
+    text-align: center;
     text-transform: none;
     color: var(--spcc-ink);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+    white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .spcc-pay-result__list {
@@ -1319,6 +1332,11 @@
 .spcc-ready-shift {
     margin-top: var(--spcc-ready-shift, 0px);
     transition: margin-top 180ms ease;
+}
+
+.spcc-ready-shift.is-anchored {
+    position: relative;
+    z-index: 4;
 }
 
 .spcc-metrics {
@@ -2803,7 +2821,16 @@
 
 .spcc-card--history {
     width: 100%;
-    padding: 10px 12px;
+    padding: 12px 12px 8px;
+}
+
+.spcc-payroll-history h4 {
+    font-size: 15px;
+    line-height: 1.2;
+}
+
+.spcc-payroll-history .text-lg {
+    font-size: 15px;
 }
 
 .spcc-history {

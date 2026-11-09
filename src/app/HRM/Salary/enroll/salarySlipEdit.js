@@ -122,7 +122,7 @@ function outstandingOfLiability(row, readTotal, readPaid) {
     return 0;
 }
 
-/** This salary month's deduction share. Earlier and later amounts stay out of this figure. */
+/** This salary month's scheduled share. The entered deduction can be higher, up to the outstanding balance. */
 function monthShareOf(row) {
     if (!row || liabilityMarkedPaid(row)) return 0;
     if (row.monthShare != null && row.monthShare !== '') return money(Math.max(0, row.monthShare));
@@ -134,7 +134,7 @@ function liabilitySummary(type, rows, readTotal, readPaid, readThisMonth) {
     const open = list.filter((row) => outstandingOfLiability(row, readTotal, readPaid) > 0);
     const total = money(open.reduce((sum, row) => sum + outstandingOfLiability(row, readTotal, readPaid), 0));
     const monthShare = money(open.reduce((sum, row) => sum + monthShareOf(row), 0));
-    const thisMonthDeduction = money(Math.min(sumMoney(list, readThisMonth), monthShare));
+    const thisMonthDeduction = money(Math.min(sumMoney(list, readThisMonth), total));
     return {
         type,
         count: open.length,
@@ -146,7 +146,7 @@ function liabilitySummary(type, rows, readTotal, readPaid, readThisMonth) {
     };
 }
 
-/** This-month deduction can be this month's share or less. It cannot exceed that share. */
+/** This-month deduction can be any amount up to the outstanding balance. */
 export function clampThisMonthDeduction(value, limit) {
     const cap = money(limit);
     if (cap <= 0) return 0;
@@ -156,7 +156,15 @@ export function clampThisMonthDeduction(value, limit) {
 function allocateThisMonth(rows, requested, predicate) {
     const list = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
     const targets = list.filter((row) => (!predicate || predicate(row)) && isApprovedLiability(row));
-    const weights = targets.map((row) => monthShareOf(row));
+    const weights = targets.map((row) => {
+        if (row.remainingAmount != null && row.remainingAmount !== '') {
+            return money(Math.max(0, row.remainingAmount));
+        }
+        if (row.dueAmount != null && row.dueAmount !== '') {
+            return money(Math.max(0, row.dueAmount));
+        }
+        return monthShareOf(row);
+    });
     const cap = money(weights.reduce((sum, value) => sum + value, 0));
     let left = clampThisMonthDeduction(requested, cap);
     const weightSum = weights.reduce((sum, value) => sum + value, 0);
@@ -224,7 +232,7 @@ export function applyCategoryThisMonthOnDraft(draft, type, rawAmount) {
 /**
  * Open loan, fine, utility and salary advance for this employee.
  * Total outstanding is the full not-paid or partially paid balance.
- * This month deduction is only this month's share, or less.
+ * This month deduction can be any amount up to that outstanding balance.
  */
 export function buildSalarySlipBalanceRows(slip) {
     const loans = Array.isArray(slip?.loanSchedule) ? slip.loanSchedule : [];

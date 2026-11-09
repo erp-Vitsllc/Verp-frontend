@@ -24,6 +24,7 @@ import SalarySlotExpenseModal from './SalarySlotExpenseModal';
 import { monthPayrollProcessStatusLabel, payrollPendingForLabel } from '../utils/payrollApprovalStatus';
 import { handleNavigateFromListClick, navigateFromList } from '@/utils/listReturnNavigation';
 import { salarySlipMonthHref } from '../enroll/salarySlipEdit';
+import WorkflowHistoryTimeline from '../../shared/workflowHistory/WorkflowHistoryTimeline';
 import { buildFineListPath } from '@/utils/fineNotificationRouting';
 import './SalaryMonthControlCentre.css';
 
@@ -175,28 +176,20 @@ function formatSlotDate(value) {
     return `${pad2(date.getDate())} ${MONTH_FULL[date.getMonth()].slice(0, 3)} ${date.getFullYear()}`;
 }
 
-function formatHistoryTime(value) {
-    const date = value instanceof Date ? value : value ? new Date(value) : null;
-    if (!date || Number.isNaN(date.getTime())) return '';
-    const clock = date.toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    return `${formatSlotDate(date)}, ${clock}`;
-}
-
-function historyActor(name) {
-    const label = String(name || '').trim();
-    return label || 'system';
-}
-
 function payrollHistoryEvents(dmf, batches) {
     const events = [];
-    function add(at, label, actor) {
+    function add(at, label, actor, { rejected = false } = {}) {
         const date = at ? new Date(at) : null;
         if (!date || Number.isNaN(date.getTime())) return;
         events.push({
-            at: date.getTime(),
+            id: `${label}-${date.getTime()}`,
+            kind: 'workflow',
             label,
-            actor: historyActor(actor),
-            timeLabel: formatHistoryTime(date),
+            badge: rejected ? 'REJECTED' : 'APPROVED',
+            badgeVariant: rejected ? 'rejected' : 'approved',
+            actor: String(actor || '').trim() || 'System',
+            date,
+            connectorGreen: !rejected,
         });
     }
 
@@ -205,53 +198,41 @@ function payrollHistoryEvents(dmf, batches) {
     const hr = steps.find((step) => step.key === 'hr');
     const management = steps.find((step) => step.key === 'management');
     if (hr?.status === 'approved') add(hr.actionedAt, 'Salary sent to Management', hr.actionedByName);
-    if (hr?.status === 'rejected') add(hr.actionedAt || dmf?.rejectedAt, 'Salary rejected', hr.actionedByName || dmf?.rejectedByName);
+    if (hr?.status === 'rejected') {
+        add(hr.actionedAt || dmf?.rejectedAt, 'Salary rejected', hr.actionedByName || dmf?.rejectedByName, {
+            rejected: true,
+        });
+    }
     if (management?.status === 'approved') add(management.actionedAt, 'Salary processed', management.actionedByName);
     if (management?.status === 'rejected') {
-        add(management.actionedAt || dmf?.rejectedAt, 'Salary rejected', management.actionedByName || dmf?.rejectedByName);
+        add(
+            management.actionedAt || dmf?.rejectedAt,
+            'Salary rejected',
+            management.actionedByName || dmf?.rejectedByName,
+            { rejected: true },
+        );
     }
     for (const batch of batches || []) {
         const slotNo = Number(batch?.paymentNo) || 0;
         if (!slotNo) continue;
         add(batch.createdAt, `Slot ${slotNo} created`, batch.createdByName);
     }
-    events.sort((a, b) => b.at - a.at);
-    return events;
+    events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    return events.map((event, index) => ({ ...event, stepNumber: index + 1 }));
 }
 
 function PayrollHistoryCard({ dmf, batches }) {
-    const [expanded, setExpanded] = useState(false);
     const events = useMemo(() => payrollHistoryEvents(dmf, batches), [dmf, batches]);
-    const visible = expanded ? events : events.slice(0, 5);
     return (
         <section className="spcc-card spcc-card--panel spcc-card--history" aria-label="Payroll history">
-            <div className="spcc-card__head spcc-card__head--ready">
-                <div className="spcc-ready-head">
-                    <h2 className="spcc-card__title">History</h2>
-                    <p className="spcc-card__sub">Payroll and slot activity</p>
-                </div>
-            </div>
-            {visible.length ? (
-                <ul className="spcc-history">
-                    {visible.map((event) => (
-                        <li key={`${event.at}-${event.label}`} className="spcc-history__row">
-                            <span className="spcc-history__label">{event.label}</span>
-                            <span className="spcc-history__meta">({event.actor}) {event.timeLabel}</span>
-                        </li>
-                    ))}
-                </ul>
-            ) : (
-                <p className="spcc-ready-empty">No payroll history yet.</p>
-            )}
-            {events.length > 5 ? (
-                <button
-                    type="button"
-                    className="spcc-history__more"
-                    onClick={() => setExpanded((open) => !open)}
-                >
-                    {expanded ? 'Show less' : 'More ...'}
-                </button>
-            ) : null}
+            <WorkflowHistoryTimeline
+                title="Payroll History"
+                subtitle="Approvals and slot activity"
+                events={events}
+                emptyMessage="No payroll history yet."
+                compact
+                className="spcc-payroll-history"
+            />
         </section>
     );
 }
@@ -613,32 +594,41 @@ function slotCardTone(slot) {
     return 'pending';
 }
 
-function assigneeOf(step, people) {
+function flowchartRoleLabel(step) {
+    const raw = String(step?.role || step?.label || step?.key || '').trim();
+    const key = raw.toLowerCase();
+    if (key === 'hr') return 'HR';
+    if (key === 'accounts') return 'Accounts';
+    if (key === 'management') return 'Management';
+    return raw;
+}
+
+function assigneeOf(step) {
+    const role = flowchartRoleLabel(step);
     const name = String(step?.assignedToName || step?.actionedByName || '').trim();
-    const id = employeeIdKey(step?.assignedToEmployeeId);
-    const match = (people || []).find((emp) => {
-        if (id && employeeIdKey(emp?.employeeId) === id) return true;
-        const empName = String(emp?.name || `${emp?.firstName || ''} ${emp?.lastName || ''}`).trim();
-        return Boolean(name) && empName.toLowerCase() === name.toLowerCase();
-    });
-    const role = String(step?.role || step?.label || '').trim();
     return {
         name: name || role,
-        designation: String(match?.designation || '').trim() || role,
+        designation: role,
     };
+}
+
+function firstNameOf(fullName) {
+    const name = String(fullName || '').trim();
+    if (!name) return '';
+    return name.split(/\s+/)[0];
 }
 
 function slotPendingLine(slot, holders) {
     const status = String(slot?.status || '');
     if (status === 'approved') return 'Updated';
-    const holder = status === 'pending_hr' ? holders?.hr : holders?.accounts;
-    const name = String(holder?.name || '').trim();
-    const designation = String(holder?.designation || '').trim();
-    const who = name && designation && designation.toLowerCase() !== name.toLowerCase()
-        ? `${name} (${designation})`
-        : name || designation;
-    if (who) return `Pending with ${who}`;
-    return status === 'pending_hr' ? 'Pending with HR' : 'Pending with Accounts';
+    const withHr = status === 'pending_hr';
+    const holder = withHr ? holders?.hr : holders?.accounts;
+    const first = firstNameOf(holder?.name);
+    const role = String(holder?.designation || '').trim() || (withHr ? 'HR' : 'Accounts');
+    if (first && role && first.toLowerCase() !== role.toLowerCase()) {
+        return `Pending with ${first} (${role})`;
+    }
+    return withHr ? 'Pending with HR' : 'Pending with Accounts';
 }
 
 function PaymentResultCard({ slot, active, onSelect, holders }) {
@@ -2062,15 +2052,16 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         }
         const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id;
         const row = payTableRef.current?.querySelector(`[data-pay-employee="${safeId}"]`);
-        const slot = side.querySelector('.spcc-slot-rows');
-        if (!row || !slot) {
+        const card = side.querySelector('.spcc-ready-shift');
+        if (!row || !card) {
             setReadinessShift(0);
             return;
         }
+        const rowTop = row.getBoundingClientRect().top;
+        const currentShift = Number.parseFloat(window.getComputedStyle(card).marginTop) || 0;
+        const naturalTop = card.getBoundingClientRect().top - currentShift;
         const sideTop = side.getBoundingClientRect().top;
-        const slotBottom = slot.getBoundingClientRect().bottom - sideTop;
-        const rowTop = row.getBoundingClientRect().top - sideTop;
-        const next = Math.max(0, Math.round(rowTop - slotBottom - 12));
+        const next = Math.max(Math.round(sideTop - naturalTop), Math.round(rowTop - naturalTop));
         setReadinessShift((current) => (current === next ? current : next));
     }, []);
 
@@ -2080,9 +2071,21 @@ export default function SalaryMonthControlCentre({ monthKey }) {
 
     useEffect(() => {
         if (!readinessAnchorId) return undefined;
-        const onResize = () => placeReadinessCard(readinessAnchorId);
-        window.addEventListener('resize', onResize);
-        return () => window.removeEventListener('resize', onResize);
+        const onPlace = () => placeReadinessCard(readinessAnchorId);
+        window.addEventListener('resize', onPlace);
+        const side = sideColRef.current;
+        const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onPlace) : null;
+        if (observer) {
+            const history = side?.querySelector('.spcc-card--history');
+            const slots = side?.querySelector('.spcc-slot-rows');
+            if (history) observer.observe(history);
+            if (slots) observer.observe(slots);
+            if (payTableRef.current) observer.observe(payTableRef.current);
+        }
+        return () => {
+            window.removeEventListener('resize', onPlace);
+            observer?.disconnect();
+        };
     }, [placeReadinessCard, readinessAnchorId]);
 
     function claimedElsewhere(batchId) {
@@ -2520,10 +2523,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const accountsName =
         String(accountsStep?.assignedToName || accountsStep?.actionedByName || 'Accounts').trim() || 'Accounts';
     const hrName = String(hrStep?.assignedToName || hrStep?.actionedByName || 'HR').trim() || 'HR';
-    const slotPeople = register?.enrollmentOverview?.employees || monthRoster;
     const slotHolders = {
-        accounts: assigneeOf(accountsStep, slotPeople),
-        hr: assigneeOf(hrStep, slotPeople),
+        accounts: assigneeOf(accountsStep),
+        hr: assigneeOf(hrStep),
     };
 
     if (!parsed) {
@@ -3074,7 +3076,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                             </section>
                             <PayrollHistoryCard dmf={monthDmf} batches={paymentBatches} />
                             <aside
-                                className="spcc-col-side spcc-ready-shift"
+                                className={`spcc-col-side spcc-ready-shift${readinessAnchorId ? ' is-anchored' : ''}`}
                                 style={{ '--spcc-ready-shift': `${readinessShift}px` }}
                             >
                                 <section className="spcc-card spcc-card--panel spcc-card--ready">

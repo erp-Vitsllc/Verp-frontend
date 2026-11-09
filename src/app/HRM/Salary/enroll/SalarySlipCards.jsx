@@ -216,8 +216,8 @@ function BalanceScheduleTable({ rows, onThisMonthChange }) {
                                     label={`${row.type} this month deduction`}
                                     amount={row.thisMonthDeduction}
                                     tone="deduct"
-                                    max={row.monthShare}
-                                    disabled={money(row.monthShare) <= 0 || typeof onThisMonthChange !== 'function'}
+                                    max={row.total}
+                                    disabled={money(row.total) <= 0 || typeof onThisMonthChange !== 'function'}
                                     onChange={
                                         typeof onThisMonthChange === 'function'
                                             ? (value) => onThisMonthChange(row.type, value)
@@ -658,7 +658,7 @@ export default function SalarySlipCards({ slip, onPatch, locked = false }) {
     const lopTotal = money(lopRows.reduce((sum, row) => sum + money(row.amount), 0));
     const balanceRows = buildSalarySlipBalanceRows(slip);
     const deductionLimitByType = Object.fromEntries(
-        balanceRows.map((row) => [row.type, money(row.monthShare)]),
+        balanceRows.map((row) => [row.type, money(row.total)]),
     );
 
     const otherDeductionRows = OTHER_DEDUCTION_ROWS.map((item, index) => {
@@ -780,7 +780,7 @@ export default function SalarySlipCards({ slip, onPatch, locked = false }) {
                 iconBg="bg-slate-50"
                 iconColor="text-slate-600"
                 title="Deduction"
-                subtitle="This employee only. Total outstanding is every not paid or partially paid loan, fine, utility and salary advance still left to pay. This month deduction is only this month's share, or less, and is not part of that total. Remaining = total outstanding − this month deduction."
+                subtitle="This employee only. Total outstanding is every not paid or partially paid loan, fine, utility and salary advance still left to pay. This month deduction can be any amount up to that outstanding balance. Remaining = total outstanding − this month deduction."
             >
                 <BalanceScheduleTable
                     rows={balanceRows}

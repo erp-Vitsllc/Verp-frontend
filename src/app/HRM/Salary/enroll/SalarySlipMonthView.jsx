@@ -223,9 +223,14 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
                     </div>
 
                     <div className="min-w-0 lg:border-l lg:border-gray-100 lg:px-6">
-                        <h2 className="mb-3 text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[22px]">
+                        <h2 className="text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[22px]">
                             Salary slip
                         </h2>
+                        <p className="mb-3 mt-1 text-sm font-medium leading-snug text-slate-600">
+                            {monthProcessed
+                                ? 'This salary slip can no longer be edited.'
+                                : 'Not only the approver. Accounts, HR, and Management can update this slip until the payroll is processed.'}
+                        </p>
                         <div className="space-y-1.5 text-sm">
                             <p>
                                 <span className="text-slate-500">Monthly salary = </span>
@@ -245,7 +250,7 @@ export default function SalarySlipMonthView({ employeeId, monthKey }) {
                                     {formatAed(amounts.otherSalary)}
                                 </span>
                             </p>
-                            {updateTitle ? (
+                            {updateTitle && !monthProcessed ? (
                                 <p className="pt-2 text-sm font-semibold text-amber-800">{updateTitle}</p>
                             ) : null}
                         </div>
