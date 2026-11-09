@@ -8,6 +8,7 @@ export const FINE_PENDING_INBOX_CHANGED = 'fine-pending-inbox-changed';
 
 const FINE_PENDING_APPROVAL_STATUSES = new Set([
     'Pending',
+    'Pending Admin',
     'Pending HR',
     'Pending Review',
     'Pending Accounts',

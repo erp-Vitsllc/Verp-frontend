@@ -507,7 +507,7 @@ export default function FineFormCardGroupParties({
 
         const beforeAccounts =
             !status ||
-            ['Draft', 'Pending', 'Pending HR', 'Rejected', 'Cancelled', 'Withdrawn'].includes(status);
+            ['Draft', 'Pending', 'Pending Admin', 'Pending HR', 'Rejected', 'Cancelled', 'Withdrawn'].includes(status);
 
         if (beforeAccounts) {
             return { label: 'Locked for Accounts', className: 'text-gray-500' };

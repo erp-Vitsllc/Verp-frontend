@@ -137,20 +137,21 @@ function isFineWorkflowConnectorGreen(step, fine, workflow = []) {
 /** Higher = further in the approval pipeline (used to block soft-refresh status regression). */
 const FINE_STATUS_RANK = {
     Draft: 0,
-    Pending: 1,
-    'Pending Review': 1,
-    'Pending HR': 1,
-    'Pending Accounts': 2,
-    'Pending Finance': 2,
-    'Pending Authorization': 3,
-    'Pending Management': 3,
-    Approved: 4,
-    Active: 4,
-    Completed: 4,
-    Paid: 5,
-    Rejected: 4,
-    Cancelled: 4,
-    Withdrawn: 4,
+    'Pending Admin': 1,
+    Pending: 2,
+    'Pending Review': 2,
+    'Pending HR': 2,
+    'Pending Accounts': 3,
+    'Pending Finance': 3,
+    'Pending Authorization': 4,
+    'Pending Management': 4,
+    Approved: 5,
+    Active: 5,
+    Completed: 5,
+    Paid: 6,
+    Rejected: 5,
+    Cancelled: 5,
+    Withdrawn: 5,
 };
 
 function fineStatusRank(status) {
@@ -159,6 +160,7 @@ function fineStatusRank(status) {
 
 function roleForFineStatus(status) {
     const s = String(status || '');
+    if (s === 'Pending Admin') return 'Admin Officer';
     if (s === 'Pending HR' || s === 'Pending Review' || s === 'Pending') return 'HR';
     if (s === 'Pending Accounts' || s === 'Pending Finance') return 'Accounts';
     if (s === 'Pending Authorization' || s === 'Pending Management') return 'Management';
@@ -352,7 +354,9 @@ function FineDetailsPageContent() {
             // Next status for optimistic UI (status first — PDF / Zoho / vendor in background)
             let optimisticStatus = null;
             if (action === 'approve') {
-                if (
+                if (currentFineStatus === 'Pending Admin') {
+                    optimisticStatus = fine?.handoverHrApproval ? 'Pending Authorization' : 'Pending HR';
+                } else if (
                     currentFineStatus === 'Pending HR' ||
                     currentFineStatus === 'Pending Review' ||
                     currentFineStatus === 'Pending'
@@ -691,6 +695,16 @@ function FineDetailsPageContent() {
     };
 
     const handleApprove = () => {
+        if (fine?.fineStatus === 'Pending Admin') {
+            openConfirmation({
+                action: 'approve',
+                title: 'Approve Fine',
+                description: 'Approve this fine. The next person is notified only after you approve.',
+                confirmText: 'Approve',
+                variant: 'default',
+            });
+            return;
+        }
         if (!validateWorkflowAssignments()) return;
 
         const isAccountsStage =
@@ -1532,7 +1546,8 @@ function FineDetailsPageContent() {
         // 1. Identify which role we are waiting for based on status
         const s = fine.fineStatus;
         let roleToMatch = null;
-        if (s === 'Pending HR') roleToMatch = 'HR';
+        if (s === 'Pending Admin') roleToMatch = 'Admin Officer';
+        else if (s === 'Pending HR') roleToMatch = 'HR';
         else if (s === 'Pending Accounts') roleToMatch = 'Accounts';
         else if (s === 'Pending Authorization') roleToMatch = 'Management';
         else if (s === 'Pending' || s === 'Pending Review') {
@@ -2129,7 +2144,8 @@ function FineDetailsPageContent() {
                                                         }
 
                                                         let role = '';
-                                                        if (s === 'Pending HR') role = 'HR';
+                                                        if (s === 'Pending Admin') role = 'Admin Officer';
+                                                        else if (s === 'Pending HR') role = 'HR';
                                                         else if (s === 'Pending Accounts') role = 'Accounts';
                                                         else if (s === 'Pending Authorization') role = 'Management';
                                                         else if (s === 'Pending' || s === 'Pending Review') {

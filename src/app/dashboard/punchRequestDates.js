@@ -37,7 +37,8 @@ export function requestDateOptions({
             }
             const approved = ['approvalStatus', 'leaveRequestStatus', 'hourAdjustStatus']
                 .some((key) => String(row?.[key] || '').toLowerCase() === 'approved');
-            const pending = String(row?.leaveRequestStatus || '').toLowerCase() === 'pending';
+            const pending = ['leaveRequestStatus', 'hourAdjustStatus', 'flexibleOtStatus']
+                .some((key) => String(row?.[key] || '').toLowerCase() === 'pending');
             if (approved || pending) return false;
             if (isSickLeave || isMispunch) {
                 const noPunch = !String(row?.timeIn || '').trim() && !String(row?.timeOut || '').trim();

@@ -573,6 +573,16 @@ export default function AttendanceFutureRequestModal({
             setLocalError('To date cannot be before the from date.');
             return;
         }
+        const pendingDate = (Array.isArray(attendanceRecords) ? attendanceRecords : []).find((row) => {
+            const date = String(row?.date || '').slice(0, 10);
+            if (!date || date < fromDate || date > toDate) return false;
+            return ['leaveRequestStatus', 'hourAdjustStatus', 'flexibleOtStatus']
+                .some((key) => String(row?.[key] || '').toLowerCase() === 'pending');
+        });
+        if (pendingDate) {
+            setLocalError(`A request is already pending for ${String(pendingDate.date).slice(0, 10)}.`);
+            return;
+        }
         if (isMispunch && fromDate > todayKey) {
             setLocalError('Mispunch can only be requested for today or a past day.');
             return;

@@ -428,7 +428,17 @@ function withWaiveOption(options, mark, canWaiveDeduction) {
     return next;
 }
 
-function rowMenuOptions(baseOptions, mark, { canReviewHour = false, canWaiveDeduction = false } = {}) {
+function dayRequestPending(mark) {
+    if (!mark) return false;
+    return String(mark.leaveRequestStatus || '') === 'pending'
+        || String(mark.hourAdjustStatus || '') === 'pending'
+        || String(mark.flexibleOtStatus || '') === 'pending'
+        || Boolean(mark.pendingChange?.id);
+}
+
+const PENDING_DATE_REQUEST_TITLE = 'A request is already pending for this date.';
+
+function rowMenuOptions(baseOptions, mark, { canReviewHour = false, canWaiveDeduction = false, pendingApprover = '' } = {}) {
     const offer = hourAdjustOffer(mark);
     if (!offer || String(mark?.hourAdjustStatus || '') === 'approved') {
         return withWaiveOption(baseOptions, mark, canWaiveDeduction);
@@ -438,7 +448,7 @@ function rowMenuOptions(baseOptions, mark, { canReviewHour = false, canWaiveDedu
         key: 'hour_adjust',
         label: pending ? (canReviewHour ? 'Review hours' : 'Hours pending') : offer.button,
         disabled: pending && !canReviewHour,
-        disabledTitle: 'Waiting for HR approval',
+        disabledTitle: pendingApprover ? `Waiting for ${pendingApprover}` : 'Waiting for approval',
     };
     const next = [];
     let placed = false;
@@ -813,7 +823,7 @@ function viewerCanDecideChange(change, { isFlowchartHr, viewer, isReportee }) {
     if (!change?.id) return false;
     if (change.stage === 'pending_hr') return isFlowchartHr;
     if (change.stage === 'pending_reportee') {
-        return isFlowchartHr || isReportee || (Boolean(viewer) && viewer === String(change.reporteeId || ''));
+        return isReportee || (Boolean(viewer) && viewer === String(change.reporteeId || ''));
     }
     if (
         change.stage === 'pending_requester' &&
@@ -1214,17 +1224,25 @@ function MarkAttendanceMenu({ anchorRect, onSelect, onClose, options = MARK_OPTI
                             </button>
                             {openLeave ? (
                                 <div className="absolute right-full top-0 mr-0.5 min-w-[190px] rounded-lg border border-gray-200 bg-white shadow-lg py-1">
-                                    {opt.children.map((child) => (
+                                    {opt.children.map((child) => {
+                                        const childDisabled = Boolean(opt.disabled || child.disabled);
+                                        return (
                                         <button
                                             key={child.key}
                                             type="button"
                                             role="menuitem"
-                                            onClick={() => onSelect(child.key, child.label)}
-                                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                                            disabled={childDisabled}
+                                            title={childDisabled ? child.disabledTitle || opt.disabledTitle || undefined : undefined}
+                                            onClick={() => {
+                                                if (childDisabled) return;
+                                                onSelect(child.key, child.label);
+                                            }}
+                                            className={`w-full px-3 py-2 text-left text-sm ${childDisabled ? 'cursor-not-allowed text-gray-300' : 'text-gray-700 hover:bg-gray-50'}`}
                                         >
                                             {child.label}
                                         </button>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             ) : null}
                         </div>
@@ -1588,7 +1606,16 @@ function EmployeeRow({
     const adjustLines = adjustmentLines(mark);
     const adjustTitle = adjustLines.join(' ');
     const syntheticOtReason = /^Present \(On time\) from overtime$/i.test(String(shownMark?.reason || '').trim());
-    const actionMenuOptions = rowMenuOptions(menuOptions, shownMark, { canReviewHour, canWaiveDeduction });
+    const requestPending = dayRequestPending(mark);
+    const actionMenuOptions = rowMenuOptions(menuOptions, shownMark, {
+        canReviewHour,
+        canWaiveDeduction,
+        pendingApprover: rowDecision?.kind === 'waiting' ? rowDecision.approverName : '',
+    }).map((option) => (
+        requestPending && !(option.key === 'hour_adjust' && /review/i.test(String(option.label || '')))
+            ? { ...option, disabled: true, disabledTitle: PENDING_DATE_REQUEST_TITLE }
+            : option
+    ));
     const spanSeconds = syntheticOt ? null : punchSpanSeconds(rawIn, rawOut, mark?.timeOutDate, mark?.date);
     const durationHours = spanSeconds != null ? spanSeconds / 3600 : workedHoursValue(mark);
     const requiredHours = scheduleDayHours(scheduleWeek, dateKey) || Number(mark?.flexibleRequiredHours) || 0;
@@ -1836,9 +1863,11 @@ function EmployeeRow({
                         {showNextDayPresent || showCompOff ? (
                             <button
                                 type="button"
-                                disabled={rowLocked || !canRequestOt}
+                                disabled={rowLocked || !canRequestOt || (requestPending && !otDirect)}
                                 title={
-                                    canRequestOt
+                                    requestPending && !otDirect
+                                        ? PENDING_DATE_REQUEST_TITLE
+                                        : canRequestOt
                                         ? 'Choose an authorized leave day in this month. That day becomes Present now. HR and the primary reportee are emailed.'
                                         : 'Enable Apply OT and next day present on your permission group'
                                 }
@@ -1852,9 +1881,11 @@ function EmployeeRow({
                         ) : null}
                         <button
                             type="button"
-                            disabled={rowLocked || !canRequestOt}
+                            disabled={rowLocked || !canRequestOt || (requestPending && !otDirect)}
                             title={
-                                canRequestOt
+                                requestPending && !otDirect
+                                    ? PENDING_DATE_REQUEST_TITLE
+                                    : canRequestOt
                                     ? otDirect
                                         ? 'Apply overtime now'
                                         : 'Send this for approval. The day stays unchanged until HR approves.'
@@ -2248,7 +2279,7 @@ export default function MarkAttendanceTable({
 
     useEffect(() => {
         if (!focusRequest || loading || dayLoading || focusRequest.dateKey !== dateKey) return undefined;
-        if (focusRequest.kind === 'hour' && !hrReady) return undefined;
+        if (['hour', 'ot', 'change', 'leave'].includes(focusRequest.kind) && !hrReady) return undefined;
         if (focusStartedRef.current === focusRequest.token) return undefined;
 
         const requestedId = String(focusRequest.employeeId || '').trim();
@@ -2267,11 +2298,20 @@ export default function MarkAttendanceTable({
             setActiveBlinkId('');
             const { kind, employee, mark } = focusRequest;
             if (!kind || !employee || !mark) return;
+            const decision = rowDecisionFor(mark, employee, {
+                isFlowchartHr,
+                viewerId,
+                canApproveLeave,
+                flowchartHrName,
+                inheritedIds: inheritedAttendanceSet,
+            });
             if (kind === 'ot') {
+                if (decision?.kind !== 'ot') return;
                 setOtModal({ employee, mark, mode: 'review' });
                 return;
             }
             if (kind === 'leave') {
+                if (decision?.kind !== 'leave') return;
                 setLeaveDecideError('');
                 setLeaveDecide({
                     employee,
@@ -2281,6 +2321,7 @@ export default function MarkAttendanceTable({
                 return;
             }
             if (kind === 'change') {
+                if (decision?.kind !== 'change') return;
                 const sickChange =
                     String(mark?.pendingChange?.statusKey || '') === 'sick_leave' ||
                     /sick/i.test(String(mark?.pendingChange?.statusLabel || ''));
@@ -2298,6 +2339,7 @@ export default function MarkAttendanceTable({
                 return;
             }
             if (kind === 'hour' && isAuthorizedLeaveHour(mark)) {
+                if (decision?.kind !== 'hour') return;
                 openAuthorizedLeaveDecision(employee, mark, {
                     rejectFirst: String(emailIntent || '').toLowerCase() === 'rejected',
                 });
@@ -2477,6 +2519,19 @@ export default function MarkAttendanceTable({
         if (payload?.markKey === 'clear_attendance' && !isFlowchartHr) return;
         const idSet = new Set(ids);
         if (idSet.size === 0) return;
+        if (!isFlowchartHr) {
+            const blocked = employeesRef.current.filter((employee) => idSet.has(employee.id) && dayRequestPending(marks[employee.id]));
+            if (blocked.length) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Request already pending',
+                    description: blocked.length === 1
+                        ? `${blocked[0].name} already has a request pending for this date.`
+                        : 'A request is already pending for this date. Finish that request before sending another.',
+                });
+                return;
+            }
+        }
         const { markKey, markLabel, timeIn, timeOut, reason, attachmentName, attachmentFile, leavePayType, hourAdjustMode, hoursApproved } = payload;
         const attachmentData = await new Promise((resolve) => {
             if (!attachmentFile) {
@@ -3113,7 +3168,20 @@ export default function MarkAttendanceTable({
                                 </td>
                             </tr>
                         ) : null}
-                        {sortedEmployees.map((employee, index) => (
+                        {sortedEmployees.map((employee, index) => {
+                            const rowMark = marks[employee.id] || null;
+                            const rowDecision = rowDecisionFor(rowMark, employee, {
+                                isFlowchartHr,
+                                viewerId,
+                                canApproveLeave,
+                                flowchartHrName,
+                                inheritedIds: inheritedAttendanceSet,
+                            });
+                            const pendingStage = String(rowMark?.pendingChange?.stage || '');
+                            const waitingOnEarlierStep = pendingStage === 'pending_reportee' || pendingStage === 'pending_requester';
+                            const inheritedOt = inheritedAttendanceSet.has(String(rowMark?.attendanceId || ''))
+                                || inheritedAttendanceSet.has(String(rowMark?.leaveRequestGroupId || ''));
+                            return (
                             <EmployeeRow
                                 key={employee.id}
                                 index={index + 1}
@@ -3121,7 +3189,7 @@ export default function MarkAttendanceTable({
                                 blink={String(activeBlinkId || '') === String(employee.id || '')}
                                 checked={selectedIds.has(employee.id)}
                                 onToggle={toggleOne}
-                                mark={marks[employee.id] || null}
+                                mark={rowMark}
                                 pastDay={pastDay}
                                 dateKey={dateKey}
                                 scheduleWeek={scheduleWeek}
@@ -3142,45 +3210,16 @@ export default function MarkAttendanceTable({
                                     (Boolean(viewerId) &&
                                         viewerId === String(employee.primaryReportee || ''))
                                 }
-                                rowDecision={rowDecisionFor(marks[employee.id] || null, employee, {
-                                    isFlowchartHr,
-                                    viewerId,
-                                    canApproveLeave,
-                                    flowchartHrName,
-                                    inheritedIds: inheritedAttendanceSet,
-                                })}
+                                rowDecision={rowDecision}
                                 deciding={decidingEmployeeId === employee.id}
-                                onDecide={(choice) =>
-                                    decideRowRequest(
-                                        employee,
-                                        rowDecisionFor(marks[employee.id] || null, employee, {
-                                            isFlowchartHr,
-                                            viewerId,
-                                            canApproveLeave,
-                                            flowchartHrName,
-                                            inheritedIds: inheritedAttendanceSet,
-                                        }),
-                                        choice,
-                                    )
-                                }
-                                onOpenRequest={(intent) =>
-                                    openRowRequest(
-                                        employee,
-                                        rowDecisionFor(marks[employee.id] || null, employee, {
-                                            isFlowchartHr,
-                                            viewerId,
-                                            canApproveLeave,
-                                            flowchartHrName,
-                                            inheritedIds: inheritedAttendanceSet,
-                                        }),
-                                        intent,
-                                    )
-                                }
+                                onDecide={(choice) => decideRowRequest(employee, rowDecision, choice)}
+                                onOpenRequest={(intent) => openRowRequest(employee, rowDecision, intent)}
                                 canReviewOt={
-                                    (isFlowchartHr ||
-                                        inheritedAttendanceSet.has(String(marks[employee.id]?.attendanceId || '')) ||
-                                        inheritedAttendanceSet.has(String(marks[employee.id]?.leaveRequestGroupId || ''))) &&
-                                    String(marks[employee.id]?.flexibleOtStatus || '') === 'pending'
+                                    rowDecision?.kind === 'ot' || (
+                                        String(rowMark?.flexibleOtStatus || '') === 'pending' &&
+                                        !waitingOnEarlierStep &&
+                                        (isFlowchartHr || inheritedOt)
+                                    )
                                 }
                                 onRequestOt={(row, mark, intent) =>
                                     setOtModal({
@@ -3188,22 +3227,23 @@ export default function MarkAttendanceTable({
                                         mark,
                                         intent: intent === 'next-day' ? 'next-day' : 'apply',
                                         mode:
-                                            isFlowchartHr &&
-                                                String(mark?.flexibleOtStatus || '') === 'pending'
+                                            rowDecision?.kind === 'ot' ||
+                                            (isFlowchartHr &&
+                                                String(mark?.flexibleOtStatus || '') === 'pending' &&
+                                                !waitingOnEarlierStep)
                                                 ? 'review'
                                                 : 'request',
                                     })
                                 }
                                 onSettleCompOff={setCompOffEmployee}
                                 otDirect={isFlowchartHr}
-                                canReviewHour={
-                                    isFlowchartHr &&
-                                    String(marks[employee.id]?.hourAdjustStatus || '') === 'pending'
-                                }
+                                canReviewHour={rowDecision?.kind === 'hour'}
                                 canWaiveDeduction={isFlowchartHr}
                                 onRequestHour={(row, mark) => {
+                                    const pendingHour = String(mark?.hourAdjustStatus || '') === 'pending';
+                                    if (pendingHour && rowDecision?.kind !== 'hour') return;
                                     if (
-                                        String(mark?.hourAdjustStatus || '') === 'pending' &&
+                                        pendingHour &&
                                         String(mark?.pendingChange?.hourAdjustKind || mark?.hourAdjustKind || '') === 'authorized_leave'
                                     ) {
                                         openAuthorizedLeaveDecision(row, mark);
@@ -3212,18 +3252,18 @@ export default function MarkAttendanceTable({
                                     const next = {
                                         employee: row,
                                         mark,
-                                        mode:
-                                            isFlowchartHr && String(mark?.hourAdjustStatus || '') === 'pending'
-                                                ? 'review'
-                                                : isFlowchartHr
-                                                    ? 'direct'
-                                                    : 'request',
+                                        mode: rowDecision?.kind === 'hour'
+                                            ? 'review'
+                                            : isFlowchartHr
+                                                ? 'direct'
+                                                : 'request',
                                     };
                                     if (isMispunchRequest(mark)) setMispunchModal(next);
                                     else setHourModal(next);
                                 }}
                             />
-                        ))}
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>

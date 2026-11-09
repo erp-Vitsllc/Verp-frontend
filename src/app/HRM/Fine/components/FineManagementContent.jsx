@@ -938,6 +938,7 @@ function FineManagementContent({
                                     >
                                         <option value="All">All Statuses</option>
                                         <option value="Pending">Pending</option>
+                                        <option value="Pending Admin">Pending Admin Officer</option>
                                         <option value="Pending HR">Pending HR</option>
                                         <option value="Pending Accounts">Pending Accounts</option>
                                         <option value="Pending Authorization">Pending Authorization</option>

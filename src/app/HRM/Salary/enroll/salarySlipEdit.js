@@ -44,6 +44,7 @@ export const DEDUCTION_CATALOG = [
     'Unauthorized Leave',
     'Sick Leave',
     'Annual Leave',
+    'Suspended',
     'Late Arrival',
     'Early Out',
     'Salary Advance',
@@ -59,6 +60,7 @@ export const LOSS_OF_PAY_CATALOG = [
     'Late Arrival',
     'Early Out',
     'Annual Leave',
+    'Suspended',
 ];
 
 export const OTHER_DEDUCTION_CATALOG = [
@@ -278,6 +280,7 @@ export function componentMatches(component, name) {
     const b = String(name || '').trim().toLowerCase();
     if (!a || !b) return false;
     if (a === b) return true;
+    if ((a === 'late out' || a === 'early out') && (b === 'late out' || b === 'early out')) return true;
     if (b === 'fine' && a.startsWith('fine')) return true;
     if (b === 'utility excess' && a.includes('utility')) return true;
     if (b === 'sick leave' && (a === 'sick' || a.startsWith('sick'))) return true;
@@ -374,6 +377,7 @@ function deductionMatches(component, name) {
     const b = String(name || '').trim().toLowerCase();
     if (!a || !b) return false;
     if (a === b) return true;
+    if ((a === 'late out' || a === 'early out') && (b === 'late out' || b === 'early out')) return true;
     if (b === 'fine' && a.startsWith('fine')) return true;
     if (b === 'utility excess' && a.includes('utility')) return true;
     if (b === 'sick leave' && (a === 'sick' || a.startsWith('sick'))) return true;

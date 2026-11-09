@@ -35,25 +35,27 @@ function formatAed(value) {
     return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+const MONTH_HEAD = 'whitespace-nowrap text-left text-[11px] font-semibold leading-none text-gray-500';
+
 const MONTH_ROW_GRID =
-    'grid w-full min-w-[1040px] items-center gap-x-2 sm:gap-x-3 ' +
-    'grid-cols-[2.25rem_minmax(7rem,1.05fr)_minmax(6rem,0.9fr)_minmax(5.5rem,0.85fr)_minmax(5.5rem,0.85fr)_minmax(5.5rem,0.85fr)_minmax(5.5rem,0.8fr)_3.25rem_4.25rem_minmax(6.25rem,0.85fr)_minmax(7rem,0.95fr)]';
+    'grid w-full min-w-[1120px] items-center gap-x-3 ' +
+    'grid-cols-[2.25rem_minmax(6.5rem,0.9fr)_minmax(6.75rem,0.85fr)_minmax(7.4rem,0.95fr)_minmax(6.8rem,0.85fr)_minmax(6.4rem,0.8fr)_minmax(6.6rem,0.82fr)_3.25rem_minmax(5.4rem,0.7fr)_minmax(5.2rem,0.68fr)_minmax(6.2rem,0.75fr)]';
 
 const COLUMNS = [
-    { key: 'slNo', label: 'SL', className: 'text-left' },
-    { key: 'month', label: 'Month', className: 'text-left' },
-    { key: 'enrollUser', label: 'Enroll User', className: 'text-left' },
-    { key: 'monthlySalary', label: 'Monthly Salary', className: 'text-left' },
-    { key: 'grossSalary', label: 'Gross Salary', className: 'text-left' },
-    { key: 'actualSalary', label: 'Net Salary', className: 'text-left' },
-    { key: 'basicSalary', label: 'Basic Salary', className: 'text-left' },
-    { key: 'ot', label: 'OT', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
-    { key: 'deduction', label: 'Deduction', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
-    { key: 'processStatus', label: 'Process', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
-    { key: 'paymentStatus', label: 'Payment', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
+    { key: 'slNo', label: 'SL' },
+    { key: 'month', label: 'Month' },
+    { key: 'enrollUser', label: 'Enroll User' },
+    { key: 'monthlySalary', label: 'Monthly Salary' },
+    { key: 'grossSalary', label: 'Gross Salary' },
+    { key: 'actualSalary', label: 'Net Salary' },
+    { key: 'basicSalary', label: 'Basic Salary' },
+    { key: 'ot', label: 'OT' },
+    { key: 'deduction', label: 'Deduction' },
+    { key: 'processStatus', label: 'Process' },
+    { key: 'paymentStatus', label: 'Payment' },
 ];
 const APPROVAL_COL_CLASS =
-    'w-[10.5rem] shrink-0 px-1 text-[9px] font-semibold tracking-normal text-gray-600';
+    'w-[10.5rem] shrink-0 px-1 text-[11px] font-semibold leading-none text-gray-500';
 
 function employeeMatchesCompanyFilter(emp, company) {
     if (!company) return true;
@@ -382,18 +384,11 @@ function SalaryPageContent() {
                         ) : null}
 
                         <div className="w-full max-w-full overflow-x-auto">
-                            <div className="min-w-[880px]">
+                            <div className="min-w-[1120px]">
                                 <div className="flex items-center">
-                                    <div className={`${MONTH_ROW_GRID} min-w-0 flex-1 px-3 sm:px-4 py-2 text-gray-700`}>
+                                    <div className={`${MONTH_ROW_GRID} min-w-0 flex-1 px-3 sm:px-4 py-2`}>
                                         {COLUMNS.map((col) => (
-                                            <span
-                                                key={col.key}
-                                                className={
-                                                    col.compact
-                                                        ? 'text-[9px] font-semibold tracking-normal text-gray-600'
-                                                        : `text-[10px] sm:text-xs font-semibold uppercase tracking-wider ${col.className}`
-                                                }
-                                            >
+                                            <span key={col.key} className={MONTH_HEAD}>
                                                 {col.key === 'enrollUser' && employeeId
                                                     ? 'Employee'
                                                     : col.label}
@@ -458,7 +453,7 @@ function SalaryPageContent() {
                                             >
                                                 <NavButton
                                                     href={`/HRM/Salary/${row.monthKey}`}
-                                                    className={`${MONTH_ROW_GRID} flex-1 min-w-0 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-bold whitespace-nowrap transition-all text-left text-slate-600 hover:text-blue-600 no-underline`}
+                                                    className={`${MONTH_ROW_GRID} flex-1 min-w-0 px-3 sm:px-4 py-2.5 text-[12px] font-medium whitespace-nowrap transition-all text-left text-slate-600 hover:text-blue-600 no-underline`}
                                                 >
                                                     <span className="tabular-nums font-semibold">{row.slNo}</span>
                                                     <span className="truncate">{row.month}</span>
@@ -479,18 +474,18 @@ function SalaryPageContent() {
                                                     <span className="tabular-nums font-semibold">
                                                         {formatAed(row.basicSalary)}
                                                     </span>
-                                                    <span className="tabular-nums text-[11px] text-slate-600">
+                                                    <span className="tabular-nums text-slate-600">
                                                         {formatAed(row.ot)}
                                                     </span>
-                                                    <span className="tabular-nums text-[11px] text-slate-600">
+                                                    <span className="tabular-nums text-slate-600">
                                                         {formatAed(row.deduction)}
                                                     </span>
                                                     <span
                                                         title={row.processStatus || 'Pending'}
                                                         className={
                                                             String(row.processStatus || '') === 'Processed'
-                                                                ? 'text-[11px] font-semibold text-emerald-700'
-                                                                : 'text-[11px] font-semibold text-amber-700'
+                                                                ? 'font-semibold text-emerald-700'
+                                                                : 'font-semibold text-amber-700'
                                                         }
                                                     >
                                                         {row.processStatus || 'Pending'}
@@ -499,10 +494,10 @@ function SalaryPageContent() {
                                                         title={row.paymentStatus || 'Not paid'}
                                                         className={
                                                             row.paymentStatus === 'Paid'
-                                                                ? 'text-[11px] font-semibold text-emerald-700'
+                                                                ? 'font-semibold text-emerald-700'
                                                                 : row.paymentStatus === 'Partially paid'
-                                                                    ? 'text-[11px] font-semibold text-amber-700'
-                                                                    : 'text-[11px] font-semibold text-slate-500'
+                                                                    ? 'font-semibold text-amber-700'
+                                                                    : 'font-semibold text-slate-500'
                                                         }
                                                     >
                                                         {row.paymentStatus || 'Not paid'}

@@ -46,11 +46,12 @@ const FORMULA_DEDUCTIONS = new Set(['Authorized Leave', 'Unauthorized Leave']);
 
 const LOSS_OF_PAY_ROWS = [
     { name: 'Late In', attendanceComponent: 'Late in', group: 'attendance' },
-    { name: 'Late Out', attendanceComponent: 'Late out', group: 'attendance' },
+    { name: 'Early Out', attendanceComponent: 'Early Out', group: 'attendance' },
     { name: 'Missed Punch', attendanceComponent: 'Missed Punch', group: 'attendance' },
     { name: 'Authorized Leave', dayKey: 'authorized', multiplierKey: 'authorized', group: 'leave' },
     { name: 'Unauthorized Leave', dayKey: 'unauthorized', multiplierKey: 'unauthorized', group: 'leave' },
     { name: 'Sandwich Leave', attendanceComponent: 'Sandwich Leave', group: 'leave' },
+    { name: 'Suspended', attendanceComponent: 'Suspended', group: 'attendance' },
     { name: 'Annual Leave', dayKey: 'annual', multiplierKey: 'annual', group: 'leave', hideWhenZero: true },
 ];
 

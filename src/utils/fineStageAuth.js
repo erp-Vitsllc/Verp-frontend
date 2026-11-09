@@ -1,4 +1,5 @@
 const STATUS_ROLE_MAP = {
+    'Pending Admin': 'Admin Officer',
     'Pending HR': 'HR',
     'Pending Review': 'HR',
     'Pending Accounts': 'Accounts',

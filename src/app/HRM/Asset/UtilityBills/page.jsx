@@ -906,17 +906,26 @@ function UtilityBillsPageContent() {
         router.replace(qs ? `/HRM/Asset/UtilityBills?${qs}` : '/HRM/Asset/UtilityBills');
     };
 
-    /** Open activate/deactivate review from pending-inbox click without relying on same-page router.push. */
+    /** Open review from a pending-inbox click. Same-page router.push does not open these modals. */
     const handlePendingActivatePath = useCallback(
         (path) => {
             const href = String(path || '').trim();
             if (!href.includes('/HRM/Asset/UtilityBills')) return false;
             try {
                 const url = new URL(href, 'http://local');
+                const onList = url.pathname.replace(/\/$/, '') === '/HRM/Asset/UtilityBills';
+                if (!onList) return false;
+                const nextHref = href.startsWith('/') ? href : `${url.pathname}${url.search}`;
                 const statusChangeId = String(url.searchParams.get('statusChangeId') || '').trim();
                 if (statusChangeId) {
                     setStatusChangeReviewId(statusChangeId);
-                    router.replace(href.startsWith('/') ? href : `${url.pathname}${url.search}`);
+                    router.replace(nextHref);
+                    return true;
+                }
+                const batchId = String(url.searchParams.get('batchId') || '').trim();
+                if (batchId) {
+                    setReviewBatchId(batchId);
+                    router.replace(nextHref);
                     return true;
                 }
             } catch {

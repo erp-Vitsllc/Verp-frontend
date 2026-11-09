@@ -1222,7 +1222,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
                     try {
                         await onAssetRequest(requestPayload);
-                        toast({ title: 'Success', description: 'Loss/Damage approved. Fine created with status Pending HR.' });
+                        toast({ title: 'Success', description: 'Loss/Damage approved. The fine was created and sent for approval.' });
                         onClose();
                         return;
                     } catch (callbackError) {

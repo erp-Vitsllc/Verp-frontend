@@ -1813,48 +1813,59 @@
 .spcc-paytype__method {
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 4px;
     min-width: 0;
     padding: 6px;
     border: 1px solid #eef2f7;
     border-radius: 10px;
     background: #fff;
+    text-align: center;
 }
 
 .spcc-paytype__pair {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-direction: column;
     gap: 6px;
+    width: 100%;
 }
 
 .spcc-paytype__mini,
 .spcc-paytype__total {
     display: flex;
     flex-direction: column;
+    align-items: center;
     justify-content: center;
     gap: 2px;
     min-width: 0;
-    padding: 6px 7px;
+    width: 100%;
+    padding: 6px 8px;
     border-radius: 8px;
     background: #f8fafc;
     border: 1px solid #eef2f7;
+    text-align: center;
 }
 
 .spcc-paytype__total {
     padding: 8px 10px;
 }
 
+.spcc-paytype .spcc-metric-stat__label {
+    width: 100%;
+    text-align: center;
+}
+
 .spcc-paytype__mini strong,
 .spcc-paytype__total strong {
+    width: 100%;
     font-size: 13px;
     font-weight: 750;
-    letter-spacing: -0.03em;
-    line-height: 1.15;
+    letter-spacing: 0;
+    line-height: 1.2;
     color: var(--spcc-ink);
     font-variant-numeric: tabular-nums;
+    text-align: center;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .spcc-metric-split__tile {
@@ -2500,20 +2511,30 @@
 }
 
 .spcc-pay-wrap {
-    overflow: hidden;
+    overflow-x: auto;
     margin: 0;
     padding: 0;
 }
 
 .spcc-pay-table {
     width: 100%;
-    min-width: 0;
+    min-width: 1080px;
 }
 
 .spcc-pay-row {
     display: grid;
     grid-template-columns:
-        2rem minmax(0, 1.3fr) minmax(0, 0.66fr) minmax(0, 0.66fr) minmax(0, 0.54fr) minmax(0, 0.5fr) minmax(0, 0.62fr) minmax(0, 0.66fr) minmax(2.6rem, 0.38fr) minmax(3.4rem, 0.5fr) minmax(0, 0.82fr);
+        2.4rem
+        minmax(8.75rem, 1.35fr)
+        minmax(7.1rem, 0.9fr)
+        minmax(6.4rem, 0.82fr)
+        minmax(5.3rem, 0.68fr)
+        minmax(4.1rem, 0.5fr)
+        minmax(6.5rem, 0.82fr)
+        minmax(5.9rem, 0.75fr)
+        minmax(3.8rem, 0.46fr)
+        minmax(5.8rem, 0.7fr)
+        minmax(4.4rem, 0.55fr);
     gap: 8px;
     align-items: center;
     padding: 6px 2px;
@@ -2544,14 +2565,14 @@
 }
 
 .spcc-pay-row--head {
-    padding: 0 2px 6px;
-    font-size: 8.5px;
+    padding: 0 2px 8px;
+    font-size: 11px;
     font-weight: 600;
     letter-spacing: 0;
     text-transform: none;
     color: var(--spcc-muted);
     border-bottom: 1px solid var(--spcc-line);
-    white-space: normal;
+    white-space: nowrap;
     line-height: 1.2;
 }
 
@@ -2597,7 +2618,8 @@
 }
 
 .spcc-pay-row--head .spcc-sort {
-    white-space: normal;
+    font-size: 11px;
+    white-space: nowrap;
     line-height: 1.2;
 }
 

@@ -4693,7 +4693,7 @@ function AssetDetailsPageContent() {
                                                 });
                                                 toast({
                                                     title: "Approved",
-                                                    description: "Accessory Loss and Damage approved. Fine created with status Pending HR."
+                                                    description: "Accessory Loss and Damage approved. The fine was created and sent for approval."
                                                 });
                                             } else {
                                                 // Call approve-action for main asset with fineData
@@ -4704,7 +4704,7 @@ function AssetDetailsPageContent() {
                                                 });
                                                 toast({
                                                     title: "Approved",
-                                                    description: "Loss and Damage approved. Fine created with status Pending HR."
+                                                    description: "Loss and Damage approved. The fine was created and sent for approval."
                                                 });
                                             }
                                             setShowDamageModal(false);

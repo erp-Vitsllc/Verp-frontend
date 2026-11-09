@@ -11,14 +11,27 @@ import {
 } from '../../shared/workflowHistory/buildWorkflowHistoryEvents';
 import { isFineAccountsSettlementDone } from '../utils/fineListDisplay';
 
-const FINE_WORKFLOW_STEPS = [
-    { id: 1, label: 'Created', role: 'Creator' },
-    { id: 2, label: 'Requester', role: 'Requester' },
-    { id: 3, label: 'HR', role: 'HR' },
-    { id: 4, label: 'Accounts', role: 'Accounts' },
-    { id: 5, label: 'Management', role: 'Management' },
-    { id: 6, label: 'Make Payment', role: 'Accounts' },
+const FINE_WORKFLOW_STEP_DEFS = [
+    { key: 'created', label: 'Created', role: 'Creator' },
+    { key: 'admin', label: 'Admin Officer', role: 'Admin Officer' },
+    { key: 'requester', label: 'Requester', role: 'Requester' },
+    { key: 'hr', label: 'HR', role: 'HR' },
+    { key: 'accounts', label: 'Accounts', role: 'Accounts' },
+    { key: 'management', label: 'Management', role: 'Management' },
+    { key: 'pay', label: 'Make Payment', role: 'Accounts' },
 ];
+
+function fineHasAdminOfficerStage(fine, workflow = []) {
+    if (String(fine?.fineStatus || '') === 'Pending Admin') return true;
+    return (workflow || []).some((step) => step.role === 'Admin Officer');
+}
+
+function buildFineWorkflowSteps(fine, workflow = []) {
+    const includeAdmin = fineHasAdminOfficerStage(fine, workflow);
+    return FINE_WORKFLOW_STEP_DEFS
+        .filter((step) => step.key !== 'admin' || includeAdmin)
+        .map((step, index) => ({ ...step, id: index + 1 }));
+}
 
 function isHrApprovalDone(fine, workflow = []) {
     return Boolean(fine?.hrApprovedBy) || workflow.some((w) => w.role === 'HR' && w.status === 'Approved');
@@ -40,36 +53,46 @@ function isMakePaymentDone(fine) {
     return isFineAccountsSettlementDone(fine);
 }
 
+function isAdminOfficerApprovalDone(workflow = []) {
+    return workflow.some((step) => step.role === 'Admin Officer' && step.status === 'Approved');
+}
+
 function isFineWorkflowStepApproved(step, fine, workflow = []) {
-    const status = fine?.fineStatus;
-    if (step.id === 1) return true;
-    if (step.id === 2) return String(status || '').toLowerCase() !== 'draft';
-    if (step.id === 3) return isHrApprovalDone(fine, workflow);
-    if (step.id === 4) return isAccountsApprovalDone(fine, workflow);
-    if (step.id === 5) return isManagementApprovalDone(fine, workflow);
-    if (step.id === 6) return isMakePaymentDone(fine);
+    const status = String(fine?.fineStatus || '');
+    if (step.key === 'created') return true;
+    if (step.key === 'admin') return isAdminOfficerApprovalDone(workflow);
+    if (step.key === 'requester') return status.toLowerCase() !== 'draft' && status !== 'Pending Admin';
+    if (step.key === 'hr') return isHrApprovalDone(fine, workflow);
+    if (step.key === 'accounts') return isAccountsApprovalDone(fine, workflow);
+    if (step.key === 'management') return isManagementApprovalDone(fine, workflow);
+    if (step.key === 'pay') return isMakePaymentDone(fine);
     return false;
 }
 
-function isFineWorkflowConnectorGreen(step, fine, workflow = []) {
-    const nextId = step.id + 1;
-    if (nextId === 2) return String(fine?.fineStatus || '').toLowerCase() !== 'draft';
-    if (nextId === 3) return isHrApprovalDone(fine, workflow);
-    if (nextId === 4) return isAccountsApprovalDone(fine, workflow);
-    if (nextId === 5) return isManagementApprovalDone(fine, workflow);
-    if (nextId === 6) return isManagementApprovalDone(fine, workflow);
-    return false;
+function isFineWorkflowConnectorGreen(step, steps, fine, workflow = []) {
+    const next = steps.find((item) => item.id === step.id + 1);
+    if (!next) return false;
+    return isFineWorkflowStepApproved(next, fine, workflow);
 }
 
-function getFineCurrentActiveStepId(fine) {
-    const status = fine?.fineStatus;
-    if (status === 'Draft') return 2;
-    if (status === 'Pending HR' || status === 'Pending Review' || status === 'Pending') return 3;
-    if (status === 'Pending Accounts' || status === 'Pending Finance') return 4;
-    if (status === 'Pending Authorization' || status === 'Pending Management') return 5;
-    if (['Approved', 'Active'].includes(status) && !isMakePaymentDone(fine)) return 6;
-    if (['Approved', 'Active', 'Completed', 'Paid'].includes(status)) return 7;
-    return 2;
+function getFineCurrentActiveStepId(fine, steps, workflow = []) {
+    const status = String(fine?.fineStatus || '');
+    const idFor = (key) => steps.find((step) => step.key === key)?.id || 2;
+    if (status === 'Rejected') {
+        const rejected = (workflow || []).find((step) => step.status === 'Rejected');
+        if (rejected?.role === 'Admin Officer') return idFor('admin');
+        if (rejected?.role === 'HR') return idFor('hr');
+        if (rejected?.role === 'Accounts') return idFor('accounts');
+        if (rejected?.role === 'Management' || rejected?.role === 'CEO') return idFor('management');
+    }
+    if (status === 'Draft') return idFor('requester');
+    if (status === 'Pending Admin') return idFor('admin');
+    if (status === 'Pending HR' || status === 'Pending Review' || status === 'Pending') return idFor('hr');
+    if (status === 'Pending Accounts' || status === 'Pending Finance') return idFor('accounts');
+    if (status === 'Pending Authorization' || status === 'Pending Management') return idFor('management');
+    if (['Approved', 'Active'].includes(status) && !isMakePaymentDone(fine)) return idFor('pay');
+    if (['Approved', 'Active', 'Completed', 'Paid'].includes(status)) return idFor('pay') + 1;
+    return idFor('requester');
 }
 
 function toTitleCase(str) {
@@ -105,8 +128,14 @@ function resolveCreatorName(fine) {
 }
 
 function getFineStepActor(step, fine, workflow) {
-    if (step.id === 1 || step.id === 2) return resolveCreatorName(fine);
-    if (step.id === 3) {
+    if (step.key === 'created' || step.key === 'requester') return resolveCreatorName(fine);
+    if (step.key === 'admin') {
+        const adminStep = workflow.find((w) => w.role === 'Admin Officer');
+        const fromWf = resolvePersonName(adminStep?.assignedTo);
+        if (fromWf) return fromWf;
+        return 'Admin Officer';
+    }
+    if (step.key === 'hr') {
         const hrStep = workflow.find((w) => w.role === 'HR');
         const fromWf = resolvePersonName(hrStep?.assignedTo);
         if (fromWf) return fromWf;
@@ -115,7 +144,7 @@ function getFineStepActor(step, fine, workflow) {
         if (fine.hrHODName && fine.hrHODName !== 'Unknown') return fine.hrHODName;
         return 'HR Manager';
     }
-    if (step.id === 4) {
+    if (step.key === 'accounts') {
         const accStep = workflow.find((w) => w.role === 'Accounts');
         const fromWf = resolvePersonName(accStep?.assignedTo);
         if (fromWf) return fromWf;
@@ -128,7 +157,7 @@ function getFineStepActor(step, fine, workflow) {
         if (fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
         return 'Accounts Officer';
     }
-    if (step.id === 5) {
+    if (step.key === 'management') {
         const mgtStep = workflow.find((w) => w.role === 'Management' || w.role === 'CEO');
         const managementReached = mgtStep && (mgtStep.status === 'Pending' || mgtStep.status === 'Approved');
         if (managementReached) {
@@ -140,7 +169,7 @@ function getFineStepActor(step, fine, workflow) {
         if (fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
         return 'CEO / Management';
     }
-    if (step.id === 6) {
+    if (step.key === 'pay') {
         const fromPayer = resolvePersonName(fine.accountsPaymentBy);
         if (fromPayer) return fromPayer;
         if (fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
@@ -153,18 +182,22 @@ function getFineStepActor(step, fine, workflow) {
 }
 
 function getFineStepDateRaw(step, fine, workflow) {
-    if (step.id <= 2) return fine.createdAt;
-    if (step.id === 4) {
+    if (step.key === 'created' || step.key === 'requester') return fine.createdAt;
+    if (step.key === 'admin') {
+        const adminStep = workflow.find((w) => w.role === 'Admin Officer' && w.status === 'Approved');
+        return adminStep?.actionedAt || null;
+    }
+    if (step.key === 'accounts') {
         const accStep = workflow.find((w) => w.role === 'Accounts' && w.status === 'Approved');
         return accStep?.actionedAt || null;
     }
-    if (step.id === 5) {
+    if (step.key === 'management') {
         const mgtStep = workflow.find(
             (w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved'
         );
         return fine.approvedDate || mgtStep?.actionedAt || null;
     }
-    if (step.id === 6) {
+    if (step.key === 'pay') {
         return fine.accountsPaymentAt || fine.zohoSyncedAt || fine.vendorBillPaidAt || null;
     }
     const wfStep = workflow.find((w) => w.role === step.role && w.status === 'Approved');
@@ -191,14 +224,15 @@ export default function FineWorkflowHistoryPanel({ fine }) {
     const events = useMemo(() => {
         if (!fine) return [];
         const workflow = fine.workflow || [];
+        const steps = buildFineWorkflowSteps(fine, workflow);
         const isRejected = fine.fineStatus === 'Rejected';
-        const currentActive = getFineCurrentActiveStepId(fine);
+        const currentActive = getFineCurrentActiveStepId(fine, steps, workflow);
 
         const workflowEvents = buildWorkflowStepEvents({
-            steps: FINE_WORKFLOW_STEPS,
+            steps,
             workflow,
             isStepApproved: (step) => isFineWorkflowStepApproved(step, fine, workflow),
-            isConnectorGreen: (step) => isFineWorkflowConnectorGreen(step, fine, workflow),
+            isConnectorGreen: (step) => isFineWorkflowConnectorGreen(step, steps, fine, workflow),
             getStepActor: (step) => toTitleCase(getFineStepActor(step, fine, workflow)),
             getStepDate: (step) => getFineStepDateRaw(step, fine, workflow),
             isRejected,
