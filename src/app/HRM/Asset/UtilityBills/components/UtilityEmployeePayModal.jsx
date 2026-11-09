@@ -104,7 +104,6 @@ export default function UtilityEmployeePayModal({
         Boolean(paidById) &&
         Boolean(paymentDate) &&
         Boolean(paymentSource) &&
-        Boolean(attachment?.name) &&
         amountValid &&
         !submitting;
 
@@ -327,7 +326,7 @@ export default function UtilityEmployeePayModal({
 
                     <div>
                         <label className="block text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">
-                            Attachment <span className="text-red-500">*</span>
+                            Attachment <span className="font-medium normal-case tracking-normal text-gray-400">(optional)</span>
                         </label>
                         <label className="flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 border-dashed border-gray-200 hover:border-emerald-400 cursor-pointer bg-gray-50">
                             <FileText size={16} className="text-gray-400" />
