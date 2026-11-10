@@ -269,6 +269,14 @@ export default function LoanRequestDetails() {
                 console.log('Accounts HOD Name from Backend:', loanData.accountsHODName);
             }
             setLoan(loanData);
+            if (loanData?.employeePdfNote) {
+                toast({
+                    title: loanData.employeePdfSent ? 'Sent on WhatsApp' : 'Employee did not get the PDF',
+                    description: loanData.employeePdfNote,
+                    variant: loanData.employeePdfSent ? undefined : 'destructive',
+                    duration: 12000,
+                });
+            }
 
             const empTarget =
                 loanData?.employeeObjectId?._id ||
@@ -726,10 +734,13 @@ export default function LoanRequestDetails() {
         } else if (targetStatus === 'Cancelled') {
             optimisticStatus = 'Cancelled';
         } else if (targetStatus === 'Pending') {
-            optimisticStatus = 'Pending HR';
+            optimisticStatus = loan?.skipAccountsApproval ? 'Pending HR' : 'Pending Accounts';
         } else if (action === 'approve' || targetStatus === 'Approved') {
             if (currentStage === 'Pending' || currentStage === 'Pending HR') {
-                optimisticStatus = 'Pending Accounts';
+                optimisticStatus =
+                    loan?.skipAccountsApproval || loan?.accountsApprovedBy
+                        ? 'Pending Authorization'
+                        : 'Pending Accounts';
             } else if (currentStage === 'Pending Accounts') {
                 optimisticStatus = isLoanAccountsOpeningApproval(loan)
                     ? 'Pending HR'
@@ -950,7 +961,7 @@ export default function LoanRequestDetails() {
                     res?.data?.message ||
                     `${typeLabel} marked paid. Zoho Expense created — Paid to Employee complete.`,
                 className: 'bg-green-50 border-green-200 text-green-800',
-                duration: 6000,
+                duration: 12000,
             });
             clearModuleNotificationFeedsCache();
             notifyLoanPendingInboxChanged();

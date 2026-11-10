@@ -8,14 +8,14 @@ import {
     mergeWorkflowAndPostEvents,
 } from '../../shared/workflowHistory/buildWorkflowHistoryEvents';
 import {
-    LOAN_WORKFLOW_STEPS,
+    getLoanWorkflowSteps,
     getLoanStatusStepId,
     isLoanWorkflowConnectorGreen,
     isLoanWorkflowStepApproved,
     getLoanStepActor,
+    getLoanStepDate,
     toTitleCase,
 } from '../../LoanAndAdvance/utils/loanWorkflowUtils';
-import { isLoanFullyDisbursed } from '../../LoanAndAdvance/utils/loanStatusConstants';
 
 export default function LoanWorkflowHistoryPanel({ loan, typeLabel = 'Loan' }) {
     const events = useMemo(() => {
@@ -27,33 +27,12 @@ export default function LoanWorkflowHistoryPanel({ loan, typeLabel = 'Loan' }) {
         const currentActive = getLoanStatusStepId(loan);
 
         const workflowEvents = buildWorkflowStepEvents({
-            steps: LOAN_WORKFLOW_STEPS,
+            steps: getLoanWorkflowSteps(loan),
             workflow,
             isStepApproved: (step) => isLoanWorkflowStepApproved(step, loan, workflow),
             isConnectorGreen: (step) => isLoanWorkflowConnectorGreen(step, loan, workflow),
             getStepActor: (step) => toTitleCase(getLoanStepActor(step, loan, workflow)),
-            getStepDate: (step) => {
-                if (step.id <= 2) return loan.createdAt;
-                if (step.id === 5) {
-                    const mgtStep = workflow.find(
-                        (w) =>
-                            (w.role === 'Management' || w.role === 'CEO') &&
-                            w.status === 'Approved',
-                    );
-                    return loan.approvedDate || mgtStep?.actionedAt || null;
-                }
-                if (step.id === 6) {
-                    const payStep = workflow.find(
-                        (w) => w.role === 'Paid to Employee' && w.status === 'Approved',
-                    );
-                    return (
-                        payStep?.actionedAt ||
-                        (isLoanFullyDisbursed(loan) || status === 'Paid' ? loan.updatedAt : null)
-                    );
-                }
-                const wfStep = workflow.find((w) => w.role === step.role && w.status === 'Approved');
-                return wfStep?.actionedAt || null;
-            },
+            getStepDate: (step) => getLoanStepDate(step, loan, workflow),
             isRejected,
             currentActiveStepId: isCancelled ? null : currentActive,
             rejectionReason: loan.rejectionReason,

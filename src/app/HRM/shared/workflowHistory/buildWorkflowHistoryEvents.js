@@ -215,7 +215,11 @@ export function enrichManagementStepWithAttachments(workflowEvents, record) {
     if (!links.length) return workflowEvents;
 
     return workflowEvents.map((event) => {
-        if (event.id !== 'workflow-5' || event.badgeVariant !== 'approved') return event;
+        const isManagement =
+            event.stepKey === 'management' ||
+            event.id === 'workflow-5' ||
+            event.id === 'workflow-management';
+        if (!isManagement || event.badgeVariant !== 'approved') return event;
         return { ...event, links };
     });
 }
@@ -464,10 +468,12 @@ export function buildWorkflowStepEvents({
         const isStepPending = currentActiveStepId === step.id && !isRejected;
 
         return {
-            id: `workflow-${step.id}`,
+            id: `workflow-${step.key || step.id}`,
             kind: 'workflow',
             stepNumber: step.id,
+            stepKey: step.key || '',
             label: `${step.label} Stage`,
+            detail: step.detail || '',
             badge: approved
                 ? 'Approved'
                 : isStepRejected
