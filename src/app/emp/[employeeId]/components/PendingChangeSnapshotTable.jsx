@@ -87,6 +87,8 @@ export default function PendingChangeSnapshotTable({
                         </div>
                     ))}
                 </div>
+            ) : diffOnly ? (
+                <p className={`text-xs ${valueTone}`}>No changed fields.</p>
             ) : (
                 <pre
                     className={`rounded-lg border p-3 overflow-auto max-h-[28vh] text-xs whitespace-pre-wrap font-mono ${shell} ${valueTone}`}

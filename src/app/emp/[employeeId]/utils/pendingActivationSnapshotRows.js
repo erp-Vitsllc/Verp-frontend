@@ -280,6 +280,23 @@ function buildWorkDetailsSnapshotRows(data, resolveContext = {}) {
     if (data.overtime !== undefined && data.overtime !== null) {
         pushScalarRow(rows, covered, 'Overtime', data.overtime, 'overtime');
     }
+    if (Object.prototype.hasOwnProperty.call(data, 'zohoCategoryAccountName')) {
+        rows.push({
+            label: 'Category',
+            value: toDisplayValue(data.zohoCategoryAccountName),
+        });
+        covered.add('zohoCategoryAccountName');
+    }
+    if (data.enablePortalAccess !== undefined && data.enablePortalAccess !== null) {
+        rows.push({
+            label: 'Portal Access',
+            value: toDisplayValue(Boolean(data.enablePortalAccess)),
+        });
+        covered.add('enablePortalAccess');
+    }
+    if (Object.prototype.hasOwnProperty.call(data, 'contractExpiryDate')) {
+        pushScalarRow(rows, covered, 'Contract Expiry Date', data.contractExpiryDate, 'contractExpiryDate');
+    }
     if (data.staffType !== undefined && data.staffType !== null && data.staffType !== '') {
         rows.push({ label: 'Work Location', value: workLocationLabel(data.staffType) });
         covered.add('staffType');
@@ -544,54 +561,168 @@ export function scopeSnapshotToProposedKeys(previous = {}, proposed = {}) {
     return out;
 }
 
+const SNAPSHOT_META_KEYS = new Set([
+    '_id',
+    '__v',
+    'createdAt',
+    'updatedAt',
+    'lastUpdated',
+    'employeeId',
+    'passportExp',
+    'eidExp',
+    'medExp',
+]);
+
+const CHANGED_KEY_LABELS = {
+    company: 'Company',
+    department: 'Department',
+    designation: 'Designation',
+    status: 'Work Status',
+    dateOfJoining: 'Date Of Joining',
+    contractJoiningDate: 'Contract Joining Date',
+    contractExpiryDate: 'Contract Expiry Date',
+    companyEmail: 'Company Email',
+    staffType: 'Work Location',
+    overtime: 'Overtime',
+    primaryReportee: 'Primary Reportee',
+    secondaryReportee: 'Secondary Reportee',
+    reportingAuthority: 'Reporting Authority',
+    probationPeriod: 'Probation Period (months)',
+    zohoCategoryAccountName: 'Category',
+    zohoCategoryAccountId: 'Category',
+    zohoCategoryOrganizationId: 'Category',
+    enablePortalAccess: 'Portal Access',
+};
+
+function canonicalSnapshotValue(value) {
+    if (value == null || value === '') return '';
+    if (typeof value === 'boolean') return value ? '1' : '0';
+    if (typeof value === 'number') return String(value);
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+    if (typeof value === 'string') {
+        const text = value.trim();
+        if (/^(true|false)$/i.test(text)) return text.toLowerCase() === 'true' ? '1' : '0';
+        if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+        if (/^[a-fA-F0-9]{24}$/.test(text)) return text;
+        return text;
+    }
+    if (Array.isArray(value)) {
+        try {
+            return JSON.stringify(value.map((item) => canonicalSnapshotValue(item)));
+        } catch {
+            return '';
+        }
+    }
+    if (typeof value === 'object') {
+        const file = String(value.publicId || value.url || value.data || '').split('?')[0].trim();
+        if (file && (value.url || value.publicId || value.data)) return file;
+        const id = String(value._id || value.id || value.$oid || '').trim();
+        const looksLikeRecord =
+            value.number || value.expiryDate || value.issueDate || value.department || value.designation;
+        if (id && /^[a-fA-F0-9]{24}$/.test(id) && !looksLikeRecord) return id;
+        try {
+            return JSON.stringify(value);
+        } catch {
+            return id;
+        }
+    }
+    return String(value).trim();
+}
+
+function listChangedSnapshotKeys(previous, proposed) {
+    if (!proposed || typeof proposed !== 'object' || Array.isArray(proposed)) return [];
+    const prev = previous && typeof previous === 'object' && !Array.isArray(previous) ? previous : {};
+    const keys = Object.keys(proposed).filter((key) => !SNAPSHOT_META_KEYS.has(key));
+    const changed = keys.filter((key) => {
+        const hasPrev = Object.prototype.hasOwnProperty.call(prev, key);
+        if (!hasPrev) return canonicalSnapshotValue(proposed[key]) !== '';
+        return canonicalSnapshotValue(prev[key]) !== canonicalSnapshotValue(proposed[key]);
+    });
+    const categoryNameChanged = changed.includes('zohoCategoryAccountName');
+    if (categoryNameChanged) {
+        return changed.filter(
+            (key) => key !== 'zohoCategoryAccountId' && key !== 'zohoCategoryOrganizationId',
+        );
+    }
+    return changed;
+}
+
+function labelsForChangedKey(key) {
+    if (key === 'status') return ['Work Status', 'Status'];
+    const label = CHANGED_KEY_LABELS[key];
+    return label ? [label] : [toLabel(key)];
+}
+
+function rowCoversKey(rows, key) {
+    const labels = labelsForChangedKey(key);
+    return rows.some((row) => labels.includes(row.label));
+}
+
+function fallbackChangedRow(key, value) {
+    return {
+        label: labelsForChangedKey(key)[0],
+        value: toDisplayValue(value),
+    };
+}
+
 /**
- * Prior / proposed row lists limited to labels where displayed value or document URL differs.
- * Rows are paired by label (same order on both sides). Only proposed-side fields are considered
- * so partial update payloads do not surface untouched current-card fields.
- * Falls back to proposed-scoped rows if no differences are detected (legacy / shape mismatch).
+ * Prior / proposed row lists limited to fields whose value actually changed.
+ * Unchanged card fields stay hidden. Each changed field is paired on both sides.
  */
 export function filterSnapshotRowsToChangesOnly(entry, options = {}) {
     const prevDataFull = resolveActivationSnapshot(entry, 'previous');
     const propData = resolveActivationSnapshot(entry, 'proposed');
-    const prevData = scopeSnapshotToProposedKeys(prevDataFull, propData);
     const rowOpts = { entry, resolveContext: options.resolveContext || {} };
-    const prevRows = buildActivationSnapshotRows(prevData, rowOpts);
-    const propRows = buildActivationSnapshotRows(propData, rowOpts);
-    if (!propRows.length && !prevRows.length) {
-        return { previousRows: prevRows, proposedRows: propRows, usedFullFallback: false };
+    const changedKeys = listChangedSnapshotKeys(prevDataFull, propData);
+    if (!changedKeys.length) {
+        return { previousRows: [], proposedRows: [], usedFullFallback: false };
+    }
+
+    const changedProposed = {};
+    const changedPrevious = {};
+    for (const key of changedKeys) {
+        changedProposed[key] = propData[key];
+        if (prevDataFull && Object.prototype.hasOwnProperty.call(prevDataFull, key)) {
+            changedPrevious[key] = prevDataFull[key];
+        }
+    }
+
+    const prevRows = buildActivationSnapshotRows(changedPrevious, rowOpts);
+    const propRows = buildActivationSnapshotRows(changedProposed, rowOpts);
+    for (const key of changedKeys) {
+        if (!rowCoversKey(propRows, key)) propRows.push(fallbackChangedRow(key, propData[key]));
+        if (!rowCoversKey(prevRows, key)) {
+            const prevValue =
+                prevDataFull && Object.prototype.hasOwnProperty.call(prevDataFull, key)
+                    ? prevDataFull[key]
+                    : null;
+            prevRows.push(fallbackChangedRow(key, prevValue));
+        }
     }
 
     const prevByLabel = new Map();
-    for (const r of prevRows) {
-        if (!prevByLabel.has(r.label)) prevByLabel.set(r.label, r);
+    for (const row of prevRows) {
+        if (!prevByLabel.has(row.label)) prevByLabel.set(row.label, row);
     }
     const propByLabel = new Map();
-    for (const r of propRows) {
-        if (!propByLabel.has(r.label)) propByLabel.set(r.label, r);
+    for (const row of propRows) {
+        if (!propByLabel.has(row.label)) propByLabel.set(row.label, row);
     }
 
-    const changedLabels = [];
-    const seen = new Set();
-    for (const pr of propRows) {
-        const oldR = prevByLabel.get(pr.label);
-        const differs =
-            !oldR || activationSnapshotRowSignature(oldR) !== activationSnapshotRowSignature(pr);
-        if (!differs || seen.has(pr.label)) continue;
-        seen.add(pr.label);
-        changedLabels.push(pr.label);
+    const labels = [];
+    for (const row of propRows) {
+        if (!labels.includes(row.label)) labels.push(row.label);
+    }
+    for (const row of prevRows) {
+        if (!labels.includes(row.label)) labels.push(row.label);
     }
 
     const placeholder = (label) => ({ label, value: '-' });
-    const pairRows = (labels) => ({
+    return {
         previousRows: labels.map((label) => prevByLabel.get(label) || placeholder(label)),
         proposedRows: labels.map((label) => propByLabel.get(label) || placeholder(label)),
-    });
-
-    if (changedLabels.length === 0) {
-        const propLabels = propRows.map((r) => r.label);
-        return { ...pairRows(propLabels), usedFullFallback: true };
-    }
-    return { ...pairRows(changedLabels), usedFullFallback: false };
+        usedFullFallback: false,
+    };
 }
 
 export function formatSnapshotFallbackJson(value) {

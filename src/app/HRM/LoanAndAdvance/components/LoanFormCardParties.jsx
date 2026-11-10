@@ -12,6 +12,7 @@ import {
     FineFormCard,
     formatMoney,
 } from '../../Fine/components/FineFormCardShared';
+import { isLoanAccountsOpeningApproval } from '../utils/loanWorkflowUtils';
 
 const compactSelectStyles = {
     control: (base, state) => ({
@@ -548,6 +549,10 @@ export default function LoanFormCardParties({
         }
         if (status === 'Paid' || (total > 0 && paid >= total - 0.01)) {
             return { label: 'Paid — Zoho missing (retry)', className: 'text-amber-700' };
+        }
+
+        if (isLoanAccountsOpeningApproval(loan)) {
+            return { label: 'Approve only. Payment is filled after HR.', className: 'text-gray-500' };
         }
 
         const atOrAfterAccounts = [

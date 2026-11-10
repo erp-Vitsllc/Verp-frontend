@@ -33,6 +33,7 @@ import {
     canAccountsCollectLoanRepayment,
 } from '../utils/loanPaymentPrefill';
 import { getLoanRepaymentBalance } from '../utils/loanStatusConstants';
+import { isLoanAccountsOpeningApproval } from '../utils/loanWorkflowUtils';
 import FinePayChoiceModal from '@/app/HRM/Fine/components/FinePayChoiceModal';
 import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
 import LoanEmployeePayModal from '../components/LoanEmployeePayModal';
@@ -681,7 +682,7 @@ export default function LoanRequestDetails() {
         }
 
         const loanStage = loan?.approvalStatus || loan?.status;
-        if (action === 'approve' && loanStage === 'Pending Accounts') {
+        if (action === 'approve' && loanStage === 'Pending Accounts' && !isLoanAccountsOpeningApproval(loan)) {
             if (!String(loan?.expenseAccountId || '').trim()) {
                 toast({
                     title: 'Expense Account required',
@@ -730,7 +731,9 @@ export default function LoanRequestDetails() {
             if (currentStage === 'Pending' || currentStage === 'Pending HR') {
                 optimisticStatus = 'Pending Accounts';
             } else if (currentStage === 'Pending Accounts') {
-                optimisticStatus = 'Pending Authorization';
+                optimisticStatus = isLoanAccountsOpeningApproval(loan)
+                    ? 'Pending HR'
+                    : 'Pending Authorization';
             } else if (currentStage === 'Pending Authorization') {
                 optimisticStatus = 'Pending Payment to Employee';
             }
@@ -1239,7 +1242,9 @@ export default function LoanRequestDetails() {
 
                                     // 1) Pending Accounts — first Accounts edit (approve stage)
                                     const atAccountsStage =
-                                        status === 'Pending Accounts' && canApproveLoan();
+                                        status === 'Pending Accounts' &&
+                                        canApproveLoan() &&
+                                        !isLoanAccountsOpeningApproval(loan);
 
                                     // 2) Pay to Employee — second Accounts edit before Mark Paid / Zoho
                                     const atPayToEmployee =

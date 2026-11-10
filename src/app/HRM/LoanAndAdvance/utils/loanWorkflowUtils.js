@@ -13,6 +13,18 @@ export const LOAN_WORKFLOW_STEPS = [
     { id: 6, label: 'Paid to Employee', role: 'Paid to Employee' },
 ];
 
+/** First Accounts step on a normal-employee loan: approve only, no payment fields. */
+export function isLoanAccountsOpeningApproval(loan) {
+    const status = String(loan?.approvalStatus || loan?.status || '').trim();
+    if (status !== 'Pending Accounts') return false;
+    if (loan?.accountsFirst !== true) return false;
+    if (loan?.hrApprovedBy) return false;
+    const workflow = Array.isArray(loan?.workflow) ? loan.workflow : [];
+    return !workflow.some(
+        (step) => (step?.role === 'HR' || step?.role === 'HR Admin') && step?.status === 'Approved',
+    );
+}
+
 export function getLoanStatusStepId(loan) {
     const status = loan?.approvalStatus || loan?.status;
     if (isLoanFullyDisbursed(loan)) return 6;
@@ -49,7 +61,17 @@ export function isLoanWorkflowStepApproved(step, loan, workflow = []) {
     if (step.id === 1) return true;
     if (step.id === 2) return String(status || '').toLowerCase() !== 'draft';
     if (step.id === 3) return workflow.some((w) => w.role === 'HR' && w.status === 'Approved');
-    if (step.id === 4) return workflow.some((w) => w.role === 'Accounts' && w.status === 'Approved');
+    if (step.id === 4) {
+        if (loan?.accountsFirst && !loan?.accountsApprovedBy) {
+            const hrDone =
+                Boolean(loan?.hrApprovedBy) ||
+                workflow.some(
+                    (w) => (w.role === 'HR' || w.role === 'HR Admin') && w.status === 'Approved',
+                );
+            if (hrDone) return false;
+        }
+        return workflow.some((w) => w.role === 'Accounts' && w.status === 'Approved');
+    }
     if (step.id === 5) {
         return workflow.some(
             (w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved'
@@ -64,7 +86,17 @@ export function isLoanWorkflowConnectorGreen(step, loan, workflow = []) {
     const nextId = step.id + 1;
     if (nextId === 2) return String(status || '').toLowerCase() !== 'draft';
     if (nextId === 3) return workflow.some((w) => w.role === 'HR' && w.status === 'Approved');
-    if (nextId === 4) return workflow.some((w) => w.role === 'Accounts' && w.status === 'Approved');
+    if (nextId === 4) {
+        if (loan?.accountsFirst && !loan?.accountsApprovedBy) {
+            const hrDone =
+                Boolean(loan?.hrApprovedBy) ||
+                workflow.some(
+                    (w) => (w.role === 'HR' || w.role === 'HR Admin') && w.status === 'Approved',
+                );
+            if (hrDone) return false;
+        }
+        return workflow.some((w) => w.role === 'Accounts' && w.status === 'Approved');
+    }
     if (nextId === 5) {
         return (
             workflow.some(
