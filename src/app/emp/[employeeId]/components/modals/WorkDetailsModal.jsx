@@ -5,7 +5,8 @@ import { createPortal } from 'react-dom';
 import axiosInstance from '@/utils/axios';
 import DropdownWithDelete from '@/components/ui/DropdownWithDelete';
 import ZohoPayAccountSelect from '@/app/HRM/Asset/Vehicle/components/ZohoPayAccountSelect';
-import { useCompanyZohoOrganizationId } from '@/hooks/useCompanyZohoOrganizationId';
+import ZohoOrganizationPicker from '@/components/ZohoOrganizationPicker';
+import { useZohoOrganizations } from '@/hooks/useZohoOrganizations';
 import AddDepartmentModal from '@/app/HRM/Department/components/AddDepartmentModal';
 import AddDesignationModal from '@/app/HRM/Designation/components/AddDesignationModal';
 import AddWorkLocationModal from '@/app/HRM/WorkLocation/components/AddWorkLocationModal';
@@ -672,19 +673,20 @@ export default function WorkDetailsModal({
         [activeCompanies],
     );
 
-    const selectedCompanyRow = useMemo(() => {
-        const companyId = typeof form.company === 'object'
-            ? String(form.company?._id || form.company?.id || '')
-            : String(form.company || '');
-        if (!companyId) return null;
-        return companies.find((company) => String(company?._id || company?.id || '') === companyId) || null;
-    }, [companies, form.company]);
+    const selectedCompanyId = typeof form.company === 'object'
+        ? String(form.company?._id || form.company?.id || '')
+        : String(form.company || '');
 
-    const { organizationId: selectedCompanyZohoOrgId, loading: categoryOrgLoading } = useCompanyZohoOrganizationId({
-        companyId: selectedCompanyRow?._id || (typeof form.company === 'object' ? form.company?._id : form.company) || '',
-        companyName: selectedCompanyRow?.name || selectedCompanyRow?.nickName || '',
-        explicitOrganizationId: selectedCompanyRow?.zohoOrganizationId || '',
-        enabled: isOpen && Boolean(form.company),
+    const {
+        options: zohoOrgOptions,
+        organizationId: categoryZohoOrgId,
+        setOrganizationId: setCategoryZohoOrgId,
+        loading: categoryOrgLoading,
+    } = useZohoOrganizations({
+        enabled: isOpen,
+        preferredOrganizationId: String(form.zohoCategoryOrganizationId || '').trim(),
+        preferredCompanyId: selectedCompanyId,
+        rememberSelection: false,
     });
 
     const secondaryReporteeOptions = useMemo(
@@ -702,23 +704,6 @@ export default function WorkDetailsModal({
         }
         if (field === 'secondaryReportee' && value && value === updatedForm.primaryReportee) {
             updatedForm.secondaryReportee = '';
-        }
-
-        if (field === 'company') {
-            const companyIdOf = (companyValue) => {
-                if (!companyValue) return '';
-                if (typeof companyValue === 'object') return String(companyValue._id || companyValue.id || '');
-                return String(companyValue);
-            };
-            const orgOf = (companyValue) => {
-                const id = companyIdOf(companyValue);
-                const row = companies.find((company) => String(company?._id || company?.id || '') === id);
-                return String(row?.zohoOrganizationId || '').trim();
-            };
-            if (orgOf(form.company) !== orgOf(processedValue)) {
-                updatedForm.zohoCategoryAccountId = '';
-                updatedForm.zohoCategoryAccountName = '';
-            }
         }
 
         if (field === 'status' && value === 'Probation' && employee?.status === 'Left User') {
@@ -1035,10 +1020,31 @@ export default function WorkDetailsModal({
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                 Category
                             </label>
-                            <div className="w-full md:flex-1 flex flex-col gap-1">
-                                {selectedCompanyZohoOrgId ? (
+                            <div className="w-full md:flex-1 flex flex-col gap-2">
+                                <ZohoOrganizationPicker
+                                    options={zohoOrgOptions}
+                                    value={categoryZohoOrgId}
+                                    loading={categoryOrgLoading}
+                                    disabled={submitting}
+                                    size="sm"
+                                    onChange={(nextId) => {
+                                        const id = String(nextId || '').trim();
+                                        setCategoryZohoOrgId(id);
+                                        setForm((prev) => {
+                                            const previousOrg = String(prev.zohoCategoryOrganizationId || categoryZohoOrgId || '').trim();
+                                            const orgChanged = Boolean(previousOrg) && previousOrg !== id;
+                                            return {
+                                                ...prev,
+                                                zohoCategoryOrganizationId: id,
+                                                zohoCategoryAccountId: orgChanged ? '' : prev.zohoCategoryAccountId,
+                                                zohoCategoryAccountName: orgChanged ? '' : prev.zohoCategoryAccountName,
+                                            };
+                                        });
+                                    }}
+                                />
+                                {categoryZohoOrgId ? (
                                     <ZohoPayAccountSelect
-                                        organizationId={selectedCompanyZohoOrgId}
+                                        organizationId={categoryZohoOrgId}
                                         value={form.zohoCategoryAccountId || ''}
                                         name={form.zohoCategoryAccountName || ''}
                                         placeholder="Select category"
@@ -1046,6 +1052,7 @@ export default function WorkDetailsModal({
                                         onChange={({ id, name }) => {
                                             setForm((prev) => ({
                                                 ...prev,
+                                                zohoCategoryOrganizationId: categoryZohoOrgId || prev.zohoCategoryOrganizationId || '',
                                                 zohoCategoryAccountId: id || '',
                                                 zohoCategoryAccountName: name || '',
                                             }));
@@ -1054,14 +1061,12 @@ export default function WorkDetailsModal({
                                 ) : (
                                     <div className="flex h-10 items-center rounded-xl border border-[#E5E7EB] bg-gray-50 px-3 text-sm text-gray-400">
                                         {categoryOrgLoading
-                                            ? 'Loading Zoho accounts…'
-                                            : form.company
-                                              ? 'This company has no Zoho organization'
-                                              : 'Select a company first'}
+                                            ? 'Loading Zoho organizations…'
+                                            : 'VEGA and NNIT are not connected'}
                                     </div>
                                 )}
                                 <p className="text-xs text-gray-400">
-                                    Zoho Chart of Accounts for the company selected above.
+                                    Choose VEGA or NNIT, then pick an account from that organization&apos;s chart of accounts.
                                 </p>
                             </div>
                         </div>

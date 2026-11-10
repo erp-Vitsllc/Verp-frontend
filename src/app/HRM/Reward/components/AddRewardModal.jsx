@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { X, Search, ChevronDown, Check } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { isEmployeeSuspendedStage, suspendedApplicationMessage } from '@/utils/employeeSuspendedStage';
 
 export default function AddRewardModal({ isOpen, onClose, onSuccess, employees = [], initialData = null, isEditing = false, isResubmitting = false }) {
     const { toast } = useToast();
@@ -61,6 +62,14 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
         }
     }, [isOpen, initialData, isEditing, isResubmitting]);
 
+    useEffect(() => {
+        if (!isOpen || (isEditing && !isResubmitting) || !selectedEmployeeId) return;
+        const employee = employees.find((emp) => emp.employeeId === selectedEmployeeId);
+        if (!isEmployeeSuspendedStage(employee)) return;
+        const message = suspendedApplicationMessage('a reward');
+        setErrors((prev) => (prev.employeeId === message ? prev : { ...prev, employeeId: message }));
+    }, [isOpen, isEditing, isResubmitting, selectedEmployeeId, employees]);
+
     if (!isOpen) return null;
 
     const validateForm = () => {
@@ -68,6 +77,8 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
 
         if (!selectedEmployeeId) {
             newErrors.employeeId = 'Please select an employee';
+        } else if ((!isEditing || isResubmitting) && isEmployeeSuspendedStage(selectedEmployee)) {
+            newErrors.employeeId = suspendedApplicationMessage('a reward');
         }
 
         if (!selectedRewardType) {
@@ -304,7 +315,12 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                                                             setSelectedEmployeeId(emp.employeeId);
                                                             setIsDropdownOpen(false);
                                                             setSearchQuery('');
-                                                            if (errors.employeeId) {
+                                                            if ((!isEditing || isResubmitting) && isEmployeeSuspendedStage(emp)) {
+                                                                setErrors(prev => ({
+                                                                    ...prev,
+                                                                    employeeId: suspendedApplicationMessage('a reward'),
+                                                                }));
+                                                            } else if (errors.employeeId) {
                                                                 setErrors(prev => ({ ...prev, employeeId: '' }));
                                                             }
                                                         }}
@@ -361,7 +377,16 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                                         giftName: '',
                                         title: ''
                                     });
-                                    setErrors({});
+                                    setErrors((prev) => {
+                                        if (
+                                            (!isEditing || isResubmitting) &&
+                                            isEmployeeSuspendedStage(selectedEmployee) &&
+                                            prev.employeeId
+                                        ) {
+                                            return { employeeId: prev.employeeId };
+                                        }
+                                        return {};
+                                    });
                                 }}
                                 className={`w-full h-10 px-3 rounded-xl border ${errors.rewardType ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                 disabled={submitting}

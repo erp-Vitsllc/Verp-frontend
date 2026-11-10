@@ -18,6 +18,7 @@ import {
     formatOverrideConfirmDescription,
     VISA_REPAYMENT_LIMIT_MSG,
 } from '../utils/loanEligibilityWarnings';
+import { isEmployeeSuspendedStage, suspendedApplicationMessage } from '@/utils/employeeSuspendedStage';
 
 function withHodContact(message) {
     const text = String(message || '').trim();
@@ -114,6 +115,7 @@ export default function AddLoanModal({
                         salary,
                         visaExpiry,
                         visaType,
+                        attendanceAccountStatus: employeeDetails.attendanceAccountStatus,
                     });
                     if (initialData.type === 'Loan' && visaExpiry) {
                         const expiryDate = new Date(visaExpiry);
@@ -382,6 +384,15 @@ export default function AddLoanModal({
             }
             return newErrs;
         });
+
+        const applying = !scheduleOnlyEdit && (!initialData || isResubmitting);
+        if (applying && isEmployeeSuspendedStage(employee)) {
+            const kind = String(type || '').toLowerCase().includes('advance') ? 'an advance' : 'a loan';
+            const message = suspendedApplicationMessage(kind);
+            setEligibilityWarning(message);
+            setErrors((prev) => ({ ...prev, employeeId: message }));
+            return;
+        }
 
         const { hardBlocks, overrideable, maxDuration: nextMax } = collectLoanEligibilityIssues(
             employee,

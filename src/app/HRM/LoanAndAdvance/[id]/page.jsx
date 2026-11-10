@@ -621,7 +621,8 @@ export default function LoanRequestDetails() {
                     status: rawEmp.status,
                     salary: salary,
                     visaExpiry: visaExpiry,
-                    visaType: visaType
+                    visaType: visaType,
+                    attendanceAccountStatus: rawEmp.attendanceAccountStatus,
                 };
 
                 setEditEmployeeData([mappedEmp]);

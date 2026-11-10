@@ -15,6 +15,7 @@ export function useZohoOrganizations({
     enabled = true,
     preferredOrganizationId = '',
     preferredCompanyId = '',
+    rememberSelection = true,
 } = {}) {
     const [loading, setLoading] = useState(Boolean(enabled));
     const [error, setError] = useState('');
@@ -82,16 +83,16 @@ export function useZohoOrganizations({
         if (!next) return;
         setOrganizationIdState((prev) => {
             if (prev === next) return prev;
-            rememberZohoOrganizationId(next);
+            if (rememberSelection) rememberZohoOrganizationId(next);
             return next;
         });
-    }, [defaultOrganizationId, options, preferredCompanyId, preferredOrganizationId]);
+    }, [defaultOrganizationId, options, preferredCompanyId, preferredOrganizationId, rememberSelection]);
 
     const setOrganizationId = useCallback((nextId) => {
         const id = String(nextId || '').trim();
         setOrganizationIdState(id);
-        rememberZohoOrganizationId(id);
-    }, []);
+        if (rememberSelection) rememberZohoOrganizationId(id);
+    }, [rememberSelection]);
 
     const active = useMemo(
         () => options.find((opt) => opt.organizationId === organizationId) || null,

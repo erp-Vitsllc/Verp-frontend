@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import {
     ChevronDown,
     ChevronUp,
@@ -23,11 +23,10 @@ import SalaryZohoJournalModal from './SalaryZohoJournalModal';
 import SalarySlotExpenseModal from './SalarySlotExpenseModal';
 import { monthPayrollProcessStatusLabel, payrollPendingForLabel } from '../utils/payrollApprovalStatus';
 import {
-    handleNavigateFromListClick,
-    navigateFromList,
     rememberListFilterStep,
     replaceNavigationUrl,
 } from '@/utils/listReturnNavigation';
+import { openLinkInNewTab } from '@/utils/linkContextMenu';
 import { salarySlipMonthHref } from '../enroll/salarySlipEdit';
 import WorkflowHistoryTimeline from '../../shared/workflowHistory/WorkflowHistoryTimeline';
 import { buildFineListPath } from '@/utils/fineNotificationRouting';
@@ -1356,11 +1355,9 @@ function PayrollBlockersModal({
     requests,
     employeeName,
     sending,
-    listReturnHref,
     onClose,
     onSendReminders,
 }) {
-    const router = useRouter();
     if (!open || typeof document === 'undefined') return null;
 
     const visible = Array.isArray(requests) ? requests : [];
@@ -1413,14 +1410,9 @@ function PayrollBlockersModal({
                                     <Link
                                         href={blockerReviewHref(item)}
                                         className="spcc-blockers__review"
-                                        onClick={(event) =>
-                                            handleNavigateFromListClick(
-                                                event,
-                                                router,
-                                                blockerReviewHref(item),
-                                                listReturnHref,
-                                            )
-                                        }
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        title="Open in a new tab"
                                     >
                                         Review
                                     </Link>
@@ -1471,7 +1463,6 @@ function payrollViewFromSearch(searchParams) {
 }
 
 export default function SalaryMonthControlCentre({ monthKey }) {
-    const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const payrollStage = String(searchParams?.get('payrollStage') || '').trim().toLowerCase();
@@ -1795,8 +1786,6 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         setTabMode(mode);
         rememberListFilterStep(payrollViewHref(tabKey, mode));
     }, [payrollViewHref]);
-
-    const listReturnHref = payrollViewHref(tab, tabMode);
 
     useLayoutEffect(() => {
         setTab(queryView.tab);
@@ -3024,11 +3013,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                                 }}
                                                                 onDoubleClick={() => {
                                                                     if (!id || !parsed?.monthKey) return;
-                                                                    navigateFromList(
-                                                                        router,
-                                                                        salarySlipMonthHref(id, parsed.monthKey),
-                                                                        listReturnHref,
-                                                                    );
+                                                                    openLinkInNewTab(salarySlipMonthHref(id, parsed.monthKey));
                                                                 }}
                                                             >
                                                                 <span className="tabular-nums">{index + 1}</span>
@@ -3322,7 +3307,6 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         requests={blockerRequests}
                         employeeName={blockerEmployeeName}
                         sending={sendingReminders}
-                        listReturnHref={listReturnHref}
                         onClose={() => {
                             setBlockersOpen(false);
                             setBlockerEmployeeId('');

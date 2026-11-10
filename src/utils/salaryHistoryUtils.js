@@ -268,6 +268,7 @@ export function salaryEntryToFormValues(entry) {
             fuelAllowance: '',
             otherAllowance: '',
             totalSalary: '0.00',
+            zohoAccountOrganizationId: '',
             zohoAccountId: '',
             zohoAccountName: '',
         };
@@ -303,6 +304,7 @@ export function salaryEntryToFormValues(entry) {
         fuelAllowance: fuel,
         otherAllowance: other,
         totalSalary: total,
+        zohoAccountOrganizationId: String(entry.zohoAccountOrganizationId || '').trim(),
         zohoAccountId: String(entry.zohoAccountId || '').trim(),
         zohoAccountName: String(entry.zohoAccountName || '').trim(),
     };

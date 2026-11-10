@@ -3,7 +3,8 @@
 import { useMemo, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import ZohoPayAccountSelect from '@/app/HRM/Asset/Vehicle/components/ZohoPayAccountSelect';
-import { useCompanyZohoOrganizationId } from '@/hooks/useCompanyZohoOrganizationId';
+import ZohoOrganizationPicker from '@/components/ZohoOrganizationPicker';
+import { useZohoOrganizations } from '@/hooks/useZohoOrganizations';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import {
     formatSalaryMonthYear,
@@ -37,17 +38,21 @@ export default function SalaryModal({
     const { toast } = useToast();
     const offerLetterFileRef = useRef(null);
     const salaryCompany = employee?.company;
-    const { organizationId: salaryZohoOrgId, loading: salaryZohoOrgLoading } = useCompanyZohoOrganizationId({
-        companyId: typeof salaryCompany === 'object'
-            ? (salaryCompany?._id || salaryCompany?.id || '')
-            : (salaryCompany || ''),
-        companyName: typeof salaryCompany === 'object'
-            ? (salaryCompany?.name || salaryCompany?.nickName || '')
-            : '',
-        explicitOrganizationId: typeof salaryCompany === 'object'
-            ? salaryCompany?.zohoOrganizationId
-            : '',
-        enabled: isOpen && Boolean(salaryCompany),
+    const salaryCompanyId = typeof salaryCompany === 'object'
+        ? String(salaryCompany?._id || salaryCompany?.id || '')
+        : String(salaryCompany || '');
+    const {
+        options: zohoOrgOptions,
+        organizationId: salaryZohoOrgId,
+        setOrganizationId: setSalaryZohoOrgId,
+        loading: salaryZohoOrgLoading,
+    } = useZohoOrganizations({
+        enabled: isOpen,
+        preferredOrganizationId: String(
+            salaryForm.zohoAccountOrganizationId || employee?.zohoCategoryOrganizationId || '',
+        ).trim(),
+        preferredCompanyId: salaryCompanyId,
+        rememberSelection: false,
     });
 
     const previousSalaryEndPreview = useMemo(() => {
@@ -334,7 +339,28 @@ export default function SalaryModal({
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
                                 Employee Zoho Account
                             </label>
-                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                            <div className="w-full md:flex-1 flex flex-col gap-2">
+                                <ZohoOrganizationPicker
+                                    options={zohoOrgOptions}
+                                    value={salaryZohoOrgId}
+                                    loading={salaryZohoOrgLoading}
+                                    disabled={savingSalary || uploadingDocument}
+                                    size="sm"
+                                    onChange={(nextId) => {
+                                        const id = String(nextId || '').trim();
+                                        setSalaryZohoOrgId(id);
+                                        setSalaryForm((prev) => {
+                                            const previousOrg = String(prev.zohoAccountOrganizationId || salaryZohoOrgId || '').trim();
+                                            const orgChanged = Boolean(previousOrg) && previousOrg !== id;
+                                            return {
+                                                ...prev,
+                                                zohoAccountOrganizationId: id,
+                                                zohoAccountId: orgChanged ? '' : prev.zohoAccountId,
+                                                zohoAccountName: orgChanged ? '' : prev.zohoAccountName,
+                                            };
+                                        });
+                                    }}
+                                />
                                 {salaryZohoOrgId ? (
                                     <ZohoPayAccountSelect
                                         organizationId={salaryZohoOrgId}
@@ -345,6 +371,7 @@ export default function SalaryModal({
                                         onChange={({ id, name }) => {
                                             setSalaryForm((prev) => ({
                                                 ...prev,
+                                                zohoAccountOrganizationId: salaryZohoOrgId || prev.zohoAccountOrganizationId || '',
                                                 zohoAccountId: id || '',
                                                 zohoAccountName: name || '',
                                             }));
@@ -353,12 +380,12 @@ export default function SalaryModal({
                                 ) : (
                                     <div className="flex h-10 items-center rounded-xl border border-[#E5E7EB] bg-gray-50 px-3 text-sm text-gray-400">
                                         {salaryZohoOrgLoading
-                                            ? 'Loading Zoho accounts…'
-                                            : 'Link a Zoho organization on this employee\'s company'}
+                                            ? 'Loading Zoho organizations…'
+                                            : 'VEGA and NNIT are not connected'}
                                     </div>
                                 )}
                                 <p className="text-xs text-gray-500">
-                                    Zoho Chart of Accounts for the company on Work Details.
+                                    Choose VEGA or NNIT, then pick an account from that organization&apos;s chart of accounts.
                                 </p>
                             </div>
                         </div>
