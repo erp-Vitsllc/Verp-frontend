@@ -4907,9 +4907,10 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         </span>
                                                     </button>
                                                     <p className="mt-1.5 text-[11px] leading-4 text-[#64748B]">
-                                                        If checked, this employee gets a salary slip PDF on their company
-                                                        email after Management approves that month. Unchecked employees
-                                                        get the approval email only.
+                                                        If checked, this employee gets a salary slip PDF after Management
+                                                        approves that month. It goes to their company email, or to WhatsApp
+                                                        when they have no company email. Unchecked employees get the
+                                                        approval email only.
                                                     </p>
                                                     {salarySlip ? (
                                                         <button

@@ -385,6 +385,27 @@ function deductionMatches(component, name) {
     return false;
 }
 
+function manualOtherDeductionOf(slip) {
+    const raw = slip?.manualOtherDeduction || {};
+    const description = String(raw.description || '').replace(/[\u0000-\u001F]/g, '').slice(0, 120);
+    return { description, amount: Math.max(0, money(raw.amount)) };
+}
+
+function applyManualOtherDeduction(rows, manual) {
+    const list = (Array.isArray(rows) ? rows : [])
+        .map((row) => ({ ...row }))
+        .filter((row) => !deductionMatches(row.component, 'Other deduction'));
+    const line = {
+        component: 'Other deduction',
+        basis: String(manual.description || '').trim(),
+        amount: manual.amount,
+    };
+    const utilityIndex = list.findIndex((row) => deductionMatches(row.component, 'Utility Excess'));
+    if (utilityIndex >= 0) list.splice(utilityIndex + 1, 0, line);
+    else list.push(line);
+    return list;
+}
+
 function setDeductionAmount(rows, name, amount) {
     const list = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
     const idx = list.findIndex((row) => deductionMatches(row.component, name));
@@ -445,6 +466,7 @@ function pushDetailsIntoDeductions(slip) {
         0,
     );
     deductions = setDeductionAmount(deductions, 'Utility Excess', utilTotal);
+    deductions = applyManualOtherDeduction(deductions, manualOtherDeductionOf(slip));
     return { ...slip, deductions };
 }
 
@@ -455,7 +477,11 @@ export function recalcSlip(slip) {
         ...row,
         amount: money(row.amount),
     }));
-    const deductions = (slip.deductions || []).map((row) => ({ ...row, amount: money(row.amount) }));
+    const manualOtherDeduction = manualOtherDeductionOf(slip);
+    const deductions = applyManualOtherDeduction(
+        (slip.deductions || []).map((row) => ({ ...row, amount: money(row.amount) })),
+        manualOtherDeduction,
+    );
     const grossEarnings = money(earnings.reduce((sum, row) => sum + money(row.amount), 0));
     const yearlyGrossEarnings = money(yearlyEarnings.reduce((sum, row) => sum + money(row.amount), 0));
     const totalDeductions = money(deductions.reduce((sum, row) => sum + money(row.amount), 0));
@@ -498,6 +524,7 @@ export function recalcSlip(slip) {
         earnings,
         yearlyEarnings,
         yearlyGrossEarnings,
+        manualOtherDeduction,
         deductions,
         attendanceDeductions,
         attendanceDeductionTotal,
@@ -514,6 +541,7 @@ export function recalcSlip(slip) {
             loan,
             fine,
             utilityExcess,
+            otherDeduction: manualOtherDeduction.amount,
             verifiedTotal: totalDeductions,
         },
     };
@@ -542,7 +570,14 @@ export function applySlipSectionPatch(slip, section, updater) {
     markChangedSlipAmounts(slip?.yearlyEarnings, draft.yearlyEarnings, overrides);
     markChangedSlipAmounts(slip?.deductions, draft.deductions, overrides);
     draft.thisMonthOverrides = overrides;
-    const fromDetails = new Set(['attendanceDeductions', 'loans', 'fines', 'utilities', 'thisMonthDeduction']);
+    const fromDetails = new Set([
+        'attendanceDeductions',
+        'loans',
+        'fines',
+        'utilities',
+        'thisMonthDeduction',
+        'manualOtherDeduction',
+    ]);
     if (section === 'fines') {
         draft.thisMonthOverrides = { ...(draft.thisMonthOverrides || {}), Fine: true };
     } else if (section === 'loans') {

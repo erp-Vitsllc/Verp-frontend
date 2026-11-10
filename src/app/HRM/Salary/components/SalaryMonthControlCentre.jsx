@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
     ChevronDown,
     ChevronUp,
@@ -22,7 +22,12 @@ import PayrollExcelMenu from './PayrollExcelMenu';
 import SalaryZohoJournalModal from './SalaryZohoJournalModal';
 import SalarySlotExpenseModal from './SalarySlotExpenseModal';
 import { monthPayrollProcessStatusLabel, payrollPendingForLabel } from '../utils/payrollApprovalStatus';
-import { handleNavigateFromListClick, navigateFromList } from '@/utils/listReturnNavigation';
+import {
+    handleNavigateFromListClick,
+    navigateFromList,
+    rememberListFilterStep,
+    replaceNavigationUrl,
+} from '@/utils/listReturnNavigation';
 import { salarySlipMonthHref } from '../enroll/salarySlipEdit';
 import WorkflowHistoryTimeline from '../../shared/workflowHistory/WorkflowHistoryTimeline';
 import { buildFineListPath } from '@/utils/fineNotificationRouting';
@@ -451,6 +456,7 @@ function comparePayrollRow(a, b, key, dir, processedIds, slotNoByEmployee) {
     if (key === 'net') {
         return mul * compareNumber(employeeNetPayable(a), employeeNetPayable(b));
     }
+    if (key === 'leaveBal') return mul * compareNumber(a?.leaveSalaryBalance, b?.leaveSalaryBalance);
     if (key === 'slot') {
         const slotOf = (emp) => Number(slotNoByEmployee?.get(employeeIdKey(emp?.employeeId))) || 0;
         return mul * (slotOf(a) - slotOf(b));
@@ -1455,16 +1461,27 @@ function PayrollBlockersModal({
     );
 }
 
+function payrollViewFromSearch(searchParams) {
+    const tab = String(searchParams?.get('tab') || '').trim() || ALL_TAB_KEY;
+    const view = String(searchParams?.get('view') || '').trim().toLowerCase();
+    return {
+        tab,
+        tabMode: view === TAB_MODE_GROUP ? TAB_MODE_GROUP : TAB_MODE_COMPANY,
+    };
+}
+
 export default function SalaryMonthControlCentre({ monthKey }) {
     const router = useRouter();
+    const pathname = usePathname();
     const searchParams = useSearchParams();
     const payrollStage = String(searchParams?.get('payrollStage') || '').trim().toLowerCase();
     const payrollAction = String(searchParams?.get('payrollAction') || '').trim().toLowerCase();
+    const queryView = payrollViewFromSearch(searchParams);
     const { toast } = useToast();
     const { locations } = useWorkLocations();
     const parsed = useMemo(() => parseMonthKey(monthKey), [monthKey]);
-    const [tab, setTab] = useState(ALL_TAB_KEY);
-    const [tabMode, setTabMode] = useState(TAB_MODE_COMPANY);
+    const [tab, setTab] = useState(queryView.tab);
+    const [tabMode, setTabMode] = useState(queryView.tabMode);
     const [blockersOpen, setBlockersOpen] = useState(false);
     const [blockerFilter, setBlockerFilter] = useState('');
     const [blockerEmployeeId, setBlockerEmployeeId] = useState('');
@@ -1536,8 +1553,6 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         setBlockerEmployeeId('');
         setReadinessEmployeeId('');
         setReadinessAnchorId('');
-        setTab(ALL_TAB_KEY);
-        setTabMode(TAB_MODE_COMPANY);
     }, [parsed?.monthKey]);
 
     const monthLabel = parsed ? `${MONTH_FULL[parsed.monthIndex]} ${parsed.year}` : '—';
@@ -1762,7 +1777,34 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         };
     }, [locationKeysSig]);
 
+    const payrollViewHref = useCallback((nextTab, nextMode) => {
+        const params = new URLSearchParams(searchParams?.toString() || '');
+        if (nextTab && nextTab !== ALL_TAB_KEY) params.set('tab', nextTab);
+        else params.delete('tab');
+        if (nextMode === TAB_MODE_GROUP) params.set('view', TAB_MODE_GROUP);
+        else params.delete('view');
+        const qs = params.toString();
+        const base = pathname || (parsed?.monthKey ? `/HRM/Salary/${parsed.monthKey}` : '/HRM/Salary');
+        return qs ? `${base}?${qs}` : base;
+    }, [pathname, parsed?.monthKey, searchParams]);
+
+    const selectPayrollView = useCallback((nextTab, nextMode) => {
+        const tabKey = nextTab || ALL_TAB_KEY;
+        const mode = nextMode === TAB_MODE_GROUP ? TAB_MODE_GROUP : TAB_MODE_COMPANY;
+        setTab(tabKey);
+        setTabMode(mode);
+        rememberListFilterStep(payrollViewHref(tabKey, mode));
+    }, [payrollViewHref]);
+
+    const listReturnHref = payrollViewHref(tab, tabMode);
+
+    useLayoutEffect(() => {
+        setTab(queryView.tab);
+        setTabMode(queryView.tabMode);
+    }, [queryView.tab, queryView.tabMode]);
+
     useEffect(() => {
+        if (loading) return;
         if (tab === ALL_TAB_KEY) return;
         if (tabItems.some((item) => item.key === tab)) return;
         const companyName = fromCompanyTabKey(tab);
@@ -1770,11 +1812,16 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             ? tabItems.find((item) => sameCompany(fromCompanyTabKey(item.key) || item.label, companyName))
             : null;
         if (match) {
-            setTab(match.key);
+            if (match.key !== tab) {
+                setTab(match.key);
+                replaceNavigationUrl(payrollViewHref(match.key, tabMode));
+            }
             return;
         }
+        if (!monthRoster.length) return;
         setTab(ALL_TAB_KEY);
-    }, [tab, tabItems]);
+        replaceNavigationUrl(payrollViewHref(ALL_TAB_KEY, tabMode));
+    }, [loading, tab, tabItems, tabMode, monthRoster.length, payrollViewHref]);
 
     const view = useMemo(() => {
         const companyName = tabMode === TAB_MODE_COMPANY ? fromCompanyTabKey(tab) : '';
@@ -2724,10 +2771,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                         key={company.companyId || name}
                                                         type="button"
                                                         className={`spcc-metric-co${active ? ' is-on' : ''}`}
-                                                        onClick={() => {
-                                                            setTabMode(TAB_MODE_COMPANY);
-                                                            setTab(companyTab);
-                                                        }}
+                                                        onClick={() => selectPayrollView(companyTab, TAB_MODE_COMPANY)}
                                                     >
                                                         <span className="spcc-metric-co__avatar">{companyInitials(name)}</span>
                                                         <span className="spcc-metric-co__main">
@@ -2807,7 +2851,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                         key={item.key}
                                                         type="button"
                                                         className={`spcc-tab${tab === item.key ? ' is-active' : ''}`}
-                                                        onClick={() => setTab(item.key)}
+                                                        onClick={() => selectPayrollView(item.key, tabMode)}
                                                     >
                                                         {item.label}
                                                         {item.count != null ? <em>{item.count}</em> : null}
@@ -2842,20 +2886,14 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                 <button
                                                     type="button"
                                                     className={`spcc-tab-mode__btn${tabMode === TAB_MODE_GROUP ? ' is-on' : ''}`}
-                                                    onClick={() => {
-                                                        setTabMode(TAB_MODE_GROUP);
-                                                        setTab(ALL_TAB_KEY);
-                                                    }}
+                                                    onClick={() => selectPayrollView(ALL_TAB_KEY, TAB_MODE_GROUP)}
                                                 >
                                                     Group
                                                 </button>
                                                 <button
                                                     type="button"
                                                     className={`spcc-tab-mode__btn${tabMode === TAB_MODE_COMPANY ? ' is-on' : ''}`}
-                                                    onClick={() => {
-                                                        setTabMode(TAB_MODE_COMPANY);
-                                                        setTab(ALL_TAB_KEY);
-                                                    }}
+                                                    onClick={() => selectPayrollView(ALL_TAB_KEY, TAB_MODE_COMPANY)}
                                                 >
                                                     Company
                                                 </button>
@@ -2923,6 +2961,14 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                             onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
                                                         />
                                                     </span>
+                                                    <span title="Remaining leave salary for this employee">
+                                                        <SortHeader
+                                                            label="Leave sal bal"
+                                                            column="leaveBal"
+                                                            sort={payrollSort}
+                                                            onSort={(column) => setPayrollSort((prev) => toggleSort(prev, column))}
+                                                        />
+                                                    </span>
                                                     <span title="Salary slot this employee is in">
                                                         <SortHeader
                                                             label="Slot no"
@@ -2967,7 +3013,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                                 data-pay-employee={id}
                                                                 className={`spcc-pay-row${readinessEmployeeId === id ? ' is-selected' : ''}`}
                                                                 role="row"
-                                                                title={id ? 'Double-click to open this month\'s salary slip' : undefined}
+                                                                title={id ? 'Double-click to open this month\'s salary slip in a new tab' : undefined}
                                                                 onClick={(event) => {
                                                                     if (!id || event.detail > 1) return;
                                                                     setReadinessEmployeeId((current) => {
@@ -2981,7 +3027,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                                     navigateFromList(
                                                                         router,
                                                                         salarySlipMonthHref(id, parsed.monthKey),
-                                                                        `/HRM/Salary/${parsed.monthKey}`,
+                                                                        listReturnHref,
                                                                     );
                                                                 }}
                                                             >
@@ -2993,6 +3039,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                                 <span className="tabular-nums">{formatMoney(employeeExtra(emp))}</span>
                                                                 <span className="tabular-nums">{formatMoney(employeeGross(emp))}</span>
                                                                 <span className="tabular-nums">{formatMoney(netSalary)}</span>
+                                                                <span className="tabular-nums" title="Remaining leave salary">
+                                                                    {formatMoney(emp.leaveSalaryBalance)}
+                                                                </span>
                                                                 <span className="tabular-nums">
                                                                     {slotNoByEmployee.get(employeeIdKey(id)) || 'n/a'}
                                                                 </span>
@@ -3273,9 +3322,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                         requests={blockerRequests}
                         employeeName={blockerEmployeeName}
                         sending={sendingReminders}
-                        listReturnHref={
-                            parsed?.monthKey ? `/HRM/Salary/${parsed.monthKey}` : '/HRM/Salary'
-                        }
+                        listReturnHref={listReturnHref}
                         onClose={() => {
                             setBlockersOpen(false);
                             setBlockerEmployeeId('');

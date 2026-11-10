@@ -7,7 +7,6 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import {
     Check,
-    CheckCheck,
     FileText,
     Loader2,
     MessageCircle,
@@ -79,21 +78,37 @@ function sourceLabel(message) {
     return 'Manual';
 }
 
-function StatusTicks({ status }) {
-    const value = String(status || '').toLowerCase();
-    if (value === 'failed') {
-        return <span className="text-[10px] font-semibold text-red-200">Failed</span>;
+function messageReachedWhatsApp(message) {
+    const status = String(message?.status || '').toLowerCase();
+    if (message?.error || status === 'failed' || status === 'queued' || !status) return false;
+    return status === 'sent' || status === 'delivered' || status === 'read' || status === 'received';
+}
+
+function DeliveryMark({ message }) {
+    if (messageReachedWhatsApp(message)) {
+        const status = String(message?.status || '').toLowerCase();
+        const label =
+            status === 'read'
+                ? 'Read on this WhatsApp'
+                : status === 'delivered' || status === 'received'
+                    ? 'Received on this WhatsApp'
+                    : 'Sent on this WhatsApp';
+        return (
+            <span title={label} aria-label={label} className="inline-flex shrink-0 text-emerald-600">
+                <Check size={14} strokeWidth={3} />
+            </span>
+        );
     }
-    if (value === 'read') {
-        return <CheckCheck size={14} className="text-sky-200" />;
-    }
-    if (value === 'delivered') {
-        return <CheckCheck size={14} className="text-emerald-100/90" />;
-    }
-    if (value === 'sent' || value === 'queued') {
-        return <Check size={14} className="text-emerald-100/80" />;
-    }
-    return null;
+    const label = message?.error || 'Not sent or received on this WhatsApp';
+    return (
+        <span
+            title={label}
+            aria-label="Not sent or received on this WhatsApp"
+            className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold leading-none text-white"
+        >
+            !
+        </span>
+    );
 }
 
 export default function WhatsAppMessagesPage() {
@@ -377,10 +392,13 @@ export default function WhatsAppMessagesPage() {
                                                             {formatTime(last.occurredAt)}
                                                         </span>
                                                     </span>
-                                                    <span className="mt-0.5 block truncate text-xs text-slate-500">
-                                                        {last.direction === 'out' ? 'You: ' : 'Received: '}
-                                                        {isDocumentBubble(last) ? 'PDF · ' : ''}
-                                                        {last.body || last.mediaFileName || last.templateName || '—'}
+                                                    <span className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+                                                        <DeliveryMark message={last} />
+                                                        <span className="truncate">
+                                                            {last.direction === 'out' ? 'You: ' : 'Received: '}
+                                                            {isDocumentBubble(last) ? 'PDF · ' : ''}
+                                                            {last.body || last.mediaFileName || last.templateName || '—'}
+                                                        </span>
                                                     </span>
                                                     <span className="mt-1 flex flex-wrap gap-1">
                                                         {row.inboundCount > 0 ? (
@@ -493,7 +511,7 @@ export default function WhatsAppMessagesPage() {
                                                             ) : null}
                                                             <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-slate-500">
                                                                 <span>{formatTime(message.occurredAt)}</span>
-                                                                {outgoing ? <StatusTicks status={message.status} /> : null}
+                                                                <DeliveryMark message={message} />
                                                             </div>
                                                         </div>
                                                     </div>

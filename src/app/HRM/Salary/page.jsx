@@ -38,8 +38,8 @@ function formatAed(value) {
 const MONTH_HEAD = 'whitespace-nowrap text-left text-[11px] font-semibold leading-none text-gray-500';
 
 const MONTH_ROW_GRID =
-    'grid w-full min-w-[1320px] items-center gap-x-4 ' +
-    'grid-cols-[2.25rem_minmax(6.5rem,0.9fr)_minmax(6.75rem,0.85fr)_minmax(7.4rem,0.95fr)_minmax(6.8rem,0.85fr)_minmax(6.4rem,0.8fr)_minmax(6.6rem,0.82fr)_minmax(6.75rem,0.8fr)_minmax(6.75rem,0.8fr)_minmax(5.2rem,0.68fr)_minmax(6.2rem,0.75fr)]';
+    'grid w-full min-w-[1460px] items-center gap-x-4 ' +
+    'grid-cols-[2.25rem_minmax(6.5rem,0.9fr)_minmax(6.75rem,0.85fr)_minmax(7.4rem,0.95fr)_minmax(6.8rem,0.85fr)_minmax(6.4rem,0.8fr)_minmax(6.6rem,0.82fr)_minmax(6.8rem,0.85fr)_minmax(6.75rem,0.8fr)_minmax(6.75rem,0.8fr)_minmax(5.2rem,0.68fr)_minmax(6.2rem,0.75fr)]';
 
 const COLUMNS = [
     { key: 'slNo', label: 'SL' },
@@ -49,6 +49,7 @@ const COLUMNS = [
     { key: 'grossSalary', label: 'Gross Salary' },
     { key: 'actualSalary', label: 'Net Salary' },
     { key: 'basicSalary', label: 'Basic Salary' },
+    { key: 'leaveSalaryBalance', label: 'Leave sal bal' },
     { key: 'ot', label: 'OT' },
     { key: 'deduction', label: 'Deduction' },
     { key: 'processStatus', label: 'Process' },
@@ -384,7 +385,7 @@ function SalaryPageContent() {
                         ) : null}
 
                         <div className="w-full max-w-full overflow-x-auto">
-                            <div className="min-w-[1320px]">
+                            <div className="min-w-[1460px]">
                                 <div className="flex items-center">
                                     <div className={`${MONTH_ROW_GRID} min-w-0 flex-1 px-3 sm:px-4 py-2`}>
                                         {COLUMNS.map((col) => (
@@ -473,6 +474,12 @@ function SalaryPageContent() {
                                                     </span>
                                                     <span className="tabular-nums font-semibold">
                                                         {formatAed(row.basicSalary)}
+                                                    </span>
+                                                    <span
+                                                        className="tabular-nums font-semibold"
+                                                        title="Total remaining leave salary for enrolled employees whose salary processing starts on or before this month"
+                                                    >
+                                                        {formatAed(row.leaveSalaryBalance)}
                                                     </span>
                                                     <span className="tabular-nums text-slate-600">
                                                         {formatAed(row.ot)}

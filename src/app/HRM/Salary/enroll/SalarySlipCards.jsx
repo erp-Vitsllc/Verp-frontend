@@ -60,6 +60,7 @@ const OTHER_DEDUCTION_ROWS = [
     { name: 'Loan', timesKey: 'loan' },
     { name: 'Fine', timesKey: 'fine' },
     { name: 'Utility Excess', timesKey: 'utilityExcess' },
+    { name: 'Other deduction' },
 ];
 
 function parseLeadingNumber(value) {
@@ -339,6 +340,23 @@ function liveDeductionAmount(slip, name) {
 
 function patchThisMonthDeduction(onPatch, type, value) {
     onPatch('thisMonthDeduction', (draft) => applyCategoryThisMonthOnDraft(draft, type, value));
+}
+
+function patchManualOtherDeduction(onPatch, patch) {
+    onPatch('manualOtherDeduction', (draft) => {
+        const current = draft.manualOtherDeduction || {};
+        const next = {
+            description: String(current.description || ''),
+            amount: Math.max(0, money(current.amount)),
+        };
+        if (Object.prototype.hasOwnProperty.call(patch, 'description')) {
+            next.description = String(patch.description || '').replace(/[\u0000-\u001F]/g, '').slice(0, 120);
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'amount')) {
+            next.amount = Math.max(0, money(patch.amount));
+        }
+        return { ...draft, manualOtherDeduction: next };
+    });
 }
 
 function liveSalaryAmount(slip, name) {
@@ -662,7 +680,29 @@ export default function SalarySlipCards({ slip, onPatch, locked = false }) {
         balanceRows.map((row) => [row.type, money(row.total)]),
     );
 
+    const manualOther = slip?.manualOtherDeduction || {};
+    const manualOtherDescription = String(manualOther.description || '');
     const otherDeductionRows = OTHER_DEDUCTION_ROWS.map((item, index) => {
+        if (item.name === 'Other deduction') {
+            const amount = Math.max(0, money(manualOther.amount));
+            const description = manualOtherDescription.trim();
+            return {
+                key: item.name,
+                sl: index + 1,
+                label: item.name,
+                period: description || '—',
+                amount,
+                amountCell: (
+                    <AmountCell
+                        label="Other deduction"
+                        amount={amount}
+                        tone="deduct"
+                        disabled={locked}
+                        onChange={locked ? undefined : (value) => patchManualOtherDeduction(onPatch, { amount: value })}
+                    />
+                ),
+            };
+        }
         const amount = liveDeductionAmount(slip, item.name);
         const times = Number(otherTimes[item.timesKey]) || (amount > 0 ? 1 : 0);
         const type = CARD_TO_BALANCE_TYPE[item.name];
@@ -789,6 +829,53 @@ export default function SalarySlipCards({ slip, onPatch, locked = false }) {
                         locked ? undefined : (type, value) => patchThisMonthDeduction(onPatch, type, value)
                     }
                 />
+                <div className="mt-3 overflow-x-auto rounded-xl border border-[#EEF2F6]">
+                    <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                        <thead>
+                            <tr className="bg-[#F8FAFC]">
+                                {['Type', 'Description', 'Amount'].map((title) => (
+                                    <th key={title} className={TH}>
+                                        {title}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td className="whitespace-nowrap px-3 py-3 font-semibold text-[#0F172A]">
+                                    Other deduction
+                                </td>
+                                <td className="px-3 py-2">
+                                    <input
+                                        type="text"
+                                        value={manualOtherDescription}
+                                        maxLength={120}
+                                        disabled={locked}
+                                        placeholder="Description"
+                                        aria-label="Other deduction description"
+                                        onChange={(event) =>
+                                            patchManualOtherDeduction(onPatch, { description: event.target.value })
+                                        }
+                                        className={FIELD}
+                                    />
+                                </td>
+                                <td className="whitespace-nowrap px-3 py-2">
+                                    <AmountCell
+                                        label="Other deduction amount"
+                                        amount={manualOther.amount}
+                                        tone="deduct"
+                                        disabled={locked}
+                                        onChange={
+                                            locked
+                                                ? undefined
+                                                : (value) => patchManualOtherDeduction(onPatch, { amount: value })
+                                        }
+                                    />
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </FineFormCard>
         </div>
     );
