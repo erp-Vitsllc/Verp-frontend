@@ -453,11 +453,6 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
                                 );
                             })}
                         </div>
-                        {active?.journalKind === 'leave' && !active.employeeCount ? (
-                            <p className="text-sm text-gray-500">
-                                No employee in this company has leave salary or an air ticket this month.
-                            </p>
-                        ) : null}
 
                         <Field label="Location">
                             <select value={form.locationId} onChange={(event) => patchForm({ locationId: event.target.value })} className={inputClass}>
