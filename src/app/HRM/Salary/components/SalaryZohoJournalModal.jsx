@@ -72,6 +72,30 @@ function assignSalaryJournalAccounts(lines, accounts) {
     });
 }
 
+function tabIdOf(org) {
+    return String(org?.tabId || org?.organizationId || '').trim();
+}
+
+function bumpJournalNumber(raw, steps) {
+    const value = String(raw || '').trim();
+    const count = Number(steps) || 0;
+    if (!value || count <= 0) return value;
+    const match = value.match(/(\d+)\s*$/);
+    if (!match) return value;
+    const width = match[1].length;
+    const nextNum = String(Number(match[1]) + count).padStart(width, '0');
+    return value.slice(0, match.index) + nextNum;
+}
+
+function journalNumberStep(rows, organizationId, tabId) {
+    const siblings = (rows || []).filter((org) => org.organizationId === organizationId);
+    const index = siblings.findIndex((org) => tabIdOf(org) === tabId);
+    if (index <= 0) return 0;
+    return siblings.slice(0, index).filter((org) => (
+        (org.lines || []).some((line) => money(line.debit) > 0 || money(line.credit) > 0)
+    )).length;
+}
+
 function linesForNote(lines, note) {
     const payroll = String(note || '').trim();
     return (lines || []).map((line) => {
@@ -92,7 +116,7 @@ function blankForm(org, monthKey, monthLabel) {
         publishReverseOnly: false,
         journalNumber: '',
         referenceNumber: monthKey || '',
-        notes: monthLabel ? `Salary payroll ${monthLabel}` : 'Salary payroll',
+        notes: String(org?.notes || '').trim() || (monthLabel ? `Salary payroll ${monthLabel}` : 'Salary payroll'),
         reportingMethod: 'both',
         currencyId: '',
         lines,
@@ -139,11 +163,12 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
                 const rows = Array.isArray(res.data?.organizations) ? res.data.organizations : [];
                 const label = String(res.data?.monthLabel || monthKey);
                 const nextForms = {};
-                for (const org of rows) nextForms[org.organizationId] = blankForm(org, monthKey, label);
+                for (const org of rows) nextForms[tabIdOf(org)] = blankForm(org, monthKey, label);
                 setOrganizations(rows);
                 setForms(nextForms);
-                setActiveId(rows[0]?.organizationId || '');
-                await Promise.all(rows.map((org) => loadSupport(org.organizationId, nextForms)));
+                setActiveId(tabIdOf(rows[0]) || '');
+                const orgIds = [...new Set(rows.map((org) => org.organizationId).filter(Boolean))];
+                await Promise.all(orgIds.map((organizationId) => loadSupport(organizationId, nextForms, rows)));
             } catch (error) {
                 if (!cancelled) {
                     toast({
@@ -161,7 +186,7 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
         };
     }, [open, monthKey]);
 
-    async function loadSupport(organizationId, seedForms) {
+    async function loadSupport(organizationId, seedForms, rows) {
         const params = { organizationId };
         const [supportRes, vendorRes, customerRes] = await Promise.all([
             axiosInstance.get('/zoho/journals/support', { params, skipToast: true, timeout: 120000 }),
@@ -191,26 +216,32 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
         const aed = currencies.find((row) => String(row.currency_code || '').toUpperCase() === 'AED');
         const dxb = locations.find((loc) => /dxb|dubai/i.test(String(loc.location_name || loc.name || '')));
         const location = dxb || locations[0];
+        const nextNumber = String(data.nextJournalNumber || '').trim();
+        const tabs = (rows || []).filter((org) => org.organizationId === organizationId);
         setForms((prev) => {
-            const current = prev[organizationId] || seedForms?.[organizationId];
-            if (!current || current.supportReady) return prev;
-            return {
-                ...prev,
-                [organizationId]: {
+            const next = { ...prev };
+            let changed = false;
+            for (const org of tabs) {
+                const tabId = tabIdOf(org);
+                const current = next[tabId] || seedForms?.[tabId];
+                if (!current || current.supportReady) continue;
+                changed = true;
+                next[tabId] = {
                     ...current,
                     supportReady: true,
                     lines: assignSalaryJournalAccounts(current.lines, accounts),
-                    journalNumber: current.journalNumber || String(data.nextJournalNumber || '').trim(),
+                    journalNumber: current.journalNumber || bumpJournalNumber(nextNumber, journalNumberStep(rows, organizationId, tabId)),
                     currencyId: current.currencyId || String(aed?.currency_id || currencies[0]?.currency_id || ''),
                     locationId: current.locationId || String(location?.location_id || location?.id || ''),
-                },
-            };
+                };
+            }
+            return changed ? next : prev;
         });
     }
 
-    const active = organizations.find((org) => org.organizationId === activeId) || null;
+    const active = organizations.find((org) => tabIdOf(org) === activeId) || null;
     const form = forms[activeId] || null;
-    const activeSupport = support[activeId] || { accounts: [], locations: [], currencies: [], contacts: [] };
+    const activeSupport = support[active?.organizationId] || { accounts: [], locations: [], currencies: [], contacts: [] };
 
     const totals = useMemo(() => {
         const lines = form?.lines || [];
@@ -299,7 +330,7 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
 
     async function submit(status) {
         const targets = organizations.filter((org) => {
-            const draft = forms[org.organizationId];
+            const draft = forms[tabIdOf(org)];
             return (draft?.lines || []).some((line) => money(line.debit) > 0 || money(line.credit) > 0);
         });
         if (!targets.length) {
@@ -307,9 +338,9 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
             return;
         }
         for (const org of targets) {
-            const problem = validate(org, forms[org.organizationId]);
+            const problem = validate(org, forms[tabIdOf(org)]);
             if (problem) {
-                setActiveId(org.organizationId);
+                setActiveId(tabIdOf(org));
                 toast({ title: 'Journal is not ready', description: problem, variant: 'destructive' });
                 return;
             }
@@ -320,7 +351,7 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
         try {
             for (let index = 0; index < targets.length; index += 1) {
                 const org = targets[index];
-                const draft = forms[org.organizationId];
+                const draft = forms[tabIdOf(org)];
                 const payload = {
                     organizationId: org.organizationId,
                     organizationLabel: org.label,
@@ -399,24 +430,34 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
                 ) : (
                     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
                         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Zoho companies">
-                            {organizations.map((org) => (
-                                <button
-                                    key={org.organizationId}
-                                    type="button"
-                                    role="tab"
-                                    aria-selected={org.organizationId === activeId}
-                                    title={org.name || org.label}
-                                    onClick={() => setActiveId(org.organizationId)}
-                                    className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                                        org.organizationId === activeId
-                                            ? 'bg-blue-600 text-white'
-                                            : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                                    }`}
-                                >
-                                    {org.label}
-                                </button>
-                            ))}
+                            {organizations.map((org) => {
+                                const tabId = tabIdOf(org);
+                                return (
+                                    <button
+                                        key={tabId}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={tabId === activeId}
+                                        title={org.journalKind === 'leave'
+                                            ? `${org.label}. Leave salary and air ticket for this company.`
+                                            : (org.name || org.label)}
+                                        onClick={() => setActiveId(tabId)}
+                                        className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
+                                            tabId === activeId
+                                                ? 'bg-blue-600 text-white'
+                                                : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                                        }`}
+                                    >
+                                        {org.label}
+                                    </button>
+                                );
+                            })}
                         </div>
+                        {active?.journalKind === 'leave' && !active.employeeCount ? (
+                            <p className="text-sm text-gray-500">
+                                No employee in this company has leave salary or an air ticket this month.
+                            </p>
+                        ) : null}
 
                         <Field label="Location">
                             <select value={form.locationId} onChange={(event) => patchForm({ locationId: event.target.value })} className={inputClass}>
