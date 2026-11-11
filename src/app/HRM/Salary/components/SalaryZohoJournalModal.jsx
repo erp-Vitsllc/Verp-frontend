@@ -107,22 +107,62 @@ function linesForNote(lines, note) {
     });
 }
 
-function blankForm(org, monthKey, monthLabel) {
-    const lines = Array.isArray(org?.lines) && org.lines.length ? org.lines.map((line) => ({ ...line })) : [emptyLine(), emptyLine()];
+function savedJournalLines(items) {
+    return (Array.isArray(items) ? items : []).map((line, index) => ({
+        key: `saved-${index}-${String(line?.accountId || line?.personName || 'row')}`,
+        kind: line?.kind || '',
+        personName: String(line?.personName || ''),
+        accountId: String(line?.accountId || ''),
+        accountName: String(line?.accountName || ''),
+        description: String(line?.description || ''),
+        contactId: String(line?.contactId || ''),
+        debit: Number(line?.debit) > 0 ? Number(line.debit).toFixed(2) : '',
+        credit: Number(line?.credit) > 0 ? Number(line.credit).toFixed(2) : '',
+    }));
+}
+
+function blankForm(org, monthKey, monthLabel, saved) {
+    const savedItems = Array.isArray(saved?.lineItems) ? saved.lineItems : [];
+    const lines = savedItems.length
+        ? savedJournalLines(savedItems)
+        : (Array.isArray(org?.lines) && org.lines.length ? org.lines.map((line) => ({ ...line })) : [emptyLine(), emptyLine()]);
+    const savedNotes = String(saved?.notes || '').trim();
     return {
-        locationId: '',
-        journalDate: todayIso(),
-        reverseDate: '',
-        publishReverseOnly: false,
-        journalNumber: '',
-        referenceNumber: monthKey || '',
-        notes: String(org?.notes || '').trim() || (monthLabel ? `Salary payroll ${monthLabel}` : 'Salary payroll'),
-        reportingMethod: 'both',
-        currencyId: '',
+        locationId: String(saved?.locationId || ''),
+        journalDate: String(saved?.journalDate || '').trim() || todayIso(),
+        reverseDate: String(saved?.reverseJournalDate || ''),
+        publishReverseOnly: Boolean(saved?.publishReverseOnly),
+        journalNumber: String(saved?.journalNumber || ''),
+        journalId: String(saved?.journalId || ''),
+        zohoStatus: String(saved?.status || ''),
+        referenceNumber: String(saved?.referenceNumber || '').trim() || monthKey || '',
+        notes: savedNotes || String(org?.notes || '').trim() || (monthLabel ? `Salary payroll ${monthLabel}` : 'Salary payroll'),
+        reportingMethod: String(saved?.reportingMethod || '').trim() || 'both',
+        currencyId: String(saved?.currencyId || ''),
         lines,
         files: [],
         supportReady: false,
     };
+}
+
+function savedJournalFor(org, savedJournals) {
+    const tabId = tabIdOf(org);
+    const rows = Array.isArray(savedJournals) ? savedJournals : [];
+    return rows.find((row) => String(row?.tabId || '') === tabId)
+        || rows.find((row) => (
+            !String(row?.tabId || '').trim()
+            && String(row?.organizationId || '') === String(org?.organizationId || '')
+            && org?.journalKind !== 'leave'
+        ))
+        || null;
+}
+
+function formHasDetail(draft) {
+    if (!draft) return false;
+    if (String(draft.notes || '').trim()) return true;
+    return (draft.lines || []).some((line) => (
+        line.accountId || String(line.description || '').trim() || money(line.debit) || money(line.credit)
+    ));
 }
 
 function Field({ label, required, children }) {
@@ -144,6 +184,7 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
     const [activeId, setActiveId] = useState('');
     const [forms, setForms] = useState({});
     const [support, setSupport] = useState({});
+    const [editingIds, setEditingIds] = useState({});
 
     useEffect(() => {
         if (!open || !monthKey) return undefined;
@@ -153,6 +194,7 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
         setForms({});
         setSupport({});
         setActiveId('');
+        setEditingIds({});
         (async () => {
             try {
                 const res = await axiosInstance.get(
@@ -161,9 +203,12 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
                 );
                 if (cancelled) return;
                 const rows = Array.isArray(res.data?.organizations) ? res.data.organizations : [];
+                const savedJournals = Array.isArray(res.data?.savedJournals) ? res.data.savedJournals : [];
                 const label = String(res.data?.monthLabel || monthKey);
                 const nextForms = {};
-                for (const org of rows) nextForms[tabIdOf(org)] = blankForm(org, monthKey, label);
+                for (const org of rows) {
+                    nextForms[tabIdOf(org)] = blankForm(org, monthKey, label, savedJournalFor(org, savedJournals));
+                }
                 setOrganizations(rows);
                 setForms(nextForms);
                 setActiveId(tabIdOf(rows[0]) || '');
@@ -242,6 +287,10 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
     const active = organizations.find((org) => tabIdOf(org) === activeId) || null;
     const form = forms[activeId] || null;
     const activeSupport = support[active?.organizationId] || { accounts: [], locations: [], currencies: [], contacts: [] };
+    const locked = form?.zohoStatus === 'published' && Boolean(form?.journalId) && !editingIds[activeId];
+    const journalTitle = locked || (form?.zohoStatus === 'published' && form?.journalNumber)
+        ? `Journal ${form.journalNumber || ''}`.trim()
+        : 'New Journal';
 
     const totals = useMemo(() => {
         const lines = form?.lines || [];
@@ -331,18 +380,34 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
     async function submit(status) {
         const targets = organizations.filter((org) => {
             const draft = forms[tabIdOf(org)];
-            return (draft?.lines || []).some((line) => money(line.debit) > 0 || money(line.credit) > 0);
+            if (!draft) return false;
+            if (status === 'draft') {
+                if (draft.zohoStatus === 'published' || draft.journalId) return false;
+                return formHasDetail(draft);
+            }
+            const hasAmount = (draft.lines || []).some((line) => money(line.debit) > 0 || money(line.credit) > 0);
+            if (!hasAmount) return false;
+            if (draft.zohoStatus === 'published' && !editingIds[tabIdOf(org)]) return false;
+            return true;
         });
         if (!targets.length) {
-            toast({ title: 'Nothing to send', description: 'Add a debit and a credit before saving.', variant: 'destructive' });
+            toast({
+                title: status === 'draft' ? 'Nothing to save' : 'Nothing to send',
+                description: status === 'draft'
+                    ? 'Add the journal details before saving a draft.'
+                    : 'Add a debit and a credit before saving.',
+                variant: 'destructive',
+            });
             return;
         }
-        for (const org of targets) {
-            const problem = validate(org, forms[tabIdOf(org)]);
-            if (problem) {
-                setActiveId(tabIdOf(org));
-                toast({ title: 'Journal is not ready', description: problem, variant: 'destructive' });
-                return;
+        if (status !== 'draft') {
+            for (const org of targets) {
+                const problem = validate(org, forms[tabIdOf(org)]);
+                if (problem) {
+                    setActiveId(tabIdOf(org));
+                    toast({ title: 'Journal is not ready', description: problem, variant: 'destructive' });
+                    return;
+                }
             }
         }
 
@@ -355,6 +420,8 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
                 const payload = {
                     organizationId: org.organizationId,
                     organizationLabel: org.label,
+                    tabId: tabIdOf(org),
+                    journalId: draft.journalId || '',
                     finalize: status === 'published' && index === targets.length - 1,
                     journalDate: draft.journalDate,
                     reverseJournalDate: draft.reverseDate,
@@ -368,15 +435,20 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
                     status,
                     lineItems: draft.lines.map((line) => ({
                         accountId: line.accountId,
+                        accountName: line.accountName,
                         description: line.description,
                         contactId: line.contactId,
                         debit: money(line.debit),
                         credit: money(line.credit),
+                        kind: line.kind || '',
+                        personName: line.personName || '',
                     })),
                 };
                 const body = new FormData();
                 body.append('payload', JSON.stringify(payload));
-                for (const file of draft.files || []) body.append('attachments', file);
+                if (status !== 'draft') {
+                    for (const file of draft.files || []) body.append('attachments', file);
+                }
                 try {
                     const response = await axiosInstance.post(
                         `/Employee/salary-register/${monthKey}/zoho-journal`,
@@ -386,7 +458,7 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
                     saved.push(response?.data?.message || org.label);
                 } catch (error) {
                     toast({
-                        title: saved.length ? 'Part of the journal was saved' : 'Zoho journal failed',
+                        title: saved.length ? 'Part of the journal was saved' : (status === 'draft' ? 'Draft was not saved' : 'Zoho journal failed'),
                         description: [
                             saved.length ? `Saved: ${saved.join(' ')}` : '',
                             `${org.label}: ${error?.response?.data?.message || error?.message || 'Could not store the journal.'}`,
@@ -397,8 +469,10 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
                 }
             }
             toast({
-                title: status === 'draft' ? 'Draft saved in Zoho' : 'Published in Zoho',
-                description: saved.join(' '),
+                title: status === 'draft' ? 'Draft saved' : 'Stored in Zoho',
+                description: status === 'draft'
+                    ? `${saved.join(' ')} Kept in this system. Not sent to Zoho.`
+                    : saved.join(' '),
             });
             if (status === 'published') onPublished?.();
             onClose?.();
@@ -413,7 +487,18 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4">
             <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
                 <div className="flex shrink-0 items-center justify-between border-b px-5 py-4">
-                    <h2 className="text-lg font-semibold text-gray-900">New Journal</h2>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-lg font-semibold text-gray-900">{journalTitle}</h2>
+                        {locked ? (
+                            <button
+                                type="button"
+                                onClick={() => setEditingIds((prev) => ({ ...prev, [activeId]: true }))}
+                                className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+                            >
+                                Edit
+                            </button>
+                        ) : null}
+                    </div>
                     <button type="button" onClick={onClose} className="rounded p-1 text-gray-500 hover:bg-gray-100" aria-label="Close">
                         <X className="h-5 w-5" />
                     </button>
@@ -453,6 +538,16 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
                                 );
                             })}
                         </div>
+                        {locked ? (
+                            <p className="text-sm text-gray-500">
+                                Stored in Zoho as {journalTitle}. Edit to update this journal.
+                            </p>
+                        ) : form?.zohoStatus === 'draft' ? (
+                            <p className="text-sm text-gray-500">
+                                Draft saved in this system. Save and Publish stores it in Zoho.
+                            </p>
+                        ) : null}
+                        <fieldset disabled={locked} className="min-w-0 space-y-4 border-0 p-0 disabled:opacity-70">
 
                         <Field label="Location">
                             <select value={form.locationId} onChange={(event) => patchForm({ locationId: event.target.value })} className={inputClass}>
@@ -671,26 +766,33 @@ export default function SalaryZohoJournalModal({ open, monthKey, onClose, onPubl
                                 </ul>
                             ) : null}
                         </div>
+                        </fieldset>
                     </div>
                 )}
 
                 <div className="flex shrink-0 flex-wrap gap-2 border-t bg-white px-5 py-4">
-                    <button
-                        type="button"
-                        disabled={saving || loading || !form}
-                        onClick={() => submit('published')}
-                        className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                    >
-                        {saving ? 'Saving…' : 'Save and Publish'}
-                    </button>
-                    <button
-                        type="button"
-                        disabled={saving || loading || !form}
-                        onClick={() => submit('draft')}
-                        className="rounded-md border px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                    >
-                        Save as Draft
-                    </button>
+                    {locked ? null : (
+                        <>
+                            <button
+                                type="button"
+                                disabled={saving || loading || !form}
+                                onClick={() => submit('published')}
+                                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                            >
+                                {saving ? 'Saving…' : (form?.journalId ? 'Update in Zoho' : 'Save and Publish')}
+                            </button>
+                            {form?.journalId ? null : (
+                                <button
+                                    type="button"
+                                    disabled={saving || loading || !form}
+                                    onClick={() => submit('draft')}
+                                    className="rounded-md border px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                                >
+                                    Save as Draft
+                                </button>
+                            )}
+                        </>
+                    )}
                     <button type="button" onClick={onClose} className="rounded-md border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
                         Cancel
                     </button>

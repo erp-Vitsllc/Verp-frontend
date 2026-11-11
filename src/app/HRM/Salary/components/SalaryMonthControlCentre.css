@@ -2229,10 +2229,40 @@
 
 .spcc-tabs-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 12px;
     align-items: end;
     margin-bottom: 12px;
+}
+
+.spcc-pay-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: min(100%, 280px);
+    height: 28px;
+    margin: 0 0 8px;
+    padding: 0 10px;
+    border: 1px solid #d7dee8;
+    border-radius: 8px;
+    background: #fff;
+    color: #94a3b8;
+}
+
+.spcc-pay-search input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--spcc-ink);
+}
+
+.spcc-pay-search input::placeholder {
+    color: #94a3b8;
+    font-weight: 500;
 }
 
 .spcc-tabs {
@@ -2555,6 +2585,20 @@
 
 .spcc-pay-row:not(.spcc-pay-row--head):hover {
     background: #f8fafc;
+}
+
+.spcc-pay-row.is-slot-pending,
+.spcc-pay-row.is-slot-pending:hover,
+.spcc-pay-row.is-slot-pending.is-selected,
+.spcc-pay-row.is-slot-pending.is-selected:hover {
+    background: var(--spcc-amber-bg);
+}
+
+.spcc-pay-row.is-slot-done,
+.spcc-pay-row.is-slot-done:hover,
+.spcc-pay-row.is-slot-done.is-selected,
+.spcc-pay-row.is-slot-done.is-selected:hover {
+    background: var(--spcc-green-bg);
 }
 
 .spcc-pay-row.is-selected {
@@ -3589,6 +3633,10 @@
 
     .spcc-tabs-row {
         grid-template-columns: 1fr;
+    }
+
+    .spcc-pay-search {
+        max-width: none;
     }
 
     .spcc-tab-tools {

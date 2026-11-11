@@ -297,8 +297,8 @@ function patchLeaveTicketOnSlip(onPatch, { yearlyName, monthName, overrideKey, s
         summary[summaryKey] = { ...current, amount };
         return {
             ...draft,
-            yearlyEarnings: mapComponent(draft.yearlyEarnings, yearlyName, { amount, basis: 'Yearly' }),
-            earnings: mapComponent(draft.earnings, monthName, { amount, basis: 'Annual' }),
+            yearlyEarnings: mapComponent(draft.yearlyEarnings, yearlyName, { amount }),
+            earnings: mapComponent(draft.earnings, monthName, { amount }),
             summary,
             thisMonthOverrides: { ...(draft.thisMonthOverrides || {}), [overrideKey]: true },
         };

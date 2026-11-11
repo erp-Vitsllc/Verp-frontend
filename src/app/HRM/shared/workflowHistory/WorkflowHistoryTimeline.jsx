@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, X, History, Banknote, CalendarClock, Package, FileText, CheckCircle2, Loader2 } from 'lucide-react';
 import { formatHistoryDate } from './buildWorkflowHistoryEvents';
 import { openWorkflowDocumentLink } from './openWorkflowDocumentLink';
@@ -178,7 +178,16 @@ export default function WorkflowHistoryTimeline({
     layoutConfig = null,
     className = '',
     HeaderIcon = History,
+    initialVisibleCount = 0,
 }) {
+    const previewLimit = Number(initialVisibleCount) > 0 ? Number(initialVisibleCount) : 0;
+    const [historyExpanded, setHistoryExpanded] = useState(false);
+    useEffect(() => {
+        setHistoryExpanded(false);
+    }, [events, previewLimit]);
+    const showHistoryToggle = previewLimit > 0 && events.length > previewLimit;
+    const visibleEvents =
+        showHistoryToggle && !historyExpanded ? events.slice(0, previewLimit) : events;
     const isLarge = size === 'large';
     const useSpread = layoutConfig
         ? layoutConfig.verticalSpread && isLarge
@@ -283,14 +292,14 @@ export default function WorkflowHistoryTimeline({
                 }`}
                 style={
                     useSpread
-                        ? { gridTemplateRows: `repeat(${events.length}, minmax(0, 1fr))` }
+                        ? { gridTemplateRows: `repeat(${visibleEvents.length}, minmax(0, 1fr))` }
                         : undefined
                 }
             >
-                {useSpread && events.length > 1 ? (
+                {useSpread && visibleEvents.length > 1 ? (
                     <div
                         className={`pointer-events-none absolute w-1 -translate-x-1/2 rounded-full ${connectorWidthClass} ${
-                            events.every((event, idx) => idx === events.length - 1 || (event.connectorGreen ?? true))
+                            visibleEvents.every((event, idx) => idx === visibleEvents.length - 1 || (event.connectorGreen ?? true))
                                 ? 'bg-green-500'
                                 : 'bg-gradient-to-b from-green-500 from-60% to-slate-200 to-60%'
                         }`}
@@ -303,11 +312,11 @@ export default function WorkflowHistoryTimeline({
                     />
                 ) : null}
 
-                {events.map((event, idx) => {
-                    const isLast = idx === events.length - 1;
+                {visibleEvents.map((event, idx) => {
+                    const isLast = idx === visibleEvents.length - 1;
                     const connectorGreen = !isLast && (event.connectorGreen ?? true);
                     const prevConnectorGreen =
-                        idx > 0 ? (events[idx - 1].connectorGreen ?? true) : connectorGreen;
+                        idx > 0 ? (visibleEvents[idx - 1].connectorGreen ?? true) : connectorGreen;
                     const documentLinks = resolveEventLinks(event);
                     const showConnector = !useSpread && (!isLast || (isLast && useSpread && showTrailingLine));
                     const connectorColorClass =
@@ -404,6 +413,17 @@ export default function WorkflowHistoryTimeline({
                     );
                 })}
             </div>
+            {showHistoryToggle ? (
+                <button
+                    type="button"
+                    className={`ml-12 mt-1 border-0 bg-transparent p-0 font-semibold text-blue-600 hover:underline ${
+                        isLarge ? 'text-sm' : 'text-xs'
+                    }`}
+                    onClick={() => setHistoryExpanded((open) => !open)}
+                >
+                    {historyExpanded ? 'Show less' : 'Show more...'}
+                </button>
+            ) : null}
         </div>
     );
 }

@@ -9,6 +9,7 @@ import {
     ChevronUp,
     Info,
     Loader2,
+    Search,
     X,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
@@ -235,6 +236,7 @@ function PayrollHistoryCard({ dmf, batches }) {
                 events={events}
                 emptyMessage="No payroll history yet."
                 compact
+                initialVisibleCount={5}
                 className="spcc-payroll-history"
             />
         </section>
@@ -787,6 +789,17 @@ function SlotEditorModal({
         return names;
     }, [employees, companyName]);
 
+    const companyHasFreeEmployee = useMemo(() => {
+        const open = new Set();
+        for (const emp of employees || []) {
+            const id = String(emp.employeeId || '');
+            if (!id || idIsClaimed(claimedKeys, id)) continue;
+            const label = companyKeyOf(emp);
+            if (label) open.add(label.toLowerCase());
+        }
+        return open;
+    }, [employees, claimedKeys]);
+
     const lockedType = useMemo(() => {
         const types = new Set();
         for (const emp of employees || []) {
@@ -845,6 +858,14 @@ function SlotEditorModal({
     }, [selectedVisible.length, selectableIds.length]);
 
     function changeCompany(name) {
+        const nextName = String(name || '').trim();
+        if (
+            nextName
+            && !companyHasFreeEmployee.has(nextName.toLowerCase())
+            && !sameCompany(nextName, companyName)
+        ) {
+            return;
+        }
         const allowed = new Set(
             (employees || [])
                 .filter((emp) => sameCompany(companyKeyOf(emp), name))
@@ -972,11 +993,16 @@ function SlotEditorModal({
                                 onChange={(event) => changeCompany(event.target.value)}
                             >
                                 <option value="">Select company</option>
-                                {companies.map((name) => (
-                                    <option key={name} value={name}>
-                                        {name}
-                                    </option>
-                                ))}
+                                {companies.map((name) => {
+                                    const open = companyHasFreeEmployee.has(name.toLowerCase());
+                                    const current = sameCompany(name, companyName);
+                                    const disabled = !open && !current;
+                                    return (
+                                        <option key={name} value={name} disabled={disabled}>
+                                            {name}
+                                        </option>
+                                    );
+                                })}
                             </select>
                         </label>
                         <label className="spcc-slot-type">
@@ -1482,6 +1508,7 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     const payTableRef = useRef(null);
     const sideColRef = useRef(null);
     const [payrollSort, setPayrollSort] = useState({ key: 'name', dir: 'asc' });
+    const [payrollQuery, setPayrollQuery] = useState('');
     const [sendingReminders, setSendingReminders] = useState(false);
     const [groupPolicies, setGroupPolicies] = useState({});
     const [loading, setLoading] = useState(true);
@@ -1973,6 +2000,10 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     }, [readinessEmployeeId, view.pendingByEmployee]);
 
     useEffect(() => {
+        setPayrollQuery('');
+    }, [monthKey]);
+
+    useEffect(() => {
         setReadinessEmployeeId('');
         setReadinessAnchorId('');
     }, [tab, tabMode]);
@@ -2071,13 +2102,18 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         return map;
     }, [paymentBatches]);
 
-    const sortedPayrollRows = useMemo(
-        () =>
-            [...payrollRows].sort((a, b) =>
-                comparePayrollRow(a, b, payrollSort.key, payrollSort.dir, processedPaymentIds, slotNoByEmployee),
-            ),
-        [payrollRows, payrollSort, processedPaymentIds, slotNoByEmployee],
-    );
+    const sortedPayrollRows = useMemo(() => {
+        const query = payrollQuery.trim().toLowerCase();
+        const rows = query
+            ? payrollRows.filter((emp) => {
+                const haystack = `${emp?.name || ''} ${emp?.employeeId || ''}`.toLowerCase();
+                return haystack.includes(query);
+            })
+            : payrollRows;
+        return [...rows].sort((a, b) =>
+            comparePayrollRow(a, b, payrollSort.key, payrollSort.dir, processedPaymentIds, slotNoByEmployee),
+        );
+    }, [payrollRows, payrollQuery, payrollSort, processedPaymentIds, slotNoByEmployee]);
 
     const placeReadinessCard = useCallback((employeeId) => {
         const side = sideColRef.current;
@@ -2497,6 +2533,21 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             })
             .sort((a, b) => a.slot - b.slot);
     }, [paymentBatches, paymentEmployees]);
+    const slotToneByEmployee = useMemo(() => {
+        const map = new Map();
+        for (const slot of salarySlots) {
+            const tone = slotCardTone(slot);
+            const ids = new Set([
+                ...(slot.batch?.selectedIds || []).map((id) => employeeIdKey(id)),
+                ...(slot.rows || []).map((emp) => employeeIdKey(emp?.employeeId)),
+            ]);
+            for (const key of ids) {
+                if (!key || map.has(key)) continue;
+                map.set(key, tone);
+            }
+        }
+        return map;
+    }, [salarySlots]);
     const dmfApproved = String(monthDmf?.status || '') === 'approved';
     const dmfStatus = String(monthDmf?.status || 'idle');
     const processStatusLabel = monthPayrollProcessStatusLabel(monthDmf);
@@ -2847,6 +2898,16 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                     </button>
                                                 ))}
                                             </nav>
+                                            <label className="spcc-pay-search">
+                                                <Search size={14} aria-hidden />
+                                                <input
+                                                    type="search"
+                                                    value={payrollQuery}
+                                                    onChange={(event) => setPayrollQuery(event.target.value)}
+                                                    placeholder="Search employee"
+                                                    aria-label="Search employees"
+                                                />
+                                            </label>
                                             <div className="spcc-tab-tools">
                                             <PayrollExcelMenu
                                                 monthLabel={monthLabel}
@@ -2990,17 +3051,25 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                         const blockerCount = Number(view.requestCountByEmployee?.[id]) || 0;
                                                         const pending = !processed && blockerCount > 0;
                                                         const pendingItems = view.pendingByEmployee?.[id] || [];
-                                                        const status = processed
-                                                            ? 'Processed'
-                                                            : pending
-                                                                ? employeePendingStatusLabel(pendingItems)
-                                                                : 'Ready';
+                                                        const slotTone = slotToneByEmployee.get(employeeIdKey(id)) || '';
+                                                        const status = slotTone === 'done' && !pending
+                                                            ? 'Paid'
+                                                            : processed
+                                                                ? 'Processed'
+                                                                : pending
+                                                                    ? employeePendingStatusLabel(pendingItems)
+                                                                    : 'Ready';
+                                                        const slotRowClass = slotTone === 'done'
+                                                            ? ' is-slot-done'
+                                                            : slotTone === 'pending'
+                                                                ? ' is-slot-pending'
+                                                                : '';
                                                         const netSalary = employeeNetPayable(emp);
                                                         return (
                                                             <div
                                                                 key={emp.employeeId || emp.slNo || index}
                                                                 data-pay-employee={id}
-                                                                className={`spcc-pay-row${readinessEmployeeId === id ? ' is-selected' : ''}`}
+                                                                className={`spcc-pay-row${slotRowClass}${readinessEmployeeId === id ? ' is-selected' : ''}`}
                                                                 role="row"
                                                                 title={id ? 'Double-click to open this month\'s salary slip in a new tab' : undefined}
                                                                 onClick={(event) => {
@@ -3056,7 +3125,11 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                         );
                                                     })
                                                 ) : (
-                                                    <p className="spcc-pay-empty">No enrolled employees for this month.</p>
+                                                    <p className="spcc-pay-empty">
+                                                        {payrollQuery.trim()
+                                                            ? 'No employees match this search.'
+                                                            : 'No enrolled employees for this month.'}
+                                                    </p>
                                                 )}
                                             </div>
                                         </div>
