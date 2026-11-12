@@ -1,16 +1,13 @@
 'use client';
 
-import { useState } from 'react';
 import {
     ArrowDown,
     ArrowUp,
-    Bell,
     Box,
     Calendar,
     ClipboardList,
     Clock,
     Package,
-    Search,
     ShoppingCart,
     Truck,
     Users,
@@ -19,7 +16,6 @@ import {
 } from 'lucide-react';
 import { Cell, Pie, PieChart, Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from 'recharts';
 import RechartsBox from '@/components/charts/RechartsBox';
-import { performLogout } from '@/utils/authSession';
 
 const CATEGORY_VALUE = [
     { name: 'Structured Cabling', value: 28, label: '28%', color: '#3B82F6' },
@@ -191,47 +187,11 @@ function Donut({ data, center, caption }) {
 }
 
 export default function InventoryDashboard() {
-    const [userOpen, setUserOpen] = useState(false);
     const maxVendor = TOP_VENDORS[0].value;
 
     return (
-        <div className="flex min-h-screen flex-col bg-[#F4F7FB] text-slate-800">
-            <header className="sticky top-0 z-20 flex h-16 items-center gap-4 border-b border-[#E6EDF5] bg-white px-5">
-                <h1 className="shrink-0 text-[15px] font-semibold text-slate-900">Inventory & Vendor Management</h1>
-                <div className="relative mx-auto w-full max-w-xl">
-                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                        type="text"
-                        readOnly
-                        placeholder="Search here (Items, Vendors, Model, Category, PO, etc...)"
-                        className="h-9 w-full rounded-lg border border-[#E6EDF5] bg-[#F8FAFC] pl-9 pr-3 text-[12px] text-slate-700 outline-none placeholder:text-slate-400"
-                    />
-                </div>
-                <button type="button" className="relative shrink-0 rounded-full p-2 text-slate-500 hover:bg-slate-50" aria-label="Notifications">
-                    <Bell size={18} />
-                    <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
-                </button>
-                <div className="relative shrink-0">
-                    <button type="button" onClick={() => setUserOpen((open) => !open)} className="flex items-center gap-2">
-                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">AA</span>
-                        <span className="text-left leading-tight">
-                            <span className="block text-[13px] font-semibold text-slate-800">Aadam</span>
-                            <span className="block text-[11px] text-slate-400">CEO</span>
-                        </span>
-                    </button>
-                    {userOpen ? (
-                        <button
-                            type="button"
-                            onClick={() => performLogout({ reason: 'manual' })}
-                            className="absolute right-0 top-11 z-30 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 shadow-lg"
-                        >
-                            Logout
-                        </button>
-                    ) : null}
-                </div>
-            </header>
-
-            <main className="flex-1 space-y-4 p-4 lg:p-5">
+        <>
+        <main className="flex-1 space-y-4 bg-[#F4F7FB] p-4 text-slate-800 lg:p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <h2 className="text-[22px] font-bold tracking-tight text-slate-900">Welcome back, Aadam!</h2>
@@ -427,6 +387,6 @@ export default function InventoryDashboard() {
                 </p>
                 <p>Small Business, Big Vision <span className="mx-1 text-slate-300">|</span> Tech Mind, Creative Soul</p>
             </footer>
-        </div>
+        </>
     );
 }
