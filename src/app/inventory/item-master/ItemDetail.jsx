@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Copy, Package, Pencil, Printer } from 'lucide-react';
 import { createItem } from './itemMasterApi';
+import { useInventoryAccess } from './itemMasterAccess';
 import { useToast } from '@/hooks/use-toast';
 
 const TABS = ['Overview', 'Stock', 'Vendors', 'Price History', 'Purchases', 'Transactions', 'Documents'];
@@ -44,6 +45,7 @@ function InfoTable({ title, rows, action }) {
 export default function ItemDetail({ item }) {
     const router = useRouter();
     const { toast } = useToast();
+    const access = useInventoryAccess();
     const [tab, setTab] = useState('Overview');
     const [copying, setCopying] = useState(false);
     const available = Number(item.availableQuantity) || 0;
@@ -95,21 +97,25 @@ export default function ItemDetail({ item }) {
                     <h1 className="text-2xl font-bold text-slate-900">Item Detail</h1>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={() => router.push(`/inventory/item-master/${item._id}/edit`)}
-                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700"
-                    >
-                        <Pencil size={14} /> Edit
-                    </button>
-                    <button
-                        type="button"
-                        disabled={copying}
-                        onClick={duplicate}
-                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700 disabled:opacity-60"
-                    >
-                        <Copy size={14} /> {copying ? 'Copying...' : 'Duplicate'}
-                    </button>
+                    {access.canEditItem ? (
+                        <button
+                            type="button"
+                            onClick={() => router.push(`/inventory/item-master/${item._id}/edit`)}
+                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700"
+                        >
+                            <Pencil size={14} /> Edit
+                        </button>
+                    ) : null}
+                    {access.canCreateItem ? (
+                        <button
+                            type="button"
+                            disabled={copying}
+                            onClick={duplicate}
+                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700 disabled:opacity-60"
+                        >
+                            <Copy size={14} /> {copying ? 'Copying...' : 'Duplicate'}
+                        </button>
+                    ) : null}
                     <button
                         type="button"
                         onClick={() => window.print()}
@@ -189,7 +195,7 @@ export default function ItemDetail({ item }) {
                     />
                     <InfoTable
                         title="Details"
-                        action={(
+                        action={access.canEditItem ? (
                             <button
                                 type="button"
                                 onClick={() => router.push(`/inventory/item-master/${item._id}/edit`)}
@@ -197,7 +203,7 @@ export default function ItemDetail({ item }) {
                             >
                                 <Pencil size={12} /> Edit
                             </button>
-                        )}
+                        ) : null}
                         rows={[
                             { label: 'Manufacturer Part Number', value: item.manufacturerPartNumber },
                             { label: 'HS Code', value: item.hsCode },

@@ -11,7 +11,7 @@ export function apiMessage(error, fallback) {
 }
 
 export const listCategories = () => axiosInstance.get(`${base}/categories`).then(dataOf);
-export const createCategory = (name) => axiosInstance.post(`${base}/categories`, { name }).then(dataOf);
+export const createCategory = (payload) => axiosInstance.post(`${base}/categories`, payload).then(dataOf);
 
 export const listSubcategories = (categoryId) => axiosInstance
     .get(`${base}/subcategories`, { params: categoryId ? { categoryId } : {} })

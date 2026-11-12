@@ -17,6 +17,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { HRM_MODULE } from '@/constants/hrmModulePermissions';
+import { INVENTORY_MODULE } from '@/constants/inventoryModulePermissions';
 import {
     applyDisabledGroupPermissionClamp,
     getEffectiveGroupPermissionChecked,
@@ -26,6 +27,7 @@ import {
 
 const MODULES = [
     HRM_MODULE,
+    INVENTORY_MODULE,
     { id: 'crm', label: 'CRM', parent: null, hasDownload: false },
     { id: 'purchases', label: 'Accounts (Vendors / Bills / Expenses / Payments Made)', parent: null, hasDownload: true },
     { id: 'sales', label: 'Sales', parent: null, hasDownload: true },

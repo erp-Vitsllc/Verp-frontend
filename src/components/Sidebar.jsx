@@ -192,9 +192,10 @@ const menuItems = [
         label: 'Inventory',
         icon: Warehouse,
         href: '/inventory',
+        permissionModule: 'inventory',
         submenu: [
-            { label: 'Item Master', icon: Boxes, href: '/inventory/item-master' },
-            { label: 'Vendor Management', icon: Store, href: '/inventory/vendor-management' },
+            { label: 'Item Master', icon: Boxes, href: '/inventory/item-master', permissionModule: 'inventory_item_master' },
+            { label: 'Vendor Management', icon: Store, href: '/inventory/vendor-management', permissionModule: 'inventory_vendor' },
         ],
     },
     {

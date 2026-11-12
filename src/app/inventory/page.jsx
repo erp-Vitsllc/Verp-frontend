@@ -5,10 +5,12 @@ import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import InventoryDashboard from '@/app/inventory/InventoryDashboard';
+import { useInventoryAccess } from '@/app/inventory/item-master/itemMasterAccess';
 
 export default function InventoryPage() {
     const router = useRouter();
     const [ready, setReady] = useState(false);
+    const access = useInventoryAccess();
 
     useEffect(() => {
         if (!localStorage.getItem('token')) {
@@ -25,7 +27,12 @@ export default function InventoryPage() {
             <Sidebar />
             <div className="flex min-w-0 flex-1 flex-col">
                 <Navbar />
-                <InventoryDashboard />
+                {access.ready && !access.canOpenInventory ? (
+                    <main className="flex-1 p-4 sm:p-6">
+                        <p className="rounded-2xl border border-[#E6EDF5] bg-white p-5 text-sm text-slate-500">You do not have permission to view Inventory.</p>
+                    </main>
+                ) : null}
+                {access.canOpenInventory ? <InventoryDashboard /> : null}
             </div>
         </div>
     );

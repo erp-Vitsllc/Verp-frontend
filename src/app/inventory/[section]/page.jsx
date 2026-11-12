@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
+import { useInventoryAccess } from '@/app/inventory/item-master/itemMasterAccess';
 
 const TITLES = {
     'item-master': 'Item Master',
@@ -16,6 +17,8 @@ export default function InventorySectionPage() {
     const section = String(params?.section || '');
     const title = TITLES[section] || 'Inventory';
     const [ready, setReady] = useState(false);
+    const access = useInventoryAccess();
+    const canOpen = section === 'vendor-management' ? access.canViewVendors : access.canOpenInventory;
 
     useEffect(() => {
         if (!localStorage.getItem('token')) {
@@ -33,8 +36,14 @@ export default function InventorySectionPage() {
             <div className="flex min-w-0 w-full max-w-full flex-1 flex-col">
                 <Navbar />
                 <main className="flex-1 p-4 sm:p-6 lg:p-8">
-                    <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
-                    <p className="mt-1 text-sm text-slate-500">Open this section from Inventory.</p>
+                    {access.ready && !canOpen ? (
+                        <p className="rounded-2xl border border-[#E6EDF5] bg-white p-5 text-sm text-slate-500">You do not have permission to view {title}.</p>
+                    ) : (
+                        <>
+                            <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
+                            <p className="mt-1 text-sm text-slate-500">Open this section from Inventory.</p>
+                        </>
+                    )}
                 </main>
             </div>
         </div>

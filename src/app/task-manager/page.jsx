@@ -4,18 +4,19 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-    AlertTriangle,
     ArrowDown,
     ArrowUp,
     Calendar,
     CheckCircle2,
     ChevronDown,
     ChevronUp,
-    Clock,
-    FileText,
+    ClipboardList,
+    Hourglass,
+    Layers,
     MoreHorizontal,
     Plus,
     Search,
+    Send,
 } from 'lucide-react';
 import CreateTaskModal from '@/app/task-manager/CreateTaskModal';
 import ReassignTaskModal from '@/app/task-manager/ReassignTaskModal';
@@ -42,6 +43,13 @@ const PAGE_SIZE_OPTIONS = [
     { id: 'all', label: 'All' },
 ];
 const SCOPES = ['My Task', 'All Task'];
+const TASK_BOARDS = [
+    { id: 'mine', label: 'My Task' },
+    { id: 'requests', label: 'My Requests' },
+    { id: 'review', label: 'Review Pending' },
+    { id: 'completed', label: 'My Completed Tasks' },
+    { id: 'all', label: 'All Task' },
+];
 const DATE_RANGES = [
     { id: 'all', label: 'All Days' },
     { id: 'today', label: 'Today' },
@@ -56,7 +64,6 @@ const TYPE_FILTERS = ['All Types', 'System Task', 'Workflow Task', 'General Task
 const STATUSES = [
     { value: 'All Status', label: 'All Status' },
     { value: 'Pending', label: 'Pending' },
-    { value: 'Overdue', label: 'Overdue' },
     { value: 'Completed', label: 'Completed' },
     { value: 'Cancelled', label: 'Cancelled' },
     { value: 'Rejected', label: 'Rejected' },
@@ -133,14 +140,23 @@ function oneOf(value, allowed, fallback) {
 }
 
 function statusValue(value) {
+    if (value === 'Overdue') return 'Overdue';
     return STATUSES.some((item) => item.value === value) ? value : 'Pending';
 }
 
 function readTaskListFilters(params) {
     const page = parseInt(paramValue(params, 'page', '1'), 10);
     const size = paramValue(params, 'size', '10');
+    const boardIds = TASK_BOARDS.map((item) => item.id);
+    const boardParam = paramValue(params, 'board', '');
+    const board = boardIds.includes(boardParam)
+        ? boardParam
+        : paramValue(params, 'scope', '') === 'All Task'
+            ? 'all'
+            : 'mine';
     return {
-        scope: oneOf(paramValue(params, 'scope', 'My Task'), SCOPES, 'My Task'),
+        board,
+        scope: oneOf(paramValue(params, 'scope', board === 'all' ? 'All Task' : 'My Task'), SCOPES, board === 'all' ? 'All Task' : 'My Task'),
         typeFilter: oneOf(paramValue(params, 'type', 'All Types'), TYPE_FILTERS, 'All Types'),
         query: paramValue(params, 'q'),
         requesterQuery: personKey(paramValue(params, 'requester')),
@@ -206,6 +222,70 @@ function isMyTask(task, viewer) {
     if (names.includes(lead) || names.includes(inside)) return true;
     const requester = String(task.requesterBaseName || task.requesterName || '').trim().toLowerCase();
     return Boolean(requester && names.includes(requester));
+}
+
+function viewerIdentity(viewer) {
+    return {
+        ids: [viewer?.employeeObjectId, viewer?.empObjectId, viewer?._id, viewer?.id, viewer?.userId]
+            .map((value) => String(value || ''))
+            .filter(Boolean),
+        codes: [viewer?.employeeId, viewer?.empId]
+            .map((value) => String(value || '').trim().toLowerCase())
+            .filter(Boolean),
+        names: [viewer?.name, viewer?.username]
+            .map((value) => String(value || '').trim().toLowerCase())
+            .filter(Boolean),
+    };
+}
+
+/** Assignee only. A task the employee requested is not their assigned task. */
+function assignedToViewer(task, viewer) {
+    if (!viewer || !task) return false;
+    const { ids, codes, names } = viewerIdentity(viewer);
+    const assigneeIds = [task.assigneeId, task.originalAssigneeId, task.reassignedAssigneeId, task.listedAssigneeId]
+        .map((value) => String(value || ''))
+        .filter(Boolean);
+    if (assigneeIds.some((id) => ids.includes(id))) return true;
+    const assigneeCodes = [task.assigneeEmpId, task.originalAssigneeEmpId, task.listedAssigneeEmpId]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean);
+    if (assigneeCodes.some((code) => codes.includes(code))) return true;
+    return [task.assigneeName, task.mainAssigneeName, task.originalAssigneeName, task.reassignedAssigneeName, task.listedAssigneeName]
+        .some((value) => viewerNameHits(names, value));
+}
+
+function requestedByViewer(task, viewer) {
+    if (!viewer || !task) return false;
+    const { ids, names } = viewerIdentity(viewer);
+    const requesterIds = [task.requestedByUserId, task.requesterId, task.requestedById]
+        .map((value) => String(value || ''))
+        .filter(Boolean);
+    if (requesterIds.some((id) => ids.includes(id))) return true;
+    return viewerNameHits(names, requesterEmployeeName(task));
+}
+
+function taskIsCompleted(task) {
+    const shown = listStatus(task);
+    return shown === 'Completed' || shown === 'Closed';
+}
+
+/** Requester's approval queue after the assignee has completed the task. */
+function taskAwaitingRequesterReview(task, viewer) {
+    if (!requestedByViewer(task, viewer)) return false;
+    if (task?.reviewPending) return true;
+    return listStatus(task) === 'Pending Review';
+}
+
+function taskInBoard(task, board, viewer) {
+    if (board === 'all') return true;
+    if (board === 'mine') {
+        if (task?.reviewPending || listStatus(task) === 'Pending Review') return false;
+        return assignedToViewer(task, viewer) && isOpenPending(listStatus(task));
+    }
+    if (board === 'requests') return requestedByViewer(task, viewer);
+    if (board === 'review') return taskAwaitingRequesterReview(task, viewer);
+    if (board === 'completed') return assignedToViewer(task, viewer) && taskIsCompleted(task);
+    return false;
 }
 
 function addDays(key, days) {
@@ -536,7 +616,7 @@ function taskMatchesListFilters(task, options) {
     if (scope === 'My Task' && !taskIsMine(task, viewer)) return false;
     if (typeFilter !== 'All Types' && displayTaskType(task.taskCategory) !== typeFilter) return false;
     const finished = shown === 'Completed' || shown === 'Closed';
-    if (finished && status !== 'Completed') return false;
+    if (finished && status !== 'Completed' && status !== 'All Status') return false;
     if (includeStatus && !finished) {
         if (status === 'Pending' && !isOpenPending(shown)) return false;
         if (status !== 'All Status' && status !== 'Pending' && shown !== status) return false;
@@ -580,50 +660,21 @@ function taskMatchesListFilters(task, options) {
         .includes(needle);
 }
 
-function summarizeTasks(list) {
+function requestMonth(task) {
+    return dateKey(task?.requestDate).slice(0, 7);
+}
+
+function boardChange(list, dateOf) {
     const thisMonth = dateKey(new Date()).slice(0, 7);
     const lastMonth = shiftMonthKey(thisMonth, -1);
-    const next = {
-        total: list.length,
-        pending: 0,
-        pendingDue: 0,
-        completed: 0,
-        totalChange: 0,
-        pendingChange: 0,
-        pendingDueChange: 0,
-        completedChange: 0,
-    };
-    const months = {
-        total: { current: 0, previous: 0 },
-        pending: { current: 0, previous: 0 },
-        pendingDue: { current: 0, previous: 0 },
-        completed: { current: 0, previous: 0 },
-    };
-    const bump = (bucket, month) => {
-        if (month === thisMonth) months[bucket].current += 1;
-        else if (month === lastMonth) months[bucket].previous += 1;
-    };
+    let current = 0;
+    let previous = 0;
     list.forEach((task) => {
-        const shown = listStatus(task);
-        const requestedMonth = dateKey(task.requestDate).slice(0, 7);
-        bump('total', requestedMonth);
-        if (isOpenPending(shown)) {
-            next.pending += 1;
-            bump('pending', requestedMonth);
-            if (shown === 'Overdue') {
-                next.pendingDue += 1;
-                bump('pendingDue', requestedMonth);
-            }
-        } else if (shown === 'Completed' || shown === 'Closed') {
-            next.completed += 1;
-            bump('completed', dateKey(task.completionDate || task.requestDate).slice(0, 7));
-        }
+        const month = dateOf(task);
+        if (month === thisMonth) current += 1;
+        else if (month === lastMonth) previous += 1;
     });
-    next.totalChange = percentChange(months.total.current, months.total.previous);
-    next.pendingChange = percentChange(months.pending.current, months.pending.previous);
-    next.pendingDueChange = percentChange(months.pendingDue.current, months.pendingDue.previous);
-    next.completedChange = percentChange(months.completed.current, months.completed.previous);
-    return next;
+    return percentChange(current, previous);
 }
 
 function ChangePill({ value, goodWhenUp }) {
@@ -640,15 +691,15 @@ function ChangePill({ value, goodWhenUp }) {
     );
 }
 
-function StatCard({ label, value, change, goodWhenUp, icon: Icon, wrap, bubble, figure, onClick }) {
+function StatCard({ label, value, change, goodWhenUp, icon: Icon, wrap, bubble, figure, active, onClick }) {
     return (
-        <button type="button" onClick={onClick} className={`w-full rounded-2xl px-5 py-4 text-left ${wrap}`}>
+        <button type="button" onClick={onClick} className={`w-full rounded-2xl px-5 py-4 text-left ring-2 ${active ? 'ring-blue-500' : 'ring-transparent'} ${wrap}`}>
             <div className="flex items-center gap-3">
                 <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${bubble}`}>
                     <Icon size={20} />
                 </span>
                 <div className="min-w-0">
-                    <p className="whitespace-nowrap text-[13px] font-medium text-slate-500">{label}</p>
+                    <p className="text-[13px] font-medium leading-snug text-slate-500">{label}</p>
                     <p className={`mt-0.5 text-[28px] font-bold leading-none tabular-nums ${figure}`}>{value}</p>
                 </div>
             </div>
@@ -793,6 +844,7 @@ function TaskManagerContent() {
     const [error, setError] = useState('');
     const [tasks, setTasks] = useState([]);
     const [viewer, setViewer] = useState(null);
+    const [board, setBoard] = useState(filtersFromUrl.board);
     const [scope, setScope] = useState(filtersFromUrl.scope);
     const [typeFilter, setTypeFilter] = useState(filtersFromUrl.typeFilter);
     const [query, setQuery] = useState(filtersFromUrl.query);
@@ -819,6 +871,7 @@ function TaskManagerContent() {
 
     if (urlKeyRef.current !== urlKey) {
         urlKeyRef.current = urlKey;
+        setBoard(filtersFromUrl.board);
         setScope(filtersFromUrl.scope);
         setTypeFilter(filtersFromUrl.typeFilter);
         setQuery(filtersFromUrl.query);
@@ -834,6 +887,7 @@ function TaskManagerContent() {
     }
 
     const listReturnParams = useMemo(() => ({
+        ...(board !== 'mine' ? { board } : {}),
         ...(scope !== 'My Task' ? { scope } : {}),
         ...(typeFilter !== 'All Types' ? { type: typeFilter } : {}),
         ...(query ? { q: query } : {}),
@@ -848,6 +902,7 @@ function TaskManagerContent() {
         ...(page > 1 ? { page } : {}),
         ...(pageSizeChoice !== '10' ? { size: pageSizeChoice } : {}),
     }), [
+        board,
         scope,
         typeFilter,
         query,
@@ -867,6 +922,7 @@ function TaskManagerContent() {
     useEffect(() => {
         const apply = (params) => {
             const next = readTaskListFilters(params);
+            setBoard(next.board);
             setScope(next.scope);
             setTypeFilter(next.typeFilter);
             setQuery(next.query);
@@ -984,17 +1040,30 @@ function TaskManagerContent() {
         [tasks, listFilter],
     );
 
-    const cardTasks = useMemo(
-        () => tasks.filter((task) => taskMatchesListFilters(task, { ...listFilter, includeStatus: false })),
-        [tasks, listFilter],
-    );
+    const boardSummary = useMemo(() => {
+        const mine = tasks.filter((task) => taskInBoard(task, 'mine', viewer));
+        const requests = tasks.filter((task) => taskInBoard(task, 'requests', viewer));
+        const review = tasks.filter((task) => taskInBoard(task, 'review', viewer));
+        const completed = tasks.filter((task) => taskInBoard(task, 'completed', viewer));
+        const completedMonth = (task) => dateKey(task.completionDate || task.requestDate).slice(0, 7);
+        return {
+            mine: mine.length,
+            requests: requests.length,
+            review: review.length,
+            completed: completed.length,
+            all: tasks.length,
+            mineChange: boardChange(mine, requestMonth),
+            requestsChange: boardChange(requests, requestMonth),
+            reviewChange: boardChange(review, requestMonth),
+            completedChange: boardChange(completed, completedMonth),
+            allChange: boardChange(tasks, requestMonth),
+        };
+    }, [tasks, viewer]);
 
-    const cardSummary = useMemo(() => summarizeTasks(cardTasks), [cardTasks]);
-
-    const filtered = useMemo(
-        () => tasks.filter((task) => taskMatchesListFilters(task, { ...listFilter, includeStatus: true })),
-        [tasks, listFilter],
-    );
+    const filtered = useMemo(() => {
+        if (board !== 'all') return tasks.filter((task) => taskInBoard(task, board, viewer));
+        return tasks.filter((task) => taskMatchesListFilters(task, { ...listFilter, includeStatus: true }));
+    }, [tasks, board, viewer, listFilter]);
     const sorted = useMemo(
         () => sortTaskRows(filtered, sortKey, sortDirection, titles),
         [filtered, sortKey, sortDirection, titles],
@@ -1018,8 +1087,25 @@ function TaskManagerContent() {
         if (page > pageCount) setPage(pageCount);
     }, [loading, page, pageCount]);
 
+    const selectBoard = (next) => {
+        setBoard(next);
+        setPage(1);
+        if (next !== 'all') return;
+        setScope('All Task');
+        setTypeFilter('All Types');
+        setQuery('');
+        setRequesterQuery('');
+        setAssigneeQuery('');
+        setDatePreset('all');
+        setFromDate('');
+        setToDate('');
+        setCustomOpen(false);
+        setStatus('All Status');
+        setPriority('All Priority');
+    };
+
     const resetFilters = () => {
-        setScope('My Task');
+        setScope('All Task');
         setTypeFilter('All Types');
         setPageSizeChoice('10');
         setQuery('');
@@ -1029,7 +1115,7 @@ function TaskManagerContent() {
         setFromDate('');
         setToDate('');
         setCustomOpen(false);
-        setStatus('Pending');
+        setStatus('All Status');
         setPriority('All Priority');
         setSortKey('requestDate');
         setSortDirection('desc');
@@ -1083,66 +1169,91 @@ function TaskManagerContent() {
                         </button>
                     </div>
 
-                    <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                         <StatCard
-                            label="Total Tasks"
-                            value={cardSummary.total}
-                            change={cardSummary.totalChange}
+                            label="My Task"
+                            value={boardSummary.mine}
+                            change={boardSummary.mineChange}
                             goodWhenUp
-                            icon={FileText}
+                            icon={ClipboardList}
                             wrap="bg-[#EAF3FF]"
                             bubble="bg-[#3B82F6] text-white"
                             figure="text-[#2563EB]"
-                            onClick={() => {
-                                setStatus('All Status');
-                                setPage(1);
-                            }}
+                            active={board === 'mine'}
+                            onClick={() => selectBoard('mine')}
                         />
                         <StatCard
-                            label="Pending Tasks"
-                            value={cardSummary.pending}
-                            change={cardSummary.pendingChange}
-                            goodWhenUp={false}
-                            icon={Clock}
-                            wrap="bg-[#FDECEC]"
-                            bubble="bg-[#EF4444] text-white"
-                            figure="text-[#EF4444]"
-                            onClick={() => {
-                                setStatus('Pending');
-                                setPage(1);
-                            }}
+                            label="My Requests"
+                            value={boardSummary.requests}
+                            change={boardSummary.requestsChange}
+                            goodWhenUp
+                            icon={Send}
+                            wrap="bg-[#F3E8FF]"
+                            bubble="bg-[#8B5CF6] text-white"
+                            figure="text-[#7C3AED]"
+                            active={board === 'requests'}
+                            onClick={() => selectBoard('requests')}
                         />
                         <StatCard
-                            label="Pending Due"
-                            value={cardSummary.pendingDue}
-                            change={cardSummary.pendingDueChange}
+                            label="Review Pending"
+                            value={boardSummary.review}
+                            change={boardSummary.reviewChange}
                             goodWhenUp={false}
-                            icon={AlertTriangle}
+                            icon={Hourglass}
                             wrap="bg-[#FFF6E8]"
                             bubble="bg-[#F59E0B] text-white"
                             figure="text-[#D97706]"
-                            onClick={() => {
-                                setStatus('Overdue');
-                                setPage(1);
-                            }}
+                            active={board === 'review'}
+                            onClick={() => selectBoard('review')}
                         />
                         <StatCard
-                            label="Completed Tasks"
-                            value={cardSummary.completed}
-                            change={cardSummary.completedChange}
+                            label="My Completed Tasks"
+                            value={boardSummary.completed}
+                            change={boardSummary.completedChange}
                             goodWhenUp
                             icon={CheckCircle2}
                             wrap="bg-[#E8F8EF]"
                             bubble="bg-[#22C55E] text-white"
                             figure="text-[#16A34A]"
-                            onClick={() => {
-                                setStatus('Completed');
-                                setPage(1);
-                            }}
+                            active={board === 'completed'}
+                            onClick={() => selectBoard('completed')}
+                        />
+                        <StatCard
+                            label="All Task"
+                            value={boardSummary.all}
+                            change={boardSummary.allChange}
+                            goodWhenUp
+                            icon={Layers}
+                            wrap="bg-[#EAF3FF]"
+                            bubble="bg-[#2563EB] text-white"
+                            figure="text-[#1D4ED8]"
+                            active={board === 'all'}
+                            onClick={() => selectBoard('all')}
                         />
                     </div>
 
+                    <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Task lists">
+                        {TASK_BOARDS.map((item) => {
+                            const active = board === item.id;
+                            return (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={active}
+                                    onClick={() => selectBoard(item.id)}
+                                    className={active
+                                        ? 'h-9 rounded-lg bg-[#2563EB] px-4 text-sm font-semibold text-white'
+                                        : 'h-9 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50'}
+                                >
+                                    {item.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+
                     <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+                        {board === 'all' ? (
                         <div className="flex flex-nowrap items-center gap-2 overflow-x-auto border-b border-slate-100 px-4 py-3">
                             <div className="relative w-[220px] shrink-0">
                                 <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1275,6 +1386,7 @@ function TaskManagerContent() {
                                 aria-label="Status"
                                 className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-600"
                             >
+                                {status === 'Overdue' ? <option value="Overdue" hidden>Pending Due</option> : null}
                                 {STATUSES.map((item) => (
                                     <option key={item.value} value={item.value}>{item.label}</option>
                                 ))}
@@ -1300,6 +1412,7 @@ function TaskManagerContent() {
                                 Reset
                             </button>
                         </div>
+                        ) : null}
 
                         {error && (
                             <div className="mx-4 mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
