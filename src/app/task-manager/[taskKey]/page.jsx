@@ -528,6 +528,26 @@ function TaskDetailsPage() {
         }
     };
 
+    const closeUnassigned = async () => {
+        setBusy(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/review`,
+                { decision: 'close' },
+                { skipToast: true },
+            );
+            setTask(res.data?.task || null);
+            setTab('updates');
+            toast({ title: 'Task closed', description: res.data?.message || 'The task is completed.' });
+        } catch (err) {
+            const pending = pendingFromError(err, task?.accessPath);
+            if (pending) setSourceBlock(pending);
+            toast({ title: 'Could not close the task', description: err?.response?.data?.message || 'Try again.' });
+        } finally {
+            setBusy(false);
+        }
+    };
+
     const approveGeneral = async () => {
         setBusy(true);
         try {
@@ -538,7 +558,7 @@ function TaskDetailsPage() {
             );
             setTask(res.data?.task || null);
             setTab('updates');
-            toast({ title: 'Task approved', description: res.data?.message || 'The task is closed.' });
+            toast({ title: 'Approved', description: res.data?.message || 'The assignee was removed.' });
         } catch (err) {
             const pending = pendingFromError(err, task?.accessPath);
             if (pending) setSourceBlock(pending);
@@ -673,7 +693,7 @@ function TaskDetailsPage() {
                                     onClick={approveGeneral}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
                                 >
-                                    <Check size={14} /> Approve and close
+                                    <Check size={14} /> Approve
                                 </button>
                             )}
                             {task.canRejectGeneral && (
@@ -724,6 +744,16 @@ function TaskDetailsPage() {
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-40"
                                 >
                                     Reject
+                                </button>
+                            )}
+                            {task.canCloseUnassigned && (
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={closeUnassigned}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
+                                >
+                                    <Check size={14} /> Close
                                 </button>
                             )}
                             {task.canCloseNow && (
@@ -796,12 +826,15 @@ function TaskDetailsPage() {
                                     Reject
                                 </button>
                             )}
-                            {task.canDelete && (
+                            {(task.canDelete || task.deleteBlockedByAssignee) && (
                                 <button
                                     type="button"
-                                    disabled={busy || deleting}
-                                    onClick={() => setDeleteOpen(true)}
-                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-40"
+                                    disabled={busy || deleting || !task.canDelete}
+                                    title={task.deleteBlockedByAssignee ? 'This task has an assignee. Delete is disabled.' : 'Delete this task'}
+                                    onClick={() => {
+                                        if (task.canDelete) setDeleteOpen(true);
+                                    }}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                     Delete
                                 </button>

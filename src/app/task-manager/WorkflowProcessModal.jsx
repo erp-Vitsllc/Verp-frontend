@@ -164,14 +164,16 @@ export function WorkflowBoard({ actionId, onChanged }) {
                                             Approve
                                         </button>
                                     ) : null}
-                                    <button
-                                        type="button"
-                                        disabled={busy}
-                                        onClick={() => decide('reject')}
-                                        className="h-8 rounded-lg bg-rose-500 px-3 text-xs font-semibold text-white disabled:opacity-60"
-                                    >
-                                        Reject
-                                    </button>
+                                    {step.canReject ? (
+                                        <button
+                                            type="button"
+                                            disabled={busy}
+                                            onClick={() => decide('reject')}
+                                            className="h-8 rounded-lg bg-rose-500 px-3 text-xs font-semibold text-white disabled:opacity-60"
+                                        >
+                                            Reject
+                                        </button>
+                                    ) : null}
                                 </div>
                             )}
                             {active && data.workflowLocked && (

@@ -31,6 +31,9 @@ import {
     GitBranch,
     Trash2,
     Activity,
+    Warehouse,
+    Boxes,
+    Store,
     ChevronRight,
     Search,
     Receipt,
@@ -150,6 +153,7 @@ function SidebarNavIcon({ icon: Icon, active, size = 18, className = '' }) {
 // Menu items with their permission mappings
 const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permissionModule: 'dashboard', href: '/dashboard' },
+    { id: 'task-manager', label: 'Task Manager', icon: ListTodo, permissionModule: 'hrm', href: '/task-manager' },
     {
         id: 'HRM',
         label: 'HRM',
@@ -183,7 +187,16 @@ const menuItems = [
             },
         ],
     },
-    { id: 'task-manager', label: 'Task Manager', icon: ListTodo, permissionModule: 'hrm', href: '/task-manager' },
+    {
+        id: 'inventory',
+        label: 'Inventory',
+        icon: Warehouse,
+        href: '/inventory',
+        submenu: [
+            { label: 'Item Master', icon: Boxes, href: '/inventory/item-master' },
+            { label: 'Vendor Management', icon: Store, href: '/inventory/vendor-management' },
+        ],
+    },
     {
         id: 'CRM',
         label: 'CRM',
@@ -285,6 +298,7 @@ function getSidebarSubmenuHref(parentId, subItem) {
     if (parentId === 'HRM' && isAssetParentSidebarItem(subItem.label)) return ASSET_DASHBOARD_HREF;
     if (parentId === 'HRM' && isPayrollParentSidebarItem(subItem.label)) return PAYROLL_DASHBOARD_HREF;
     if (Array.isArray(subItem.children) && subItem.children.length > 0) return null;
+    if (subItem.href) return subItem.href;
 
     const label = subItem.label;
     if (parentId === 'HRM') {
@@ -684,6 +698,9 @@ export default function Sidebar() {
         else if (pathname === '/task-manager' || pathname.startsWith('/task-manager/')) {
             setOpenMenu((prev) => (prev ? '' : prev));
         }
+        else if (pathname === '/inventory' || pathname.startsWith('/inventory/')) {
+            setOpenMenu((prev) => (prev === 'inventory' ? prev : 'inventory'));
+        }
     }, [pathname, mounted]);
 
     // Auto-scroll to opened dropdown
@@ -802,6 +819,9 @@ export default function Sidebar() {
 
     // Determine if a subsection is active based on pathname
     const isSubmenuActive = (parentId, subItem) => {
+        if (subItem?.href && (pathname === subItem.href || pathname?.startsWith(`${subItem.href}/`))) {
+            return true;
+        }
         if (subItem?.children && subItem.children.length) {
             if (parentId === 'HRM' && isAssetParentSidebarItem(subItem.label)) {
                 return isAssetSectionPath(pathname);
@@ -1081,10 +1101,16 @@ export default function Sidebar() {
                                 const isHrefActive = isHrefItem && (
                                     pathname === item.href || pathname.startsWith(`${item.href}/`)
                                 );
+                                const isSplitItem = Boolean(item.href && item.submenu);
+                                const isSplitActive = isSplitItem && (
+                                    pathname === item.href || pathname.startsWith(`${item.href}/`)
+                                );
                                 // Visual active state: direct link, open menu, or an active submenu
                                 const finalIsActive = isHrefItem
                                     ? isHrefActive
-                                    : isMenuOpen || hasActiveSubmenu;
+                                    : isSplitItem
+                                        ? isSplitActive || hasActiveSubmenu
+                                        : isMenuOpen || hasActiveSubmenu;
 
                                 return (
                                     <div
@@ -1096,7 +1122,34 @@ export default function Sidebar() {
                                             }
                                         }}
                                     >
-                                        {isHrefItem ? (
+                                        {isSplitItem ? (
+                                            <div
+                                                className={`flex items-center w-full px-4 py-3 rounded-lg transition-all group ${finalIsActive
+                                                    ? 'bg-[#5e6c93] !text-white shadow-lg'
+                                                    : 'text-slate-100 hover:bg-[#252943] hover:text-white'
+                                                    }`}
+                                            >
+                                                <Link
+                                                    href={item.href}
+                                                    onClick={() => setOpenMenu(item.id)}
+                                                    className="flex items-center flex-1 min-w-0"
+                                                >
+                                                    <Icon size={20} strokeWidth={SIDEBAR_ICON_STROKE} className={`shrink-0 ${finalIsActive ? '!text-white' : 'text-slate-400 group-hover:text-slate-200'}`} />
+                                                    <span className={`ml-3 text-sm font-medium flex-1 text-left ${finalIsActive ? '!text-white' : ''}`}>{item.label}</span>
+                                                </Link>
+                                                <button
+                                                    type="button"
+                                                    aria-label={isMenuOpen ? `Collapse ${item.label} menu` : `Expand ${item.label} menu`}
+                                                    onClick={() => setOpenMenu(isMenuOpen ? '' : item.id)}
+                                                    className="shrink-0 p-0.5 rounded-md hover:bg-white/10"
+                                                >
+                                                    <ChevronRight
+                                                        size={18}
+                                                        className={`transition-transform shrink-0 ${isMenuOpen ? 'rotate-90' : ''} ${finalIsActive ? '!text-white' : ''}`}
+                                                    />
+                                                </button>
+                                            </div>
+                                        ) : isHrefItem ? (
                                             <Link
                                                 href={item.href}
                                                 className={`flex items-center w-full px-4 py-3 rounded-lg transition-all group ${finalIsActive

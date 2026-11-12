@@ -1401,16 +1401,19 @@ function TaskManagerContent() {
                                                     </td>
                                                     <td className="px-3 py-3.5 text-right">
                                                         <div className="inline-flex items-center justify-end gap-1">
-                                                        {task.canDelete ? (
+                                                        {task.canDelete || task.deleteBlockedByAssignee ? (
                                                             <button
                                                                 type="button"
+                                                                disabled={!task.canDelete}
+                                                                title={task.deleteBlockedByAssignee ? 'This task has an assignee. Delete is disabled.' : 'Delete this task'}
                                                                 onClick={(event) => {
                                                                     event.stopPropagation();
                                                                     event.preventDefault();
+                                                                    if (!task.canDelete) return;
                                                                     setOpenMenu(null);
                                                                     setDeleteTask(task);
                                                                 }}
-                                                                className="inline-flex h-8 items-center rounded-lg border border-rose-200 px-2.5 text-[12px] font-semibold text-rose-600 hover:bg-rose-50"
+                                                                className="inline-flex h-8 items-center rounded-lg border border-rose-200 px-2.5 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                                                             >
                                                                 Delete
                                                             </button>
@@ -1533,7 +1536,7 @@ function TaskManagerContent() {
                                 key={item.id}
                                 type="button"
                                 disabled={disabled}
-                                title={disabled ? (closed ? 'This task is closed' : 'Only the current assignee, the original assignee, or an admin super user can reassign') : undefined}
+                                title={disabled ? (closed ? 'This task is closed' : 'Only the requester, the current assignee, the original assignee, or an admin super user can reassign') : undefined}
                                 onClick={() => {
                                     setOpenMenu(null);
                                     if (!task) return;
