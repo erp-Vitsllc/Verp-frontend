@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
-import { useToast } from '@/hooks/use-toast';
 import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation';
 
 const PILL = {
@@ -49,12 +48,10 @@ function PersonMark({ step }) {
     );
 }
 
-export function WorkflowBoard({ actionId, onChanged }) {
+export function WorkflowBoard({ actionId }) {
     const router = useRouter();
-    const { toast } = useToast();
     const [data, setData] = useState(null);
     const [error, setError] = useState('');
-    const [busy, setBusy] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -72,34 +69,6 @@ export function WorkflowBoard({ actionId, onChanged }) {
             cancelled = true;
         };
     }, [actionId]);
-
-    const decide = async (decision) => {
-        setBusy(true);
-        try {
-            const res = await axiosInstance.post(
-                `/Employee/task-manager/tasks/${encodeURIComponent(actionId)}/workflow/decision`,
-                { decision },
-                { skipToast: true },
-            );
-            setData(res.data || null);
-            toast({
-                title: decision === 'approve'
-                    ? 'Step approved'
-                    : res.data?.task?.status === 'Rejected'
-                        ? 'Task rejected'
-                        : 'Step rejected',
-                description: res.data?.message || 'The workflow was updated.',
-            });
-            onChanged?.();
-        } catch (err) {
-            toast({
-                title: 'Could not update this step',
-                description: err?.response?.data?.message || 'Try again.',
-            });
-        } finally {
-            setBusy(false);
-        }
-    };
 
     if (error) return <p className="text-sm text-rose-600">{error}</p>;
     if (!data) return <p className="text-sm text-slate-500">Loading workflow...</p>;
@@ -152,30 +121,6 @@ export function WorkflowBoard({ actionId, onChanged }) {
                                     {step.at && <p className="text-xs text-slate-400">{formatWhen(step.at)}</p>}
                                 </div>
                             </div>
-                            {active && (step.canAct || step.canReject) && (
-                                <div className="mt-2 flex gap-2">
-                                    {step.canAct ? (
-                                        <button
-                                            type="button"
-                                            disabled={busy}
-                                            onClick={() => decide('approve')}
-                                            className="h-8 rounded-lg bg-emerald-500 px-3 text-xs font-semibold text-white disabled:opacity-60"
-                                        >
-                                            Approve
-                                        </button>
-                                    ) : null}
-                                    {step.canReject ? (
-                                        <button
-                                            type="button"
-                                            disabled={busy}
-                                            onClick={() => decide('reject')}
-                                            className="h-8 rounded-lg bg-rose-500 px-3 text-xs font-semibold text-white disabled:opacity-60"
-                                        >
-                                            Reject
-                                        </button>
-                                    ) : null}
-                                </div>
-                            )}
                             {active && data.workflowLocked && (
                                 <p className="mt-2 text-xs text-slate-500">
                                     Approve or reject this step on the {data.moduleLabel || 'module'} page.
@@ -193,7 +138,7 @@ export function WorkflowBoard({ actionId, onChanged }) {
     );
 }
 
-export default function WorkflowProcessModal({ task, onClose, onChanged }) {
+export default function WorkflowProcessModal({ task, onClose }) {
     return (
         <div
             className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4"
@@ -212,7 +157,7 @@ export default function WorkflowProcessModal({ task, onClose, onChanged }) {
                     </button>
                 </div>
                 <div className="overflow-y-auto px-5 py-5">
-                    <WorkflowBoard actionId={task.actionId} onChanged={onChanged} />
+                    <WorkflowBoard actionId={task.actionId} />
                 </div>
             </section>
         </div>

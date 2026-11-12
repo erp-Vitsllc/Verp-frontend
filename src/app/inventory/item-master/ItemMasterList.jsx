@@ -233,7 +233,7 @@ export default function ItemMasterList() {
                 />
             ) : null}
             {modal === 'subcategory' ? (
-                <AddSubcategoryModal categories={categories} onClose={() => setModal('')} onSaved={() => setModal('')} />
+                <AddSubcategoryModal onClose={() => setModal('')} onSaved={() => setModal('')} />
             ) : null}
             {modal === 'brand' ? (
                 <AddBrandModal

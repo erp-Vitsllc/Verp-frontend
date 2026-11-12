@@ -45,8 +45,7 @@ export function AddCategoryModal({ onClose, onSaved }) {
     );
 }
 
-export function AddSubcategoryModal({ categories, onClose, onSaved }) {
-    const [categoryId, setCategoryId] = useState(categories[0]?._id || '');
+export function AddSubcategoryModal({ onClose, onSaved }) {
     const [name, setName] = useState('');
     const [image, setImage] = useState(null);
     const [error, setError] = useState('');
@@ -59,7 +58,7 @@ export function AddSubcategoryModal({ categories, onClose, onSaved }) {
         try {
             const file = event.target.elements.subcategoryImage.files?.[0];
             const uploaded = await readImageFile(file, { required: true });
-            const saved = await createSubcategory({ categoryId, name, image: uploaded });
+            const saved = await createSubcategory({ name, image: uploaded });
             onSaved(saved);
             onClose();
         } catch (err) {
@@ -73,18 +72,8 @@ export function AddSubcategoryModal({ categories, onClose, onSaved }) {
         <CatalogModal title="Add Sub Category" onClose={onClose}>
             <form onSubmit={submit}>
                 <FormError message={error} />
-                {categories.length === 0 ? (
-                    <p className="mb-3 text-sm text-amber-700">Save a category before adding a subcategory.</p>
-                ) : null}
-                <label className={labelClass} htmlFor="subcategory-category">Category</label>
-                <select id="subcategory-category" className={fieldClass} value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
-                    <option value="">Select</option>
-                    {categories.map((category) => (
-                        <option key={category._id} value={category._id}>{category.name}</option>
-                    ))}
-                </select>
-                <label className={`${labelClass} mt-3`} htmlFor="subcategory-name">Subcategory</label>
-                <input id="subcategory-name" className={fieldClass} value={name} onChange={(event) => setName(event.target.value)} />
+                <label className={labelClass} htmlFor="subcategory-name">Subcategory</label>
+                <input id="subcategory-name" className={fieldClass} value={name} onChange={(event) => setName(event.target.value)} autoFocus />
                 <label className={`${labelClass} mt-3`} htmlFor="subcategoryImage">Image</label>
                 <input
                     id="subcategoryImage"

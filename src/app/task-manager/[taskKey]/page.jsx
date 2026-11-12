@@ -896,7 +896,7 @@ function TaskDetailsPage() {
                                 <p className="mt-3 text-slate-500">Workflow is the history of this task: who requested it, who it was assigned or reassigned to, and who accepted or rejected it. Work Updates keep the notes, and Emails shows each message sent for this task.</p>
                             </div>
                         )}
-                        {tab === 'workflow' && <WorkflowBoard actionId={task.actionId} onChanged={load} />}
+                        {tab === 'workflow' && <WorkflowBoard actionId={task.actionId} />}
                         {tab === 'updates' && (
                             <div>
                                 <h3 className="mb-3 text-base font-semibold text-slate-800">Work Updates</h3>
