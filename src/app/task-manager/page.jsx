@@ -11,6 +11,7 @@ import {
     ChevronDown,
     ChevronUp,
     ClipboardList,
+    Flag,
     Hourglass,
     Layers,
     MoreHorizontal,
@@ -61,6 +62,10 @@ const DATE_RANGES = [
     { id: 'custom', label: 'Custom' },
 ];
 const TYPE_FILTERS = ['All Types', 'System Task', 'Workflow Task', 'General Task'];
+const STATE_FILTERS = [
+    { id: 'open', label: 'Open' },
+    { id: 'closed', label: 'Closed' },
+];
 const STATUSES = [
     { value: 'All Status', label: 'All Status' },
     { value: 'Pending', label: 'Pending' },
@@ -72,18 +77,20 @@ const PRIORITIES = ['All Priority', 'High', 'Medium', 'Low'];
 
 const AVATAR_COLORS = ['#3B82F6', '#8B5CF6', '#F59E0B', '#10B981', '#EF4444', '#0EA5E9', '#EC4899'];
 
+const PENDING_STYLE = 'bg-yellow-100 text-yellow-800';
+
 const STATUS_STYLE = {
-    Pending: 'bg-rose-50 text-rose-600',
-    Open: 'bg-sky-50 text-sky-700',
-    'Pending Review': 'bg-amber-50 text-amber-700',
-    'Pending Due': 'bg-red-50 text-red-600',
-    Overdue: 'bg-red-50 text-red-600',
-    'In Progress': 'bg-sky-50 text-sky-700',
+    Pending: PENDING_STYLE,
+    Open: PENDING_STYLE,
+    'Pending Review': PENDING_STYLE,
+    'Pending Due': PENDING_STYLE,
+    Overdue: PENDING_STYLE,
+    'In Progress': PENDING_STYLE,
+    Reopened: PENDING_STYLE,
+    'On Hold': PENDING_STYLE,
     Completed: 'bg-emerald-50 text-emerald-600',
     Closed: 'bg-emerald-50 text-emerald-700',
-    Reopened: 'bg-sky-50 text-sky-700',
     Cancelled: 'bg-slate-100 text-slate-500',
-    'On Hold': 'bg-amber-50 text-amber-700',
     Rejected: 'bg-rose-50 text-rose-600',
     Dismissed: 'bg-slate-100 text-slate-500',
 };
@@ -129,6 +136,33 @@ function isOpenPending(shown) {
     return shown === 'Pending' || shown === 'Overdue' || shown === 'Open' || shown === 'Pending Review' || shown === 'Reopened';
 }
 
+/** Finished work: completed, rejected, or cancelled. Pending approval stays open. */
+function taskIsClosedState(task) {
+    if (task?.reviewPending) return false;
+    const shown = listStatus(task);
+    return shown === 'Completed' || shown === 'Closed' || shown === 'Rejected' || shown === 'Cancelled';
+}
+
+function taskIsOpenState(task) {
+    return !taskIsClosedState(task);
+}
+
+function closedGroup(task) {
+    const shown = listStatus(task);
+    if (shown === 'Completed' || shown === 'Closed') return 0;
+    if (shown === 'Rejected') return 1;
+    return 2;
+}
+
+/** All Task order: open and pending, then completed, then rejected. */
+function allTaskGroup(task) {
+    if (taskIsOpenState(task)) return 0;
+    const shown = listStatus(task);
+    if (shown === 'Completed' || shown === 'Closed') return 1;
+    if (shown === 'Rejected') return 2;
+    return 3;
+}
+
 function paramValue(params, key, fallback = '') {
     const value = params.get(key);
     if (value == null || value === 'null' || value === 'undefined') return fallback;
@@ -154,8 +188,10 @@ function readTaskListFilters(params) {
         : paramValue(params, 'scope', '') === 'All Task'
             ? 'all'
             : 'mine';
+    const stateFallback = board === 'completed' ? 'closed' : board === 'all' ? 'all' : 'open';
     return {
         board,
+        stateFilter: oneOf(paramValue(params, 'state', stateFallback), ['open', 'closed', 'all'], stateFallback),
         scope: oneOf(paramValue(params, 'scope', board === 'all' ? 'All Task' : 'My Task'), SCOPES, board === 'all' ? 'All Task' : 'My Task'),
         typeFilter: oneOf(paramValue(params, 'type', 'All Types'), TYPE_FILTERS, 'All Types'),
         query: paramValue(params, 'q'),
@@ -254,6 +290,42 @@ function assignedToViewer(task, viewer) {
         .some((value) => viewerNameHits(names, value));
 }
 
+function viewerIsReassignedHolder(task, viewer) {
+    if (!viewer || !task || !String(task.reassignedAssigneeName || '').trim()) return false;
+    const { ids, names } = viewerIdentity(viewer);
+    const reassignedId = String(task.reassignedAssigneeId || '');
+    if (reassignedId && ids.includes(reassignedId)) return true;
+    return viewerNameHits(names, task.reassignedAssigneeName);
+}
+
+/** When this signed-in person received the task: reassignment, review return, or the original assign date. */
+function viewerReceivedDate(task, viewer) {
+    if (!task) return '';
+    const waitingOnRequester = (task.reviewPending || listStatus(task) === 'Pending Review') && requestedByViewer(task, viewer);
+    if (waitingOnRequester) return task.reviewReceivedAt || task.requestDate || '';
+    if (viewerIsReassignedHolder(task, viewer) && task.reassignedAt) return task.reassignedAt;
+    return task.requestDate || '';
+}
+
+function viewerHoldsTask(task, viewer) {
+    if (assignedToViewer(task, viewer)) return true;
+    return (task?.reviewPending || listStatus(task) === 'Pending Review') && requestedByViewer(task, viewer);
+}
+
+function rowDate(task, board, viewer) {
+    if (board === 'requests') return task?.requestDate || '';
+    if (board === 'all') {
+        return viewerHoldsTask(task, viewer) ? viewerReceivedDate(task, viewer) : (task?.requestDate || '');
+    }
+    return viewerReceivedDate(task, viewer);
+}
+
+function dateColumnLabel(board) {
+    if (board === 'all') return 'Date';
+    if (board === 'requests') return 'Requested Date';
+    return 'Received Date';
+}
+
 function requestedByViewer(task, viewer) {
     if (!viewer || !task) return false;
     const { ids, names } = viewerIdentity(viewer);
@@ -285,6 +357,29 @@ function taskInBoard(task, board, viewer) {
     if (board === 'requests') return requestedByViewer(task, viewer);
     if (board === 'review') return taskAwaitingRequesterReview(task, viewer);
     if (board === 'completed') return assignedToViewer(task, viewer) && taskIsCompleted(task);
+    return false;
+}
+
+/** Tab membership plus the Open / Closed filter. Review Pending has no state filter. */
+function taskOnBoard(task, board, viewer, stateFilter) {
+    if (board === 'review') return taskInBoard(task, board, viewer);
+    const closed = stateFilter === 'closed';
+    if (board === 'all') {
+        if (stateFilter === 'open') return taskIsOpenState(task);
+        if (stateFilter === 'closed') return taskIsClosedState(task);
+        return true;
+    }
+    if (board === 'requests') {
+        if (!requestedByViewer(task, viewer)) return false;
+        return closed ? taskIsClosedState(task) : taskIsOpenState(task);
+    }
+    if (board === 'mine') {
+        if (!assignedToViewer(task, viewer)) return false;
+        if (closed) return taskIsClosedState(task);
+        if (task?.reviewPending || listStatus(task) === 'Pending Review') return false;
+        return taskIsOpenState(task);
+    }
+    if (board === 'completed') return taskInBoard(task, 'completed', viewer);
     return false;
 }
 
@@ -370,13 +465,13 @@ function listActivityDate(task) {
     return task?.requestDate;
 }
 
-function taskSortValue(task, key, titles) {
+function taskSortValue(task, key, titles, viewer, board) {
     if (key === 'taskNumber') {
         const sequence = taskSequence(task);
         return sequence || null;
     }
-    if (key === 'requestDate') {
-        const time = timeValue(listActivityDate(task));
+    if (key === 'listDate' || key === 'requestDate') {
+        const time = timeValue(rowDate(task, board, viewer));
         return time || null;
     }
     if (key === 'completionDate') {
@@ -407,11 +502,11 @@ function latestTaskFirst(left, right) {
     return taskSequence(right) - taskSequence(left);
 }
 
-function sortTaskRows(rows, sortKey, sortDirection, titles) {
+function sortTaskRows(rows, sortKey, sortDirection, titles, viewer, board) {
     const direction = sortDirection === 'asc' ? 1 : -1;
     return [...rows].sort((left, right) => {
-        const leftValue = taskSortValue(left, sortKey, titles);
-        const rightValue = taskSortValue(right, sortKey, titles);
+        const leftValue = taskSortValue(left, sortKey, titles, viewer, board);
+        const rightValue = taskSortValue(right, sortKey, titles, viewer, board);
         if (leftValue == null && rightValue == null) return latestTaskFirst(left, right);
         if (leftValue == null) return 1;
         if (rightValue == null) return -1;
@@ -532,7 +627,7 @@ function StatusCell({ task }) {
     const badge = listStatus(task);
     const waiting = taskWaitingText(task);
     return (
-        <span className={`inline-flex max-w-[260px] whitespace-normal rounded-full px-2.5 py-1 text-left text-[12px] font-semibold leading-4 ${STATUS_STYLE[badge] || 'bg-slate-100 text-slate-600'}`}>
+        <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-left text-[12px] font-semibold leading-4 ${STATUS_STYLE[badge] || 'bg-slate-100 text-slate-600'}`}>
             {waiting?.text || badge}
         </span>
     );
@@ -691,9 +786,49 @@ function ChangePill({ value, goodWhenUp }) {
     );
 }
 
+const PRIORITY_CARDS = [
+    { id: 'High', wrap: 'bg-rose-50 text-rose-700', ring: 'ring-rose-400' },
+    { id: 'Medium', wrap: 'bg-amber-50 text-amber-700', ring: 'ring-amber-400' },
+    { id: 'Low', wrap: 'bg-emerald-50 text-emerald-700', ring: 'ring-emerald-400' },
+];
+
+function PrioritySummaryCard({ counts, activePriority, onSelect }) {
+    const total = PRIORITY_CARDS.reduce((sum, item) => sum + (counts[item.id] || 0), 0);
+    return (
+        <div className={`flex h-full w-full flex-col rounded-2xl bg-[#F4F0FF] px-4 py-4 ring-2 ${activePriority ? 'ring-violet-500' : 'ring-transparent'}`}>
+            <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#7C3AED] text-white">
+                    <Flag size={20} />
+                </span>
+                <div className="min-w-0">
+                    <p className="text-[13px] font-medium leading-snug text-slate-500">My Priorities</p>
+                    <p className="mt-0.5 text-[28px] font-bold leading-none tabular-nums text-[#6D28D9]">{total}</p>
+                </div>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-1.5">
+                {PRIORITY_CARDS.map((item) => {
+                    const selected = activePriority === item.id;
+                    return (
+                        <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => onSelect(item.id)}
+                            aria-pressed={selected}
+                            className={`rounded-lg px-1 py-1.5 text-center ring-2 ${item.wrap} ${selected ? item.ring : 'ring-transparent'}`}
+                        >
+                            <p className="text-[11px] font-semibold leading-none">{item.id}</p>
+                            <p className="mt-1 text-[15px] font-bold leading-none tabular-nums">{counts[item.id] || 0}</p>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
 function StatCard({ label, value, change, goodWhenUp, icon: Icon, wrap, bubble, figure, active, onClick }) {
     return (
-        <button type="button" onClick={onClick} className={`w-full rounded-2xl px-5 py-4 text-left ring-2 ${active ? 'ring-blue-500' : 'ring-transparent'} ${wrap}`}>
+        <button type="button" onClick={onClick} className={`h-full w-full rounded-2xl px-5 py-4 text-left ring-2 ${active ? 'ring-blue-500' : 'ring-transparent'} ${wrap}`}>
             <div className="flex items-center gap-3">
                 <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${bubble}`}>
                     <Icon size={20} />
@@ -845,6 +980,7 @@ function TaskManagerContent() {
     const [tasks, setTasks] = useState([]);
     const [viewer, setViewer] = useState(null);
     const [board, setBoard] = useState(filtersFromUrl.board);
+    const [stateFilter, setStateFilter] = useState(filtersFromUrl.stateFilter);
     const [scope, setScope] = useState(filtersFromUrl.scope);
     const [typeFilter, setTypeFilter] = useState(filtersFromUrl.typeFilter);
     const [query, setQuery] = useState(filtersFromUrl.query);
@@ -858,7 +994,7 @@ function TaskManagerContent() {
     const [priority, setPriority] = useState(filtersFromUrl.priority);
     const [pageSizeChoice, setPageSizeChoice] = useState(filtersFromUrl.pageSizeChoice);
     const [page, setPage] = useState(filtersFromUrl.page);
-    const [sortKey, setSortKey] = useState('requestDate');
+    const [sortKey, setSortKey] = useState('listDate');
     const [sortDirection, setSortDirection] = useState('desc');
     const [selected, setSelected] = useState(() => new Set());
     const [openMenu, setOpenMenu] = useState(null);
@@ -872,6 +1008,7 @@ function TaskManagerContent() {
     if (urlKeyRef.current !== urlKey) {
         urlKeyRef.current = urlKey;
         setBoard(filtersFromUrl.board);
+        setStateFilter(filtersFromUrl.stateFilter);
         setScope(filtersFromUrl.scope);
         setTypeFilter(filtersFromUrl.typeFilter);
         setQuery(filtersFromUrl.query);
@@ -888,6 +1025,7 @@ function TaskManagerContent() {
 
     const listReturnParams = useMemo(() => ({
         ...(board !== 'mine' ? { board } : {}),
+        ...(board === 'completed' || stateFilter !== 'open' ? { state: stateFilter } : {}),
         ...(scope !== 'My Task' ? { scope } : {}),
         ...(typeFilter !== 'All Types' ? { type: typeFilter } : {}),
         ...(query ? { q: query } : {}),
@@ -903,6 +1041,7 @@ function TaskManagerContent() {
         ...(pageSizeChoice !== '10' ? { size: pageSizeChoice } : {}),
     }), [
         board,
+        stateFilter,
         scope,
         typeFilter,
         query,
@@ -923,6 +1062,7 @@ function TaskManagerContent() {
         const apply = (params) => {
             const next = readTaskListFilters(params);
             setBoard(next.board);
+            setStateFilter(next.stateFilter);
             setScope(next.scope);
             setTypeFilter(next.typeFilter);
             setQuery(next.query);
@@ -1052,6 +1192,9 @@ function TaskManagerContent() {
             review: review.length,
             completed: completed.length,
             all: tasks.length,
+            high: mine.filter((task) => task.priority === 'High').length,
+            medium: mine.filter((task) => task.priority === 'Medium').length,
+            low: mine.filter((task) => task.priority === 'Low').length,
             mineChange: boardChange(mine, requestMonth),
             requestsChange: boardChange(requests, requestMonth),
             reviewChange: boardChange(review, requestMonth),
@@ -1061,13 +1204,40 @@ function TaskManagerContent() {
     }, [tasks, viewer]);
 
     const filtered = useMemo(() => {
-        if (board !== 'all') return tasks.filter((task) => taskInBoard(task, board, viewer));
-        return tasks.filter((task) => taskMatchesListFilters(task, { ...listFilter, includeStatus: true }));
-    }, [tasks, board, viewer, listFilter]);
-    const sorted = useMemo(
-        () => sortTaskRows(filtered, sortKey, sortDirection, titles),
-        [filtered, sortKey, sortDirection, titles],
-    );
+        const searchAndType = {
+            titles,
+            viewer,
+            scope: 'All Task',
+            typeFilter,
+            query,
+            requesterQuery: '',
+            assigneeQuery: '',
+            activeRange: { from: '', to: '' },
+            status: 'All Status',
+            priority,
+            includeStatus: false,
+        };
+        if (board !== 'all') {
+            return tasks.filter((task) => (
+                taskOnBoard(task, board, viewer, stateFilter) && taskMatchesListFilters(task, searchAndType)
+            ));
+        }
+        const statusForList = stateFilter === 'closed'
+            ? (status === 'Completed' || status === 'Rejected' || status === 'Cancelled' ? status : 'All Status')
+            : status;
+        return tasks.filter((task) => (
+            taskOnBoard(task, board, viewer, stateFilter)
+            && taskMatchesListFilters(task, { ...listFilter, status: statusForList, includeStatus: true })
+        ));
+    }, [tasks, board, viewer, listFilter, titles, typeFilter, query, stateFilter, status, priority]);
+    const sorted = useMemo(() => {
+        const rows = sortTaskRows(filtered, sortKey, sortDirection, titles, viewer, board);
+        if (board === 'all' && stateFilter !== 'open' && stateFilter !== 'closed' && sortKey === 'listDate') {
+            return [...rows].sort((left, right) => allTaskGroup(left) - allTaskGroup(right));
+        }
+        if (board === 'review' || board === 'completed' || stateFilter !== 'closed') return rows;
+        return [...rows].sort((left, right) => closedGroup(left) - closedGroup(right));
+    }, [filtered, sortKey, sortDirection, titles, board, stateFilter, viewer]);
 
     const pageSize = pageSizeChoice === 'all' ? Math.max(sorted.length, 1) : Number(pageSizeChoice);
     const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
@@ -1087,13 +1257,27 @@ function TaskManagerContent() {
         if (page > pageCount) setPage(pageCount);
     }, [loading, page, pageCount]);
 
+    const showMyPriority = (level) => {
+        setBoard('mine');
+        setStateFilter('open');
+        setPriority(level);
+        setTypeFilter('All Types');
+        setQuery('');
+        setSortKey('listDate');
+        setSortDirection('desc');
+        setPage(1);
+    };
+
     const selectBoard = (next) => {
         setBoard(next);
         setPage(1);
+        setSortKey('listDate');
+        setSortDirection('desc');
+        if (next === 'completed') setStateFilter('closed');
+        else if (next === 'all') setStateFilter('all');
+        else if (next !== 'review') setStateFilter('open');
         if (next !== 'all') return;
         setScope('All Task');
-        setTypeFilter('All Types');
-        setQuery('');
         setRequesterQuery('');
         setAssigneeQuery('');
         setDatePreset('all');
@@ -1101,11 +1285,11 @@ function TaskManagerContent() {
         setToDate('');
         setCustomOpen(false);
         setStatus('All Status');
-        setPriority('All Priority');
     };
 
     const resetFilters = () => {
         setScope('All Task');
+        setStateFilter('open');
         setTypeFilter('All Types');
         setPageSizeChoice('10');
         setQuery('');
@@ -1117,7 +1301,7 @@ function TaskManagerContent() {
         setCustomOpen(false);
         setStatus('All Status');
         setPriority('All Priority');
-        setSortKey('requestDate');
+        setSortKey('listDate');
         setSortDirection('desc');
         setPage(1);
     };
@@ -1169,7 +1353,7 @@ function TaskManagerContent() {
                         </button>
                     </div>
 
-                    <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                    <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                         <StatCard
                             label="My Task"
                             value={boardSummary.mine}
@@ -1179,8 +1363,11 @@ function TaskManagerContent() {
                             wrap="bg-[#EAF3FF]"
                             bubble="bg-[#3B82F6] text-white"
                             figure="text-[#2563EB]"
-                            active={board === 'mine'}
-                            onClick={() => selectBoard('mine')}
+                            active={board === 'mine' && priority === 'All Priority'}
+                            onClick={() => {
+                                selectBoard('mine');
+                                setPriority('All Priority');
+                            }}
                         />
                         <StatCard
                             label="My Requests"
@@ -1230,32 +1417,35 @@ function TaskManagerContent() {
                             active={board === 'all'}
                             onClick={() => selectBoard('all')}
                         />
+                        <PrioritySummaryCard
+                            counts={{ High: boardSummary.high, Medium: boardSummary.medium, Low: boardSummary.low }}
+                            activePriority={board === 'mine' && priority !== 'All Priority' ? priority : ''}
+                            onSelect={showMyPriority}
+                        />
                     </div>
 
-                    <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Task lists">
-                        {TASK_BOARDS.map((item) => {
-                            const active = board === item.id;
-                            return (
-                                <button
-                                    key={item.id}
-                                    type="button"
-                                    role="tab"
-                                    aria-selected={active}
-                                    onClick={() => selectBoard(item.id)}
-                                    className={active
-                                        ? 'h-9 rounded-lg bg-[#2563EB] px-4 text-sm font-semibold text-white'
-                                        : 'h-9 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50'}
-                                >
-                                    {item.label}
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-                        {board === 'all' ? (
-                        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto border-b border-slate-100 px-4 py-3">
-                            <div className="relative w-[220px] shrink-0">
+                    <div className="mb-4 flex flex-wrap items-center gap-3">
+                        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Task lists">
+                            {TASK_BOARDS.filter((item) => item.id !== 'completed').map((item) => {
+                                const active = board === item.id;
+                                return (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={active}
+                                        onClick={() => selectBoard(item.id)}
+                                        className={active
+                                            ? 'h-9 rounded-lg bg-[#2563EB] px-4 text-sm font-semibold text-white'
+                                            : 'h-9 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50'}
+                                    >
+                                        {item.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <div className="flex min-w-[min(100%,320px)] flex-1 items-center gap-2">
+                            <div className="relative min-w-0 flex-1">
                                 <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                 <input
                                     value={query}
@@ -1268,6 +1458,55 @@ function TaskManagerContent() {
                                     className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400"
                                 />
                             </div>
+                            {board !== 'review' && board !== 'completed' ? (
+                                <select
+                                    value={stateFilter}
+                                    onChange={(event) => {
+                                        const next = event.target.value;
+                                        setStateFilter(next);
+                                        if (next === 'closed') setStatus('All Status');
+                                        setPage(1);
+                                    }}
+                                    aria-label="Open or closed tasks"
+                                    className="h-9 w-[110px] shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
+                                >
+                                    {(board === 'all' ? [{ id: 'all', label: 'All' }, ...STATE_FILTERS] : STATE_FILTERS).map((item) => (
+                                        <option key={item.id} value={item.id}>{item.label}</option>
+                                    ))}
+                                </select>
+                            ) : null}
+                            <select
+                                value={typeFilter}
+                                onChange={(event) => {
+                                    setTypeFilter(event.target.value);
+                                    setPage(1);
+                                }}
+                                aria-label="Task type"
+                                className="h-9 w-[158px] shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
+                            >
+                                {TYPE_FILTERS.map((item) => (
+                                    <option key={item}>{item}</option>
+                                ))}
+                            </select>
+                            <select
+                                value={priority}
+                                onChange={(event) => {
+                                    setPriority(event.target.value);
+                                    setPage(1);
+                                }}
+                                aria-label="Priority"
+                                className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
+                            >
+                                {PRIORITIES.map((item) => (
+                                    <option key={item}>{item}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+                        {board === 'all' ? (
+                        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto border-b border-slate-100 px-4 py-3">
                             <PersonFilter
                                 value={requesterQuery}
                                 people={requesters}
@@ -1300,19 +1539,6 @@ function TaskManagerContent() {
                                 className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
                             >
                                 {SCOPES.map((item) => (
-                                    <option key={item}>{item}</option>
-                                ))}
-                            </select>
-                            <select
-                                value={typeFilter}
-                                onChange={(event) => {
-                                    setTypeFilter(event.target.value);
-                                    setPage(1);
-                                }}
-                                aria-label="Task type"
-                                className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
-                            >
-                                {TYPE_FILTERS.map((item) => (
                                     <option key={item}>{item}</option>
                                 ))}
                             </select>
@@ -1391,19 +1617,6 @@ function TaskManagerContent() {
                                     <option key={item.value} value={item.value}>{item.label}</option>
                                 ))}
                             </select>
-                            <select
-                                value={priority}
-                                onChange={(event) => {
-                                    setPriority(event.target.value);
-                                    setPage(1);
-                                }}
-                                aria-label="Priority"
-                                className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-600"
-                            >
-                                {PRIORITIES.map((item) => (
-                                    <option key={item}>{item}</option>
-                                ))}
-                            </select>
                             <button
                                 type="button"
                                 onClick={resetFilters}
@@ -1432,14 +1645,14 @@ function TaskManagerContent() {
                                                 aria-label="Select tasks on this page"
                                             />
                                         </th>
-                                        <SortableTh label="Task #" columnKey="taskNumber" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
-                                        <SortableTh label="Request Date" columnKey="requestDate" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
-                                        <SortableTh label="Task Type" columnKey="type" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        <SortableTh label="Task No" columnKey="taskNumber" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
                                         <SortableTh label="Task Name" columnKey="name" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        <SortableTh label="Task Type" columnKey="type" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        <SortableTh label={dateColumnLabel(board)} columnKey="listDate" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
                                         <SortableTh label="Requester" columnKey="requester" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
                                         <SortableTh label="Assignee" columnKey="assignee" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
-                                        <SortableTh label="Priority" columnKey="priority" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
                                         <SortableTh label="Completion Date" columnKey="completionDate" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        <SortableTh label="Priority" columnKey="priority" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
                                         <SortableTh label="Status" columnKey="status" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
                                         <th className="px-3 py-3 text-right">Actions</th>
                                     </tr>
@@ -1481,19 +1694,19 @@ function TaskManagerContent() {
                                                     <td className="px-3 py-3.5 text-[13px] font-semibold text-slate-700">
                                                         {task.taskNumber}
                                                     </td>
-                                                    <td
-                                                        className="px-3 py-3.5 text-[13px] text-slate-600 whitespace-nowrap"
-                                                        title={String(task.reassignedAssigneeName || '').trim() && task.reassignedAt ? 'Reassigned date' : 'Assigned date'}
-                                                    >
-                                                        {formatDisplayDate(listActivityDate(task)) || '—'}
+                                                    <td className="min-w-[200px] max-w-[280px] px-3 py-3.5">
+                                                        <TaskNameList task={task} title={title} />
                                                     </td>
                                                     <td className="px-3 py-3.5">
                                                         <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${TYPE_STYLE[displayTaskType(task.taskCategory)] || TYPE_STYLE[task.taskCategory] || 'bg-slate-100 text-slate-600'}`}>
                                                             {displayTaskType(task.taskCategory)}
                                                         </span>
                                                     </td>
-                                                    <td className="min-w-[200px] max-w-[280px] px-3 py-3.5">
-                                                        <TaskNameList task={task} title={title} />
+                                                    <td
+                                                        className="px-3 py-3.5 text-[13px] text-slate-600 whitespace-nowrap"
+                                                        title={dateColumnLabel(board)}
+                                                    >
+                                                        {formatDisplayDate(rowDate(task, board, viewer)) || '—'}
                                                     </td>
                                                     <td className="px-3 py-3.5">
                                                         <PersonCell name={task.requesterName} photo={task.requesterPhoto} />
@@ -1501,13 +1714,13 @@ function TaskManagerContent() {
                                                     <td className="px-3 py-3.5">
                                                         <AssigneeCell task={task} />
                                                     </td>
+                                                    <td className="px-3 py-3.5 text-[13px] text-slate-600 whitespace-nowrap">
+                                                        {formatDisplayDate(task.completionDate) || '—'}
+                                                    </td>
                                                     <td className="px-3 py-3.5">
                                                         <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${PRIORITY_STYLE[task.priority] || ''}`}>
                                                             {task.priority}
                                                         </span>
-                                                    </td>
-                                                    <td className="px-3 py-3.5 text-[13px] text-slate-600 whitespace-nowrap">
-                                                        {formatDisplayDate(task.completionDate) || '—'}
                                                     </td>
                                                     <td className="px-3 py-3.5">
                                                         <StatusCell task={task} />

@@ -1,3 +1,5 @@
+import { employeeListName } from './taskRolePeople.js';
+
 const WAITING = new Set([
     'Pending',
     'Pending Due',
@@ -69,15 +71,13 @@ function lineFor(step, steps) {
     const name = String(step?.personName || '').trim();
     if (!name) return null;
     const approval = approvalName(step, steps);
-    const text = approval
-        ? `Task pending ${approval} with ${name}`
-        : `Task pending with ${name}`;
-    return { approval, name, text };
+    const short = employeeListName(name);
+    return { approval, name, short, text: `Pending with ${short}` };
 }
 
 /**
- * Who an open task is waiting on. Every approval that is still waiting is named.
- * Example: "Task pending HR Approval with Raseel Muhammad, Accounts Approval with Sara Ali".
+ * Who an open task is waiting on.
+ * Example: "Pending with Raseel M, Sara A".
  * A completed or closed task does not show this line.
  */
 export function pendingHold({ status, steps, assigneeName, finished = false } = {}) {
@@ -95,12 +95,15 @@ export function pendingHold({ status, steps, assigneeName, finished = false } = 
     if (!lines.length) {
         const name = String(assigneeName || '').trim();
         if (!name) return null;
-        lines.push({ approval: '', name, text: `Task pending with ${name}` });
+        const short = employeeListName(name);
+        lines.push({ approval: '', name, short, text: `Pending with ${short}` });
     }
-    const text = lines.map((line, index) => (
-        index === 0 ? line.text : line.text.replace(/^Task pending /, '')
-    )).join(', ');
-    return { lines, approval: lines[0].approval, name: lines[0].name, text };
+    const names = [];
+    lines.forEach((line) => {
+        const short = line.short || employeeListName(line.name);
+        if (short && !names.includes(short)) names.push(short);
+    });
+    return { lines, approval: lines[0].approval, name: lines[0].name, text: `Pending with ${names.join(', ')}` };
 }
 
 /** Same waiting sentence for the task list and the task details. */

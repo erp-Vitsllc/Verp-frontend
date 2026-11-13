@@ -41,18 +41,20 @@ const TABS = [
     { id: 'history', label: 'History' },
 ];
 
+const PENDING_STYLE = 'bg-yellow-100 text-yellow-800';
+
 const STATUS_STYLE = {
-    Pending: 'bg-rose-50 text-rose-600',
-    'Pending Due': 'bg-red-50 text-red-600',
-    'In Progress': 'bg-sky-50 text-sky-700',
+    Pending: PENDING_STYLE,
+    'Pending Due': PENDING_STYLE,
+    Overdue: PENDING_STYLE,
+    'In Progress': PENDING_STYLE,
+    Reopened: PENDING_STYLE,
+    'Pending Review': PENDING_STYLE,
+    Open: PENDING_STYLE,
+    'On Hold': PENDING_STYLE,
     Completed: 'bg-emerald-50 text-emerald-600',
     Closed: 'bg-slate-100 text-slate-700',
-    Reopened: 'bg-sky-50 text-sky-700',
-    'Pending Review': 'bg-amber-50 text-amber-700',
-    Open: 'bg-sky-50 text-sky-700',
-    'Pending Review': 'bg-amber-50 text-amber-700',
     Cancelled: 'bg-slate-100 text-slate-500',
-    'On Hold': 'bg-amber-50 text-amber-700',
     Rejected: 'bg-rose-50 text-rose-600',
 };
 

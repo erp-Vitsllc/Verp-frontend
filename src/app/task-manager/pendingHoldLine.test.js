@@ -12,7 +12,7 @@ describe('pending hold line', () => {
                 { key: 'admin', status: 'Not Started', personName: 'Vishnu Prasad', personId: 'a2', approvalTitle: 'Admin Approval' },
             ],
         });
-        assert.equal(hold.text, 'Task pending Reassigned with Raseel Muhammad, Admin Approval with Vishnu Prasad');
+        assert.equal(hold.text, 'Pending with Raseel M, Vishnu P');
     });
 
     it('uses the approval role when the current holder is that approver', () => {
@@ -23,7 +23,7 @@ describe('pending hold line', () => {
                 { key: 'admin', status: 'In Progress', personName: 'Vishnu Prasad', personId: 'a2', approvalTitle: 'Admin Approval' },
             ],
         });
-        assert.equal(hold.text, 'Task pending Admin Approval with Vishnu Prasad');
+        assert.equal(hold.text, 'Pending with Vishnu P');
     });
 
     it('keeps the approval title when that step was folded into the current assignee', () => {
@@ -39,18 +39,18 @@ describe('pending hold line', () => {
                 },
             ],
         });
-        assert.equal(hold.text, 'Task pending Admin Approval with Vishnu Prasad');
+        assert.equal(hold.text, 'Pending with Vishnu P');
     });
 
     it('names HR and reportee approvals', () => {
         assert.equal(pendingHold({
             status: 'Pending Due',
             steps: [{ key: 'hr', status: 'In Progress', personName: 'Sara Ali', personId: 'h1' }],
-        }).text, 'Task pending HR Approval with Sara Ali');
+        }).text, 'Pending with Sara A');
         assert.equal(pendingHold({
             status: 'Open',
             steps: [{ key: 'reportee', status: 'In Progress', personName: 'Ali Khan', personId: 'r1' }],
-        }).text, 'Task pending Reportee Approval with Ali Khan');
+        }).text, 'Pending with Ali K');
     });
 
     it('falls back to the assignee when the workflow has no named step', () => {
@@ -59,7 +59,7 @@ describe('pending hold line', () => {
             steps: [],
             assigneeName: 'Raseel Muhammad',
         });
-        assert.equal(hold.text, 'Task pending with Raseel Muhammad');
+        assert.equal(hold.text, 'Pending with Raseel M');
     });
 
     it('names every approval that is still waiting', () => {
@@ -71,7 +71,7 @@ describe('pending hold line', () => {
                 { key: 'assigned', status: 'Not Started', personName: 'Nobody', personId: 'x' },
             ],
         });
-        assert.equal(hold.text, 'Task pending Reportee Approval with Ali Khan, HR Approval with Sara Ali');
+        assert.equal(hold.text, 'Pending with Ali K, Sara A');
     });
 
     it('uses the same sentence from the task fields on the list and the details', () => {
@@ -85,7 +85,7 @@ describe('pending hold line', () => {
                 { key: 'hr', status: 'Not Started', personName: 'Sara Ali', approvalTitle: 'HR Approval' },
             ],
         };
-        assert.equal(taskWaitingText(task).text, 'Task pending with Vishnu Prasad, HR Approval with Sara Ali');
+        assert.equal(taskWaitingText(task).text, 'Pending with Vishnu P, Sara A');
         assert.equal(taskWaitingText({ ...task, displayStatus: 'Completed' }), null);
     });
 
