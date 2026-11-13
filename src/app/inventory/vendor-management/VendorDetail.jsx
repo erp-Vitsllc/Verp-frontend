@@ -212,7 +212,7 @@ export default function VendorDetail({ vendor, onReload }) {
                                             <td className="whitespace-nowrap px-4 py-3.5"><Lines values={contact.phones} /></td>
                                             <td className="px-4 py-3.5">{contact.brands?.length ? contact.brands.join(', ') : 'N/A'}</td>
                                             <td className="px-4 py-3.5">
-                                                {access.ready && !access.canEditVendor ? null : (
+                                                {contact.source === 'zoho' || (access.ready && !access.canEditVendor) ? null : (
                                                     <button
                                                         type="button"
                                                         onClick={() => setContactModal({ mode: 'edit', contact })}

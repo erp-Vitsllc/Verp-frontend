@@ -26,6 +26,10 @@ export function getVendor(id) {
     return axiosInstance.get(`/Inventory/vendors/${id}`, { skipToast: true }).then(dataOf);
 }
 
+export function deleteVendor(id) {
+    return axiosInstance.delete(`/Inventory/vendors/${id}`, { skipToast: true }).then(dataOf);
+}
+
 export function createVendorContact(vendorId, payload) {
     return axiosInstance.post(`/Inventory/vendors/${vendorId}/contacts`, payload, { skipToast: true }).then(dataOf);
 }

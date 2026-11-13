@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Download, Plus, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Plus, Search, Trash2 } from 'lucide-react';
+import { isAdmin } from '@/utils/permissions';
 import { useInventoryAccess } from '../item-master/itemMasterAccess';
 import AddVendorModal from './AddVendorModal';
-import { listVendors, vendorApiMessage } from './vendorManagementApi';
+import { deleteVendor, listVendors, vendorApiMessage } from './vendorManagementApi';
 
 const PAGE_SIZE = 6;
 const EMPTY_FILTERS = { vendorTypes: [], brands: [], paymentTerms: [], statuses: [] };
@@ -64,6 +65,13 @@ export default function VendorManagementList() {
     const [filters, setFilters] = useState(EMPTY_FILTERS);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [canDelete, setCanDelete] = useState(false);
+    const [deletingId, setDeletingId] = useState('');
+    const columnCount = canDelete ? 8 : 7;
+
+    useEffect(() => {
+        setCanDelete(isAdmin());
+    }, []);
 
     useEffect(() => {
         const timer = setTimeout(() => setDebouncedQuery(query.trim()), 300);
@@ -121,6 +129,23 @@ export default function VendorManagementList() {
             setter(value);
             setPage(1);
         };
+    }
+
+    async function removeVendor(event, vendor) {
+        event.stopPropagation();
+        const label = [vendor.code, vendor.name].filter(Boolean).join(' ');
+        if (!window.confirm(`Delete ${label}?`)) return;
+        setDeletingId(vendor.id);
+        setError('');
+        try {
+            await deleteVendor(vendor.id);
+            if (rows.length === 1 && page > 1) setPage(page - 1);
+            setReloadKey((value) => value + 1);
+        } catch (deleteError) {
+            setError(vendorApiMessage(deleteError, 'Could not delete this vendor.'));
+        } finally {
+            setDeletingId('');
+        }
     }
 
     function exportRows() {
@@ -197,7 +222,16 @@ export default function VendorManagementList() {
                 <table className="min-w-full text-left text-sm">
                     <thead>
                         <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
-                            {['Vendor Code', 'Vendor Name', 'Location', 'Primary Contact', 'Brands', 'Products', 'Status'].map((heading) => (
+                            {[
+                                'Vendor Code',
+                                'Vendor Name',
+                                'Location',
+                                'Primary Contact',
+                                'Brands',
+                                'Products',
+                                'Status',
+                                ...(canDelete ? ['Action'] : []),
+                            ].map((heading) => (
                                 <th key={heading} className="whitespace-nowrap px-4 py-3 font-medium">{heading}</th>
                             ))}
                         </tr>
@@ -205,11 +239,11 @@ export default function VendorManagementList() {
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={7} className="px-4 py-10 text-center text-slate-500">Loading vendors...</td>
+                                <td colSpan={columnCount} className="px-4 py-10 text-center text-slate-500">Loading vendors...</td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={7} className="px-4 py-10 text-center text-slate-500">{emptyLabel}</td>
+                                <td colSpan={columnCount} className="px-4 py-10 text-center text-slate-500">{emptyLabel}</td>
                             </tr>
                         ) : rows.map((vendor) => (
                             <tr
@@ -229,6 +263,19 @@ export default function VendorManagementList() {
                                         {vendor.status}
                                     </span>
                                 </td>
+                                {canDelete ? (
+                                    <td className="whitespace-nowrap px-4 py-3.5">
+                                        <button
+                                            type="button"
+                                            disabled={deletingId === vendor.id}
+                                            onClick={(event) => removeVendor(event, vendor)}
+                                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-3 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                        >
+                                            <Trash2 size={13} />
+                                            {deletingId === vendor.id ? 'Deleting...' : 'Delete'}
+                                        </button>
+                                    </td>
+                                ) : null}
                             </tr>
                         ))}
                     </tbody>
