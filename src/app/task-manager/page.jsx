@@ -7,7 +7,6 @@ import {
     ArrowDown,
     ArrowUp,
     Calendar,
-    CheckCircle2,
     ChevronDown,
     ChevronUp,
     ClipboardList,
@@ -354,7 +353,8 @@ function taskInBoard(task, board, viewer) {
         if (task?.reviewPending || listStatus(task) === 'Pending Review') return false;
         return assignedToViewer(task, viewer) && isOpenPending(listStatus(task));
     }
-    if (board === 'requests') return requestedByViewer(task, viewer);
+    // Card totals match the Open list: pending only. Closed, completed, and rejected stay out.
+    if (board === 'requests') return requestedByViewer(task, viewer) && taskIsOpenState(task);
     if (board === 'review') return taskAwaitingRequesterReview(task, viewer);
     if (board === 'completed') return assignedToViewer(task, viewer) && taskIsCompleted(task);
     return false;
@@ -1184,13 +1184,10 @@ function TaskManagerContent() {
         const mine = tasks.filter((task) => taskInBoard(task, 'mine', viewer));
         const requests = tasks.filter((task) => taskInBoard(task, 'requests', viewer));
         const review = tasks.filter((task) => taskInBoard(task, 'review', viewer));
-        const completed = tasks.filter((task) => taskInBoard(task, 'completed', viewer));
-        const completedMonth = (task) => dateKey(task.completionDate || task.requestDate).slice(0, 7);
         return {
             mine: mine.length,
             requests: requests.length,
             review: review.length,
-            completed: completed.length,
             all: tasks.length,
             high: mine.filter((task) => task.priority === 'High').length,
             medium: mine.filter((task) => task.priority === 'Medium').length,
@@ -1198,7 +1195,6 @@ function TaskManagerContent() {
             mineChange: boardChange(mine, requestMonth),
             requestsChange: boardChange(requests, requestMonth),
             reviewChange: boardChange(review, requestMonth),
-            completedChange: boardChange(completed, completedMonth),
             allChange: boardChange(tasks, requestMonth),
         };
     }, [tasks, viewer]);
@@ -1353,7 +1349,7 @@ function TaskManagerContent() {
                         </button>
                     </div>
 
-                    <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                    <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                         <StatCard
                             label="My Task"
                             value={boardSummary.mine}
@@ -1392,18 +1388,6 @@ function TaskManagerContent() {
                             figure="text-[#D97706]"
                             active={board === 'review'}
                             onClick={() => selectBoard('review')}
-                        />
-                        <StatCard
-                            label="My Completed Tasks"
-                            value={boardSummary.completed}
-                            change={boardSummary.completedChange}
-                            goodWhenUp
-                            icon={CheckCircle2}
-                            wrap="bg-[#E8F8EF]"
-                            bubble="bg-[#22C55E] text-white"
-                            figure="text-[#16A34A]"
-                            active={board === 'completed'}
-                            onClick={() => selectBoard('completed')}
                         />
                         <StatCard
                             label="All Task"

@@ -9,7 +9,7 @@ function sidebarStaysOpen() {
     return localStorage.getItem('sidebar_isOpen') !== 'false';
 }
 
-export default function CatalogModal({ title, onClose, children }) {
+export default function CatalogModal({ title, onClose, children, wide = false }) {
     const [shiftForSidebar, setShiftForSidebar] = useState(true);
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
@@ -44,7 +44,7 @@ export default function CatalogModal({ title, onClose, children }) {
                 role="dialog"
                 aria-modal="true"
                 aria-label={title}
-                className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+                className={`flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ${wide ? 'max-w-3xl' : 'max-w-lg'}`}
             >
                 <div className="flex items-center justify-between gap-3 px-5 pt-5">
                     <h2 className="text-lg font-semibold text-slate-900">{title}</h2>

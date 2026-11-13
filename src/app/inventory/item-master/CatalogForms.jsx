@@ -179,6 +179,8 @@ export function AddCategoryModal({ onClose, onSaved }) {
 export function AddSubcategoryModal({ categories = [], loadError = '', canCreateCategory = false, onClose, onSaved, onCreateCategory }) {
     const [categoryId, setCategoryId] = useState('');
     const [name, setName] = useState('');
+    const [reservationMode, setReservationMode] = useState('not_applicable');
+    const [reservationCount, setReservationCount] = useState('');
     const [file, setFile] = useState(null);
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
@@ -199,11 +201,20 @@ export function AddSubcategoryModal({ categories = [], loadError = '', canCreate
             setError('Subcategory name is required.');
             return;
         }
+        let reservationQuantity = null;
+        if (reservationMode === 'count') {
+            const count = Number(reservationCount);
+            if (reservationCount === '' || !Number.isInteger(count) || count < 0) {
+                setError('Enter a whole reservation count of zero or more.');
+                return;
+            }
+            reservationQuantity = count;
+        }
         setSaving(true);
         setError('');
         try {
             const image = await readImageFile(file, { required: false });
-            const payload = { name: trimmed, categoryId };
+            const payload = { name: trimmed, categoryId, reservationQuantity };
             if (image) payload.image = image;
             const saved = await createSubcategory(payload);
             onSaved(saved);
@@ -264,6 +275,42 @@ export function AddSubcategoryModal({ categories = [], loadError = '', canCreate
                     disabled={!hasCategories}
                     onChange={(event) => setName(event.target.value)}
                 />
+                <label className={`${labelClass} mt-3`} htmlFor="subcategory-reservation">
+                    Reservation quantity
+                </label>
+                <select
+                    id="subcategory-reservation"
+                    className={fieldClass}
+                    value={reservationMode}
+                    disabled={!hasCategories}
+                    onChange={(event) => {
+                        const next = event.target.value;
+                        setReservationMode(next);
+                        if (next !== 'count') setReservationCount('');
+                    }}
+                >
+                    <option value="not_applicable">Not Applicable</option>
+                    <option value="count">Count</option>
+                </select>
+                {reservationMode === 'count' ? (
+                    <>
+                        <label className={`${labelClass} mt-3`} htmlFor="subcategory-reservation-count">
+                            Count <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                            id="subcategory-reservation-count"
+                            className={fieldClass}
+                            type="number"
+                            min="0"
+                            step="1"
+                            inputMode="numeric"
+                            value={reservationCount}
+                            disabled={!hasCategories}
+                            autoComplete="off"
+                            onChange={(event) => setReservationCount(event.target.value)}
+                        />
+                    </>
+                ) : null}
                 <PhotoUpload id="subcategory-photo" file={file} onFile={setFile} />
             </ModalForm>
         </CatalogModal>

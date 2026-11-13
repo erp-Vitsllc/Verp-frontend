@@ -9,7 +9,7 @@ import { useInventoryAccess } from './itemMasterAccess';
 import { apiMessage, listBrands, listCategories, listItems, listSubcategories } from './itemMasterApi';
 
 const PAGE_SIZE = 6;
-const STATUSES = ['Active', 'Low Stock', 'Out of Stock'];
+const STATUSES = ['Stock In', 'Low Stock', 'Out of Stock'];
 const TABS = [
     { id: 'items', label: 'Items' },
     { id: 'category', label: 'Category' },
@@ -21,6 +21,7 @@ const primaryButtonClass = 'inline-flex h-9 items-center gap-1.5 rounded-lg bg-b
 const quietButtonClass = 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700';
 
 const statusClass = {
+    'Stock In': 'bg-emerald-50 text-emerald-600',
     Active: 'bg-emerald-50 text-emerald-600',
     'Low Stock': 'bg-orange-50 text-orange-600',
     'Out of Stock': 'bg-red-50 text-red-600',
@@ -38,6 +39,27 @@ function countOf(value) {
 function matchesName(row, query) {
     if (!query) return true;
     return String(row?.name || '').toLowerCase().includes(query);
+}
+
+function idList(values) {
+    return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || '')).filter(Boolean))];
+}
+
+function listNoun(list) {
+    if (list === 'items') return 'items';
+    if (list === 'category') return 'categories';
+    if (list === 'subcategory') return 'subcategories';
+    return 'brands';
+}
+
+function rowsForLink(rows, link, listName) {
+    if (!link || link.list !== listName) return rows;
+    if (link.categoryId) {
+        const categoryId = String(link.categoryId);
+        return rows.filter((row) => String(row.categoryId || '') === categoryId);
+    }
+    const allow = new Set(idList(link.allow));
+    return rows.filter((row) => allow.has(String(row._id)));
 }
 
 function upsertSorted(current, saved) {
@@ -78,11 +100,14 @@ export default function ItemMasterList() {
     const [search, setSearch] = useState('');
     const [catalogSearch, setCatalogSearch] = useState('');
     const [categoryId, setCategoryId] = useState('');
+    const [subcategoryId, setSubcategoryId] = useState('');
     const [brandId, setBrandId] = useState('');
     const [status, setStatus] = useState('');
+    const [linkedList, setLinkedList] = useState(null);
     const [modal, setModal] = useState('');
     const [returnToSubcategory, setReturnToSubcategory] = useState(false);
     const [itemError, setItemError] = useState('');
+    const [openDescriptions, setOpenDescriptions] = useState(() => new Set());
     const [catalogError, setCatalogError] = useState('');
     const [loading, setLoading] = useState(true);
     const [catalogLoading, setCatalogLoading] = useState(true);
@@ -142,6 +167,7 @@ export default function ItemMasterList() {
             limit: PAGE_SIZE,
             search,
             categoryId,
+            subcategoryId,
             brandId,
             status,
         })
@@ -160,15 +186,103 @@ export default function ItemMasterList() {
         return () => {
             cancelled = true;
         };
-    }, [access.ready, access.canViewItems, page, search, categoryId, brandId, status]);
+    }, [access.ready, access.canViewItems, page, search, categoryId, subcategoryId, brandId, status]);
 
     const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
     const to = Math.min(page * PAGE_SIZE, total);
     const catalogQuery = catalogSearch.trim().toLowerCase();
-    const visibleCategories = categories.filter((row) => matchesName(row, catalogQuery));
-    const visibleSubcategories = subcategories.filter((row) => matchesName(row, catalogQuery));
-    const visibleBrands = brands.filter((row) => matchesName(row, catalogQuery));
+    const categoryScope = rowsForLink(categories, linkedList, 'category');
+    const subcategoryScope = rowsForLink(subcategories, linkedList, 'subcategory');
+    const brandScope = rowsForLink(brands, linkedList, 'brand');
+    const visibleCategories = categoryScope.filter((row) => matchesName(row, catalogQuery));
+    const visibleSubcategories = subcategoryScope.filter((row) => matchesName(row, catalogQuery));
+    const visibleBrands = brandScope.filter((row) => matchesName(row, catalogQuery));
+
+    const clearItemLink = () => {
+        setCategoryId('');
+        setSubcategoryId('');
+        setBrandId('');
+        setPage(1);
+    };
+
+    const showAllLinked = () => {
+        if (linkedList?.list === 'items') clearItemLink();
+        setCatalogSearch('');
+        setLinkedList(null);
+    };
+
+    const selectTab = (next) => {
+        if (next === tab) return;
+        if (linkedList?.list === 'items') clearItemLink();
+        setLinkedList(null);
+        setTab(next);
+    };
+
+    const showCatalog = (list, { caption, categoryId: parentCategoryId = '', allow = [] }) => {
+        setCatalogSearch('');
+        setLinkedList({
+            list,
+            caption,
+            categoryId: parentCategoryId,
+            allow: parentCategoryId ? [] : idList(allow),
+        });
+        setTab(list);
+    };
+
+    const showItems = ({ caption, categoryId: nextCategoryId = '', subcategoryId: nextSubcategoryId = '', brandId: nextBrandId = '' }) => {
+        setSearch('');
+        setStatus('');
+        setPage(1);
+        setCategoryId(nextCategoryId);
+        setSubcategoryId(nextSubcategoryId);
+        setBrandId(nextBrandId);
+        setLinkedList({ list: 'items', caption, categoryId: '', allow: [] });
+        setTab('items');
+    };
+
+    const chooseCategory = (value) => {
+        setPage(1);
+        setCategoryId(value);
+        setSubcategoryId((current) => {
+            if (!value || !current) return current;
+            const match = subcategories.find((row) => String(row._id) === String(current));
+            return match && String(match.categoryId || '') === String(value) ? current : '';
+        });
+        setLinkedList((current) => (current?.list === 'items' ? null : current));
+    };
+
+    const chooseBrand = (value) => {
+        setPage(1);
+        setBrandId(value);
+        setLinkedList((current) => (current?.list === 'items' ? null : current));
+    };
+
+    const openCount = (source, columnKey, row) => {
+        const caption = `${source} ${row.name || ''}`.trim();
+        if (columnKey === 'itemCount') {
+            if (source === 'category') showItems({ caption, categoryId: row._id });
+            else if (source === 'subcategory') showItems({ caption, subcategoryId: row._id });
+            else if (source === 'brand') showItems({ caption, brandId: row._id });
+            return;
+        }
+        if (columnKey === 'subcategoryCount' && source === 'category') {
+            showCatalog('subcategory', { caption, categoryId: row._id });
+            return;
+        }
+        if (columnKey === 'subcategoryCount' && source === 'brand') {
+            showCatalog('subcategory', { caption, allow: row.subcategoryIds });
+            return;
+        }
+        if (columnKey === 'brandCount') {
+            showCatalog('brand', { caption, allow: row.brandIds });
+            return;
+        }
+        if (columnKey === 'categoryCount') {
+            const allow = row.categoryIds?.length ? row.categoryIds : [row.categoryId];
+            showCatalog('category', { caption, allow });
+        }
+    };
 
     const closeModal = () => {
         setModal(returnToSubcategory ? 'subcategory' : '');
@@ -177,7 +291,7 @@ export default function ItemMasterList() {
 
     const exportCsv = async () => {
         try {
-            const result = await listItems({ page: 1, limit: 100, search, categoryId, brandId, status });
+            const result = await listItems({ page: 1, limit: 100, search, categoryId, subcategoryId, brandId, status });
             const header = ['Item Code', 'Description', 'Brand', 'Category', 'Model', 'Available', 'Status'];
             const lines = [header.map(csvCell).join(',')];
             (result.items || []).forEach((row) => {
@@ -252,7 +366,7 @@ export default function ItemMasterList() {
                         type="button"
                         role="tab"
                         aria-selected={tab === item.id}
-                        onClick={() => setTab(item.id)}
+                        onClick={() => selectTab(item.id)}
                         className={`shrink-0 border-b-2 px-3 pb-2 text-sm font-medium ${tab === item.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
                     >
                         {item.label}
@@ -260,41 +374,53 @@ export default function ItemMasterList() {
                 ))}
             </div>
 
-            <div className="relative mb-4">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                    className={`${fieldClass} pl-9`}
-                    placeholder={searchPlaceholder}
-                    value={tab === 'items' ? search : catalogSearch}
-                    onChange={(event) => {
-                        const value = event.target.value;
-                        if (tab === 'items') {
-                            setPage(1);
-                            setSearch(value);
-                            return;
-                        }
-                        setCatalogSearch(value);
-                    }}
-                />
+            <div className="mb-4 flex items-end gap-3">
+                <div className={`relative ${tab === 'items' ? 'w-52 shrink-0' : 'min-w-0 flex-1'}`}>
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                        className={`${fieldClass} pl-9`}
+                        placeholder={searchPlaceholder}
+                        value={tab === 'items' ? search : catalogSearch}
+                        onChange={(event) => {
+                            const value = event.target.value;
+                            if (tab === 'items') {
+                                setPage(1);
+                                setSearch(value);
+                                return;
+                            }
+                            setCatalogSearch(value);
+                        }}
+                    />
+                </div>
+                {tab === 'items' ? (
+                    <div className="grid min-w-0 flex-1 grid-cols-4 gap-3">
+                        <Filter label="Category" value={categoryId} onChange={chooseCategory}>
+                            <option value="">All</option>
+                            {categories.map((row) => <option key={row._id} value={row._id}>{row.name}</option>)}
+                        </Filter>
+                        <Filter label="Brand" value={brandId} onChange={chooseBrand}>
+                            <option value="">All</option>
+                            {brands.map((row) => <option key={row._id} value={row._id}>{row.name}</option>)}
+                        </Filter>
+                        <Filter label="Stock Status" value={status} onChange={(value) => { setPage(1); setStatus(value); }}>
+                            <option value="">All</option>
+                            {STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
+                        </Filter>
+                        <Filter label="Warehouse" value="" onChange={() => {}}>
+                            <option value="">All</option>
+                        </Filter>
+                    </div>
+                ) : null}
             </div>
 
-            {tab === 'items' ? (
-                <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <Filter label="Category" value={categoryId} onChange={(value) => { setPage(1); setCategoryId(value); }}>
-                        <option value="">All</option>
-                        {categories.map((row) => <option key={row._id} value={row._id}>{row.name}</option>)}
-                    </Filter>
-                    <Filter label="Brand" value={brandId} onChange={(value) => { setPage(1); setBrandId(value); }}>
-                        <option value="">All</option>
-                        {brands.map((row) => <option key={row._id} value={row._id}>{row.name}</option>)}
-                    </Filter>
-                    <Filter label="Stock Status" value={status} onChange={(value) => { setPage(1); setStatus(value); }}>
-                        <option value="">All</option>
-                        {STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
-                    </Filter>
-                    <Filter label="Warehouse" value="" onChange={() => {}}>
-                        <option value="">All</option>
-                    </Filter>
+            {linkedList ? (
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#EAF3FF] px-3 py-2 text-sm text-slate-700">
+                    <p>
+                        Showing only <span className="font-semibold">{listNoun(linkedList.list)}</span> for {linkedList.caption}
+                    </p>
+                    <button type="button" onClick={showAllLinked} className="font-semibold text-blue-700 hover:underline">
+                        Show all
+                    </button>
                 </div>
             ) : null}
 
@@ -316,20 +442,39 @@ export default function ItemMasterList() {
                                 {loading ? (
                                     <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">Loading items...</td></tr>
                                 ) : rows.length === 0 ? (
-                                    <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">No items yet.</td></tr>
+                                    <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">{search || categoryId || subcategoryId || brandId || status ? 'No items match this filter.' : 'No items yet.'}</td></tr>
                                 ) : rows.map((row) => (
                                     <tr
                                         key={row._id}
                                         onClick={() => router.push(`/inventory/item-master/${row._id}`)}
                                         className="cursor-pointer border-t border-slate-100 text-sm text-slate-700 hover:bg-slate-50"
                                     >
-                                        <td className="px-3 py-3 font-medium text-slate-500">{row.itemCode}</td>
-                                        <td className="px-3 py-3 font-medium text-slate-800">{row.description}</td>
-                                        <td className="px-3 py-3">{row.brandName}</td>
-                                        <td className="px-3 py-3">{row.categoryName}</td>
-                                        <td className="px-3 py-3">{row.modelNumber}</td>
-                                        <td className={`px-3 py-3 font-semibold ${availableClass(row)}`}>{row.availableQuantity}</td>
-                                        <td className="px-3 py-3">
+                                        <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-500">{row.itemCode}</td>
+                                        <DescriptionCell
+                                            text={row.description}
+                                            open={openDescriptions.has(row._id)}
+                                            onToggle={() => {
+                                                setOpenDescriptions((current) => {
+                                                    const next = new Set(current);
+                                                    if (next.has(row._id)) next.delete(row._id);
+                                                    else next.add(row._id);
+                                                    return next;
+                                                });
+                                            }}
+                                        />
+                                        <ItemLinkCell
+                                            name={row.brandName}
+                                            label="brand"
+                                            onOpen={row.brandId ? () => showItems({ caption: `brand ${row.brandName || ''}`.trim(), brandId: row.brandId }) : null}
+                                        />
+                                        <ItemLinkCell
+                                            name={row.categoryName}
+                                            label="category"
+                                            onOpen={row.categoryId ? () => showItems({ caption: `category ${row.categoryName || ''}`.trim(), categoryId: row.categoryId }) : null}
+                                        />
+                                        <td className="whitespace-nowrap px-3 py-3">{row.modelNumber}</td>
+                                        <td className={`whitespace-nowrap px-3 py-3 font-semibold ${availableClass(row)}`}>{row.availableQuantity}</td>
+                                        <td className="whitespace-nowrap px-3 py-3">
                                             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass[row.status] || 'bg-slate-100 text-slate-600'}`}>
                                                 {row.status}
                                             </span>
@@ -365,48 +510,51 @@ export default function ItemMasterList() {
             {tab === 'category' ? (
                 <CatalogTable
                     noun="categories"
-                    total={categories.length}
+                    total={categoryScope.length}
                     rows={visibleCategories}
                     loading={catalogLoading && categories.length === 0}
-                    empty={catalogError ? 'Categories could not be loaded.' : categories.length === 0 ? 'No categories yet.' : 'No categories match your search.'}
+                    empty={catalogEmpty(catalogError, categories, categoryScope, catalogQuery, 'Categories could not be loaded.', 'No categories yet.', 'No categories match your search.', linkedList)}
                     columns={[
                         { label: 'Category Name', key: 'name' },
                         { label: 'Sub Category', key: 'subcategoryCount', count: true },
                         { label: 'Brand', key: 'brandCount', count: true },
                         { label: 'Item', key: 'itemCount', count: true },
                     ]}
+                    onOpen={(columnKey, row) => openCount('category', columnKey, row)}
                 />
             ) : null}
 
             {tab === 'subcategory' ? (
                 <CatalogTable
                     noun="subcategories"
-                    total={subcategories.length}
+                    total={subcategoryScope.length}
                     rows={visibleSubcategories}
                     loading={catalogLoading && subcategories.length === 0}
-                    empty={catalogError ? 'Subcategories could not be loaded.' : subcategories.length === 0 ? 'No subcategories yet.' : 'No subcategories match your search.'}
+                    empty={catalogEmpty(catalogError, subcategories, subcategoryScope, catalogQuery, 'Subcategories could not be loaded.', 'No subcategories yet.', 'No subcategories match your search.', linkedList)}
                     columns={[
                         { label: 'Subcategory Name', key: 'name' },
                         { label: 'Category', key: 'categoryCount', count: true },
                         { label: 'Brand', key: 'brandCount', count: true },
                         { label: 'Item', key: 'itemCount', count: true },
                     ]}
+                    onOpen={(columnKey, row) => openCount('subcategory', columnKey, row)}
                 />
             ) : null}
 
             {tab === 'brand' ? (
                 <CatalogTable
                     noun="brands"
-                    total={brands.length}
+                    total={brandScope.length}
                     rows={visibleBrands}
                     loading={catalogLoading && brands.length === 0}
-                    empty={catalogError ? 'Brands could not be loaded.' : brands.length === 0 ? 'No brands yet.' : 'No brands match your search.'}
+                    empty={catalogEmpty(catalogError, brands, brandScope, catalogQuery, 'Brands could not be loaded.', 'No brands yet.', 'No brands match your search.', linkedList)}
                     columns={[
                         { label: 'Brand Name', key: 'name' },
                         { label: 'Category', key: 'categoryCount', count: true },
                         { label: 'Subcategory', key: 'subcategoryCount', count: true },
                         { label: 'Item', key: 'itemCount', count: true },
                     ]}
+                    onOpen={(columnKey, row) => openCount('brand', columnKey, row)}
                 />
             ) : null}
 
@@ -451,7 +599,65 @@ export default function ItemMasterList() {
     );
 }
 
-function CatalogTable({ noun, total, rows, loading, empty, columns }) {
+function catalogEmpty(error, allRows, scopedRows, query, errorLabel, emptyLabel, searchLabel, link) {
+    if (error) return errorLabel;
+    if (allRows.length === 0) return emptyLabel;
+    if (scopedRows.length === 0) return `No matches for ${link?.caption || 'this filter'}.`;
+    if (query) return searchLabel;
+    return emptyLabel;
+}
+
+function DescriptionCell({ text, open, onToggle }) {
+    const value = String(text || '');
+    const truncated = value.length > 20;
+    if (open) {
+        return (
+            <td className="max-w-xs px-3 py-3 font-medium text-slate-800" onClick={(event) => event.stopPropagation()}>
+                <button type="button" onClick={onToggle} className="whitespace-normal break-words text-left">
+                    {value}
+                </button>
+            </td>
+        );
+    }
+    return (
+        <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-800">
+            {truncated ? value.slice(0, 20) : value}
+            {truncated ? (
+                <button
+                    type="button"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onToggle();
+                    }}
+                    className="text-blue-700 hover:underline"
+                    aria-label="Show full item name"
+                >
+                    ...
+                </button>
+            ) : null}
+        </td>
+    );
+}
+
+function ItemLinkCell({ name, label, onOpen }) {
+    if (!onOpen) {
+        return <td className="whitespace-nowrap px-3 py-3">{name || '—'}</td>;
+    }
+    return (
+        <td className="p-0" onClick={(event) => event.stopPropagation()}>
+            <button
+                type="button"
+                onClick={onOpen}
+                className="w-full whitespace-nowrap px-3 py-3 text-left font-medium text-blue-700 hover:bg-blue-50 hover:underline"
+                aria-label={`Show items for ${label} ${name || ''}`.trim()}
+            >
+                {name || '—'}
+            </button>
+        </td>
+    );
+}
+
+function CatalogTable({ noun, total, rows, loading, empty, columns, onOpen }) {
     return (
         <>
             <div className="overflow-x-auto">
@@ -484,13 +690,18 @@ function CatalogTable({ noun, total, rows, loading, empty, columns }) {
                                         );
                                     }
                                     const value = countOf(row[column.key]);
+                                    const action = `Show ${column.label} for ${row.name || 'this row'}`;
                                     return (
-                                        <td
-                                            key={column.key}
-                                            className="px-3 py-3 text-right font-medium tabular-nums text-slate-800"
-                                            title={`${value} ${column.label.toLowerCase()}`}
-                                        >
-                                            {value}
+                                        <td key={column.key} className="p-0 text-right">
+                                            <button
+                                                type="button"
+                                                onClick={() => onOpen(column.key, row)}
+                                                className="w-full px-3 py-3 text-right font-semibold tabular-nums text-blue-700 hover:bg-blue-50 hover:underline"
+                                                aria-label={action}
+                                                title={action}
+                                            >
+                                                {value}
+                                            </button>
                                         </td>
                                     );
                                 })}
@@ -507,7 +718,7 @@ function CatalogTable({ noun, total, rows, loading, empty, columns }) {
 function Filter({ label, value, onChange, children }) {
     return (
         <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">{label}</span>
+            <span className="mb-1 block whitespace-nowrap text-xs font-medium text-slate-500">{label}</span>
             <select className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)}>
                 {children}
             </select>

@@ -22,5 +22,7 @@ export function useInventoryAccess() {
         canCreateSubcategory: allow('inventory_item_master_subcategory', 'isCreate'),
         canCreateBrand: allow('inventory_item_master_brand', 'isCreate'),
         canViewVendors: allow('inventory_vendor'),
+        canCreateVendor: allow('inventory_vendor', 'isCreate'),
+        canEditVendor: allow('inventory_vendor', 'isEdit'),
     };
 }

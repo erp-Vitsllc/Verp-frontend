@@ -2,14 +2,14 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Copy, Package, Pencil, Printer } from 'lucide-react';
-import { createItem } from './itemMasterApi';
+import { Copy, Package, Pencil } from 'lucide-react';
 import { useInventoryAccess } from './itemMasterAccess';
-import { useToast } from '@/hooks/use-toast';
+import { saveItemDuplicateDraft } from './itemDuplicateDraft';
 
 const TABS = ['Overview', 'Stock', 'Vendors', 'Price History', 'Purchases', 'Transactions', 'Documents'];
 
 const statusClass = {
+    'Stock In': 'bg-emerald-50 text-emerald-600',
     Active: 'bg-emerald-50 text-emerald-600',
     'Low Stock': 'bg-orange-50 text-orange-600',
     'Out of Stock': 'bg-red-50 text-red-600',
@@ -21,9 +21,9 @@ function unitWord(quantity, unit) {
     return `${quantity} ${Number(quantity) === 1 ? (single[unit] || unit) : (plural[unit] || unit)}`;
 }
 
-function InfoTable({ title, rows, action }) {
+function InfoTable({ title, rows, action, note }) {
     return (
-        <section className="rounded-xl border border-[#E6EDF5] bg-white">
+        <section className="flex h-full flex-col rounded-xl border border-[#E6EDF5] bg-white">
             <div className="flex items-center justify-between border-b border-[#E6EDF5] px-4 py-3">
                 <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
                 {action || null}
@@ -38,49 +38,23 @@ function InfoTable({ title, rows, action }) {
                     ))}
                 </tbody>
             </table>
+            {note || null}
         </section>
     );
 }
 
 export default function ItemDetail({ item }) {
     const router = useRouter();
-    const { toast } = useToast();
     const access = useInventoryAccess();
     const [tab, setTab] = useState('Overview');
-    const [copying, setCopying] = useState(false);
     const available = Number(item.availableQuantity) || 0;
     const reserved = Number(item.reservationQuantity) || 0;
     const current = available + reserved;
     const categoryPath = [item.categoryName, item.subcategoryName, item.itemName].filter(Boolean).join(' > ');
 
-    const duplicate = async () => {
-        setCopying(true);
-        try {
-            const copy = await createItem({
-                categoryId: item.categoryId,
-                subcategoryId: item.subcategoryId,
-                itemOptionId: item.itemOptionId,
-                brandId: item.brandId,
-                description: item.description,
-                modelNumber: item.modelNumber,
-                unitOfMeasure: item.unitOfMeasure,
-                manufacturerPartNumber: item.manufacturerPartNumber,
-                reservationQuantity: item.reservationQuantity,
-                hsCode: item.hsCode,
-                countryOfOrigin: item.countryOfOrigin,
-                status: item.status,
-            });
-            toast({ title: 'Item duplicated', description: copy.itemCode });
-            router.push(`/inventory/item-master/${copy._id}`);
-        } catch (error) {
-            toast({
-                title: 'Could not duplicate',
-                description: error?.response?.data?.message || 'Try again.',
-                variant: 'destructive',
-            });
-        } finally {
-            setCopying(false);
-        }
+    const duplicate = () => {
+        if (!saveItemDuplicateDraft(item)) return;
+        router.push('/inventory/item-master/duplicate');
     };
 
     return (
@@ -109,20 +83,12 @@ export default function ItemDetail({ item }) {
                     {access.canCreateItem ? (
                         <button
                             type="button"
-                            disabled={copying}
                             onClick={duplicate}
-                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700 disabled:opacity-60"
+                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700"
                         >
-                            <Copy size={14} /> {copying ? 'Copying...' : 'Duplicate'}
+                            <Copy size={14} /> Duplicate
                         </button>
                     ) : null}
-                    <button
-                        type="button"
-                        onClick={() => window.print()}
-                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700"
-                    >
-                        <Printer size={14} /> Print
-                    </button>
                 </div>
             </div>
 
@@ -210,6 +176,12 @@ export default function ItemDetail({ item }) {
                             { label: 'Country of Origin', value: item.countryOfOrigin },
                             { label: 'Reservation Quantity', value: unitWord(reserved, item.unitOfMeasure) },
                         ]}
+                        note={(
+                            <div className="flex-1 border-t border-[#F1F5F9] px-4 py-3">
+                                <p className="text-sm font-medium text-slate-500">More Description</p>
+                                <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{item.moreDescription || '—'}</p>
+                            </div>
+                        )}
                     />
                 </div>
             ) : (
