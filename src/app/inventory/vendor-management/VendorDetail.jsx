@@ -95,6 +95,26 @@ function contactHasCategory(contact, categoryId) {
     });
 }
 
+function firstValue(values) {
+    return (Array.isArray(values) ? values.find(Boolean) : '') || '';
+}
+
+function vendorWithPrimary(current, contact) {
+    const contactId = String(contact?.id || '');
+    const contacts = (Array.isArray(current?.contacts) ? current.contacts : []).map((row) => ({
+        ...row,
+        isPrimary: String(row.id) === contactId,
+    })).sort((left, right) => Number(Boolean(right.isPrimary)) - Number(Boolean(left.isPrimary)));
+    const chosen = contacts.find((row) => row.isPrimary);
+    return {
+        ...current,
+        contacts,
+        contact: chosen?.name || '',
+        phone: firstValue(chosen?.phones),
+        email: firstValue(chosen?.emails),
+    };
+}
+
 function contactHasBrand(contact, brandId) {
     return (contact.lines || []).some((line) => {
         const id = String(line.brandId || '').trim();
@@ -144,13 +164,19 @@ export default function VendorDetail({ vendor, onReload }) {
     }
 
     async function makePrimary(contact) {
-        if (contact.isPrimary) return;
-        setBusyId(String(contact.id));
+        if (contact.isPrimary || !contact.id) return;
+        const contactId = String(contact.id);
+        setBusyId(contactId);
         setActionError('');
+        const previous = vendor;
+        onReload(vendorWithPrimary(vendor, contact));
         try {
-            await markVendorContactPrimary(vendor.id, contact.id);
-            onReload();
+            const saved = await markVendorContactPrimary(vendor.id, contactId);
+            if (saved?.contacts) onReload(saved);
+            else onReload();
         } catch (err) {
+            onReload(previous);
+            onReload();
             setActionError(vendorApiMessage(err, 'Could not mark this contact as primary.'));
         } finally {
             setBusyId('');

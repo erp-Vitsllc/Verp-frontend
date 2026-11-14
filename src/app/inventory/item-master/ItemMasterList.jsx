@@ -794,31 +794,37 @@ function CatalogTable({ noun, total, rows, loading, empty, columns, onOpen, onEd
     return (
         <>
             <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-left">
+                <table className="-mx-6 w-[calc(100%+3rem)] min-w-[720px] table-fixed border-separate border-spacing-x-6 text-left">
+                    <colgroup>
+                        {columns.map((column) => (
+                            <col key={column.key} style={{ width: column.count ? '15%' : '26%' }} />
+                        ))}
+                        {showActions ? <col style={{ width: '29%' }} /> : null}
+                    </colgroup>
                     <thead>
-                        <tr className="bg-[#F8FAFC] text-[11px] uppercase tracking-wide text-slate-400">
+                        <tr className="text-[11px] uppercase tracking-wide text-slate-400">
                             {columns.map((column) => (
                                 <th
                                     key={column.key}
-                                    className={`whitespace-nowrap px-3 py-3 font-medium ${column.count ? 'text-right' : ''}`}
+                                    className={`whitespace-nowrap rounded-lg bg-[#F8FAFC] px-4 py-3 font-medium ${column.count ? 'text-right' : ''}`}
                                 >
                                     {column.label}
                                 </th>
                             ))}
-                            {showActions ? <th className="whitespace-nowrap px-3 py-3 font-medium">Actions</th> : null}
+                            {showActions ? <th className="whitespace-nowrap rounded-lg bg-[#F8FAFC] px-4 py-3 font-medium">Actions</th> : null}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={columnCount} className="px-3 py-8 text-center text-sm text-slate-400">Loading...</td></tr>
+                            <tr><td colSpan={columnCount} className="px-4 py-8 text-center text-sm text-slate-400">Loading...</td></tr>
                         ) : rows.length === 0 ? (
-                            <tr><td colSpan={columnCount} className="px-3 py-8 text-center text-sm text-slate-400">{empty}</td></tr>
+                            <tr><td colSpan={columnCount} className="px-4 py-8 text-center text-sm text-slate-400">{empty}</td></tr>
                         ) : rows.map((row) => (
-                            <tr key={row._id} className="border-t border-slate-100 text-sm text-slate-700">
+                            <tr key={row._id} className="text-sm text-slate-700">
                                 {columns.map((column) => {
                                     if (!column.count) {
                                         return (
-                                            <td key={column.key} className="max-w-xs truncate px-3 py-3 font-medium text-slate-800" title={row.name}>
+                                            <td key={column.key} className="truncate border-b border-slate-100 px-4 py-3 font-medium text-slate-800" title={row.name}>
                                                 {row.name}
                                             </td>
                                         );
@@ -826,11 +832,11 @@ function CatalogTable({ noun, total, rows, loading, empty, columns, onOpen, onEd
                                     const value = countOf(row[column.key]);
                                     const action = `Show ${column.label} for ${row.name || 'this row'}`;
                                     return (
-                                        <td key={column.key} className="p-0 text-right">
+                                        <td key={column.key} className="border-b border-slate-100 p-0 text-right">
                                             <button
                                                 type="button"
                                                 onClick={() => onOpen(column.key, row)}
-                                                className="w-full px-3 py-3 text-right font-semibold tabular-nums text-blue-700 hover:bg-blue-50 hover:underline"
+                                                className="w-full px-4 py-3 text-right font-semibold tabular-nums text-blue-700 hover:bg-blue-50 hover:underline"
                                                 aria-label={action}
                                                 title={action}
                                             >
@@ -840,7 +846,7 @@ function CatalogTable({ noun, total, rows, loading, empty, columns, onOpen, onEd
                                     );
                                 })}
                                 {showActions ? (
-                                    <td className="whitespace-nowrap px-3 py-3">
+                                    <td className="whitespace-nowrap border-b border-slate-100 px-4 py-3">
                                         <RowActions
                                             deleting={String(deletingId) === String(row._id)}
                                             editLabel={`Edit ${row.name || noun}`}
