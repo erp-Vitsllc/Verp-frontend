@@ -12,11 +12,15 @@ export function apiMessage(error, fallback) {
 
 export const listCategories = () => axiosInstance.get(`${base}/categories`).then(dataOf);
 export const createCategory = (payload) => axiosInstance.post(`${base}/categories`, payload).then(dataOf);
+export const updateCategory = (id, payload) => axiosInstance.put(`${base}/categories/${id}`, payload).then(dataOf);
+export const deleteCategory = (id) => axiosInstance.delete(`${base}/categories/${id}`).then(dataOf);
 
 export const listSubcategories = (categoryId) => axiosInstance
     .get(`${base}/subcategories`, { params: categoryId ? { categoryId } : {} })
     .then(dataOf);
 export const createSubcategory = (payload) => axiosInstance.post(`${base}/subcategories`, payload).then(dataOf);
+export const updateSubcategory = (id, payload) => axiosInstance.put(`${base}/subcategories/${id}`, payload).then(dataOf);
+export const deleteSubcategory = (id) => axiosInstance.delete(`${base}/subcategories/${id}`).then(dataOf);
 
 export const listItemOptions = (subcategoryId) => axiosInstance
     .get(`${base}/item-options`, { params: subcategoryId ? { subcategoryId } : {} })
@@ -25,11 +29,14 @@ export const createItemOption = (payload) => axiosInstance.post(`${base}/item-op
 
 export const listBrands = () => axiosInstance.get(`${base}/brands`).then(dataOf);
 export const createBrand = (payload) => axiosInstance.post(`${base}/brands`, payload).then(dataOf);
+export const updateBrand = (id, payload) => axiosInstance.put(`${base}/brands/${id}`, payload).then(dataOf);
+export const deleteBrand = (id) => axiosInstance.delete(`${base}/brands/${id}`).then(dataOf);
 
 export const listItems = (params) => axiosInstance.get(`${base}/items`, { params }).then(dataOf);
 export const getItem = (id) => axiosInstance.get(`${base}/items/${id}`).then(dataOf);
 export const createItem = (payload) => axiosInstance.post(`${base}/items`, payload).then(dataOf);
 export const updateItem = (id, payload) => axiosInstance.put(`${base}/items/${id}`, payload).then(dataOf);
+export const deleteItem = (id) => axiosInstance.delete(`${base}/items/${id}`).then(dataOf);
 
 export function readImageFile(file, { required = false } = {}) {
     if (!file) {

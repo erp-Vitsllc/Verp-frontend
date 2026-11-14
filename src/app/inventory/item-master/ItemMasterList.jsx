@@ -2,11 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Download, Plus, Search } from 'lucide-react';
+import { Download, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { fieldClass } from './CatalogModal';
 import { AddBrandModal, AddCategoryModal, AddSubcategoryModal } from './CatalogForms';
 import { useInventoryAccess } from './itemMasterAccess';
-import { apiMessage, listBrands, listCategories, listItems, listSubcategories } from './itemMasterApi';
+import {
+    apiMessage,
+    deleteBrand,
+    deleteCategory,
+    deleteItem,
+    deleteSubcategory,
+    listBrands,
+    listCategories,
+    listItems,
+    listSubcategories,
+} from './itemMasterApi';
 
 const PAGE_SIZE = 6;
 const STATUSES = ['Stock In', 'Low Stock', 'Out of Stock'];
@@ -111,6 +121,9 @@ export default function ItemMasterList() {
     const [catalogError, setCatalogError] = useState('');
     const [loading, setLoading] = useState(true);
     const [catalogLoading, setCatalogLoading] = useState(true);
+    const [reloadToken, setReloadToken] = useState(0);
+    const [deletingId, setDeletingId] = useState('');
+    const [draft, setDraft] = useState(null);
 
     const loadCatalog = useCallback((quiet = false) => {
         const requestId = catalogRequest.current + 1;
@@ -186,7 +199,7 @@ export default function ItemMasterList() {
         return () => {
             cancelled = true;
         };
-    }, [access.ready, access.canViewItems, page, search, categoryId, subcategoryId, brandId, status]);
+    }, [access.ready, access.canViewItems, page, search, categoryId, subcategoryId, brandId, status, reloadToken]);
 
     const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
@@ -285,8 +298,79 @@ export default function ItemMasterList() {
     };
 
     const closeModal = () => {
-        setModal(returnToSubcategory ? 'subcategory' : '');
+        const backToSubcategory = returnToSubcategory;
+        setModal(backToSubcategory ? 'subcategory' : '');
         setReturnToSubcategory(false);
+        if (!backToSubcategory) setDraft(null);
+    };
+
+    const dismissModal = () => {
+        setModal('');
+        setDraft(null);
+        setReturnToSubcategory(false);
+    };
+
+    const openCreate = (kind) => {
+        setDraft(null);
+        setModal(kind);
+    };
+
+    const openEdit = (kind, row) => {
+        setDraft(row);
+        setModal(kind);
+    };
+
+    const finishCatalogSave = (kind, saved) => {
+        if (draft?._id) {
+            setDraft(null);
+            setModal('');
+            setReturnToSubcategory(false);
+            loadCatalog(true);
+            return;
+        }
+        if (kind === 'category') setCategories((current) => upsertSorted(current, saved));
+        else if (kind === 'subcategory') setSubcategories((current) => upsertSorted(current, saved));
+        else setBrands((current) => upsertSorted(current, saved));
+        if (kind === 'category') closeModal();
+        else setModal('');
+        loadCatalog(true);
+    };
+
+    const removeItem = async (row) => {
+        const label = [row.itemCode, row.description].filter(Boolean).join(' ');
+        if (!window.confirm(`Delete ${label || 'this item'}?`)) return;
+        setDeletingId(String(row._id));
+        setItemError('');
+        try {
+            await deleteItem(row._id);
+            if (rows.length === 1 && page > 1) setPage((current) => current - 1);
+            setReloadToken((value) => value + 1);
+        } catch (err) {
+            setItemError(apiMessage(err, 'Could not delete this item.'));
+        } finally {
+            setDeletingId('');
+        }
+    };
+
+    const removeCatalog = async (kind, row) => {
+        const label = row.name || 'this row';
+        if (!window.confirm(`Delete ${label}?`)) return;
+        setDeletingId(String(row._id));
+        setCatalogError('');
+        try {
+            if (kind === 'category') await deleteCategory(row._id);
+            else if (kind === 'subcategory') await deleteSubcategory(row._id);
+            else await deleteBrand(row._id);
+            const drop = (current) => current.filter((item) => String(item._id) !== String(row._id));
+            if (kind === 'category') setCategories(drop);
+            else if (kind === 'subcategory') setSubcategories(drop);
+            else setBrands(drop);
+            loadCatalog(true);
+        } catch (err) {
+            setCatalogError(apiMessage(err, 'Could not delete this row.'));
+        } finally {
+            setDeletingId('');
+        }
     };
 
     const exportCsv = async () => {
@@ -325,6 +409,10 @@ export default function ItemMasterList() {
         subcategory: 'Search subcategory...',
         brand: 'Search brand...',
     }[tab];
+    const showItemActions = access.canEditItem || access.canDeleteItem;
+    const itemColumnCount = showItemActions ? 8 : 7;
+    const itemHeadings = ['Item Code', 'Item Name / Description', 'Brand', 'Category', 'Model', 'Available', 'Status'];
+    if (showItemActions) itemHeadings.push('Actions');
 
     return (
         <div className="rounded-2xl border border-[#E6EDF5] bg-white p-5 shadow-sm">
@@ -342,17 +430,17 @@ export default function ItemMasterList() {
                         </button>
                     ) : null}
                     {tab === 'category' && access.canCreateCategory ? (
-                        <button type="button" onClick={() => setModal('category')} className={primaryButtonClass}>
+                        <button type="button" onClick={() => openCreate('category')} className={primaryButtonClass}>
                             <Plus size={15} /> Add Category
                         </button>
                     ) : null}
                     {tab === 'subcategory' && access.canCreateSubcategory ? (
-                        <button type="button" onClick={() => setModal('subcategory')} className={primaryButtonClass}>
+                        <button type="button" onClick={() => openCreate('subcategory')} className={primaryButtonClass}>
                             <Plus size={15} /> Add Sub Category
                         </button>
                     ) : null}
                     {tab === 'brand' && access.canCreateBrand ? (
-                        <button type="button" onClick={() => setModal('brand')} className={primaryButtonClass}>
+                        <button type="button" onClick={() => openCreate('brand')} className={primaryButtonClass}>
                             <Plus size={15} /> Add Brand
                         </button>
                     ) : null}
@@ -433,16 +521,16 @@ export default function ItemMasterList() {
                         <table className="w-full min-w-[860px] text-left">
                             <thead>
                                 <tr className="bg-[#F8FAFC] text-[11px] uppercase tracking-wide text-slate-400">
-                                    {['Item Code', 'Item Name / Description', 'Brand', 'Category', 'Model', 'Available', 'Status'].map((heading) => (
+                                    {itemHeadings.map((heading) => (
                                         <th key={heading} className="px-3 py-3 font-medium">{heading}</th>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody>
                                 {loading ? (
-                                    <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">Loading items...</td></tr>
+                                    <tr><td colSpan={itemColumnCount} className="px-3 py-8 text-center text-sm text-slate-400">Loading items...</td></tr>
                                 ) : rows.length === 0 ? (
-                                    <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">{search || categoryId || subcategoryId || brandId || status ? 'No items match this filter.' : 'No items yet.'}</td></tr>
+                                    <tr><td colSpan={itemColumnCount} className="px-3 py-8 text-center text-sm text-slate-400">{search || categoryId || subcategoryId || brandId || status ? 'No items match this filter.' : 'No items yet.'}</td></tr>
                                 ) : rows.map((row) => (
                                     <tr
                                         key={row._id}
@@ -479,6 +567,17 @@ export default function ItemMasterList() {
                                                 {row.status}
                                             </span>
                                         </td>
+                                        {showItemActions ? (
+                                            <td className="whitespace-nowrap px-3 py-3" onClick={(event) => event.stopPropagation()}>
+                                                <RowActions
+                                                    deleting={deletingId === String(row._id)}
+                                                    editLabel={`Edit ${row.itemCode || 'item'}`}
+                                                    deleteLabel={`Delete ${row.itemCode || 'item'}`}
+                                                    onEdit={access.canEditItem ? () => router.push(`/inventory/item-master/${row._id}/edit`) : null}
+                                                    onDelete={access.canDeleteItem ? () => removeItem(row) : null}
+                                                />
+                                            </td>
+                                        ) : null}
                                     </tr>
                                 ))}
                             </tbody>
@@ -521,6 +620,9 @@ export default function ItemMasterList() {
                         { label: 'Item', key: 'itemCount', count: true },
                     ]}
                     onOpen={(columnKey, row) => openCount('category', columnKey, row)}
+                    onEdit={access.canEditCategory ? (row) => openEdit('category', row) : null}
+                    onDelete={access.canDeleteCategory ? (row) => removeCatalog('category', row) : null}
+                    deletingId={deletingId}
                 />
             ) : null}
 
@@ -538,6 +640,9 @@ export default function ItemMasterList() {
                         { label: 'Item', key: 'itemCount', count: true },
                     ]}
                     onOpen={(columnKey, row) => openCount('subcategory', columnKey, row)}
+                    onEdit={access.canEditSubcategory ? (row) => openEdit('subcategory', row) : null}
+                    onDelete={access.canDeleteSubcategory ? (row) => removeCatalog('subcategory', row) : null}
+                    deletingId={deletingId}
                 />
             ) : null}
 
@@ -555,44 +660,42 @@ export default function ItemMasterList() {
                         { label: 'Item', key: 'itemCount', count: true },
                     ]}
                     onOpen={(columnKey, row) => openCount('brand', columnKey, row)}
+                    onEdit={access.canEditBrand ? (row) => openEdit('brand', row) : null}
+                    onDelete={access.canDeleteBrand ? (row) => removeCatalog('brand', row) : null}
+                    deletingId={deletingId}
                 />
             ) : null}
 
             {modal === 'category' ? (
                 <AddCategoryModal
+                    key={draft?._id || 'new-category'}
+                    record={draft}
                     onClose={closeModal}
-                    onSaved={(saved) => {
-                        setCategories((current) => upsertSorted(current, saved));
-                        closeModal();
-                        loadCatalog(true);
-                    }}
+                    onSaved={(saved) => finishCatalogSave('category', saved)}
                 />
             ) : null}
             {modal === 'subcategory' ? (
                 <AddSubcategoryModal
+                    key={draft?._id || 'new-subcategory'}
+                    record={draft}
                     categories={categories}
                     loadError={catalogError}
                     canCreateCategory={access.canCreateCategory}
-                    onClose={() => setModal('')}
+                    onClose={dismissModal}
                     onCreateCategory={() => {
+                        setDraft(null);
                         setReturnToSubcategory(true);
                         setModal('category');
                     }}
-                    onSaved={(saved) => {
-                        setSubcategories((current) => upsertSorted(current, saved));
-                        setModal('');
-                        loadCatalog(true);
-                    }}
+                    onSaved={(saved) => finishCatalogSave('subcategory', saved)}
                 />
             ) : null}
             {modal === 'brand' ? (
                 <AddBrandModal
-                    onClose={() => setModal('')}
-                    onSaved={(saved) => {
-                        setBrands((current) => upsertSorted(current, saved));
-                        setModal('');
-                        loadCatalog(true);
-                    }}
+                    key={draft?._id || 'new-brand'}
+                    record={draft}
+                    onClose={dismissModal}
+                    onSaved={(saved) => finishCatalogSave('brand', saved)}
                 />
             ) : null}
         </div>
@@ -657,7 +760,37 @@ function ItemLinkCell({ name, label, onOpen }) {
     );
 }
 
-function CatalogTable({ noun, total, rows, loading, empty, columns, onOpen }) {
+function RowActions({ editLabel, deleteLabel, deleting, onEdit, onDelete }) {
+    return (
+        <div className="flex items-center gap-2">
+            {onEdit ? (
+                <button
+                    type="button"
+                    onClick={onEdit}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    aria-label={editLabel}
+                >
+                    <Pencil size={13} /> Edit
+                </button>
+            ) : null}
+            {onDelete ? (
+                <button
+                    type="button"
+                    disabled={deleting}
+                    onClick={onDelete}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    aria-label={deleteLabel}
+                >
+                    <Trash2 size={13} /> {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+            ) : null}
+        </div>
+    );
+}
+
+function CatalogTable({ noun, total, rows, loading, empty, columns, onOpen, onEdit, onDelete, deletingId }) {
+    const showActions = Boolean(onEdit || onDelete);
+    const columnCount = columns.length + (showActions ? 1 : 0);
     return (
         <>
             <div className="overflow-x-auto">
@@ -672,13 +805,14 @@ function CatalogTable({ noun, total, rows, loading, empty, columns, onOpen }) {
                                     {column.label}
                                 </th>
                             ))}
+                            {showActions ? <th className="whitespace-nowrap px-3 py-3 font-medium">Actions</th> : null}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={columns.length} className="px-3 py-8 text-center text-sm text-slate-400">Loading...</td></tr>
+                            <tr><td colSpan={columnCount} className="px-3 py-8 text-center text-sm text-slate-400">Loading...</td></tr>
                         ) : rows.length === 0 ? (
-                            <tr><td colSpan={columns.length} className="px-3 py-8 text-center text-sm text-slate-400">{empty}</td></tr>
+                            <tr><td colSpan={columnCount} className="px-3 py-8 text-center text-sm text-slate-400">{empty}</td></tr>
                         ) : rows.map((row) => (
                             <tr key={row._id} className="border-t border-slate-100 text-sm text-slate-700">
                                 {columns.map((column) => {
@@ -705,6 +839,17 @@ function CatalogTable({ noun, total, rows, loading, empty, columns, onOpen }) {
                                         </td>
                                     );
                                 })}
+                                {showActions ? (
+                                    <td className="whitespace-nowrap px-3 py-3">
+                                        <RowActions
+                                            deleting={String(deletingId) === String(row._id)}
+                                            editLabel={`Edit ${row.name || noun}`}
+                                            deleteLabel={`Delete ${row.name || noun}`}
+                                            onEdit={onEdit ? () => onEdit(row) : null}
+                                            onDelete={onDelete ? () => onDelete(row) : null}
+                                        />
+                                    </td>
+                                ) : null}
                             </tr>
                         ))}
                     </tbody>

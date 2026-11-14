@@ -2,8 +2,10 @@
  * Inventory permission tree for Settings → Groups (create/edit).
  * Keep in sync with VERP_backend/constants/inventoryModulePermissions.js.
  *
- * Create on Category, Sub Category, and Brand controls those Item Master buttons.
- * Create on Item Master controls Add Item.
+ * Create, edit, and delete on Category, Sub Category, and Brand control those row actions.
+ * Create, edit, and delete on Item Master control Add Item and the Items row actions.
+ * Create, edit, and delete on Vendor Management control the vendor list.
+ * Create, edit, and delete on Contact control a vendor's contacts.
  */
 
 export const INVENTORY_MODULE = {
@@ -43,6 +45,14 @@ export const INVENTORY_MODULE = {
             label: 'Vendor Management',
             parent: 'inventory',
             hasDownload: false,
+            children: [
+                {
+                    id: 'inventory_vendor_contact',
+                    label: 'Contact',
+                    parent: 'inventory_vendor',
+                    hasDownload: false,
+                },
+            ],
         },
     ],
 };

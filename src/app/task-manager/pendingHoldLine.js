@@ -1,4 +1,5 @@
-import { employeeListName } from './taskRolePeople.js';
+import { taskWaitingOnRequester } from './taskInbox.js';
+import { employeeListName, requesterEmployeeName } from './taskRolePeople.js';
 
 const WAITING = new Set([
     'Pending',
@@ -119,6 +120,15 @@ export function taskWaitingText(task, steps) {
         || task.status === 'Completed'
         || task.status === 'Cancelled'
         || task.status === 'Rejected';
+    if (!finished && taskWaitingOnRequester(task)) {
+        const name = employeeListName(requesterEmployeeName(task));
+        return {
+            approval: '',
+            name,
+            lines: [],
+            text: name ? `Waiting for ${name}` : 'Waiting for requester',
+        };
+    }
     const source = Array.isArray(steps) ? steps : task.holdSteps;
     const assigneeName = task.completionPending
         ? (task.originalAssigneeName || task.mainAssigneeName || task.assigneeName || '')

@@ -28,6 +28,7 @@ import { useRegisterErpBackHandler } from '@/contexts/ErpBackHandlerContext';
 import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
 import { taskWaitingText } from '@/app/task-manager/pendingHoldLine';
+import { taskWaitingOnRequester } from '@/app/task-manager/taskInbox';
 import { deletedTaskToastDescription, refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
 import { isSystemSuperUser } from '@/utils/permissions';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
@@ -621,6 +622,7 @@ function TaskDetailsPage() {
     const generalClosed = task.taskCategory === 'General Task' && (task.displayStatus === 'Closed' || task.status === 'Completed');
     const taskFinished = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.status === 'Cancelled' || task.status === 'Rejected' || task.closeScheduled || task.completionPending || task.reviewPending;
     const pendingWith = taskWaitingText(task);
+    const waitingForRequester = taskWaitingOnRequester(task);
     const updates = Array.isArray(task.updates) ? task.updates : [];
     const comments = Array.isArray(task.comments) ? task.comments : [];
     const number = task.taskNumber || taskNumber || '';
@@ -855,12 +857,12 @@ function TaskDetailsPage() {
                         <PersonFact label="Requester Name" name={task.requesterName} role={task.requesterRole} photo={task.requesterPhoto} />
                         <PersonFact
                             label="Assignee Name"
-                            name={task.mainAssigneeName || task.assigneeName}
-                            role={task.reassignedAssigneeName ? (task.mainAssigneeRole || 'Assignee') : task.assigneeRole}
-                            photo={task.reassignedAssigneeName ? task.mainAssigneePhoto : (task.mainAssigneePhoto || task.assigneePhoto)}
-                            extraName={task.reassignedAssigneeName}
-                            extraPhoto={task.reassignedAssigneePhoto}
-                            extraRole={task.reassignedAssigneeName ? task.assigneeRole : ''}
+                            name={waitingForRequester ? '' : (task.mainAssigneeName || task.assigneeName)}
+                            role={waitingForRequester ? '' : (task.reassignedAssigneeName ? (task.mainAssigneeRole || 'Assignee') : task.assigneeRole)}
+                            photo={waitingForRequester ? '' : (task.reassignedAssigneeName ? task.mainAssigneePhoto : (task.mainAssigneePhoto || task.assigneePhoto))}
+                            extraName={waitingForRequester ? '' : task.reassignedAssigneeName}
+                            extraPhoto={waitingForRequester ? '' : task.reassignedAssigneePhoto}
+                            extraRole={waitingForRequester ? '' : (task.reassignedAssigneeName ? task.assigneeRole : '')}
                         />
                         <Fact label="Department" value={task.department || '—'} icon={Building2} />
                         <Fact label="Related To" value={task.relatedTo || task.moduleLabel || '—'} icon={Link2} />

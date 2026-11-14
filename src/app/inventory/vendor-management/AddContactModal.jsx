@@ -1,69 +1,57 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { Plus, X } from 'lucide-react';
 import CatalogModal, { fieldClass, labelClass } from '../item-master/CatalogModal';
-import { listBrands, listCategories, listItems } from '../item-master/itemMasterApi';
+import { listBrands, listCategories } from '../item-master/itemMasterApi';
+import { emailProblem, normalizePhone, phoneProblem } from './vendorFieldValidation';
 import { createVendorContact, updateVendorContact, vendorApiMessage } from './vendorManagementApi';
 
-const EMPTY_ENTRY = { email: '', phone: '', itemId: '', categoryId: '', brandId: '' };
+const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), { ssr: false });
 
-function itemLabel(item) {
-    const description = String(item?.description || '');
-    const short = description.length > 48 ? `${description.slice(0, 48)}...` : description;
-    return [item?.itemCode, short].filter(Boolean).join(' — ');
-}
+const EMPTY_PRODUCT = { categoryId: '', brandId: '' };
 
-async function loadItems() {
-    const first = await listItems({ page: 1, limit: 100 });
-    const items = Array.isArray(first?.items) ? [...first.items] : [];
-    const total = Number(first?.total) || items.length;
-    let page = 2;
-    while (items.length < total && page <= 20) {
-        const next = await listItems({ page, limit: 100 });
-        const rows = Array.isArray(next?.items) ? next.items : [];
-        if (!rows.length) break;
-        items.push(...rows);
-        page += 1;
-    }
-    return items;
-}
-
-function entriesFromContact(contact) {
-    if (!contact) return [{ ...EMPTY_ENTRY }];
-    const count = Math.max(contact.emails?.length || 0, contact.phones?.length || 0, contact.lines?.length || 0, 1);
-    return Array.from({ length: count }, (_, index) => ({
-        email: contact.emails?.[index] || '',
-        phone: contact.phones?.[index] || '',
-        itemId: contact.lines?.[index]?.itemId || '',
-        categoryId: contact.lines?.[index]?.categoryId || '',
-        brandId: contact.lines?.[index]?.brandId || '',
-    }));
+function productRows(contact) {
+    const lines = Array.isArray(contact?.lines) ? contact.lines : [];
+    const rows = lines
+        .filter((line) => line?.categoryId || line?.brandId)
+        .map((line) => ({
+            categoryId: line.categoryId || '',
+            brandId: line.brandId || '',
+        }));
+    return rows.length ? rows : [{ ...EMPTY_PRODUCT }];
 }
 
 export default function AddContactModal({ vendorId, contact, onClose, onSaved }) {
     const [name, setName] = useState(contact?.name || '');
     const [designation, setDesignation] = useState(contact?.designation || '');
-    const [isPrimary, setIsPrimary] = useState(Boolean(contact?.isPrimary));
-    const [entries, setEntries] = useState(() => entriesFromContact(contact));
-    const [items, setItems] = useState([]);
+    const [email, setEmail] = useState(contact?.emails?.[0] || '');
+    const [phone, setPhone] = useState(() => normalizePhone(contact?.phones?.[0] || ''));
+    const [products, setProducts] = useState(() => productRows(contact));
     const [categories, setCategories] = useState([]);
     const [brands, setBrands] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    const [showRequired, setShowRequired] = useState(false);
+    const emailError = !email.trim()
+        ? (showRequired ? 'Email is required.' : '')
+        : emailProblem(email);
+    const phoneError = !phone.trim()
+        ? (showRequired ? 'Phone number is required.' : '')
+        : phoneProblem(phone);
 
     useEffect(() => {
         let cancelled = false;
-        Promise.all([loadItems(), listCategories(), listBrands()])
-            .then(([itemRows, categoryRows, brandRows]) => {
+        Promise.all([listCategories(), listBrands()])
+            .then(([categoryRows, brandRows]) => {
                 if (cancelled) return;
-                setItems(itemRows);
                 setCategories(Array.isArray(categoryRows) ? categoryRows : []);
                 setBrands(Array.isArray(brandRows) ? brandRows : []);
             })
             .catch((loadError) => {
-                if (!cancelled) setError(vendorApiMessage(loadError, 'Could not load items.'));
+                if (!cancelled) setError(vendorApiMessage(loadError, 'Could not load categories.'));
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
@@ -73,30 +61,30 @@ export default function AddContactModal({ vendorId, contact, onClose, onSaved })
         };
     }, []);
 
-    function updateEntry(index, patch) {
-        setEntries((current) => current.map((entry, entryIndex) => (
-            entryIndex === index ? { ...entry, ...patch } : entry
+    function updateProduct(index, patch) {
+        setProducts((current) => current.map((row, rowIndex) => (
+            rowIndex === index ? { ...row, ...patch } : row
         )));
-    }
-
-    function chooseItem(index, itemId) {
-        const item = items.find((row) => String(row._id) === itemId);
-        updateEntry(index, {
-            itemId,
-            categoryId: item?.categoryId || '',
-            brandId: item?.brandId || '',
-        });
     }
 
     async function onSubmit(event) {
         event.preventDefault();
-        if (!name.trim()) {
-            setError('Name is required.');
+        const missingEmail = !email.trim() ? 'Email is required.' : emailProblem(email);
+        const missingPhone = !phone.trim() ? 'Phone number is required.' : phoneProblem(phone);
+        if (!name.trim() || missingEmail || missingPhone) {
+            setShowRequired(true);
+            setError(!name.trim() ? 'Name is required.' : (missingEmail || missingPhone));
             return;
         }
+        const entries = products.map((row, index) => ({
+            email: index === 0 ? email.trim() : '',
+            phone: index === 0 ? phone.trim() : '',
+            categoryId: row.categoryId,
+            brandId: row.brandId,
+        }));
         setSaving(true);
         setError('');
-        const payload = { name: name.trim(), designation: designation.trim(), isPrimary, entries };
+        const payload = { name: name.trim(), designation: designation.trim(), entries };
         try {
             if (contact?.id) await updateVendorContact(vendorId, contact.id, payload);
             else await createVendorContact(vendorId, payload);
@@ -123,43 +111,45 @@ export default function AddContactModal({ vendorId, contact, onClose, onSaved })
                         </label>
                     </div>
 
-                    <div className="mt-4 space-y-4">
-                        {entries.map((entry, index) => (
-                            <div key={index} className="rounded-xl border border-[#E6EDF5] p-3">
-                                <div className="mb-3 flex items-center justify-between">
-                                    <p className="text-sm font-medium text-slate-700">Contact details {entries.length > 1 ? index + 1 : ''}</p>
-                                    {entries.length > 1 ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => setEntries((current) => current.filter((_, entryIndex) => entryIndex !== index))}
-                                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                                            aria-label="Remove"
-                                        >
-                                            <X size={14} />
-                                        </button>
-                                    ) : null}
-                                </div>
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <label className="block">
-                                        <span className={labelClass}>Email</span>
-                                        <input className={fieldClass} value={entry.email} onChange={(event) => updateEntry(index, { email: event.target.value })} />
-                                    </label>
-                                    <label className="block">
-                                        <span className={labelClass}>Phone</span>
-                                        <input className={fieldClass} value={entry.phone} onChange={(event) => updateEntry(index, { phone: event.target.value })} />
-                                    </label>
-                                    <label className="block sm:col-span-2">
-                                        <span className={labelClass}>Product handling</span>
-                                        <select className={fieldClass} value={entry.itemId} disabled={loading} onChange={(event) => chooseItem(index, event.target.value)}>
-                                            <option value="">{loading ? 'Loading items...' : 'Select an item'}</option>
-                                            {items.map((item) => (
-                                                <option key={item._id} value={item._id}>{itemLabel(item)}</option>
-                                            ))}
-                                        </select>
-                                    </label>
+                    <div className="mt-4 rounded-xl border border-[#E6EDF5] p-3">
+                        <p className="mb-3 text-sm font-medium text-slate-700">Contact details</p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <label className="block">
+                                <span className={labelClass}>Email <span className="text-red-500">*</span></span>
+                                <input
+                                    className={`${fieldClass} ${emailError ? 'border-red-400' : ''}`}
+                                    type="email"
+                                    inputMode="email"
+                                    autoComplete="email"
+                                    value={email}
+                                    onChange={(event) => setEmail(event.target.value)}
+                                />
+                                {emailError ? <p className="mt-1 text-xs text-red-600">{emailError}</p> : null}
+                            </label>
+                            <div className="min-w-0">
+                                <span className={labelClass}>Phone <span className="text-red-500">*</span></span>
+                                <PhoneInputField
+                                    label=""
+                                    defaultCountry="AE"
+                                    value={phone}
+                                    required={false}
+                                    showValidatedBadge={false}
+                                    placeholder="Phone number"
+                                    onChange={(value) => setPhone(value || '')}
+                                />
+                                {phoneError ? <p className="mt-1 text-xs text-red-600">{phoneError}</p> : null}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="mt-4">
+                        <p className="text-sm font-medium text-slate-700">Product handling</p>
+                        <div className="mt-3 space-y-3">
+                            {products.map((row, index) => (
+                                <div key={index} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
                                     <label className="block">
                                         <span className={labelClass}>Category</span>
-                                        <select className={fieldClass} value={entry.categoryId} disabled={loading} onChange={(event) => updateEntry(index, { categoryId: event.target.value })}>
+                                        <select className={fieldClass} value={row.categoryId} disabled={loading} onChange={(event) => updateProduct(index, { categoryId: event.target.value })}>
                                             <option value="">Select a category</option>
                                             {categories.map((category) => (
                                                 <option key={category._id} value={category._id}>{category.name}</option>
@@ -168,36 +158,35 @@ export default function AddContactModal({ vendorId, contact, onClose, onSaved })
                                     </label>
                                     <label className="block">
                                         <span className={labelClass}>Brand</span>
-                                        <select className={fieldClass} value={entry.brandId} disabled={loading} onChange={(event) => updateEntry(index, { brandId: event.target.value })}>
+                                        <select className={fieldClass} value={row.brandId} disabled={loading} onChange={(event) => updateProduct(index, { brandId: event.target.value })}>
                                             <option value="">Select a brand</option>
                                             {brands.map((brand) => (
                                                 <option key={brand._id} value={brand._id}>{brand.name}</option>
                                             ))}
                                         </select>
                                     </label>
+                                    {products.length > 1 ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setProducts((current) => current.filter((_, rowIndex) => rowIndex !== index))}
+                                            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                            aria-label="Remove product handling"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    ) : <span className="hidden sm:block" />}
                                 </div>
-                            </div>
-                        ))}
+                            ))}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setProducts((current) => [...current, { ...EMPTY_PRODUCT }])}
+                            className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 text-sm font-medium text-slate-700"
+                        >
+                            <Plus size={14} />
+                            Add more
+                        </button>
                     </div>
-
-                    <button
-                        type="button"
-                        onClick={() => setEntries((current) => [...current, { ...EMPTY_ENTRY }])}
-                        className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 text-sm font-medium text-slate-700"
-                    >
-                        <Plus size={14} />
-                        Add more
-                    </button>
-
-                    <label className="mt-4 flex items-center gap-2 text-sm text-slate-700">
-                        <input
-                            type="checkbox"
-                            checked={isPrimary}
-                            onChange={(event) => setIsPrimary(event.target.checked)}
-                            className="h-4 w-4 rounded border-slate-300"
-                        />
-                        Make as primary contact
-                    </label>
                 </div>
                 <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[#E6EDF5] px-5 py-4">
                     <button type="button" onClick={onClose} className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-4 text-sm font-medium text-slate-700">

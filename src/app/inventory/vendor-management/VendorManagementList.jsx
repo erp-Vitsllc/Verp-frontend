@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Download, Plus, Search, Trash2 } from 'lucide-react';
-import { isAdmin } from '@/utils/permissions';
+import { ChevronLeft, ChevronRight, Download, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { navHrefProps } from '@/utils/linkContextMenu';
 import { useInventoryAccess } from '../item-master/itemMasterAccess';
 import AddVendorModal from './AddVendorModal';
 import { deleteVendor, listVendors, vendorApiMessage } from './vendorManagementApi';
 
 const PAGE_SIZE = 6;
-const EMPTY_FILTERS = { vendorTypes: [], brands: [], paymentTerms: [], statuses: [] };
+const EMPTY_FILTERS = { products: [], brands: [], paymentTerms: [] };
 
 const fieldClass = 'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500';
 
@@ -42,6 +42,39 @@ function displayValue(value) {
     return value;
 }
 
+function MoreListCell({ values, open, onToggle, label }) {
+    const items = (values || []).map((value) => String(value || '').trim()).filter(Boolean);
+    if (!items.length) return <td className="whitespace-nowrap px-4 py-3.5">N/A</td>;
+    const preview = items.slice(0, 3).join(', ');
+    if (open) {
+        return (
+            <td className="max-w-xs px-4 py-3.5" onClick={(event) => event.stopPropagation()}>
+                <button type="button" onClick={onToggle} className="whitespace-normal break-words text-left">
+                    {items.join(', ')}
+                </button>
+            </td>
+        );
+    }
+    return (
+        <td className="whitespace-nowrap px-4 py-3.5">
+            {preview}
+            {items.length > 3 ? (
+                <button
+                    type="button"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onToggle();
+                    }}
+                    className="ml-1 text-blue-700 hover:underline"
+                    aria-label={`Show all ${label}`}
+                >
+                    more...
+                </button>
+            ) : null}
+        </td>
+    );
+}
+
 function csvCell(value) {
     const text = String(value ?? '');
     if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
@@ -51,27 +84,23 @@ function csvCell(value) {
 export default function VendorManagementList() {
     const router = useRouter();
     const access = useInventoryAccess();
-    const [adding, setAdding] = useState(false);
+    const [editor, setEditor] = useState(null);
     const [reloadKey, setReloadKey] = useState(0);
     const [query, setQuery] = useState('');
     const [debouncedQuery, setDebouncedQuery] = useState('');
-    const [vendorType, setVendorType] = useState('');
+    const [product, setProduct] = useState('');
     const [brand, setBrand] = useState('');
     const [paymentTerms, setPaymentTerms] = useState('');
-    const [status, setStatus] = useState('');
     const [page, setPage] = useState(1);
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [filters, setFilters] = useState(EMPTY_FILTERS);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [canDelete, setCanDelete] = useState(false);
     const [deletingId, setDeletingId] = useState('');
-    const columnCount = canDelete ? 8 : 7;
-
-    useEffect(() => {
-        setCanDelete(isAdmin());
-    }, []);
+    const [openCells, setOpenCells] = useState(() => new Set());
+    const showActions = access.canEditVendor || access.canDeleteVendor;
+    const columnCount = showActions ? 8 : 7;
 
     useEffect(() => {
         const timer = setTimeout(() => setDebouncedQuery(query.trim()), 300);
@@ -86,20 +115,18 @@ export default function VendorManagementList() {
             page,
             limit: PAGE_SIZE,
             search: debouncedQuery,
-            vendorType,
+            product,
             brand,
             paymentTerms,
-            status,
         })
             .then((data) => {
                 if (cancelled) return;
                 setRows(Array.isArray(data?.vendors) ? data.vendors : []);
                 setTotal(Number(data?.total) || 0);
                 setFilters({
-                    vendorTypes: data?.filters?.vendorTypes || [],
+                    products: data?.filters?.products || [],
                     brands: data?.filters?.brands || [],
                     paymentTerms: data?.filters?.paymentTerms || [],
-                    statuses: data?.filters?.statuses || [],
                 });
             })
             .catch((loadError) => {
@@ -114,15 +141,24 @@ export default function VendorManagementList() {
         return () => {
             cancelled = true;
         };
-    }, [brand, debouncedQuery, page, paymentTerms, reloadKey, status, vendorType]);
+    }, [brand, debouncedQuery, page, paymentTerms, product, reloadKey]);
 
     const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const currentPage = Math.min(page, pageCount);
     const from = total === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
     const to = (currentPage - 1) * PAGE_SIZE + rows.length;
-    const emptyLabel = query || vendorType || brand || paymentTerms || status
+    const emptyLabel = query || product || brand || paymentTerms
         ? 'No vendors match this search.'
         : 'No vendors yet.';
+
+    function toggleCell(key) {
+        setOpenCells((current) => {
+            const next = new Set(current);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    }
 
     function changeFilter(setter) {
         return (value) => {
@@ -155,8 +191,8 @@ export default function VendorManagementList() {
             vendor.name,
             vendor.location,
             vendor.contact,
-            (vendor.brands || []).join(', '),
-            vendor.products == null ? 'N/A' : vendor.products,
+            (vendor.listBrands || []).join(', '),
+            (vendor.listCategories || []).join(', '),
             vendor.status,
         ].map(csvCell).join(','));
         const file = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -176,7 +212,7 @@ export default function VendorManagementList() {
                     {access.ready && !access.canCreateVendor ? null : (
                         <button
                             type="button"
-                            onClick={() => setAdding(true)}
+                            onClick={() => setEditor({ vendor: null })}
                             className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700"
                         >
                             <Plus className="h-4 w-4" />
@@ -195,8 +231,8 @@ export default function VendorManagementList() {
                 </div>
             </div>
 
-            <div className="mt-5 flex items-end gap-3 overflow-x-auto">
-                <label className="relative w-52 shrink-0">
+            <div className="mt-5 grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <label className="relative block min-w-0">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <input
                         value={query}
@@ -204,16 +240,13 @@ export default function VendorManagementList() {
                             setQuery(event.target.value);
                             setPage(1);
                         }}
-                        placeholder="Search vendor, product, brand, contact person, email..."
+                        placeholder="Search vendor, product, brand..."
                         className={`${fieldClass} pl-9`}
                     />
                 </label>
-                <div className="grid min-w-0 flex-1 grid-cols-4 gap-3">
-                    <FilterSelect label="Vendor Type" value={vendorType} options={filters.vendorTypes} onChange={changeFilter(setVendorType)} />
-                    <FilterSelect label="Brand" value={brand} options={filters.brands} onChange={changeFilter(setBrand)} />
-                    <FilterSelect label="Payment Terms" value={paymentTerms} options={filters.paymentTerms} onChange={changeFilter(setPaymentTerms)} />
-                    <FilterSelect label="Status" value={status} options={filters.statuses} onChange={changeFilter(setStatus)} />
-                </div>
+                <FilterSelect label="Products" value={product} options={filters.products} onChange={changeFilter(setProduct)} />
+                <FilterSelect label="Brand" value={brand} options={filters.brands} onChange={changeFilter(setBrand)} />
+                <FilterSelect label="Payment Terms" value={paymentTerms} options={filters.paymentTerms} onChange={changeFilter(setPaymentTerms)} />
             </div>
 
             {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
@@ -230,7 +263,7 @@ export default function VendorManagementList() {
                                 'Brands',
                                 'Products',
                                 'Status',
-                                ...(canDelete ? ['Action'] : []),
+                                ...(showActions ? ['Action'] : []),
                             ].map((heading) => (
                                 <th key={heading} className="whitespace-nowrap px-4 py-3 font-medium">{heading}</th>
                             ))}
@@ -250,30 +283,56 @@ export default function VendorManagementList() {
                                 key={vendor.id || vendor.code}
                                 onClick={() => vendor.id && router.push(`/inventory/vendor-management/${vendor.id}`)}
                                 className="cursor-pointer border-b border-slate-100 text-slate-700 hover:bg-slate-50"
+                                {...(vendor.id ? navHrefProps(`/inventory/vendor-management/${vendor.id}`) : {})}
                             >
                                 <td className="whitespace-nowrap px-4 py-3.5">{vendor.code}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{vendor.name}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5">{displayValue(vendor.location)}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5">{displayValue(vendor.contact)}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5">{vendor.brands?.length ? vendor.brands.join(', ') : 'N/A'}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5">{vendor.products == null ? 'N/A' : vendor.products}</td>
+                                <MoreListCell
+                                    values={vendor.listBrands}
+                                    open={openCells.has(`${vendor.id}:brands`)}
+                                    onToggle={() => toggleCell(`${vendor.id}:brands`)}
+                                    label="brands"
+                                />
+                                <MoreListCell
+                                    values={vendor.listCategories}
+                                    open={openCells.has(`${vendor.id}:products`)}
+                                    onToggle={() => toggleCell(`${vendor.id}:products`)}
+                                    label="products"
+                                />
                                 <td className="whitespace-nowrap px-4 py-3.5">
                                     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(vendor.status)}`}>
                                         <span className={`h-1.5 w-1.5 rounded-full ${statusDot(vendor.status)}`} />
                                         {vendor.status}
                                     </span>
                                 </td>
-                                {canDelete ? (
-                                    <td className="whitespace-nowrap px-4 py-3.5">
-                                        <button
-                                            type="button"
-                                            disabled={deletingId === vendor.id}
-                                            onClick={(event) => removeVendor(event, vendor)}
-                                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-3 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                                        >
-                                            <Trash2 size={13} />
-                                            {deletingId === vendor.id ? 'Deleting...' : 'Delete'}
-                                        </button>
+                                {showActions ? (
+                                    <td className="whitespace-nowrap px-4 py-3.5" onClick={(event) => event.stopPropagation()}>
+                                        <div className="flex items-center gap-2">
+                                            {access.canEditVendor ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setEditor({ vendor })}
+                                                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                                    aria-label={`Edit ${vendor.name || 'vendor'}`}
+                                                >
+                                                    <Pencil size={13} /> Edit
+                                                </button>
+                                            ) : null}
+                                            {access.canDeleteVendor ? (
+                                                <button
+                                                    type="button"
+                                                    disabled={deletingId === vendor.id}
+                                                    onClick={(event) => removeVendor(event, vendor)}
+                                                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                                    aria-label={`Delete ${vendor.name || 'vendor'}`}
+                                                >
+                                                    <Trash2 size={13} />
+                                                    {deletingId === vendor.id ? 'Deleting...' : 'Delete'}
+                                                </button>
+                                            ) : null}
+                                        </div>
                                     </td>
                                 ) : null}
                             </tr>
@@ -306,12 +365,14 @@ export default function VendorManagementList() {
                     </button>
                 </div>
             </div>
-            {adding ? (
+            {editor ? (
                 <AddVendorModal
-                    onClose={() => setAdding(false)}
+                    vendor={editor.vendor}
+                    onClose={() => setEditor(null)}
                     onSaved={() => {
-                        setAdding(false);
-                        setPage(1);
+                        const created = !editor.vendor;
+                        setEditor(null);
+                        if (created) setPage(1);
                         setReloadKey((value) => value + 1);
                     }}
                 />

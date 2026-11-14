@@ -89,6 +89,22 @@ describe('pending hold line', () => {
         assert.equal(taskWaitingText({ ...task, displayStatus: 'Completed' }), null);
     });
 
+    it('names the requester when the assignee is gone or the requester still has to approve', () => {
+        assert.equal(taskWaitingText({
+            displayStatus: 'Pending',
+            assigneeName: '',
+            mainAssigneeName: '—',
+            requesterName: 'Raj Angadembe',
+        }).text, 'Waiting for Raj A');
+        assert.equal(taskWaitingText({
+            displayStatus: 'Pending Review',
+            reviewPending: true,
+            assigneeName: 'Raseel Muhammad',
+            requesterBaseName: 'Farsana Ashraf',
+            holdSteps: [{ key: 'assigned', status: 'In Progress', personName: 'Raseel Muhammad' }],
+        }).text, 'Waiting for Farsana A');
+    });
+
     it('stays hidden once the task is finished', () => {
         const steps = [{ key: 'reassigned', status: 'In Progress', personName: 'Raseel Muhammad', personId: 'a1' }];
         assert.equal(pendingHold({ status: 'Completed', steps }), null);

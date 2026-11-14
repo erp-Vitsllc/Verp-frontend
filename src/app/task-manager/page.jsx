@@ -29,6 +29,7 @@ import { useToast } from '@/hooks/use-toast';
 import { formatCommandCenterNotificationMessage } from '@/utils/dashboardCommandCenterInbox';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
 import { taskWaitingText } from '@/app/task-manager/pendingHoldLine';
+import { openTaskTabs, taskHasReassignee, taskWaitingOnRequester } from '@/app/task-manager/taskInbox';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
 import { basePersonName, employeeListName, listedTaskNameLines, personKey, requesterEmployeeName, taskRolePeople } from '@/app/task-manager/taskRolePeople';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
@@ -215,6 +216,9 @@ function taskDetailsHref(task, tab) {
 }
 
 function taskIsMine(task, viewer) {
+    if (taskWaitingOnRequester(task)) return false;
+    // The stored mine flag is true for both people on a reassigned task. Only the reassignee still has the work.
+    if (taskHasReassignee(task)) return viewerIsReassignedHolder(task, viewer);
     if (typeof task?.mine === 'boolean') return task.mine;
     return isMyTask(task, viewer);
 }
@@ -290,11 +294,23 @@ function assignedToViewer(task, viewer) {
 }
 
 function viewerIsReassignedHolder(task, viewer) {
-    if (!viewer || !task || !String(task.reassignedAssigneeName || '').trim()) return false;
+    if (!viewer || !task || !taskHasReassignee(task)) return false;
     const { ids, names } = viewerIdentity(viewer);
     const reassignedId = String(task.reassignedAssigneeId || '');
     if (reassignedId && ids.includes(reassignedId)) return true;
     return viewerNameHits(names, task.reassignedAssigneeName);
+}
+
+/** The person who still owns a task after handing the work to a reassignee. */
+function viewerIsOriginalAssignee(task, viewer) {
+    if (!viewer || !task) return false;
+    const { ids, codes, names } = viewerIdentity(viewer);
+    const originalId = String(task.originalAssigneeId || '');
+    if (originalId && ids.includes(originalId)) return true;
+    const originalCode = String(task.originalAssigneeEmpId || '').trim().toLowerCase();
+    if (originalCode && codes.includes(originalCode)) return true;
+    if (viewerNameHits(names, task.originalAssigneeName)) return true;
+    return taskHasReassignee(task) && viewerNameHits(names, task.mainAssigneeName);
 }
 
 /** When this signed-in person received the task: reassignment, review return, or the original assign date. */
@@ -340,23 +356,23 @@ function taskIsCompleted(task) {
     return shown === 'Completed' || shown === 'Closed';
 }
 
-/** Requester's approval queue after the assignee has completed the task. */
-function taskAwaitingRequesterReview(task, viewer) {
-    if (!requestedByViewer(task, viewer)) return false;
-    if (task?.reviewPending) return true;
-    return listStatus(task) === 'Pending Review';
+function tabRole(task, viewer) {
+    return {
+        requester: requestedByViewer(task, viewer),
+        reassignedHolder: viewerIsReassignedHolder(task, viewer),
+        originalAssignee: viewerIsOriginalAssignee(task, viewer),
+        assignee: assignedToViewer(task, viewer),
+    };
 }
 
 function taskInBoard(task, board, viewer) {
     if (board === 'all') return true;
-    if (board === 'mine') {
-        if (task?.reviewPending || listStatus(task) === 'Pending Review') return false;
-        return assignedToViewer(task, viewer) && isOpenPending(listStatus(task));
-    }
-    // Card totals match the Open list: pending only. Closed, completed, and rejected stay out.
-    if (board === 'requests') return requestedByViewer(task, viewer) && taskIsOpenState(task);
-    if (board === 'review') return taskAwaitingRequesterReview(task, viewer);
     if (board === 'completed') return assignedToViewer(task, viewer) && taskIsCompleted(task);
+    const tabs = openTaskTabs(task, tabRole(task, viewer));
+    if (board === 'mine') return tabs.mine && isOpenPending(listStatus(task));
+    // Card totals match the Open list: pending only. Closed, completed, and rejected stay out.
+    if (board === 'requests') return tabs.requests && taskIsOpenState(task);
+    if (board === 'review') return tabs.review;
     return false;
 }
 
@@ -370,14 +386,14 @@ function taskOnBoard(task, board, viewer, stateFilter) {
         return true;
     }
     if (board === 'requests') {
-        if (!requestedByViewer(task, viewer)) return false;
-        return closed ? taskIsClosedState(task) : taskIsOpenState(task);
+        if (taskWaitingOnRequester(task)) return false;
+        if (closed) return requestedByViewer(task, viewer) && taskIsClosedState(task);
+        return openTaskTabs(task, tabRole(task, viewer)).requests && taskIsOpenState(task);
     }
     if (board === 'mine') {
-        if (!assignedToViewer(task, viewer)) return false;
-        if (closed) return taskIsClosedState(task);
-        if (task?.reviewPending || listStatus(task) === 'Pending Review') return false;
-        return taskIsOpenState(task);
+        if (taskWaitingOnRequester(task)) return false;
+        if (closed) return assignedToViewer(task, viewer) && taskIsClosedState(task);
+        return openTaskTabs(task, tabRole(task, viewer)).mine && taskIsOpenState(task);
     }
     if (board === 'completed') return taskInBoard(task, 'completed', viewer);
     return false;
@@ -634,6 +650,13 @@ function StatusCell({ task }) {
 }
 
 function AssigneeCell({ task }) {
+    if (taskWaitingOnRequester(task)) {
+        return (
+            <div className="min-w-[190px]">
+                <PersonCell name="" />
+            </div>
+        );
+    }
     const reassignedName = String(task.reassignedAssigneeName || '').trim();
     const mainName = task.mainAssigneeName || task.assigneeName;
     const mainPhoto = reassignedName ? task.mainAssigneePhoto : (task.mainAssigneePhoto || task.assigneePhoto);
@@ -1130,7 +1153,7 @@ function TaskManagerContent() {
 
     useEffect(() => {
         if (loading) return;
-        const count = tasks.filter((task) => taskIsMine(task, viewer) && isOpenPending(listStatus(task))).length;
+        const count = tasks.filter((task) => taskInBoard(task, 'mine', viewer)).length;
         window.dispatchEvent(new CustomEvent('task-manager-assignee-count', { detail: { count } }));
     }, [tasks, viewer, loading]);
 

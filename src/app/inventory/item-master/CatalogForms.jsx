@@ -3,7 +3,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { ImagePlus } from 'lucide-react';
 import CatalogModal, { fieldClass, labelClass } from './CatalogModal';
-import { apiMessage, createBrand, createCategory, createSubcategory, readImageFile } from './itemMasterApi';
+import {
+    apiMessage,
+    createBrand,
+    createCategory,
+    createSubcategory,
+    readImageFile,
+    updateBrand,
+    updateCategory,
+    updateSubcategory,
+} from './itemMasterApi';
 
 const MAX_PHOTO_BYTES = 1_500_000;
 
@@ -12,7 +21,7 @@ function FormError({ message }) {
     return <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{message}</p>;
 }
 
-function ModalForm({ onSubmit, onClose, saving, disabled, children }) {
+function ModalForm({ onSubmit, onClose, saving, disabled, submitLabel = 'Create', children }) {
     return (
         <form onSubmit={onSubmit} className="flex min-h-0 flex-col">
             <div className="max-h-[min(32rem,calc(100vh-11rem))] overflow-y-auto px-5 py-4">{children}</div>
@@ -21,14 +30,14 @@ function ModalForm({ onSubmit, onClose, saving, disabled, children }) {
                     Cancel
                 </button>
                 <button type="submit" disabled={saving || disabled} className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-60">
-                    {saving ? 'Saving...' : 'Create'}
+                    {saving ? 'Saving...' : submitLabel}
                 </button>
             </div>
         </form>
     );
 }
 
-function PhotoUpload({ id, file, onFile }) {
+function PhotoUpload({ id, file, onFile, note = '', currentName = '' }) {
     const inputRef = useRef(null);
     const [preview, setPreview] = useState('');
     const [message, setMessage] = useState('');
@@ -115,6 +124,8 @@ function PhotoUpload({ id, file, onFile }) {
                     </button>
                 ) : null}
             </div>
+            {currentName && !file ? <p className="mt-1 text-xs text-slate-500">Current photo: {currentName}</p> : null}
+            {note ? <p className="mt-1 text-xs text-slate-500">{note}</p> : null}
             {message ? <p className="mt-1 text-xs text-red-600">{message}</p> : null}
             <input
                 ref={inputRef}
@@ -128,8 +139,9 @@ function PhotoUpload({ id, file, onFile }) {
     );
 }
 
-export function AddCategoryModal({ onClose, onSaved }) {
-    const [name, setName] = useState('');
+export function AddCategoryModal({ onClose, onSaved, record = null }) {
+    const editing = Boolean(record?._id);
+    const [name, setName] = useState(record?.name || '');
     const [file, setFile] = useState(null);
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
@@ -145,7 +157,8 @@ export function AddCategoryModal({ onClose, onSaved }) {
         setError('');
         try {
             const image = await readImageFile(file, { required: false });
-            const saved = await createCategory(image ? { name: trimmed, image } : { name: trimmed });
+            const payload = image ? { name: trimmed, image } : { name: trimmed };
+            const saved = editing ? await updateCategory(record._id, payload) : await createCategory(payload);
             onSaved(saved);
         } catch (err) {
             setError(apiMessage(err, 'Could not save the category.'));
@@ -155,8 +168,8 @@ export function AddCategoryModal({ onClose, onSaved }) {
     };
 
     return (
-        <CatalogModal title="Add Category" onClose={onClose}>
-            <ModalForm onSubmit={submit} onClose={onClose} saving={saving}>
+        <CatalogModal title={editing ? 'Edit Category' : 'Add Category'} onClose={onClose}>
+            <ModalForm onSubmit={submit} onClose={onClose} saving={saving} submitLabel={editing ? 'Save' : 'Create'}>
                 <FormError message={error} />
                 <label className={labelClass} htmlFor="category-name">
                     Category name <span className="text-red-500">*</span>
@@ -170,17 +183,24 @@ export function AddCategoryModal({ onClose, onSaved }) {
                     autoComplete="off"
                     onChange={(event) => setName(event.target.value)}
                 />
-                <PhotoUpload id="category-photo" file={file} onFile={setFile} />
+                <PhotoUpload
+                    id="category-photo"
+                    file={file}
+                    onFile={setFile}
+                    currentName={record?.imageName || ''}
+                    note={editing ? 'Choose a new photo only if you want to replace the current one.' : ''}
+                />
             </ModalForm>
         </CatalogModal>
     );
 }
 
-export function AddSubcategoryModal({ categories = [], loadError = '', canCreateCategory = false, onClose, onSaved, onCreateCategory }) {
-    const [categoryId, setCategoryId] = useState('');
-    const [name, setName] = useState('');
-    const [reservationMode, setReservationMode] = useState('not_applicable');
-    const [reservationCount, setReservationCount] = useState('');
+export function AddSubcategoryModal({ categories = [], loadError = '', canCreateCategory = false, onClose, onSaved, onCreateCategory, record = null }) {
+    const editing = Boolean(record?._id);
+    const [categoryId, setCategoryId] = useState(record?.categoryId || '');
+    const [name, setName] = useState(record?.name || '');
+    const [reservationMode, setReservationMode] = useState(record?.reservationQuantity == null ? 'not_applicable' : 'count');
+    const [reservationCount, setReservationCount] = useState(record?.reservationQuantity == null ? '' : String(record.reservationQuantity));
     const [file, setFile] = useState(null);
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
@@ -216,7 +236,7 @@ export function AddSubcategoryModal({ categories = [], loadError = '', canCreate
             const image = await readImageFile(file, { required: false });
             const payload = { name: trimmed, categoryId, reservationQuantity };
             if (image) payload.image = image;
-            const saved = await createSubcategory(payload);
+            const saved = editing ? await updateSubcategory(record._id, payload) : await createSubcategory(payload);
             onSaved(saved);
         } catch (err) {
             setError(apiMessage(err, 'Could not save the subcategory.'));
@@ -226,8 +246,8 @@ export function AddSubcategoryModal({ categories = [], loadError = '', canCreate
     };
 
     return (
-        <CatalogModal title="Add Sub Category" onClose={onClose}>
-            <ModalForm onSubmit={submit} onClose={onClose} saving={saving} disabled={!hasCategories}>
+        <CatalogModal title={editing ? 'Edit Sub Category' : 'Add Sub Category'} onClose={onClose}>
+            <ModalForm onSubmit={submit} onClose={onClose} saving={saving} disabled={!hasCategories} submitLabel={editing ? 'Save' : 'Create'}>
                 <FormError message={error} />
                 <span className={labelClass}>
                     Category <span className="text-red-500">*</span>
@@ -311,14 +331,22 @@ export function AddSubcategoryModal({ categories = [], loadError = '', canCreate
                         />
                     </>
                 ) : null}
-                <PhotoUpload id="subcategory-photo" file={file} onFile={setFile} />
+                <PhotoUpload
+                    id="subcategory-photo"
+                    file={file}
+                    onFile={setFile}
+                    currentName={record?.imageName || ''}
+                    note={editing ? 'Choose a new photo only if you want to replace the current one.' : ''}
+                />
             </ModalForm>
         </CatalogModal>
     );
 }
 
-export function AddBrandModal({ onClose, onSaved }) {
-    const [name, setName] = useState('');
+export function AddBrandModal({ onClose, onSaved, record = null }) {
+    const editing = Boolean(record?._id);
+    const [name, setName] = useState(record?.name || '');
+    const [file, setFile] = useState(null);
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
 
@@ -332,7 +360,9 @@ export function AddBrandModal({ onClose, onSaved }) {
         setSaving(true);
         setError('');
         try {
-            const saved = await createBrand({ name: trimmed });
+            const image = await readImageFile(file, { required: false });
+            const payload = image ? { name: trimmed, image } : { name: trimmed };
+            const saved = editing ? await updateBrand(record._id, payload) : await createBrand(payload);
             onSaved(saved);
         } catch (err) {
             setError(apiMessage(err, 'Could not save the brand.'));
@@ -342,8 +372,8 @@ export function AddBrandModal({ onClose, onSaved }) {
     };
 
     return (
-        <CatalogModal title="Add Brand" onClose={onClose}>
-            <ModalForm onSubmit={submit} onClose={onClose} saving={saving}>
+        <CatalogModal title={editing ? 'Edit Brand' : 'Add Brand'} onClose={onClose}>
+            <ModalForm onSubmit={submit} onClose={onClose} saving={saving} submitLabel={editing ? 'Save' : 'Create'}>
                 <FormError message={error} />
                 <label className={labelClass} htmlFor="brand-name">
                     Brand name <span className="text-red-500">*</span>
@@ -356,6 +386,13 @@ export function AddBrandModal({ onClose, onSaved }) {
                     autoFocus
                     autoComplete="off"
                     onChange={(event) => setName(event.target.value)}
+                />
+                <PhotoUpload
+                    id="brand-photo"
+                    file={file}
+                    onFile={setFile}
+                    currentName={record?.imageName || ''}
+                    note={editing ? 'Choose a new photo only if you want to replace the current one.' : ''}
                 />
             </ModalForm>
         </CatalogModal>

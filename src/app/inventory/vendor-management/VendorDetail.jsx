@@ -2,15 +2,32 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Building2, Pencil, Plus, Printer } from 'lucide-react';
+import { ArrowLeft, Building2, Pencil, Plus, Printer, RefreshCw, Star, Trash2 } from 'lucide-react';
 import { useInventoryAccess } from '../item-master/itemMasterAccess';
 import AddContactModal from './AddContactModal';
+import VendorBills from './VendorBills';
+import { deleteVendorContact, markVendorContactPrimary, syncVendorFromZoho, vendorApiMessage } from './vendorManagementApi';
 
-const TABS = ['Overview', 'Contacts', 'Products and Brand', 'Brands', 'Pricing', 'RFQs', 'POs', 'Documents'];
+const TABS = ['Overview', 'Contacts', 'Products', 'Brands', 'Bills', 'Pricing', 'RFQs', 'POs', 'Documents'];
 
 function shown(value) {
     const text = String(value || '').trim();
     return text || 'N/A';
+}
+
+function money(amount, currency) {
+    if (amount == null || amount === '' || Number.isNaN(Number(amount))) return 'N/A';
+    const code = String(currency || 'AED').trim() || 'AED';
+    try {
+        return new Intl.NumberFormat('en-AE', {
+            style: 'currency',
+            currency: code,
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        }).format(Number(amount));
+    } catch {
+        return `${code} ${Number(amount).toFixed(2)}`;
+    }
 }
 
 function websiteHref(value) {
@@ -50,6 +67,26 @@ function contactCategories(contacts) {
     return [...categories.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function contactBrands(contacts) {
+    const brands = new Map();
+    contacts.forEach((contact) => {
+        (contact.lines || []).forEach((line) => {
+            const name = String(line.brandName || '').trim();
+            const id = String(line.brandId || '').trim();
+            if (!name && !id) return;
+            const key = id || name.toLowerCase();
+            const current = brands.get(key);
+            const image = String(line.brandImage || '').trim();
+            if (!current) {
+                brands.set(key, { id: key, name: name || 'Brand', image });
+                return;
+            }
+            if (!current.image && image) current.image = image;
+        });
+    });
+    return [...brands.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
 function contactHasCategory(contact, categoryId) {
     return (contact.lines || []).some((line) => {
         const id = String(line.categoryId || '').trim();
@@ -58,22 +95,87 @@ function contactHasCategory(contact, categoryId) {
     });
 }
 
+function contactHasBrand(contact, brandId) {
+    return (contact.lines || []).some((line) => {
+        const id = String(line.brandId || '').trim();
+        const name = String(line.brandName || '').trim().toLowerCase();
+        return id === brandId || name === brandId;
+    });
+}
+
 export default function VendorDetail({ vendor, onReload }) {
     const router = useRouter();
     const access = useInventoryAccess();
     const [tab, setTab] = useState('Contacts');
     const [categoryFilter, setCategoryFilter] = useState('');
+    const [brandFilter, setBrandFilter] = useState('');
     const [contactModal, setContactModal] = useState(null);
+    const [busyId, setBusyId] = useState('');
+    const [actionError, setActionError] = useState('');
+    const [syncing, setSyncing] = useState(false);
+    const [syncError, setSyncError] = useState('');
+    const [billsReload, setBillsReload] = useState(0);
+    const canEditContact = access.canEditContact;
+    const canDeleteContact = access.canDeleteContact;
     const contacts = Array.isArray(vendor.contacts) ? vendor.contacts : [];
     const categories = contactCategories(contacts);
+    const brands = contactBrands(contacts);
     const activeCategory = categories.find((category) => category.id === categoryFilter);
-    const visibleContacts = activeCategory
-        ? contacts.filter((contact) => contactHasCategory(contact, categoryFilter))
-        : contacts;
+    const activeBrand = brands.find((brand) => brand.id === brandFilter);
+    const visibleContacts = contacts.filter((contact) => (
+        (!activeCategory || contactHasCategory(contact, categoryFilter))
+        && (!activeBrand || contactHasBrand(contact, brandFilter))
+    ));
     const site = websiteHref(vendor.website);
 
+    async function removeContact(contact) {
+        const label = contact.name || 'this contact';
+        if (!window.confirm(`Delete ${label}?`)) return;
+        setBusyId(String(contact.id));
+        setActionError('');
+        try {
+            await deleteVendorContact(vendor.id, contact.id);
+            onReload();
+        } catch (err) {
+            setActionError(vendorApiMessage(err, 'Could not delete this contact.'));
+        } finally {
+            setBusyId('');
+        }
+    }
+
+    async function makePrimary(contact) {
+        if (contact.isPrimary) return;
+        setBusyId(String(contact.id));
+        setActionError('');
+        try {
+            await markVendorContactPrimary(vendor.id, contact.id);
+            onReload();
+        } catch (err) {
+            setActionError(vendorApiMessage(err, 'Could not mark this contact as primary.'));
+        } finally {
+            setBusyId('');
+        }
+    }
+
+    async function syncFromZoho() {
+        setSyncing(true);
+        setSyncError('');
+        try {
+            await syncVendorFromZoho(vendor.id);
+            setBillsReload((value) => value + 1);
+            onReload();
+        } catch (err) {
+            setSyncError(vendorApiMessage(err, 'Could not sync this vendor from Zoho.'));
+        } finally {
+            setSyncing(false);
+        }
+    }
+
     function openTab(next) {
-        if (next !== 'Contacts') setCategoryFilter('');
+        if (next !== 'Contacts') {
+            setCategoryFilter('');
+            setBrandFilter('');
+        }
         setTab(next);
     }
 
@@ -102,8 +204,9 @@ export default function VendorDetail({ vendor, onReload }) {
             </div>
 
             <section className="rounded-2xl border border-[#E6EDF5] bg-white p-4 sm:p-5">
-                <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.8fr)]">
-                    <div className="flex gap-4">
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(180px,0.7fr)_auto] lg:items-start">
+                    <div className="flex flex-wrap items-start justify-between gap-6">
+                        <div className="flex min-w-0 gap-4">
                         <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-[#E6EDF5] text-blue-600">
                             <Building2 size={28} />
                         </div>
@@ -124,6 +227,11 @@ export default function VendorDetail({ vendor, onReload }) {
                                 <div><span className="text-slate-500">Email: </span><span className="font-semibold text-slate-800">{shown(vendor.email)}</span></div>
                             </dl>
                         </div>
+                        </div>
+                        <div className="min-w-[11rem] shrink-0">
+                            <p className="text-sm text-slate-500">Outstanding Payment</p>
+                            <p className="mt-1 text-lg font-bold text-slate-900">{money(vendor.outstandingPayment, vendor.currencyCode)}</p>
+                        </div>
                     </div>
                     <dl className="space-y-4 border-[#E6EDF5] text-sm lg:border-l lg:pl-6">
                         <div>
@@ -141,6 +249,18 @@ export default function VendorDetail({ vendor, onReload }) {
                             </dd>
                         </div>
                     </dl>
+                    <div className="flex flex-col items-start gap-2 lg:items-end">
+                        <button
+                            type="button"
+                            disabled={syncing}
+                            onClick={syncFromZoho}
+                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                        >
+                            <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+                            {syncing ? 'Syncing...' : 'Sync from Zoho'}
+                        </button>
+                        {syncError ? <p className="max-w-xs text-right text-xs text-red-600">{syncError}</p> : null}
+                    </div>
                 </div>
             </section>
 
@@ -165,16 +285,23 @@ export default function VendorDetail({ vendor, onReload }) {
                         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                             <div>
                                 <h2 className="text-lg font-bold text-slate-900">Vendor Contacts</h2>
-                                {activeCategory ? (
+                                {activeCategory || activeBrand ? (
                                     <p className="mt-1 text-sm text-slate-500">
-                                        Showing contacts for {activeCategory.name}.{' '}
-                                        <button type="button" onClick={() => setCategoryFilter('')} className="font-medium text-blue-600 hover:underline">
+                                        Showing contacts for {[activeCategory?.name, activeBrand?.name].filter(Boolean).join(' · ')}. {' '}
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setCategoryFilter('');
+                                                setBrandFilter('');
+                                            }}
+                                            className="font-medium text-blue-600 hover:underline"
+                                        >
                                             Show all
                                         </button>
                                     </p>
                                 ) : null}
                             </div>
-                            {access.ready && !access.canCreateVendor ? null : (
+                            {access.ready && !access.canCreateContact ? null : (
                                 <button
                                     type="button"
                                     onClick={() => setContactModal({ mode: 'add' })}
@@ -185,6 +312,7 @@ export default function VendorDetail({ vendor, onReload }) {
                                 </button>
                             )}
                         </div>
+                        {actionError ? <p className="mb-3 text-sm text-red-600">{actionError}</p> : null}
                         <div className="overflow-x-auto">
                             <table className="min-w-full text-left text-sm">
                                 <thead>
@@ -198,7 +326,7 @@ export default function VendorDetail({ vendor, onReload }) {
                                     {visibleContacts.length === 0 ? (
                                         <tr>
                                             <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
-                                                {activeCategory ? 'No contacts for this category.' : 'No contacts yet.'}
+                                                {activeCategory || activeBrand ? 'No contacts for this selection.' : 'No contacts yet.'}
                                             </td>
                                         </tr>
                                     ) : visibleContacts.map((contact) => (
@@ -212,16 +340,41 @@ export default function VendorDetail({ vendor, onReload }) {
                                             <td className="whitespace-nowrap px-4 py-3.5"><Lines values={contact.phones} /></td>
                                             <td className="px-4 py-3.5">{contact.brands?.length ? contact.brands.join(', ') : 'N/A'}</td>
                                             <td className="px-4 py-3.5">
-                                                {contact.source === 'zoho' || (access.ready && !access.canEditVendor) ? null : (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setContactModal({ mode: 'edit', contact })}
-                                                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 text-sm font-medium text-slate-700"
-                                                    >
-                                                        <Pencil size={13} />
-                                                        Edit
-                                                    </button>
-                                                )}
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    {canEditContact ? (
+                                                        <button
+                                                            type="button"
+                                                            disabled={busyId === String(contact.id)}
+                                                            onClick={() => setContactModal({ mode: 'edit', contact })}
+                                                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-2.5 text-sm font-medium text-slate-700 disabled:opacity-50"
+                                                        >
+                                                            <Pencil size={13} />
+                                                            Edit
+                                                        </button>
+                                                    ) : null}
+                                                    {canDeleteContact ? (
+                                                        <button
+                                                            type="button"
+                                                            disabled={busyId === String(contact.id)}
+                                                            onClick={() => removeContact(contact)}
+                                                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                                        >
+                                                            <Trash2 size={13} />
+                                                            Delete
+                                                        </button>
+                                                    ) : null}
+                                                    {canEditContact ? (
+                                                        <button
+                                                            type="button"
+                                                            disabled={contact.isPrimary || busyId === String(contact.id)}
+                                                            onClick={() => makePrimary(contact)}
+                                                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-blue-200 px-2.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                                                        >
+                                                            <Star size={13} />
+                                                            {contact.isPrimary ? 'Primary' : 'Mark as primary'}
+                                                        </button>
+                                                    ) : null}
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
@@ -229,24 +382,54 @@ export default function VendorDetail({ vendor, onReload }) {
                             </table>
                         </div>
                     </div>
-                ) : tab === 'Products and Brand' ? (
+                ) : tab === 'Bills' ? (
+                    <VendorBills vendorId={vendor.id} reloadKey={billsReload} />
+                ) : tab === 'Brands' ? (
+                    <div className="p-4 sm:p-5">
+                        {brands.length === 0 ? (
+                            <p className="py-10 text-center text-sm text-slate-500">No brands yet. They appear here when a contact has a brand.</p>
+                        ) : (
+                            <div className="flex flex-wrap gap-4">
+                                {brands.map((brand) => (
+                                    <button
+                                        key={brand.id}
+                                        type="button"
+                                        onClick={() => {
+                                            setCategoryFilter('');
+                                            setBrandFilter(brand.id);
+                                            setTab('Contacts');
+                                        }}
+                                        className={`flex size-32 items-center justify-center overflow-hidden rounded-xl border border-[#E6EDF5] bg-white text-center text-sm font-semibold leading-snug text-slate-900 shadow-sm transition hover:border-blue-300 hover:shadow-md ${brand.image ? 'p-2' : 'p-3'}`}
+                                        aria-label={brand.name}
+                                    >
+                                        {brand.image ? (
+                                            <img src={brand.image} alt="" className="h-full w-full object-contain" />
+                                        ) : (
+                                            <span className="line-clamp-4 break-words">{brand.name}</span>
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                ) : tab === 'Products' ? (
                     <div className="p-4 sm:p-5">
                         {categories.length === 0 ? (
                             <p className="py-10 text-center text-sm text-slate-500">No categories yet. They appear here when a contact has a category.</p>
                         ) : (
-                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                            <div className="flex flex-wrap gap-4">
                                 {categories.map((category) => (
                                     <button
                                         key={category.id}
                                         type="button"
                                         onClick={() => {
+                                            setBrandFilter('');
                                             setCategoryFilter(category.id);
                                             setTab('Contacts');
                                         }}
-                                        className="flex min-h-28 flex-col justify-between rounded-xl border border-[#E6EDF5] bg-white p-4 text-left shadow-sm transition hover:border-blue-300 hover:shadow-md"
+                                        className="flex size-32 items-center justify-center rounded-xl border border-[#E6EDF5] bg-white p-3 text-center text-sm font-semibold leading-snug text-slate-900 shadow-sm transition hover:border-blue-300 hover:shadow-md"
                                     >
-                                        <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Category</span>
-                                        <span className="mt-3 text-base font-semibold text-slate-900">{category.name}</span>
+                                        <span className="line-clamp-4 break-words">{category.name}</span>
                                     </button>
                                 ))}
                             </div>
