@@ -64,30 +64,6 @@ export function navHrefProps(href) {
     return { 'data-nav-href': path };
 }
 
-function focusOpenedWindow(win) {
-    if (!win) return;
-    const focusThere = () => {
-        try {
-            if (!win.closed) win.focus();
-        } catch {
-            // ignore focus errors from browser policy
-        }
-    };
-    focusThere();
-    requestAnimationFrame(focusThere);
-    setTimeout(focusThere, 0);
-    setTimeout(focusThere, 50);
-}
-
-function detachOpener(win) {
-    if (!win) return;
-    try {
-        win.opener = null;
-    } catch {
-        // ignore
-    }
-}
-
 function openWithAnchor(absoluteUrl) {
     const anchor = document.createElement('a');
     anchor.href = absoluteUrl;
@@ -110,15 +86,10 @@ export function openLinkInNewTab(href) {
     suppressInAppNavigationBriefly(800);
 
     const absoluteUrl = new URL(path, window.location.origin).href;
+    // Do not read or clear the new window. Touching opener/focus here cancels
+    // the navigation and leaves the new tab on the page that was already open.
     const win = window.open(absoluteUrl, '_blank');
-    if (!win) {
-        openWithAnchor(absoluteUrl);
-        return;
-    }
-
-    focusOpenedWindow(win);
-    // Detach after focus so Chromium still switches to the new tab.
-    setTimeout(() => detachOpener(win), 0);
+    if (!win) openWithAnchor(absoluteUrl);
 }
 
 /**
@@ -136,8 +107,9 @@ export function openLinkInNewWindow(href) {
     const left = Math.max(0, Math.round((window.screen.availWidth - width) / 2));
     const top = Math.max(0, Math.round((window.screen.availHeight - height) / 2));
 
-    // Chromium opens a *tab* if toolbar/menubar/noopener are in the features string.
-    // Request an explicit popup with size/position only, then clear opener manually.
+    // Chromium opens a tab if toolbar, menubar, or noopener are in the features string.
+    // Size and position alone request a separate window. Do not touch that window
+    // afterwards, or the destination navigation is cancelled.
     const features = [
         'popup=yes',
         `width=${width}`,
@@ -149,12 +121,7 @@ export function openLinkInNewWindow(href) {
     ].join(',');
 
     const win = window.open(absoluteUrl, '_blank', features);
-    if (!win) {
-        openWithAnchor(absoluteUrl);
-        return;
-    }
-    focusOpenedWindow(win);
-    setTimeout(() => detachOpener(win), 0);
+    if (!win) openWithAnchor(absoluteUrl);
 }
 
 /**

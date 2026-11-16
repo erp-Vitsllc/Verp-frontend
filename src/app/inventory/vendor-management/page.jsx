@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import ItemMasterShell from '../item-master/ItemMasterShell';
 import { useInventoryAccess } from '../item-master/itemMasterAccess';
 import VendorManagementList from './VendorManagementList';
@@ -14,7 +15,9 @@ export default function VendorManagementPage() {
                     You do not have permission to view Vendor Management.
                 </p>
             ) : (
-                <VendorManagementList />
+                <Suspense fallback={<p className="text-sm text-slate-500">Loading vendors...</p>}>
+                    <VendorManagementList />
+                </Suspense>
             )}
         </ItemMasterShell>
     );

@@ -188,6 +188,20 @@ const menuItems = [
         ],
     },
     {
+        id: 'Production',
+        label: 'Production',
+        icon: Factory,
+        permissionModule: 'production',
+        submenu: [
+            {
+                label: 'Work Order',
+                icon: ClipboardList,
+                href: '/production/work-order',
+                permissionModule: 'production',
+            },
+        ],
+    },
+    {
         id: 'inventory',
         label: 'Inventory',
         icon: Warehouse,
@@ -219,7 +233,6 @@ const menuItems = [
             { label: 'Payments', icon: CreditCard, permissionModule: 'accounts' },
         ],
     },
-    { id: 'Production', label: 'Production', icon: Factory, permissionModule: 'production' },
     { id: 'Reports', label: 'Reports', icon: FileBarChart2, permissionModule: 'reports' },
     {
         id: 'Settings',
@@ -329,6 +342,7 @@ function getSidebarSubmenuHref(parentId, subItem) {
     if (parentId === 'Accounts' && label === 'Payments Made') return '/Accounts/PaymentsMade';
     if (parentId === 'Accounts' && label === 'Payments') return '/Accounts/Payments';
     if (parentId === 'CRM' && label === 'Customers') return '/CRM/Customers';
+    if (parentId === 'Production' && label === 'Work Order') return '/production/work-order';
     return null;
 }
 
@@ -702,6 +716,9 @@ export default function Sidebar() {
         else if (pathname === '/inventory' || pathname.startsWith('/inventory/')) {
             setOpenMenu((prev) => (prev === 'inventory' ? prev : 'inventory'));
         }
+        else if (pathname === '/production' || pathname.startsWith('/production/')) {
+            setOpenMenu((prev) => (prev === 'Production' ? prev : 'Production'));
+        }
     }, [pathname, mounted]);
 
     // Auto-scroll to opened dropdown
@@ -815,6 +832,8 @@ export default function Sidebar() {
             router.push('/Accounts/Payments');
         } else if (parentId === 'CRM' && subItem.label === 'Customers') {
             router.push('/CRM/Customers');
+        } else if (parentId === 'Production' && subItem.label === 'Work Order') {
+            router.push('/production/work-order');
         }
     };
 

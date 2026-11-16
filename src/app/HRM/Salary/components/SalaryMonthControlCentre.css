@@ -1727,6 +1727,73 @@
     padding-right: 2px;
 }
 
+.spcc-metric-foot {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: auto;
+}
+
+.spcc-metric-foot__box {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-width: 0;
+    min-height: 52px;
+    padding: 8px 10px;
+    border: 1px solid #eef2f7;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.spcc-metric-foot__box.is-paid,
+.spcc-metric-foot__box.is-processed {
+    background: var(--spcc-green-bg);
+    border-color: #84e1bc;
+}
+
+.spcc-metric-foot__box.is-pending {
+    background: var(--spcc-amber-bg);
+    border-color: #e3a008;
+}
+
+.spcc-metric-foot__label {
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 1.2;
+    color: #64748b;
+}
+
+.spcc-metric-foot__box.is-paid .spcc-metric-foot__label,
+.spcc-metric-foot__box.is-processed .spcc-metric-foot__label {
+    color: #046c4e;
+}
+
+.spcc-metric-foot__box.is-pending .spcc-metric-foot__label {
+    color: #8a5a12;
+}
+
+.spcc-metric-foot__value {
+    overflow: hidden;
+    font-size: 14px;
+    font-weight: 750;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+    color: var(--spcc-ink);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.spcc-metric-foot__box.is-paid .spcc-metric-foot__value,
+.spcc-metric-foot__box.is-processed .spcc-metric-foot__value {
+    color: var(--spcc-green);
+}
+
+.spcc-metric-foot__box.is-pending .spcc-metric-foot__value {
+    color: var(--spcc-amber);
+}
+
 .spcc-metric-co {
     display: flex;
     align-items: center;

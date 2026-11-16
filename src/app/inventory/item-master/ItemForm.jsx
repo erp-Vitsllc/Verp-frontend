@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
 import { Country } from 'country-state-city';
 import { fieldClass, labelClass } from './CatalogModal';
 import {
@@ -185,7 +186,7 @@ export default function ItemForm({ initial, onSubmit, onCancel, saving, requireC
             onCancel();
             return;
         }
-        router.push('/inventory/item-master');
+        if (!tryNavigateListReturn(router)) router.push('/inventory/item-master');
     };
 
     return (

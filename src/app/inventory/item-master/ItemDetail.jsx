@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Copy, Package, Pencil } from 'lucide-react';
 import { useInventoryAccess } from './itemMasterAccess';
+import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
 import { saveItemDuplicateDraft } from './itemDuplicateDraft';
 
 const TABS = ['Overview', 'Stock', 'Vendors', 'Price History', 'Purchases', 'Transactions', 'Documents'];
@@ -63,7 +64,9 @@ export default function ItemDetail({ item }) {
                 <div className="flex items-center gap-3">
                     <button
                         type="button"
-                        onClick={() => router.push('/inventory/item-master')}
+                        onClick={() => {
+                            if (!tryNavigateListReturn(router)) router.push('/inventory/item-master');
+                        }}
                         className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700"
                     >
                         Back

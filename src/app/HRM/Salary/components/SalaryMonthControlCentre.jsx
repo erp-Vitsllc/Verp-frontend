@@ -317,6 +317,24 @@ function SalarySplitStat({ monthly, gross, net, hint, title }) {
     );
 }
 
+function MetricFootBox({ label, value, tone, title }) {
+    return (
+        <div className={`spcc-metric-foot__box${tone ? ` is-${tone}` : ''}`} title={title}>
+            <span className="spcc-metric-foot__label">{label}</span>
+            <strong className="spcc-metric-foot__value tabular-nums">{value}</strong>
+        </div>
+    );
+}
+
+function MetricFoot({ left, right }) {
+    return (
+        <div className="spcc-metric-foot">
+            <MetricFootBox {...left} />
+            <MetricFootBox {...right} />
+        </div>
+    );
+}
+
 function RatioStat({ label, part, total, money, hint, percent, title }) {
     const hasTotal = total != null && total !== '';
     const bar = !hasTotal
@@ -388,6 +406,29 @@ function employeeIdKey(value) {
     return String(value || '').trim().replace(/\s+/g, '').toUpperCase();
 }
 
+/** Paid is a green slot. Not paid is any other salary slot. Pending is a yellow slot. Processed is a green row. */
+function slotPaySummary(employees, slotToneByEmployee, slotNoByEmployee) {
+    let paidNet = 0;
+    let unpaidNet = 0;
+    let pendingCount = 0;
+    let processedCount = 0;
+    for (const emp of employees || []) {
+        const key = employeeIdKey(emp?.employeeId);
+        if (!key) continue;
+        const tone = slotToneByEmployee?.get(key) || '';
+        const slotted = Boolean(tone) || Boolean(slotNoByEmployee?.has(key));
+        const net = employeeNetPayable(emp);
+        if (tone === 'done') {
+            paidNet += net;
+            processedCount += 1;
+        } else if (slotted) {
+            unpaidNet += net;
+        }
+        if (tone === 'pending') pendingCount += 1;
+    }
+    return { paidNet, unpaidNet, pendingCount, processedCount };
+}
+
 function salaryYearMonth(value) {
     const match = String(value || '').trim().match(/^(\d{4}-\d{2})/);
     return match ? match[1] : '';
@@ -447,7 +488,7 @@ function comparePaymentEmployee(a, b, key, dir) {
     return mul * compareText(a?.name || a?.employeeId, b?.name || b?.employeeId);
 }
 
-function comparePayrollRow(a, b, key, dir, processedIds, slotNoByEmployee) {
+function comparePayrollRow(a, b, key, dir, processedIds, slotNoByEmployee, monthProcessed = false) {
     const mul = dir === 'desc' ? -1 : 1;
     if (key === 'monthly') return mul * compareNumber(a?.monthlySalary, b?.monthlySalary);
     if (key === 'basic') return mul * compareNumber(a?.basicSalary, b?.basicSalary);
@@ -464,10 +505,12 @@ function comparePayrollRow(a, b, key, dir, processedIds, slotNoByEmployee) {
     }
     if (key === 'payType') return mul * compareText(employeePayMethod(a), employeePayMethod(b));
     if (key === 'status') {
-        const statusOf = (emp) =>
-            processedIds.has(String(emp?.employeeId || ''))
-                ? 'Processed'
-                : String(emp?.status || 'Ready');
+        const statusOf = (emp) => {
+            if (processedIds.has(String(emp?.employeeId || ''))) return 'Processed';
+            const label = String(emp?.status || 'Ready');
+            if (monthProcessed && /^pending/i.test(label)) return 'Ready';
+            return label;
+        };
         return mul * compareText(statusOf(a), statusOf(b));
     }
     return mul * compareText(a?.name || a?.employeeId, b?.name || b?.employeeId);
@@ -2110,10 +2153,19 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                 return haystack.includes(query);
             })
             : payrollRows;
+        const monthProcessed = String(monthDmf?.status || '') === 'approved';
         return [...rows].sort((a, b) =>
-            comparePayrollRow(a, b, payrollSort.key, payrollSort.dir, processedPaymentIds, slotNoByEmployee),
+            comparePayrollRow(
+                a,
+                b,
+                payrollSort.key,
+                payrollSort.dir,
+                processedPaymentIds,
+                slotNoByEmployee,
+                monthProcessed,
+            ),
         );
-    }, [payrollRows, payrollQuery, payrollSort, processedPaymentIds, slotNoByEmployee]);
+    }, [payrollRows, payrollQuery, payrollSort, processedPaymentIds, slotNoByEmployee, monthDmf?.status]);
 
     const placeReadinessCard = useCallback((employeeId) => {
         const side = sideColRef.current;
@@ -2548,6 +2600,10 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         }
         return map;
     }, [salarySlots]);
+    const slotPayStats = useMemo(
+        () => slotPaySummary(payrollRows, slotToneByEmployee, slotNoByEmployee),
+        [payrollRows, slotToneByEmployee, slotNoByEmployee],
+    );
     const dmfApproved = String(monthDmf?.status || '') === 'approved';
     const dmfStatus = String(monthDmf?.status || 'idle');
     const processStatusLabel = monthPayrollProcessStatusLabel(monthDmf);
@@ -2698,15 +2754,17 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                     >
                         Send reminder
                     </button>
-                    <button
-                        type="button"
-                        className="spcc-btn spcc-btn--ghost"
-                        disabled={!canValidatePayroll}
-                        title={canValidatePayroll ? 'Validate payroll' : 'Accounts and HR can validate payroll.'}
-                        onClick={handleValidate}
-                    >
-                        Validate payroll
-                    </button>
+                    {dmfApproved ? null : (
+                        <button
+                            type="button"
+                            className="spcc-btn spcc-btn--ghost"
+                            disabled={!canValidatePayroll}
+                            title={canValidatePayroll ? 'Validate payroll' : 'Accounts and HR can validate payroll.'}
+                            onClick={handleValidate}
+                        >
+                            Validate payroll
+                        </button>
+                    )}
                 </div>
             </header>
 
@@ -2784,6 +2842,20 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                 : `Monthly salary, Zoho gross salary, and net salary payable for ${view.groupLabel}.`
                                         }
                                     />
+                                    <MetricFoot
+                                        left={{
+                                            label: 'Paid (net)',
+                                            value: formatMoney(slotPayStats.paidNet),
+                                            tone: 'paid',
+                                            title: 'Net salary of employees in green paid slots',
+                                        }}
+                                        right={{
+                                            label: 'Not paid (net)',
+                                            value: formatMoney(slotPayStats.unpaidNet),
+                                            tone: 'unpaid',
+                                            title: 'Net salary of employees in salary slots that are not green',
+                                        }}
+                                    />
                                 </MetricCard>
                                 <MetricCard
                                     code="CO"
@@ -2831,6 +2903,20 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                     ) : (
                                         <span className="spcc-metric__sub">No companies added yet.</span>
                                     )}
+                                    <MetricFoot
+                                        left={{
+                                            label: 'Pending',
+                                            value: slotPayStats.pendingCount,
+                                            tone: 'pending',
+                                            title: 'Employees in yellow slots',
+                                        }}
+                                        right={{
+                                            label: 'Processed',
+                                            value: slotPayStats.processedCount,
+                                            tone: 'processed',
+                                            title: 'Employees on green processed rows',
+                                        }}
+                                    />
                                 </MetricCard>
                                 <MetricCard
                                     code="WP"
@@ -3048,8 +3134,11 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                                     sortedPayrollRows.map((emp, index) => {
                                                         const id = String(emp.employeeId || '');
                                                         const processed = processedPaymentIds.has(id);
-                                                        const blockerCount = Number(view.requestCountByEmployee?.[id]) || 0;
-                                                        const pending = !processed && blockerCount > 0;
+                                                        // Processed month keeps Ready. New pending items apply next month only.
+                                                        const blockerCount = dmfApproved
+                                                            ? 0
+                                                            : (Number(view.requestCountByEmployee?.[id]) || 0);
+                                                        const pending = !dmfApproved && !processed && blockerCount > 0;
                                                         const pendingItems = view.pendingByEmployee?.[id] || [];
                                                         const slotTone = slotToneByEmployee.get(employeeIdKey(id)) || '';
                                                         const status = slotTone === 'done' && !pending

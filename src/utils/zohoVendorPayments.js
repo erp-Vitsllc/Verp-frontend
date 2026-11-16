@@ -116,6 +116,8 @@ export function mapZohoBillListRow(bill) {
         balanceAmount: formatZohoPaymentMoney(balance, currencyCode),
         balanceValue: balance,
         currencyCode,
+        erpSource: cleanText(bill.erp_source),
+        zohoUrl: cleanText(bill.zoho_url),
         utilityBillPaymentId: cleanText(bill.utility_bill_payment_id),
         utilityParentBillNumber: cleanText(bill.utility_parent_bill_number),
         utilityLineIndex:

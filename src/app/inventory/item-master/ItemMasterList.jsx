@@ -1,8 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Download, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import ListTableRowLink from '@/components/ListTableRowLink';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
+import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
+import PageSizeSelect from '../PageSizeSelect';
+import { pageLimit, pageSizeParam, pageWindow, slicePage } from '../listPageSize';
 import { fieldClass } from './CatalogModal';
 import { AddBrandModal, AddCategoryModal, AddSubcategoryModal } from './CatalogForms';
 import { useInventoryAccess } from './itemMasterAccess';
@@ -18,7 +23,6 @@ import {
     listSubcategories,
 } from './itemMasterApi';
 
-const PAGE_SIZE = 6;
 const STATUSES = ['Stock In', 'Low Stock', 'Out of Stock'];
 const TABS = [
     { id: 'items', label: 'Items' },
@@ -91,6 +95,33 @@ function availableClass(row) {
     return 'text-slate-800';
 }
 
+function textParam(params, key) {
+    return String(params.get(key) || '');
+}
+
+function pageParam(params) {
+    const value = Number(params.get('page'));
+    return Number.isInteger(value) && value > 0 ? value : 1;
+}
+
+function tabParam(params) {
+    const value = textParam(params, 'tab');
+    return TABS.some((tab) => tab.id === value) ? value : 'items';
+}
+
+function itemListHref({ tab, search, categoryId, subcategoryId, brandId, status, page, pageSize }) {
+    return buildListReturnHref('/inventory/item-master', {
+        tab: tab && tab !== 'items' ? tab : '',
+        search,
+        category: categoryId,
+        subcategory: subcategoryId,
+        brand: brandId,
+        status,
+        page: page > 1 ? page : '',
+        size: pageSize && pageSize !== '10' ? pageSize : '',
+    });
+}
+
 function pageNumbers(page, pages) {
     const values = new Set([1, page - 1, page, page + 1, pages].filter((value) => value >= 1 && value <= pages));
     return [...values].sort((a, b) => a - b);
@@ -98,21 +129,25 @@ function pageNumbers(page, pages) {
 
 export default function ItemMasterList() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const searchKey = searchParams.toString();
+    const appliedSearchKey = useRef(searchKey);
     const access = useInventoryAccess();
     const catalogRequest = useRef(0);
-    const [tab, setTab] = useState('items');
+    const [tab, setTab] = useState(() => tabParam(searchParams));
     const [categories, setCategories] = useState([]);
     const [subcategories, setSubcategories] = useState([]);
     const [brands, setBrands] = useState([]);
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
-    const [page, setPage] = useState(1);
-    const [search, setSearch] = useState('');
+    const [page, setPage] = useState(() => pageParam(searchParams));
+    const [pageSize, setPageSize] = useState(() => pageSizeParam(searchParams));
+    const [search, setSearch] = useState(() => textParam(searchParams, 'search'));
     const [catalogSearch, setCatalogSearch] = useState('');
-    const [categoryId, setCategoryId] = useState('');
-    const [subcategoryId, setSubcategoryId] = useState('');
-    const [brandId, setBrandId] = useState('');
-    const [status, setStatus] = useState('');
+    const [categoryId, setCategoryId] = useState(() => textParam(searchParams, 'category'));
+    const [subcategoryId, setSubcategoryId] = useState(() => textParam(searchParams, 'subcategory'));
+    const [brandId, setBrandId] = useState(() => textParam(searchParams, 'brand'));
+    const [status, setStatus] = useState(() => textParam(searchParams, 'status'));
     const [linkedList, setLinkedList] = useState(null);
     const [modal, setModal] = useState('');
     const [returnToSubcategory, setReturnToSubcategory] = useState(false);
@@ -124,6 +159,41 @@ export default function ItemMasterList() {
     const [reloadToken, setReloadToken] = useState(0);
     const [deletingId, setDeletingId] = useState('');
     const [draft, setDraft] = useState(null);
+
+    const listHref = useMemo(() => itemListHref({
+        tab,
+        search: search.trim(),
+        categoryId,
+        subcategoryId,
+        brandId,
+        status,
+        page,
+        pageSize,
+    }), [brandId, categoryId, page, pageSize, search, status, subcategoryId, tab]);
+
+    usePersistListReturnState({
+        tab: tab !== 'items' ? tab : '',
+        search: search.trim(),
+        category: categoryId,
+        subcategory: subcategoryId,
+        brand: brandId,
+        status,
+        page: page > 1 ? page : '',
+        size: pageSize !== '10' ? pageSize : '',
+    });
+
+    useEffect(() => {
+        if (appliedSearchKey.current === searchKey) return;
+        appliedSearchKey.current = searchKey;
+        setTab(tabParam(searchParams));
+        setSearch(textParam(searchParams, 'search'));
+        setCategoryId(textParam(searchParams, 'category'));
+        setSubcategoryId(textParam(searchParams, 'subcategory'));
+        setBrandId(textParam(searchParams, 'brand'));
+        setStatus(textParam(searchParams, 'status'));
+        setPage(pageParam(searchParams));
+        setPageSize(pageSizeParam(searchParams));
+    }, [searchKey, searchParams]);
 
     const loadCatalog = useCallback((quiet = false) => {
         const requestId = catalogRequest.current + 1;
@@ -177,7 +247,7 @@ export default function ItemMasterList() {
         setLoading(true);
         listItems({
             page,
-            limit: PAGE_SIZE,
+            limit: pageLimit(pageSize),
             search,
             categoryId,
             subcategoryId,
@@ -199,11 +269,9 @@ export default function ItemMasterList() {
         return () => {
             cancelled = true;
         };
-    }, [access.ready, access.canViewItems, page, search, categoryId, subcategoryId, brandId, status, reloadToken]);
+    }, [access.ready, access.canViewItems, page, pageSize, search, categoryId, subcategoryId, brandId, status, reloadToken]);
 
-    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-    const to = Math.min(page * PAGE_SIZE, total);
+    const { pageCount: pages, currentPage, from, to } = pageWindow(total, page, pageSize);
     const catalogQuery = catalogSearch.trim().toLowerCase();
     const categoryScope = rowsForLink(categories, linkedList, 'category');
     const subcategoryScope = rowsForLink(subcategories, linkedList, 'subcategory');
@@ -211,6 +279,32 @@ export default function ItemMasterList() {
     const visibleCategories = categoryScope.filter((row) => matchesName(row, catalogQuery));
     const visibleSubcategories = subcategoryScope.filter((row) => matchesName(row, catalogQuery));
     const visibleBrands = brandScope.filter((row) => matchesName(row, catalogQuery));
+
+    useEffect(() => {
+        if (tab === 'items') {
+            if (loading || page <= pages) return;
+            setPage(pages);
+            return;
+        }
+        if (catalogLoading) return;
+        const count = tab === 'category'
+            ? visibleCategories.length
+            : tab === 'subcategory'
+                ? visibleSubcategories.length
+                : visibleBrands.length;
+        const { pageCount } = pageWindow(count, page, pageSize);
+        if (page > pageCount) setPage(pageCount);
+    }, [
+        catalogLoading,
+        loading,
+        page,
+        pageSize,
+        pages,
+        tab,
+        visibleBrands.length,
+        visibleCategories.length,
+        visibleSubcategories.length,
+    ]);
 
     const clearItemLink = () => {
         setCategoryId('');
@@ -225,15 +319,22 @@ export default function ItemMasterList() {
         setLinkedList(null);
     };
 
+    const changePageSize = (next) => {
+        setPageSize(next);
+        setPage(1);
+    };
+
     const selectTab = (next) => {
         if (next === tab) return;
         if (linkedList?.list === 'items') clearItemLink();
         setLinkedList(null);
+        setPage(1);
         setTab(next);
     };
 
     const showCatalog = (list, { caption, categoryId: parentCategoryId = '', allow = [] }) => {
         setCatalogSearch('');
+        setPage(1);
         setLinkedList({
             list,
             caption,
@@ -375,7 +476,7 @@ export default function ItemMasterList() {
 
     const exportCsv = async () => {
         try {
-            const result = await listItems({ page: 1, limit: 100, search, categoryId, subcategoryId, brandId, status });
+            const result = await listItems({ page: 1, limit: 0, search, categoryId, subcategoryId, brandId, status });
             const header = ['Item Code', 'Description', 'Brand', 'Category', 'Model', 'Available', 'Status'];
             const lines = [header.map(csvCell).join(',')];
             (result.items || []).forEach((row) => {
@@ -420,7 +521,7 @@ export default function ItemMasterList() {
                 <h1 className="text-2xl font-bold text-slate-900">Item Master</h1>
                 <div className="flex flex-wrap items-center gap-2">
                     {tab === 'items' && access.canCreateItem ? (
-                        <button type="button" onClick={() => router.push('/inventory/item-master/add')} className={primaryButtonClass}>
+                        <button type="button" onClick={() => navigateFromList(router, '/inventory/item-master/add', listHref)} className={primaryButtonClass}>
                             <Plus size={15} /> Add Item
                         </button>
                     ) : null}
@@ -476,6 +577,7 @@ export default function ItemMasterList() {
                                 setSearch(value);
                                 return;
                             }
+                            setPage(1);
                             setCatalogSearch(value);
                         }}
                     />
@@ -532,9 +634,13 @@ export default function ItemMasterList() {
                                 ) : rows.length === 0 ? (
                                     <tr><td colSpan={itemColumnCount} className="px-3 py-8 text-center text-sm text-slate-400">{search || categoryId || subcategoryId || brandId || status ? 'No items match this filter.' : 'No items yet.'}</td></tr>
                                 ) : rows.map((row) => (
-                                    <tr
+                                    <ListTableRowLink
                                         key={row._id}
-                                        onClick={() => router.push(`/inventory/item-master/${row._id}`)}
+                                        href={`/inventory/item-master/${row._id}`}
+                                        router={router}
+                                        listReturnHref={listHref}
+                                    >
+                                    <tr
                                         className="cursor-pointer border-t border-slate-100 text-sm text-slate-700 hover:bg-slate-50"
                                     >
                                         <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-500">{row.itemCode}</td>
@@ -573,43 +679,35 @@ export default function ItemMasterList() {
                                                     deleting={deletingId === String(row._id)}
                                                     editLabel={`Edit ${row.itemCode || 'item'}`}
                                                     deleteLabel={`Delete ${row.itemCode || 'item'}`}
-                                                    onEdit={access.canEditItem ? () => router.push(`/inventory/item-master/${row._id}/edit`) : null}
+                                                    onEdit={access.canEditItem ? () => navigateFromList(router, `/inventory/item-master/${row._id}/edit`, listHref) : null}
                                                     onDelete={access.canDeleteItem ? () => removeItem(row) : null}
                                                 />
                                             </td>
                                         ) : null}
                                     </tr>
+                                    </ListTableRowLink>
                                 ))}
                             </tbody>
                         </table>
                     </div>
 
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
-                        <p>Showing {from} to {to} of {total} items</p>
-                        <div className="flex items-center gap-1">
-                            <PagerButton label="<" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} />
-                            {pageNumbers(page, pages).map((value, index, list) => (
-                                <span key={value} className="flex items-center">
-                                    {index > 0 && value - list[index - 1] > 1 ? <span className="px-1">...</span> : null}
-                                    <button
-                                        type="button"
-                                        onClick={() => setPage(value)}
-                                        className={`h-8 min-w-8 rounded-lg px-2 ${value === page ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-                                    >
-                                        {value}
-                                    </button>
-                                </span>
-                            ))}
-                            <PagerButton label=">" disabled={page >= pages} onClick={() => setPage((current) => current + 1)} />
-                        </div>
-                    </div>
+                    <ListPager
+                        from={from}
+                        to={to}
+                        total={total}
+                        noun="items"
+                        page={currentPage}
+                        pages={pages}
+                        pageSize={pageSize}
+                        onPageChange={setPage}
+                        onPageSizeChange={changePageSize}
+                    />
                 </>
             ) : null}
 
             {tab === 'category' ? (
                 <CatalogTable
                     noun="categories"
-                    total={categoryScope.length}
                     rows={visibleCategories}
                     loading={catalogLoading && categories.length === 0}
                     empty={catalogEmpty(catalogError, categories, categoryScope, catalogQuery, 'Categories could not be loaded.', 'No categories yet.', 'No categories match your search.', linkedList)}
@@ -623,13 +721,16 @@ export default function ItemMasterList() {
                     onEdit={access.canEditCategory ? (row) => openEdit('category', row) : null}
                     onDelete={access.canDeleteCategory ? (row) => removeCatalog('category', row) : null}
                     deletingId={deletingId}
+                    page={page}
+                    pageSize={pageSize}
+                    onPageChange={setPage}
+                    onPageSizeChange={changePageSize}
                 />
             ) : null}
 
             {tab === 'subcategory' ? (
                 <CatalogTable
                     noun="subcategories"
-                    total={subcategoryScope.length}
                     rows={visibleSubcategories}
                     loading={catalogLoading && subcategories.length === 0}
                     empty={catalogEmpty(catalogError, subcategories, subcategoryScope, catalogQuery, 'Subcategories could not be loaded.', 'No subcategories yet.', 'No subcategories match your search.', linkedList)}
@@ -643,13 +744,16 @@ export default function ItemMasterList() {
                     onEdit={access.canEditSubcategory ? (row) => openEdit('subcategory', row) : null}
                     onDelete={access.canDeleteSubcategory ? (row) => removeCatalog('subcategory', row) : null}
                     deletingId={deletingId}
+                    page={page}
+                    pageSize={pageSize}
+                    onPageChange={setPage}
+                    onPageSizeChange={changePageSize}
                 />
             ) : null}
 
             {tab === 'brand' ? (
                 <CatalogTable
                     noun="brands"
-                    total={brandScope.length}
                     rows={visibleBrands}
                     loading={catalogLoading && brands.length === 0}
                     empty={catalogEmpty(catalogError, brands, brandScope, catalogQuery, 'Brands could not be loaded.', 'No brands yet.', 'No brands match your search.', linkedList)}
@@ -663,6 +767,10 @@ export default function ItemMasterList() {
                     onEdit={access.canEditBrand ? (row) => openEdit('brand', row) : null}
                     onDelete={access.canDeleteBrand ? (row) => removeCatalog('brand', row) : null}
                     deletingId={deletingId}
+                    page={page}
+                    pageSize={pageSize}
+                    onPageChange={setPage}
+                    onPageSizeChange={changePageSize}
                 />
             ) : null}
 
@@ -788,9 +896,11 @@ function RowActions({ editLabel, deleteLabel, deleting, onEdit, onDelete }) {
     );
 }
 
-function CatalogTable({ noun, total, rows, loading, empty, columns, onOpen, onEdit, onDelete, deletingId }) {
+function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onDelete, deletingId, page, pageSize, onPageChange, onPageSizeChange }) {
     const showActions = Boolean(onEdit || onDelete);
     const columnCount = columns.length + (showActions ? 1 : 0);
+    const range = pageWindow(rows.length, page, pageSize);
+    const pageRows = slicePage(rows, range.currentPage, pageSize);
     return (
         <>
             <div className="overflow-x-auto">
@@ -819,7 +929,7 @@ function CatalogTable({ noun, total, rows, loading, empty, columns, onOpen, onEd
                             <tr><td colSpan={columnCount} className="px-4 py-8 text-center text-sm text-slate-400">Loading...</td></tr>
                         ) : rows.length === 0 ? (
                             <tr><td colSpan={columnCount} className="px-4 py-8 text-center text-sm text-slate-400">{empty}</td></tr>
-                        ) : rows.map((row) => (
+                        ) : pageRows.map((row) => (
                             <tr key={row._id} className="text-sm text-slate-700">
                                 {columns.map((column) => {
                                     if (!column.count) {
@@ -861,8 +971,45 @@ function CatalogTable({ noun, total, rows, loading, empty, columns, onOpen, onEd
                     </tbody>
                 </table>
             </div>
-            <p className="mt-4 text-sm text-slate-500">Showing {rows.length} of {total} {noun}</p>
+            <ListPager
+                from={range.from}
+                to={range.to}
+                total={rows.length}
+                noun={noun}
+                page={range.currentPage}
+                pages={range.pageCount}
+                pageSize={pageSize}
+                onPageChange={onPageChange}
+                onPageSizeChange={onPageSizeChange}
+            />
         </>
+    );
+}
+
+function ListPager({ from, to, total, noun, page, pages, pageSize, onPageChange, onPageSizeChange }) {
+    return (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+            <p>Showing {from} to {to} of {total} {noun}</p>
+            <div className="flex flex-wrap items-center gap-3">
+                <PageSizeSelect value={pageSize} onChange={onPageSizeChange} />
+                <div className="flex items-center gap-1">
+                    <PagerButton label="<" disabled={page <= 1} onClick={() => onPageChange(page - 1)} />
+                    {pageNumbers(page, pages).map((value, index, list) => (
+                        <span key={value} className="flex items-center">
+                            {index > 0 && value - list[index - 1] > 1 ? <span className="px-1">...</span> : null}
+                            <button
+                                type="button"
+                                onClick={() => onPageChange(value)}
+                                className={`h-8 min-w-8 rounded-lg px-2 ${value === page ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                            >
+                                {value}
+                            </button>
+                        </span>
+                    ))}
+                    <PagerButton label=">" disabled={page >= pages} onClick={() => onPageChange(page + 1)} />
+                </div>
+            </div>
+        </div>
     );
 }
 

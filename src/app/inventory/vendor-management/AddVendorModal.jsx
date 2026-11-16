@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { ChevronDown, Search } from 'lucide-react';
 import CatalogModal, { fieldClass, labelClass } from '../item-master/CatalogModal';
 import { emailProblem, normalizePhone, phoneProblem } from './vendorFieldValidation';
 import {
@@ -30,6 +31,101 @@ function formFromVendor(source, code) {
         products,
         status: source?.status === 'Inactive' ? 'Inactive' : 'Active',
     };
+}
+
+function VendorPicker({ choices, value, disabled, loading, onChange }) {
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const rootRef = useRef(null);
+    const selected = choices.find((option) => option.id === value) || null;
+    const filtered = useMemo(() => {
+        const needle = query.trim().toLowerCase();
+        if (!needle) return choices;
+        return choices.filter((option) => option.name.toLowerCase().includes(needle));
+    }, [choices, query]);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const onPointerDown = (event) => {
+            if (!rootRef.current?.contains(event.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', onPointerDown);
+        return () => document.removeEventListener('mousedown', onPointerDown);
+    }, [open]);
+
+    function close() {
+        setOpen(false);
+        setQuery('');
+    }
+
+    function choose(option) {
+        onChange(option.id);
+        close();
+    }
+
+    return (
+        <div ref={rootRef} className="relative">
+            <button
+                type="button"
+                disabled={disabled}
+                aria-haspopup="listbox"
+                aria-expanded={open}
+                onClick={() => setOpen((current) => !current)}
+                className={`${fieldClass} flex items-center justify-between gap-2 text-left`}
+            >
+                <span className={`min-w-0 truncate ${selected ? 'text-slate-800' : 'text-slate-400'}`}>
+                    {loading ? 'Loading Zoho vendors...' : selected?.name || 'Select a Zoho vendor'}
+                </span>
+                <ChevronDown size={16} className={`shrink-0 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
+            </button>
+            {open ? (
+                <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-[#E2E8F0] bg-white shadow-lg">
+                    <div className="border-b border-[#E6EDF5] p-2">
+                        <label className="relative block">
+                            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                                autoFocus
+                                value={query}
+                                onChange={(event) => setQuery(event.target.value)}
+                                placeholder="Search vendor"
+                                aria-label="Search vendor"
+                                className="h-9 w-full rounded-md border border-[#E2E8F0] bg-white pl-8 pr-3 text-sm text-slate-800 outline-none focus:border-blue-500"
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Escape') {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        close();
+                                        return;
+                                    }
+                                    if (event.key === 'Enter' && filtered.length === 1) {
+                                        event.preventDefault();
+                                        choose(filtered[0]);
+                                    }
+                                }}
+                            />
+                        </label>
+                    </div>
+                    <ul role="listbox" aria-label="Zoho vendors" className="max-h-60 overflow-y-auto py-1">
+                        {filtered.length === 0 ? (
+                            <li className="px-3 py-2 text-sm text-slate-500">No vendors match that search.</li>
+                        ) : filtered.map((option) => (
+                            <li key={option.id}>
+                                <button
+                                    type="button"
+                                    role="option"
+                                    aria-selected={option.id === value}
+                                    onClick={() => choose(option)}
+                                    className={`block w-full truncate px-3 py-2 text-left text-sm ${option.id === value ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800 hover:bg-slate-50'}`}
+                                >
+                                    {option.name}
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ) : null}
+        </div>
+    );
 }
 
 function TextField({ label, value, onChange, type = 'text' }) {
@@ -182,20 +278,16 @@ export default function AddVendorModal({ onClose, onSaved, vendor = null }) {
             <form onSubmit={onSubmit} className="flex min-h-0 flex-col">
                 <div className="max-h-[min(36rem,calc(100vh-11rem))] overflow-y-auto px-5 py-4">
                     {error ? <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
-                    <label className="block">
+                    <div className="block">
                         <span className={labelClass}>Select vendor</span>
-                        <select
-                            className={fieldClass}
+                        <VendorPicker
+                            choices={choices}
                             value={zohoContactId}
                             disabled={loadingOptions || saving}
-                            onChange={(event) => setZohoContactId(event.target.value)}
-                        >
-                            <option value="">{loadingOptions ? 'Loading Zoho vendors...' : 'Select a Zoho vendor'}</option>
-                            {choices.map((option) => (
-                                <option key={option.id} value={option.id}>{option.name}</option>
-                            ))}
-                        </select>
-                    </label>
+                            loading={loadingOptions}
+                            onChange={setZohoContactId}
+                        />
+                    </div>
                     {!loadingOptions && choices.length === 0 ? (
                         <p className="mt-2 text-sm text-slate-500">No Zoho vendors are available to add.</p>
                     ) : null}

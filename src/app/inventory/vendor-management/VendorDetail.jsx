@@ -6,6 +6,7 @@ import { ArrowLeft, Building2, Pencil, Plus, Printer, RefreshCw, Star, Trash2 } 
 import { useInventoryAccess } from '../item-master/itemMasterAccess';
 import AddContactModal from './AddContactModal';
 import VendorBills from './VendorBills';
+import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
 import { deleteVendorContact, markVendorContactPrimary, syncVendorFromZoho, vendorApiMessage } from './vendorManagementApi';
 
 const TABS = ['Overview', 'Contacts', 'Products', 'Brands', 'Bills', 'Pricing', 'RFQs', 'POs', 'Documents'];
@@ -211,7 +212,9 @@ export default function VendorDetail({ vendor, onReload }) {
                 <div className="flex items-center gap-3">
                     <button
                         type="button"
-                        onClick={() => router.push('/inventory/vendor-management')}
+                        onClick={() => {
+                            if (!tryNavigateListReturn(router)) router.push('/inventory/vendor-management');
+                        }}
                         className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700"
                     >
                         <ArrowLeft size={14} />
@@ -230,9 +233,8 @@ export default function VendorDetail({ vendor, onReload }) {
             </div>
 
             <section className="rounded-2xl border border-[#E6EDF5] bg-white p-4 sm:p-5">
-                <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(180px,0.7fr)_auto] lg:items-start">
-                    <div className="flex flex-wrap items-start justify-between gap-6">
-                        <div className="flex min-w-0 gap-4">
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(11rem,0.7fr)_minmax(180px,0.7fr)_auto] lg:items-start">
+                    <div className="flex min-w-0 gap-4">
                         <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-[#E6EDF5] text-blue-600">
                             <Building2 size={28} />
                         </div>
@@ -253,10 +255,15 @@ export default function VendorDetail({ vendor, onReload }) {
                                 <div><span className="text-slate-500">Email: </span><span className="font-semibold text-slate-800">{shown(vendor.email)}</span></div>
                             </dl>
                         </div>
-                        </div>
-                        <div className="min-w-[11rem] shrink-0">
+                    </div>
+                    <div className="min-w-[11rem] space-y-4 border-[#E6EDF5] lg:border-l lg:pl-6">
+                        <div>
                             <p className="text-sm text-slate-500">Outstanding Payment</p>
                             <p className="mt-1 text-lg font-bold text-slate-900">{money(vendor.outstandingPayment, vendor.currencyCode)}</p>
+                        </div>
+                        <div>
+                            <p className="text-sm text-slate-500">Unused Credits</p>
+                            <p className="mt-1 text-lg font-bold text-slate-900">{money(vendor.unusedCredits, vendor.currencyCode)}</p>
                         </div>
                     </div>
                     <dl className="space-y-4 border-[#E6EDF5] text-sm lg:border-l lg:pl-6">

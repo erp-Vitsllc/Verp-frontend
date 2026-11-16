@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { ExternalLink } from 'lucide-react';
 import { mapZohoBillListRows } from '@/utils/zohoVendorPayments';
 import { listVendorBills, vendorApiMessage } from './vendorManagementApi';
 
 function statusClass(status) {
     const value = String(status || '').toLowerCase();
     if (value.includes('overdue')) return 'bg-red-50 text-red-700';
-    if (value.includes('partial')) return 'bg-amber-50 text-amber-700';
+    if (value.includes('partial') || value.includes('unpaid') || value.includes('pending')) return 'bg-amber-50 text-amber-700';
     if (value.includes('paid')) return 'bg-emerald-50 text-emerald-700';
     if (value.includes('open')) return 'bg-blue-50 text-blue-700';
     return 'bg-slate-100 text-slate-600';
@@ -49,7 +50,7 @@ export default function VendorBills({ vendorId, reloadKey = 0 }) {
                 <table className="min-w-full text-left text-sm">
                     <thead>
                         <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
-                            {['Date', 'Bill #', 'Reference #', 'Status', 'Due Date', 'Amount', 'Balance Due'].map((heading) => (
+                            {['Date', 'Bill #', 'Source', 'Reference #', 'Status', 'Due Date', 'Amount', 'Balance Due', 'Zoho'].map((heading) => (
                                 <th key={heading} className="whitespace-nowrap px-4 py-3 font-medium">{heading}</th>
                             ))}
                         </tr>
@@ -57,17 +58,18 @@ export default function VendorBills({ vendorId, reloadKey = 0 }) {
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={7} className="px-4 py-10 text-center text-slate-500">Loading bills...</td>
+                                <td colSpan={9} className="px-4 py-10 text-center text-slate-500">Loading bills...</td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={7} className="px-4 py-10 text-center text-slate-500">No bills yet. Use Sync from Zoho to load this vendor’s bills.</td>
+                                <td colSpan={9} className="px-4 py-10 text-center text-slate-500">No ERP bills are linked to Zoho for this vendor.</td>
                             </tr>
                         ) : rows.map((row) => (
                             <tr key={row.id} className="border-b border-slate-100 text-slate-700">
                                 <td className="whitespace-nowrap px-4 py-3.5">{row.date}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{row.billNumber}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5">{row.referenceNumber}</td>
+                                <td className="whitespace-nowrap px-4 py-3.5">{row.erpSource || 'ERP'}</td>
+                                <td className="whitespace-nowrap px-4 py-3.5">{row.referenceNumber || 'N/A'}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5">
                                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${statusClass(row.status)}`}>
                                         {String(row.status || 'N/A').replace(/_/g, ' ')}
@@ -76,6 +78,19 @@ export default function VendorBills({ vendorId, reloadKey = 0 }) {
                                 <td className="whitespace-nowrap px-4 py-3.5">{row.dueDate}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5">{row.amount}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5">{row.balanceAmount}</td>
+                                <td className="whitespace-nowrap px-4 py-3.5">
+                                    {row.zohoUrl ? (
+                                        <a
+                                            href={row.zohoUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="inline-flex items-center gap-1 font-medium text-blue-600 hover:underline"
+                                        >
+                                            Open
+                                            <ExternalLink size={13} />
+                                        </a>
+                                    ) : 'N/A'}
+                                </td>
                             </tr>
                         ))}
                     </tbody>

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
 import ItemMasterShell from '../ItemMasterShell';
 import ItemForm from '../ItemForm';
 import { useInventoryAccess } from '../itemMasterAccess';
@@ -21,7 +22,7 @@ export default function AddInventoryItemPage() {
         try {
             await createItem(payload);
             toast({ title: 'Item saved' });
-            router.push('/inventory/item-master');
+            if (!tryNavigateListReturn(router)) router.push('/inventory/item-master');
         } catch (err) {
             const message = apiMessage(err, 'Could not save the item.');
             setError(message);

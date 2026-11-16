@@ -1,29 +1,155 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Download, Pencil, Plus, Search, Trash2 } from 'lucide-react';
-import { navHrefProps } from '@/utils/linkContextMenu';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import ListTableRowLink from '@/components/ListTableRowLink';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
+import { buildListReturnHref } from '@/utils/listReturnNavigation';
+import PageSizeSelect from '../PageSizeSelect';
+import { pageLimit, pageSizeParam, pageWindow } from '../listPageSize';
 import { useInventoryAccess } from '../item-master/itemMasterAccess';
 import AddVendorModal from './AddVendorModal';
 import { deleteVendor, listVendors, vendorApiMessage } from './vendorManagementApi';
 
-const PAGE_SIZE = 6;
 const EMPTY_FILTERS = { products: [], brands: [], paymentTerms: [] };
+
+function textParam(params, key) {
+    return String(params.get(key) || '');
+}
+
+function pageParam(params) {
+    const value = Number(params.get('page'));
+    return Number.isInteger(value) && value > 0 ? value : 1;
+}
+
+function vendorListHref({ search, product, brand, paymentTerms, page, pageSize }) {
+    return buildListReturnHref('/inventory/vendor-management', {
+        search,
+        product,
+        brand,
+        terms: paymentTerms,
+        page: page > 1 ? page : '',
+        size: pageSize && pageSize !== '10' ? pageSize : '',
+    });
+}
 
 const fieldClass = 'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500';
 
 function FilterSelect({ label, value, options, onChange }) {
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const rootRef = useRef(null);
+    const needle = query.trim().toLowerCase();
+    const filtered = useMemo(() => {
+        if (!needle) return options;
+        return options.filter((option) => option.toLowerCase().includes(needle));
+    }, [needle, options]);
+    const showAll = !needle || 'all'.includes(needle);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const onPointerDown = (event) => {
+            if (!rootRef.current?.contains(event.target)) {
+                setOpen(false);
+                setQuery('');
+            }
+        };
+        document.addEventListener('mousedown', onPointerDown);
+        return () => document.removeEventListener('mousedown', onPointerDown);
+    }, [open]);
+
+    function close() {
+        setOpen(false);
+        setQuery('');
+    }
+
+    function choose(next) {
+        onChange(next);
+        close();
+    }
+
+    function onSearchKeyDown(event) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            close();
+            return;
+        }
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        if (!needle || (showAll && filtered.length === 0)) {
+            choose('');
+            return;
+        }
+        if (filtered.length === 1) choose(filtered[0]);
+    }
+
     return (
-        <label className="block min-w-0">
+        <div ref={rootRef} className="relative min-w-0">
             <span className="mb-1.5 block whitespace-nowrap text-sm font-medium text-slate-700">{label}</span>
-            <select className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)}>
-                <option value="">All</option>
-                {options.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                ))}
-            </select>
-        </label>
+            <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={open}
+                aria-label={label}
+                onClick={() => {
+                    if (open) close();
+                    else setOpen(true);
+                }}
+                className={`${fieldClass} flex items-center justify-between gap-2 text-left`}
+            >
+                <span className="min-w-0 truncate">{value || 'All'}</span>
+                <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
+            </button>
+            {open ? (
+                <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                    <div className="border-b border-slate-100 p-2">
+                        <label className="relative block">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                            <input
+                                autoFocus
+                                value={query}
+                                onChange={(event) => setQuery(event.target.value)}
+                                placeholder={`Search ${label.toLowerCase()}`}
+                                aria-label={`Search ${label}`}
+                                className="h-9 w-full rounded-md border border-slate-200 bg-white pl-8 pr-3 text-sm text-slate-800 outline-none focus:border-blue-500"
+                                onKeyDown={onSearchKeyDown}
+                            />
+                        </label>
+                    </div>
+                    <ul role="listbox" aria-label={label} className="max-h-60 overflow-y-auto py-1">
+                        {showAll ? (
+                            <li>
+                                <button
+                                    type="button"
+                                    role="option"
+                                    aria-selected={!value}
+                                    onClick={() => choose('')}
+                                    className={`block w-full truncate px-3 py-2 text-left text-sm ${!value ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-700 hover:bg-slate-50'}`}
+                                >
+                                    All
+                                </button>
+                            </li>
+                        ) : null}
+                        {filtered.length === 0 && !showAll ? (
+                            <li className="px-3 py-2 text-sm text-slate-500">No matches.</li>
+                        ) : filtered.map((option) => (
+                            <li key={option}>
+                                <button
+                                    type="button"
+                                    role="option"
+                                    aria-selected={option === value}
+                                    onClick={() => choose(option)}
+                                    className={`block w-full truncate px-3 py-2 text-left text-sm ${option === value ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-700 hover:bg-slate-50'}`}
+                                >
+                                    {option}
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ) : null}
+        </div>
     );
 }
 
@@ -41,6 +167,23 @@ function displayValue(value) {
     if (value == null || value === '') return 'N/A';
     return value;
 }
+
+function money(amount, currency) {
+    if (amount == null || amount === '' || Number.isNaN(Number(amount))) return 'N/A';
+    const code = String(currency || 'AED').trim() || 'AED';
+    try {
+        return new Intl.NumberFormat('en-AE', {
+            style: 'currency',
+            currency: code,
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        }).format(Number(amount));
+    } catch {
+        return `${code} ${Number(amount).toFixed(2)}`;
+    }
+}
+
+const NUMBER_HEADINGS = new Set(['Vendor Outstanding', 'Pending Bills', 'Open LPO']);
 
 function MoreListCell({ values, open, onToggle, label }) {
     const items = (values || []).map((value) => String(value || '').trim()).filter(Boolean);
@@ -83,15 +226,19 @@ function csvCell(value) {
 
 export default function VendorManagementList() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const searchKey = searchParams.toString();
+    const appliedSearchKey = useRef(searchKey);
     const access = useInventoryAccess();
     const [editor, setEditor] = useState(null);
     const [reloadKey, setReloadKey] = useState(0);
-    const [query, setQuery] = useState('');
-    const [debouncedQuery, setDebouncedQuery] = useState('');
-    const [product, setProduct] = useState('');
-    const [brand, setBrand] = useState('');
-    const [paymentTerms, setPaymentTerms] = useState('');
-    const [page, setPage] = useState(1);
+    const [query, setQuery] = useState(() => textParam(searchParams, 'search'));
+    const [debouncedQuery, setDebouncedQuery] = useState(() => textParam(searchParams, 'search').trim());
+    const [product, setProduct] = useState(() => textParam(searchParams, 'product'));
+    const [brand, setBrand] = useState(() => textParam(searchParams, 'brand'));
+    const [paymentTerms, setPaymentTerms] = useState(() => textParam(searchParams, 'terms'));
+    const [page, setPage] = useState(() => pageParam(searchParams));
+    const [pageSize, setPageSize] = useState(() => pageSizeParam(searchParams));
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -100,7 +247,38 @@ export default function VendorManagementList() {
     const [deletingId, setDeletingId] = useState('');
     const [openCells, setOpenCells] = useState(() => new Set());
     const showActions = access.canEditVendor || access.canDeleteVendor;
-    const columnCount = showActions ? 8 : 7;
+    const columnCount = showActions ? 11 : 10;
+
+    const listHref = useMemo(() => vendorListHref({
+        search: query.trim(),
+        product,
+        brand,
+        paymentTerms,
+        page,
+        pageSize,
+    }), [brand, page, pageSize, paymentTerms, product, query]);
+
+    usePersistListReturnState({
+        search: query.trim(),
+        product,
+        brand,
+        terms: paymentTerms,
+        page: page > 1 ? page : '',
+        size: pageSize !== '10' ? pageSize : '',
+    });
+
+    useEffect(() => {
+        if (appliedSearchKey.current === searchKey) return;
+        appliedSearchKey.current = searchKey;
+        const nextQuery = textParam(searchParams, 'search');
+        setQuery(nextQuery);
+        setDebouncedQuery(nextQuery.trim());
+        setProduct(textParam(searchParams, 'product'));
+        setBrand(textParam(searchParams, 'brand'));
+        setPaymentTerms(textParam(searchParams, 'terms'));
+        setPage(pageParam(searchParams));
+        setPageSize(pageSizeParam(searchParams));
+    }, [searchKey, searchParams]);
 
     useEffect(() => {
         const timer = setTimeout(() => setDebouncedQuery(query.trim()), 300);
@@ -113,7 +291,7 @@ export default function VendorManagementList() {
         setError('');
         listVendors({
             page,
-            limit: PAGE_SIZE,
+            limit: pageLimit(pageSize),
             search: debouncedQuery,
             product,
             brand,
@@ -141,12 +319,14 @@ export default function VendorManagementList() {
         return () => {
             cancelled = true;
         };
-    }, [brand, debouncedQuery, page, paymentTerms, product, reloadKey]);
+    }, [brand, debouncedQuery, page, pageSize, paymentTerms, product, reloadKey]);
 
-    const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const currentPage = Math.min(page, pageCount);
-    const from = total === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
-    const to = (currentPage - 1) * PAGE_SIZE + rows.length;
+    const { pageCount, currentPage, from, to } = pageWindow(total, page, pageSize);
+
+    useEffect(() => {
+        if (loading || page <= pageCount) return;
+        setPage(pageCount);
+    }, [loading, page, pageCount]);
     const emptyLabel = query || product || brand || paymentTerms
         ? 'No vendors match this search.'
         : 'No vendors yet.';
@@ -167,6 +347,11 @@ export default function VendorManagementList() {
         };
     }
 
+    function changePageSize(next) {
+        setPageSize(next);
+        setPage(1);
+    }
+
     async function removeVendor(event, vendor) {
         event.stopPropagation();
         const label = [vendor.code, vendor.name].filter(Boolean).join(' ');
@@ -185,7 +370,7 @@ export default function VendorManagementList() {
     }
 
     function exportRows() {
-        const header = ['Vendor Code', 'Vendor Name', 'Location', 'Primary Contact', 'Brands', 'Products', 'Status'];
+        const header = ['Vendor Code', 'Vendor Name', 'Location', 'Primary Contact', 'Brands', 'Products', 'Vendor Outstanding', 'Pending Bills', 'Open LPO', 'Status'];
         const lines = rows.map((vendor) => [
             vendor.code,
             vendor.name,
@@ -193,6 +378,9 @@ export default function VendorManagementList() {
             vendor.contact,
             (vendor.listBrands || []).join(', '),
             (vendor.listCategories || []).join(', '),
+            money(vendor.outstandingPayment, vendor.currencyCode),
+            vendor.pendingBills || 0,
+            vendor.openLpos || 0,
             vendor.status,
         ].map(csvCell).join(','));
         const file = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -231,7 +419,7 @@ export default function VendorManagementList() {
                 </div>
             </div>
 
-            <div className="mt-5 grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="relative z-30 mt-5 grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <label className="relative block min-w-0">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <input
@@ -262,10 +450,13 @@ export default function VendorManagementList() {
                                 'Primary Contact',
                                 'Brands',
                                 'Products',
+                                'Vendor Outstanding',
+                                'Pending Bills',
+                                'Open LPO',
                                 'Status',
                                 ...(showActions ? ['Action'] : []),
                             ].map((heading) => (
-                                <th key={heading} className="whitespace-nowrap px-4 py-3 font-medium">{heading}</th>
+                                <th key={heading} className={`whitespace-nowrap px-4 py-3 font-medium ${NUMBER_HEADINGS.has(heading) ? 'text-right' : ''}`}>{heading}</th>
                             ))}
                         </tr>
                     </thead>
@@ -279,11 +470,15 @@ export default function VendorManagementList() {
                                 <td colSpan={columnCount} className="px-4 py-10 text-center text-slate-500">{emptyLabel}</td>
                             </tr>
                         ) : rows.map((vendor) => (
-                            <tr
+                            <ListTableRowLink
                                 key={vendor.id || vendor.code}
-                                onClick={() => vendor.id && router.push(`/inventory/vendor-management/${vendor.id}`)}
+                                href={vendor.id ? `/inventory/vendor-management/${vendor.id}` : ''}
+                                router={router}
+                                listReturnHref={listHref}
+                                enabled={Boolean(vendor.id)}
+                            >
+                            <tr
                                 className="cursor-pointer border-b border-slate-100 text-slate-700 hover:bg-slate-50"
-                                {...(vendor.id ? navHrefProps(`/inventory/vendor-management/${vendor.id}`) : {})}
                             >
                                 <td className="whitespace-nowrap px-4 py-3.5">{vendor.code}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{vendor.name}</td>
@@ -301,6 +496,9 @@ export default function VendorManagementList() {
                                     onToggle={() => toggleCell(`${vendor.id}:products`)}
                                     label="products"
                                 />
+                                <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums">{money(vendor.outstandingPayment, vendor.currencyCode)}</td>
+                                <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums">{Number(vendor.pendingBills) || 0}</td>
+                                <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums">{Number(vendor.openLpos) || 0}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5">
                                     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(vendor.status)}`}>
                                         <span className={`h-1.5 w-1.5 rounded-full ${statusDot(vendor.status)}`} />
@@ -336,6 +534,7 @@ export default function VendorManagementList() {
                                     </td>
                                 ) : null}
                             </tr>
+                            </ListTableRowLink>
                         ))}
                     </tbody>
                 </table>
@@ -343,26 +542,29 @@ export default function VendorManagementList() {
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
                 <p>Showing {from} to {to} of {total} items</p>
-                <div className="flex items-center gap-1">
-                    <button
-                        type="button"
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-40"
-                        disabled={currentPage <= 1 || loading}
-                        onClick={() => setPage(currentPage - 1)}
-                        aria-label="Previous page"
-                    >
-                        <ChevronLeft className="h-4 w-4" />
-                    </button>
-                    <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-lg bg-blue-600 px-3 font-semibold text-white">{currentPage}</span>
-                    <button
-                        type="button"
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-40"
-                        disabled={currentPage >= pageCount || loading}
-                        onClick={() => setPage(currentPage + 1)}
-                        aria-label="Next page"
-                    >
-                        <ChevronRight className="h-4 w-4" />
-                    </button>
+                <div className="flex flex-wrap items-center gap-3">
+                    <PageSizeSelect value={pageSize} onChange={changePageSize} disabled={loading} />
+                    <div className="flex items-center gap-1">
+                        <button
+                            type="button"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-40"
+                            disabled={currentPage <= 1 || loading}
+                            onClick={() => setPage(currentPage - 1)}
+                            aria-label="Previous page"
+                        >
+                            <ChevronLeft className="h-4 w-4" />
+                        </button>
+                        <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-lg bg-blue-600 px-3 font-semibold text-white">{currentPage}</span>
+                        <button
+                            type="button"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-40"
+                            disabled={currentPage >= pageCount || loading}
+                            onClick={() => setPage(currentPage + 1)}
+                            aria-label="Next page"
+                        >
+                            <ChevronRight className="h-4 w-4" />
+                        </button>
+                    </div>
                 </div>
             </div>
             {editor ? (
