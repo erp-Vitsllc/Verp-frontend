@@ -99,6 +99,15 @@ const HR_QUEUE_CARD_MARKERS = [
     'owner details',
     'owner passport',
     'owner emirates',
+    'owner visit',
+    'owner employment',
+    'owner spouse',
+    'owner labour',
+    'owner medical',
+    'owner driving',
+    'company address',
+    'ejari',
+    'insurance',
 ];
 
 /** Pending rows that belong in Submit-for-approval / ! indicators. */

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Download, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Download, LayoutGrid, List, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
@@ -17,10 +17,13 @@ import {
     deleteCategory,
     deleteItem,
     deleteSubcategory,
+    listBrandImages,
     listBrands,
     listCategories,
+    listCategoryImages,
     listItems,
     listSubcategories,
+    listSubcategoryImages,
 } from './itemMasterApi';
 
 const STATUSES = ['Stock In', 'Low Stock', 'Out of Stock'];
@@ -99,6 +102,17 @@ function textParam(params, key) {
     return String(params.get(key) || '');
 }
 
+function brandImageSrc(value) {
+    const text = String(value || '');
+    return text.startsWith('data:image/') ? text : '';
+}
+
+function brandInitials(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return '—';
+    return parts.slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+}
+
 function pageParam(params) {
     const value = Number(params.get('page'));
     return Number.isInteger(value) && value > 0 ? value : 1;
@@ -120,6 +134,69 @@ function itemListHref({ tab, search, categoryId, subcategoryId, brandId, status,
         page: page > 1 ? page : '',
         size: pageSize && pageSize !== '10' ? pageSize : '',
     });
+}
+
+function pageIdKey(rows, page, pageSize) {
+    const range = pageWindow(rows.length, page, pageSize);
+    return slicePage(rows, range.currentPage, pageSize).map((row) => String(row._id || '')).filter(Boolean).join(',');
+}
+
+function usePagedImages({ enabled, idKey, token, load }) {
+    const requestRef = useRef(0);
+    const loadedRef = useRef({});
+    const pendingRef = useRef(new Set());
+    const appliedToken = useRef(token);
+    const [images, setImages] = useState({});
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (!enabled || !idKey || !localStorage.getItem('token')) return undefined;
+        if (appliedToken.current !== token) {
+            appliedToken.current = token;
+            loadedRef.current = {};
+            pendingRef.current = new Set();
+            setImages({});
+        }
+        const ids = idKey.split(',').filter((id) => (
+            id && !Object.prototype.hasOwnProperty.call(loadedRef.current, id) && !pendingRef.current.has(id)
+        ));
+        if (!ids.length) return undefined;
+        const requestId = requestRef.current + 1;
+        requestRef.current = requestId;
+        ids.forEach((id) => pendingRef.current.add(id));
+        setLoading(true);
+        const chunks = [];
+        for (let index = 0; index < ids.length; index += 40) chunks.push(ids.slice(index, index + 40));
+        let cancelled = false;
+        Promise.all(chunks.map((chunk) => load(chunk)))
+            .then((groups) => {
+                if (cancelled || requestId !== requestRef.current) return;
+                const next = { ...loadedRef.current };
+                ids.forEach((id) => {
+                    next[id] = '';
+                    pendingRef.current.delete(id);
+                });
+                asRows(groups.flat()).forEach((row) => {
+                    const id = String(row?._id || '');
+                    if (id) next[id] = brandImageSrc(row.image);
+                });
+                loadedRef.current = next;
+                setImages(next);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                ids.forEach((id) => pendingRef.current.delete(id));
+            })
+            .finally(() => {
+                if (!cancelled && requestId === requestRef.current) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+            ids.forEach((id) => pendingRef.current.delete(id));
+        };
+    }, [enabled, idKey, load, token]);
+
+    return { images, loading };
 }
 
 function pageNumbers(page, pages) {
@@ -159,6 +236,8 @@ export default function ItemMasterList() {
     const [reloadToken, setReloadToken] = useState(0);
     const [deletingId, setDeletingId] = useState('');
     const [draft, setDraft] = useState(null);
+    const [brandView, setBrandView] = useState('thumbnail');
+    const [imageTokens, setImageTokens] = useState({ category: 0, subcategory: 0, brand: 0 });
 
     const listHref = useMemo(() => itemListHref({
         tab,
@@ -279,6 +358,37 @@ export default function ItemMasterList() {
     const visibleCategories = categoryScope.filter((row) => matchesName(row, catalogQuery));
     const visibleSubcategories = subcategoryScope.filter((row) => matchesName(row, catalogQuery));
     const visibleBrands = brandScope.filter((row) => matchesName(row, catalogQuery));
+    const categoryImageKey = useMemo(
+        () => (tab === 'category' ? pageIdKey(visibleCategories, page, pageSize) : ''),
+        [page, pageSize, tab, visibleCategories],
+    );
+    const subcategoryImageKey = useMemo(
+        () => (tab === 'subcategory' ? pageIdKey(visibleSubcategories, page, pageSize) : ''),
+        [page, pageSize, tab, visibleSubcategories],
+    );
+    const brandImageKey = useMemo(
+        () => (tab === 'brand' && brandView === 'thumbnail' ? pageIdKey(visibleBrands, page, pageSize) : ''),
+        [brandView, page, pageSize, tab, visibleBrands],
+    );
+    const imagesEnabled = Boolean(access.ready && access.canViewItems);
+    const categoryPics = usePagedImages({
+        enabled: imagesEnabled && tab === 'category',
+        idKey: categoryImageKey,
+        token: imageTokens.category,
+        load: listCategoryImages,
+    });
+    const subcategoryPics = usePagedImages({
+        enabled: imagesEnabled && tab === 'subcategory',
+        idKey: subcategoryImageKey,
+        token: imageTokens.subcategory,
+        load: listSubcategoryImages,
+    });
+    const brandPics = usePagedImages({
+        enabled: imagesEnabled && tab === 'brand' && brandView === 'thumbnail',
+        idKey: brandImageKey,
+        token: imageTokens.brand,
+        load: listBrandImages,
+    });
 
     useEffect(() => {
         if (tab === 'items') {
@@ -329,6 +439,7 @@ export default function ItemMasterList() {
         if (linkedList?.list === 'items') clearItemLink();
         setLinkedList(null);
         setPage(1);
+        if (next === 'brand') setBrandView('thumbnail');
         setTab(next);
     };
 
@@ -341,6 +452,7 @@ export default function ItemMasterList() {
             categoryId: parentCategoryId,
             allow: parentCategoryId ? [] : idList(allow),
         });
+        if (list === 'brand') setBrandView('thumbnail');
         setTab(list);
     };
 
@@ -421,7 +533,16 @@ export default function ItemMasterList() {
         setModal(kind);
     };
 
+    const refreshImages = (kind) => {
+        setImageTokens((current) => (
+            Object.prototype.hasOwnProperty.call(current, kind)
+                ? { ...current, [kind]: current[kind] + 1 }
+                : current
+        ));
+    };
+
     const finishCatalogSave = (kind, saved) => {
+        refreshImages(kind);
         if (draft?._id) {
             setDraft(null);
             setModal('');
@@ -466,6 +587,7 @@ export default function ItemMasterList() {
             if (kind === 'category') setCategories(drop);
             else if (kind === 'subcategory') setSubcategories(drop);
             else setBrands(drop);
+            refreshImages(kind);
             loadCatalog(true);
         } catch (err) {
             setCatalogError(apiMessage(err, 'Could not delete this row.'));
@@ -563,7 +685,7 @@ export default function ItemMasterList() {
                 ))}
             </div>
 
-            <div className="mb-4 flex items-end gap-3">
+            <div className="mb-4 flex flex-wrap items-end gap-3">
                 <div className={`relative ${tab === 'items' ? 'w-52 shrink-0' : 'min-w-0 flex-1'}`}>
                     <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
@@ -600,6 +722,9 @@ export default function ItemMasterList() {
                             <option value="">All</option>
                         </Filter>
                     </div>
+                ) : null}
+                {tab === 'brand' ? (
+                    <BrandViewSwitch value={brandView} onChange={setBrandView} />
                 ) : null}
             </div>
 
@@ -711,6 +836,9 @@ export default function ItemMasterList() {
                     rows={visibleCategories}
                     loading={catalogLoading && categories.length === 0}
                     empty={catalogEmpty(catalogError, categories, categoryScope, catalogQuery, 'Categories could not be loaded.', 'No categories yet.', 'No categories match your search.', linkedList)}
+                    serial
+                    images={categoryPics.images}
+                    imagesLoading={categoryPics.loading}
                     columns={[
                         { label: 'Category Name', key: 'name' },
                         { label: 'Sub Category', key: 'subcategoryCount', count: true },
@@ -734,6 +862,9 @@ export default function ItemMasterList() {
                     rows={visibleSubcategories}
                     loading={catalogLoading && subcategories.length === 0}
                     empty={catalogEmpty(catalogError, subcategories, subcategoryScope, catalogQuery, 'Subcategories could not be loaded.', 'No subcategories yet.', 'No subcategories match your search.', linkedList)}
+                    serial
+                    images={subcategoryPics.images}
+                    imagesLoading={subcategoryPics.loading}
                     columns={[
                         { label: 'Subcategory Name', key: 'name' },
                         { label: 'Category', key: 'categoryCount', count: true },
@@ -752,26 +883,44 @@ export default function ItemMasterList() {
             ) : null}
 
             {tab === 'brand' ? (
-                <CatalogTable
-                    noun="brands"
-                    rows={visibleBrands}
-                    loading={catalogLoading && brands.length === 0}
-                    empty={catalogEmpty(catalogError, brands, brandScope, catalogQuery, 'Brands could not be loaded.', 'No brands yet.', 'No brands match your search.', linkedList)}
-                    columns={[
-                        { label: 'Brand Name', key: 'name' },
-                        { label: 'Category', key: 'categoryCount', count: true },
-                        { label: 'Subcategory', key: 'subcategoryCount', count: true },
-                        { label: 'Item', key: 'itemCount', count: true },
-                    ]}
-                    onOpen={(columnKey, row) => openCount('brand', columnKey, row)}
-                    onEdit={access.canEditBrand ? (row) => openEdit('brand', row) : null}
-                    onDelete={access.canDeleteBrand ? (row) => removeCatalog('brand', row) : null}
-                    deletingId={deletingId}
-                    page={page}
-                    pageSize={pageSize}
-                    onPageChange={setPage}
-                    onPageSizeChange={changePageSize}
-                />
+                brandView === 'list' ? (
+                    <CatalogTable
+                        noun="brands"
+                        rows={visibleBrands}
+                        loading={catalogLoading && brands.length === 0}
+                        empty={catalogEmpty(catalogError, brands, brandScope, catalogQuery, 'Brands could not be loaded.', 'No brands yet.', 'No brands match your search.', linkedList)}
+                        serial
+                        columns={[
+                            { label: 'Brand Name', key: 'name' },
+                            { label: 'Category', key: 'categoryCount', count: true },
+                            { label: 'Subcategory', key: 'subcategoryCount', count: true },
+                            { label: 'Item', key: 'itemCount', count: true },
+                        ]}
+                        onOpen={(columnKey, row) => openCount('brand', columnKey, row)}
+                        onEdit={access.canEditBrand ? (row) => openEdit('brand', row) : null}
+                        onDelete={access.canDeleteBrand ? (row) => removeCatalog('brand', row) : null}
+                        deletingId={deletingId}
+                        page={page}
+                        pageSize={pageSize}
+                        onPageChange={setPage}
+                        onPageSizeChange={changePageSize}
+                    />
+                ) : (
+                    <BrandThumbnailGrid
+                        rows={visibleBrands}
+                        loading={catalogLoading && brands.length === 0}
+                        empty={catalogEmpty(catalogError, brands, brandScope, catalogQuery, 'Brands could not be loaded.', 'No brands yet.', 'No brands match your search.', linkedList)}
+                        images={brandPics.images}
+                        imagesLoading={brandPics.loading}
+                        onEdit={access.canEditBrand ? (row) => openEdit('brand', row) : null}
+                        onDelete={access.canDeleteBrand ? (row) => removeCatalog('brand', row) : null}
+                        deletingId={deletingId}
+                        page={page}
+                        pageSize={pageSize}
+                        onPageChange={setPage}
+                        onPageSizeChange={changePageSize}
+                    />
+                )
             ) : null}
 
             {modal === 'category' ? (
@@ -868,51 +1017,154 @@ function ItemLinkCell({ name, label, onOpen }) {
     );
 }
 
-function RowActions({ editLabel, deleteLabel, deleting, onEdit, onDelete }) {
+function RowActions({ editLabel, deleteLabel, deleting, onEdit, onDelete, compact = false }) {
+    const editClass = compact
+        ? 'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50'
+        : 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50';
+    const deleteClass = compact
+        ? 'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50'
+        : 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50';
     return (
-        <div className="flex items-center gap-2">
+        <div className={`flex items-center ${compact ? 'gap-1' : 'gap-2'}`}>
             {onEdit ? (
-                <button
-                    type="button"
-                    onClick={onEdit}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    aria-label={editLabel}
-                >
-                    <Pencil size={13} /> Edit
+                <button type="button" onClick={onEdit} className={editClass} aria-label={editLabel} title="Edit">
+                    <Pencil size={13} /> {compact ? null : 'Edit'}
                 </button>
             ) : null}
             {onDelete ? (
-                <button
-                    type="button"
-                    disabled={deleting}
-                    onClick={onDelete}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                    aria-label={deleteLabel}
-                >
-                    <Trash2 size={13} /> {deleting ? 'Deleting...' : 'Delete'}
+                <button type="button" disabled={deleting} onClick={onDelete} className={deleteClass} aria-label={deleteLabel} title={deleting ? 'Deleting...' : 'Delete'}>
+                    <Trash2 size={13} /> {compact ? null : (deleting ? 'Deleting...' : 'Delete')}
                 </button>
             ) : null}
         </div>
     );
 }
 
-function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onDelete, deletingId, page, pageSize, onPageChange, onPageSizeChange }) {
+function BrandViewSwitch({ value, onChange }) {
+    const options = [
+        { id: 'thumbnail', label: 'Thumbnail view', icon: LayoutGrid },
+        { id: 'list', label: 'List view', icon: List },
+    ];
+    return (
+        <div role="tablist" aria-label="Brand layout" className="flex h-9 shrink-0 items-center rounded-lg border border-[#E2E8F0] bg-white p-0.5">
+            {options.map((option) => {
+                const Icon = option.icon;
+                const selected = value === option.id;
+                return (
+                    <button
+                        key={option.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected}
+                        onClick={() => onChange(option.id)}
+                        className={`inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium ${selected ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                    >
+                        <Icon size={14} />
+                        {option.label}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
+function BrandThumbnailGrid({ rows, loading, empty, images, imagesLoading, onEdit, onDelete, deletingId, page, pageSize, onPageChange, onPageSizeChange }) {
     const showActions = Boolean(onEdit || onDelete);
-    const columnCount = columns.length + (showActions ? 1 : 0);
     const range = pageWindow(rows.length, page, pageSize);
     const pageRows = slicePage(rows, range.currentPage, pageSize);
     return (
         <>
+            {loading ? (
+                <p className="py-8 text-center text-sm text-slate-400">Loading...</p>
+            ) : rows.length === 0 ? (
+                <p className="py-8 text-center text-sm text-slate-400">{empty}</p>
+            ) : (
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                    {pageRows.map((row) => {
+                        const image = brandImageSrc(images[String(row._id)]);
+                        return (
+                            <article key={row._id} className="min-w-0">
+                                <div className={`flex aspect-square items-center justify-center overflow-hidden rounded-xl border border-[#E6EDF5] shadow-sm ${image ? 'bg-white p-3' : 'bg-[#F8FAFC]'}`}>
+                                    {image ? (
+                                        <img src={image} alt="" className="h-full w-full object-contain" />
+                                    ) : imagesLoading ? (
+                                        <span className="h-8 w-8 animate-pulse rounded-md bg-slate-200" />
+                                    ) : (
+                                        <span className="px-3 text-center text-lg font-semibold text-slate-400">{brandInitials(row.name)}</span>
+                                    )}
+                                </div>
+                                <p className="mt-2 truncate text-center text-sm font-medium text-slate-800" title={row.name}>{row.name || '—'}</p>
+                                {showActions ? (
+                                    <div className="mt-2 flex flex-wrap justify-center gap-1">
+                                        <RowActions
+                                            compact
+                                            deleting={String(deletingId) === String(row._id)}
+                                            editLabel={`Edit ${row.name || 'brand'}`}
+                                            deleteLabel={`Delete ${row.name || 'brand'}`}
+                                            onEdit={onEdit ? () => onEdit(row) : null}
+                                            onDelete={onDelete ? () => onDelete(row) : null}
+                                        />
+                                    </div>
+                                ) : null}
+                            </article>
+                        );
+                    })}
+                </div>
+            )}
+            <ListPager
+                from={range.from}
+                to={range.to}
+                total={rows.length}
+                noun="brands"
+                page={range.currentPage}
+                pages={range.pageCount}
+                pageSize={pageSize}
+                onPageChange={onPageChange}
+                onPageSizeChange={onPageSizeChange}
+            />
+        </>
+    );
+}
+
+function CatalogImage({ src, pending, name }) {
+    return (
+        <span className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-[#E6EDF5] bg-[#F8FAFC]">
+            {src ? (
+                <img src={src} alt="" className="h-full w-full object-contain" />
+            ) : pending ? (
+                <span className="h-4 w-4 animate-pulse rounded bg-slate-200" />
+            ) : (
+                <span className="text-[10px] font-semibold text-slate-400">{brandInitials(name)}</span>
+            )}
+        </span>
+    );
+}
+
+function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onDelete, deletingId, page, pageSize, onPageChange, onPageSizeChange, serial = false, images = null, imagesLoading = false }) {
+    const showActions = Boolean(onEdit || onDelete);
+    const showImage = images != null;
+    const columnCount = columns.length + (showActions ? 1 : 0) + (serial ? 1 : 0) + (showImage ? 1 : 0);
+    const range = pageWindow(rows.length, page, pageSize);
+    const pageRows = slicePage(rows, range.currentPage, pageSize);
+    const countWidth = showImage || serial ? '13%' : '15%';
+    const nameWidth = showImage ? '20%' : (serial ? '22%' : '26%');
+    const actionWidth = showImage ? '24%' : (serial ? '31%' : '29%');
+    return (
+        <>
             <div className="overflow-x-auto">
-                <table className="-mx-6 w-[calc(100%+3rem)] min-w-[720px] table-fixed border-separate border-spacing-x-6 text-left">
+                <table className={`-mx-6 w-[calc(100%+3rem)] table-fixed border-separate border-spacing-x-6 text-left ${showImage ? 'min-w-[920px]' : 'min-w-[720px]'}`}>
                     <colgroup>
+                        {serial ? <col style={{ width: showImage ? '7%' : '8%' }} /> : null}
+                        {showImage ? <col style={{ width: '10%' }} /> : null}
                         {columns.map((column) => (
-                            <col key={column.key} style={{ width: column.count ? '15%' : '26%' }} />
+                            <col key={column.key} style={{ width: column.count ? countWidth : nameWidth }} />
                         ))}
-                        {showActions ? <col style={{ width: '29%' }} /> : null}
+                        {showActions ? <col style={{ width: actionWidth }} /> : null}
                     </colgroup>
                     <thead>
                         <tr className="text-[11px] uppercase tracking-wide text-slate-400">
+                            {serial ? <th className="whitespace-nowrap rounded-lg bg-[#F8FAFC] px-4 py-3 font-medium">Sl No</th> : null}
+                            {showImage ? <th className="whitespace-nowrap rounded-lg bg-[#F8FAFC] px-4 py-3 font-medium">Image</th> : null}
                             {columns.map((column) => (
                                 <th
                                     key={column.key}
@@ -929,8 +1181,20 @@ function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onD
                             <tr><td colSpan={columnCount} className="px-4 py-8 text-center text-sm text-slate-400">Loading...</td></tr>
                         ) : rows.length === 0 ? (
                             <tr><td colSpan={columnCount} className="px-4 py-8 text-center text-sm text-slate-400">{empty}</td></tr>
-                        ) : pageRows.map((row) => (
+                        ) : pageRows.map((row, index) => (
                             <tr key={row._id} className="text-sm text-slate-700">
+                                {serial ? (
+                                    <td className="border-b border-slate-100 px-4 py-3 tabular-nums text-slate-500">{range.from + index}</td>
+                                ) : null}
+                                {showImage ? (
+                                    <td className="border-b border-slate-100 px-4 py-2">
+                                        <CatalogImage
+                                            src={brandImageSrc(images[String(row._id)])}
+                                            pending={imagesLoading && !Object.prototype.hasOwnProperty.call(images, String(row._id))}
+                                            name={row.name}
+                                        />
+                                    </td>
+                                ) : null}
                                 {columns.map((column) => {
                                     if (!column.count) {
                                         return (

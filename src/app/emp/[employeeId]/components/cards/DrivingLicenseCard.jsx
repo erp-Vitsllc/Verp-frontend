@@ -9,6 +9,7 @@ import {
     canShowEmployeeRenewNotRenew,
     canDeleteEmployeeCard,
     employeePendingChangesForViewer,
+    isApiResponseQueuedForHr,
 } from '@/utils/employeeActivationSections';
 import { validateDrivingLicenseForm } from '@/utils/employeeDrivingLicenseValidation';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
@@ -150,7 +151,10 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                 isRenewal: isRenewing,
             });
 
-            if (fetchEmployee && (isRenewing || !updateEmployeeOptimistically)) {
+            const isQueuedApproval = isApiResponseQueuedForHr(response);
+            if (isQueuedApproval && fetchEmployee) {
+                await fetchEmployee(true).catch((err) => console.error('Error refreshing employee data:', err));
+            } else if (fetchEmployee && (isRenewing || !updateEmployeeOptimistically)) {
                 await fetchEmployee(true).catch((err) => console.error('Error refreshing employee data:', err));
             } else if (updateEmployeeOptimistically && response.data?.drivingLicenceDetails) {
                 updateEmployeeOptimistically({
@@ -160,8 +164,10 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
 
             handleCloseDrivingLicenseModal();
             toast({
-                title: isRenewing ? 'Driving License renewed' : 'Driving License updated',
-                description: 'Driving License information has been saved successfully.',
+                title: isQueuedApproval ? 'Driving License queued' : (isRenewing ? 'Driving License renewed' : 'Driving License updated'),
+                description: isQueuedApproval
+                    ? 'Change is stored for HR activation approval. The card stays as it is until HR approves.'
+                    : 'Driving License information has been saved successfully.',
             });
         } catch (error) {
             console.error('Failed to save Driving License', error);
@@ -359,18 +365,10 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
     );
 
-    const getPendingSectionData = useCallback((sectionName) => {
-        const sec = String(sectionName || '').toLowerCase();
-        const match = pendingChanges.find((e) => String(e.section || '').toLowerCase() === sec);
-        return match?.proposedData || null;
-    }, [pendingChanges]);
-
-    const effectiveDrivingLicenceDetails = useMemo(() => {
-        const live = employee?.drivingLicenceDetails;
-        const pending = getPendingSectionData('drivinglicense');
-        if (live?.number) return live;
-        return pending || live || null;
-    }, [employee?.drivingLicenceDetails, getPendingSectionData]);
+    const effectiveDrivingLicenceDetails = useMemo(
+        () => employee?.drivingLicenceDetails || null,
+        [employee?.drivingLicenceDetails],
+    );
 
     const hasNumber = useMemo(() =>
         !!effectiveDrivingLicenceDetails?.number,

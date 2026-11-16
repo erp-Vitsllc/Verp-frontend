@@ -390,7 +390,7 @@ function AnnualLeavePageContent() {
                     leaveMode,
                     attendanceId: isExisting ? approveRequest.id : '',
                     approve: isExisting && !escalateToHr && !pendingEdit,
-                    hrOverride: !isExisting && Boolean(hrOverride),
+                    hrOverride: Boolean(hrOverride),
                     sendToHr: escalateToHr,
                 });
                 const advanced = Boolean(response.data?.advanced);
@@ -942,6 +942,11 @@ function AnnualLeavePageContent() {
                                         requestAttachmentName={approveRequest?.attachmentName || ''}
                                         submitting={confirming}
                                         enableAnnualEligibilityGate
+                                        revisingApproved={
+                                            leaveModalMode === 'edit' &&
+                                            String(approveRequest?.statusKey || '').toLowerCase() === 'approved'
+                                        }
+                                        serverFlowchartHr={approveRequest?.viewerIsFlowchartHr === true}
                                     />
                                     )
                                 ) : null
@@ -1035,6 +1040,11 @@ function AnnualLeavePageContent() {
                 requestAttachmentName={isExistingLeaveModal ? approveRequest?.attachmentName || '' : ''}
                 submitting={confirming}
                 enableAnnualEligibilityGate
+                revisingApproved={
+                    leaveModalMode === 'edit' &&
+                    String(approveRequest?.statusKey || '').toLowerCase() === 'approved'
+                }
+                serverFlowchartHr={approveRequest?.viewerIsFlowchartHr === true}
             />
             <PendingLeaveRequestsModal
                 isOpen={pendingInboxModalOpen}

@@ -13,7 +13,6 @@ import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { formatWorkStatusDisplay, resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 import {
-    normalizeWorkLocationKey,
     workLocationBadgeClass,
     workLocationLabel,
 } from '@/utils/workLocations';
@@ -69,7 +68,6 @@ export default function WorkDetailsCard({
     const canDeleteWorkDetails = canDeleteEmployeeCard(employee, access.delete, 'workDetails');
     const canEdit = resolveEmployeeCardCanEdit(employee, canEditProp, access.edit);
     const [resolvedCompanyName, setResolvedCompanyName] = useState('');
-    const [resolvedPendingCompanyName, setResolvedPendingCompanyName] = useState('');
     const contractJoiningDateDisplay = useMemo(
         () => resolveContractJoiningDate(employee),
         [employee],
@@ -109,19 +107,14 @@ export default function WorkDetailsCard({
     };
 
     const companyId = resolveCompanyId(employee?.company);
-    const pendingCompanyId = resolveCompanyId(pendingWorkProposal?.proposedData?.company);
 
     useEffect(() => {
         let cancelled = false;
 
         const resolveCompanyName = async () => {
             const liveName = await resolveDisplayCompanyName(employee?.company);
-            const pendingName = pendingCompanyId
-                ? await resolveDisplayCompanyName(pendingWorkProposal?.proposedData?.company)
-                : '';
             if (!cancelled) {
                 setResolvedCompanyName(liveName || '');
-                setResolvedPendingCompanyName(pendingName || '');
             }
         };
 
@@ -129,7 +122,7 @@ export default function WorkDetailsCard({
         return () => {
             cancelled = true;
         };
-    }, [companyId, pendingCompanyId, pendingWorkProposal?.proposedData?.company]);
+    }, [companyId]);
 
     if (!access.view) {
         return null;
@@ -211,11 +204,6 @@ export default function WorkDetailsCard({
                         value: resolvedCompanyName || '—',
                         show: !isCompanyProfile && !!employee.company
                     },
-                    {
-                        label: 'Company (Pending Approval)',
-                        value: resolvedPendingCompanyName || '—',
-                        show: !isCompanyProfile && !!pendingWorkProposal?.proposedData?.company
-                    },
                     { label: 'Department', value: employee.department ? departmentOptions.find(opt => opt.value === employee.department)?.label || employee.department : null, show: !!employee.department },
                     { label: 'Designation', value: employee.designation, show: !!employee.designation },
                     { label: 'Entity Role', value: employee.role, show: !!employee.role },
@@ -228,25 +216,6 @@ export default function WorkDetailsCard({
                         label: 'Category',
                         value: employee.zohoCategoryAccountName || '—',
                         show: !isCompanyProfile,
-                    },
-                    {
-                        label: 'Category (Pending Approval)',
-                        value: pendingWorkProposal?.proposedData?.zohoCategoryAccountName || '—',
-                        show:
-                            !isCompanyProfile &&
-                            pendingWorkProposal?.proposedData?.zohoCategoryAccountName !== undefined &&
-                            String(pendingWorkProposal.proposedData.zohoCategoryAccountName || '') !==
-                                String(employee.zohoCategoryAccountName || ''),
-                    },
-                    {
-                        label: 'Work Status (Pending Approval)',
-                        value: pendingWorkProposal?.proposedData?.status
-                            ? formatWorkStatusDisplay({ status: pendingWorkProposal.proposedData.status })
-                            : null,
-                        show:
-                            !isCompanyProfile &&
-                            !!pendingWorkProposal?.proposedData?.status &&
-                            pendingWorkProposal.proposedData.status !== employee.status,
                     },
                     {
                         label: 'Remaining Probation',
@@ -272,17 +241,6 @@ export default function WorkDetailsCard({
                             </span>
                         ),
                         show: !isCompanyProfile,
-                    },
-                    {
-                        label: 'Work Location (Pending Approval)',
-                        value: pendingWorkProposal?.proposedData?.staffType
-                            ? workLocationLabel(pendingWorkProposal.proposedData.staffType, locations)
-                            : null,
-                        show:
-                            !isCompanyProfile &&
-                            !!pendingWorkProposal?.proposedData?.staffType &&
-                            normalizeWorkLocationKey(pendingWorkProposal.proposedData.staffType) !==
-                                normalizeWorkLocationKey(employee.staffType),
                     },
                     { label: 'Overtime', value: employee.overtime !== undefined ? (employee.overtime ? 'Yes' : 'No') : null, show: !isCompanyProfile && employee.overtime !== undefined },
                     {

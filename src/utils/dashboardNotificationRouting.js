@@ -362,6 +362,13 @@ export const buildDashboardNotificationPath = (item) => {
         return '/task-manager';
     }
 
+    if (typeRaw === 'Work Order LPO') {
+        const meta = parseMeta(item.extra3);
+        const path = String(meta?.path || '').trim();
+        if (path.startsWith('/production/work-order')) return path;
+        return '/production/work-order';
+    }
+
     if (item.type === 'Document Expiry Reminder') {
         if (!item.id) return '';
         return buildCompanyDocumentExpiryPath(item.id, item.extra1, item.extra3);
@@ -407,6 +414,23 @@ export const buildDashboardNotificationPath = (item) => {
             path += '&docStatusTab=live';
         }
         return buildEmployeePathWithFocus(path, extractNotificationLabelText(item.extra1));
+    }
+
+    if (type === 'profile hr submit reminder') {
+        const meta = parseMeta(item.extra3);
+        if (String(meta?.entityKind || '').toLowerCase() === 'company') {
+            const companyKey = meta?.companyMongoId || item.id;
+            if (!companyKey) return '';
+            return buildCompanyPathWithFocus(`/Company/${encodeURIComponent(String(companyKey))}`, {
+                focusCard: 'basicDetails',
+            });
+        }
+        const empKey = meta?.employeeId || item.targetEmployeeId;
+        if (!empKey) return '';
+        return buildEmployeePathWithFocus(
+            `/emp/${encodeURIComponent(String(empKey))}?tab=basic`,
+            item.extra2 || '',
+        );
     }
 
     if (type.includes('company activation')) {

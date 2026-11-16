@@ -886,6 +886,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         'Document Expiry Reminder',
         'Company Document Not Renew',
         'Profile Activation',
+        'Profile HR Submit Reminder',
         'Profile Incomplete',
         'Employee Document Expiry Reminder',
         'Probation Change',

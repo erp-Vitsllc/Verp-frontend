@@ -435,6 +435,11 @@ export function buildUnderstandableNotificationTitle(item = {}) {
                 sanitizeNotificationText(item.extra2 || item.message || '') ||
                 'Worked on a Sunday, weekly off, or holiday'
             );
+        case 'Profile HR Submit Reminder':
+            return (
+                sanitizeNotificationText(item.extra1 || '') ||
+                'You edited but HR approval not added. Send for HR approval for updation.'
+            );
         case 'Salary Enrollment':
             return salaryEnrollmentInboxTitle(item);
         case 'Salary DMF Approval': {
@@ -470,6 +475,8 @@ export function buildUnderstandableNotificationTitle(item = {}) {
             if (/is complete leave take action/i.test(leaveTitle)) return leaveTitle;
             return type || 'Asset Leave';
         }
+        case 'Work Order LPO':
+            return sanitizeNotificationText(item.extra1 || '') || 'LPO was not filled';
         default:
             return expiryTitle || type || 'Request';
     }
@@ -567,6 +574,9 @@ function buildUtilityCategoryLine(item = {}) {
     }
     if (type === 'Asset Leave' && /is complete leave take action/i.test(e1)) {
         return e2 && e2 !== e1 ? e2 : '';
+    }
+    if (type === 'Work Order LPO') {
+        return e2 || 'LPO number, date and value were left empty.';
     }
     const isUtility =
         type === 'Utility Contract Expiry' ||

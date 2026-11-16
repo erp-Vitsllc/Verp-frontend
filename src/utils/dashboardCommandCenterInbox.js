@@ -11,7 +11,7 @@ import {
 import { isCardDeletedNotificationHiddenType } from '@/utils/cardDeletedNotifications';
 import { COMPANY_ACTIVATION_INCOMPLETE_TYPE } from '@/utils/companyActivationIncompleteNotifications';
 import { EMPLOYEE_NOTIFICATION_TYPES } from '@/utils/employeePageNotifications';
-import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
+import { mapDashboardNotificationToRow, readNotificationMeta } from '@/utils/notificationInboxPresentation';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import {
     isUtilityBillInboxRow,
@@ -129,6 +129,9 @@ export function resolveDashboardModuleCategory(item = {}) {
         return 'Attendance';
     }
     if (type === 'Salary Enrollment' || type === 'Salary DMF Approval') return 'Salary';
+    if (type === 'Profile HR Submit Reminder') {
+        return readNotificationMeta(item.extra3)?.entityKind === 'company' ? 'Company' : 'Employees';
+    }
 
     // Exact types first so Document Expiry never fuzzy-matches into Loan / other modules.
     if (FINE_MODULE_TYPES.has(type)) return 'Fine';
@@ -152,6 +155,7 @@ export function resolveDashboardModuleCategory(item = {}) {
     if (ASSET_MODULE_TYPES.has(type)) return 'Tools Asset';
     if (COMPANY_MODULE_TYPES.has(type) || type === 'Document Expiry Reminder') return 'Company';
     if (EMPLOYEE_MODULE_TYPES.has(type)) return 'Employees';
+    if (type === 'Work Order LPO') return 'Other';
 
     if (low.includes('fine')) return 'Fine';
     if (low.includes('utility bill')) return 'Utility Bills';

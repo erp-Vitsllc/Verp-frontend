@@ -17,7 +17,7 @@ import {
     fetchEmployeeDashboardStats,
     getCachedEmployeeDashboardStats,
 } from '@/utils/employeeDashboardStatsFetch';
-import { isReassignedTaskNotice, isReturnedTaskNotice, reassignedNoticeModule } from '@/utils/notificationInboxPresentation';
+import { isReassignedTaskNotice, isReturnedTaskNotice, reassignedNoticeModule, readNotificationMeta } from '@/utils/notificationInboxPresentation';
 import { sortNotificationsStackOrder } from '@/utils/notificationSortOrder';
 
 const COMPANY_NOTIFICATION_TYPES = new Set([
@@ -184,6 +184,9 @@ export function buildCompanyPageNotifications(
         if (hidden.has(type)) return false;
         if (isReturnedTaskNotice(item)) return false;
         if (isReassignedTaskNotice(item)) return reassignedNoticeModule(item) === 'company';
+        if (type === 'Profile HR Submit Reminder') {
+            return readNotificationMeta(item.extra3)?.entityKind === 'company';
+        }
         return COMPANY_NOTIFICATION_TYPES.has(type);
     });
 

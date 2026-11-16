@@ -868,6 +868,7 @@ function EmployeeProfilePageContent() {
         return match?.email || null;
     }, [employee?.primaryReportee, reportingAuthorityOptions]);
     const [sendingApproval, setSendingApproval] = useState(false);
+    const [cancellingPendingEdits, setCancellingPendingEdits] = useState(false);
     const [showApprovalSubmitModal, setShowApprovalSubmitModal] = useState(false);
     /** Submit-for-approval modal: queued row diff preview (Current vs Edited). */
     const [approvalSubmitViewingChange, setApprovalSubmitViewingChange] = useState(null);
@@ -6774,6 +6775,37 @@ function EmployeeProfilePageContent() {
         }
     };
 
+    const handleCancelPendingEdits = async () => {
+        if (!employeeId || cancellingPendingEdits || sendingApproval) return;
+        const confirmed = window.confirm(
+            'Cancel these edits? Nothing will be sent to HR, and the profile will stay on the current approved data.',
+        );
+        if (!confirmed) return;
+        try {
+            setCancellingPendingEdits(true);
+            const response = await axiosInstance.post(`/Employee/${employeeId}/cancel-pending-edits`);
+            if (response?.data?.employee) {
+                setEmployee(response.data.employee);
+            } else {
+                await fetchEmployee(true);
+            }
+            setShowApprovalSubmitModal(false);
+            setApprovalSubmitViewingChange(null);
+            toast({
+                title: 'Edits cancelled',
+                description: response?.data?.message || 'The profile stays on the current approved data.',
+            });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not cancel edits',
+                description: error.response?.data?.message || error.message || 'Something went wrong.',
+            });
+        } finally {
+            setCancellingPendingEdits(false);
+        }
+    };
+
     const handleSubmitForApproval = (employeeSnapshotOverride = null) => {
         const emp = employeeSnapshotOverride || employee;
         if (!emp || sendingApproval) return;
@@ -7483,39 +7515,9 @@ function EmployeeProfilePageContent() {
     }, [employeeId]); // Removed fetchEmployee from deps to prevent loops
 
     useEffect(() => {
-        const queuedChanges = Array.isArray(employee?.pendingReactivationChanges)
-            ? employee.pendingReactivationChanges
-            : [];
-
-        const queuedEducation = queuedChanges
-            .filter((c) => {
-                if (!c || typeof c !== 'object') return false;
-                return String(c.section || '').toLowerCase() === 'education' &&
-                    String(c.changeType || '').toLowerCase() === 'add' &&
-                    c.proposedData;
-            })
-            .map((c, idx) => ({
-                ...c.proposedData,
-                _id: `queued-edu-${idx}`,
-                __queued: true
-            }));
-
-        const queuedExperience = queuedChanges
-            .filter((c) => {
-                if (!c || typeof c !== 'object') return false;
-                return String(c.section || '').toLowerCase() === 'experience' &&
-                    String(c.changeType || '').toLowerCase() === 'add' &&
-                    c.proposedData;
-            })
-            .map((c, idx) => ({
-                ...c.proposedData,
-                _id: `queued-exp-${idx}`,
-                __queued: true
-            }));
-
-        setEducationDetails([...(employee?.educationDetails || []), ...queuedEducation]);
-        setExperienceDetails([...(employee?.experienceDetails || []), ...queuedExperience]);
-    }, [employee?.educationDetails, employee?.experienceDetails, employee?.pendingReactivationChanges]);
+        setEducationDetails([...(employee?.educationDetails || [])]);
+        setExperienceDetails([...(employee?.experienceDetails || [])]);
+    }, [employee?.educationDetails, employee?.experienceDetails]);
 
     /** Matches ProfileHeader / HR review: one row per section + change type, with merged edit counts. */
     const approvalSubmitPendingEntries = useMemo(() => {
@@ -9548,6 +9550,8 @@ function EmployeeProfilePageContent() {
                                         pendingFields={pendingFields}
                                         canSendForApproval={canSendForApproval}
                                         handleSubmitForApproval={handleSubmitForApproval}
+                                        onCancelPendingEdits={handleCancelPendingEdits}
+                                        cancellingPendingEdits={cancellingPendingEdits}
                                         sendingApproval={sendingApproval}
                                         awaitingApproval={awaitingApproval}
                                         handleActivateProfile={handleActivateProfile}
@@ -10886,6 +10890,18 @@ function EmployeeProfilePageContent() {
                                     className="px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {sendingApproval ? 'Rejecting...' : 'Reject all'}
+                                </button>
+                            ) : null}
+                            {!isPortalAdminUser &&
+                            !viewerIsDesignatedFlowchartHr &&
+                            approvalSubmitPendingDisplayGroups.length > 0 ? (
+                                <button
+                                    type="button"
+                                    onClick={handleCancelPendingEdits}
+                                    disabled={sendingApproval || cancellingPendingEdits}
+                                    className="px-4 py-2 rounded-xl border border-red-200 bg-white text-red-700 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {cancellingPendingEdits ? 'Cancelling...' : 'Cancel submit'}
                                 </button>
                             ) : null}
                             <button

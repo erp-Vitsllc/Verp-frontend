@@ -20,7 +20,7 @@ import {
     filterItemsByNotificationPermission,
     getHiddenNotificationTypesSet,
 } from '@/utils/notificationChannelPermissionUi';
-import { isReassignedTaskNotice, isReturnedTaskNotice, reassignedNoticeModule } from '@/utils/notificationInboxPresentation';
+import { isReassignedTaskNotice, isReturnedTaskNotice, reassignedNoticeModule, readNotificationMeta } from '@/utils/notificationInboxPresentation';
 
 export const EMPLOYEE_NOTIFICATION_TYPES = new Set([
     'Profile Activation',
@@ -53,6 +53,9 @@ export function buildEmployeePageNotifications(
             if (!mandatoryCardsHrLive && isMandatoryCardsProfileIncompleteItem(item)) return false;
             if (isReturnedTaskNotice(item)) return false;
             if (isReassignedTaskNotice(item)) return reassignedNoticeModule(item) === 'employees';
+            if (type === 'Profile HR Submit Reminder') {
+                return readNotificationMeta(item.extra3)?.entityKind !== 'company';
+            }
             return EMPLOYEE_NOTIFICATION_TYPES.has(type);
         }),
         employeesList,

@@ -770,6 +770,7 @@ function CompanyProfilePageContent() {
     const [companyBulkReassignAssets, setCompanyBulkReassignAssets] = useState([]);
 
     const [activationSubmitting, setActivationSubmitting] = useState(false);
+    const [cancellingCompanyPending, setCancellingCompanyPending] = useState(false);
     const [showProgressTooltip, setShowProgressTooltip] = useState(false);
     const [isProgressTooltipLocked, setIsProgressTooltipLocked] = useState(false);
     const [activationDecisionLoading, setActivationDecisionLoading] = useState(false);
@@ -909,14 +910,8 @@ function CompanyProfilePageContent() {
         const mt = modalByKey[ownerDocKey];
         if (mt) handleModalOpen(mt, null, null, isRenewal);
     }, []);
-    /** On active profiles, overlay queued owner basic fields (not passport/EID until HR approves). */
-    const companyForOwnerDisplay = useMemo(() => {
-        if (!company) return null;
-        if (!isCompanyActivationComplete) return company;
-        return mergePendingReactivationForActivationSnapshot(company, { viewer: currentUser });
-    }, [company, isCompanyActivationComplete, currentUser]);
-    const ownersForDisplay = useMemo(() => {
-        let list = migrateLegacyOwnersVisa(companyForOwnerDisplay?.owners ?? company?.owners ?? []);
+    const enrichOwnerRows = useCallback((rawOwners) => {
+        let list = migrateLegacyOwnersVisa(rawOwners ?? []);
         list = dedupeCompanyOwnersForDisplay(list);
         if (ownersCatalog?.length) {
             const byProfileId = new Map(
@@ -929,7 +924,20 @@ function CompanyProfilePageContent() {
             });
         }
         return list;
-    }, [companyForOwnerDisplay?.owners, company?.owners, ownersCatalog]);
+    }, [ownersCatalog]);
+    /** Cards stay on the approved owner rows until HR approves. */
+    const ownersForDisplay = useMemo(
+        () => enrichOwnerRows(company?.owners),
+        [company?.owners, enrichOwnerRows],
+    );
+    /** Edit modal reloads the queued draft so a re-save does not put the old card back into the queue. */
+    const ownersForEditDraft = useMemo(() => {
+        if (!company) return [];
+        const source = !isCompanyActivationComplete
+            ? company
+            : mergePendingReactivationForActivationSnapshot(company, { viewer: currentUser });
+        return enrichOwnerRows(source?.owners);
+    }, [company, isCompanyActivationComplete, currentUser, enrichOwnerRows]);
     const getOwnerDetailsDocSlot = useCallback(
         (docKey, ownerTabIndex = activeOwnerTabIndex) => {
             const displayOwner = ownersForDisplay[ownerTabIndex];
@@ -1050,7 +1058,7 @@ function CompanyProfilePageContent() {
         [viewerPendingReactivationChanges],
     );
     const moaNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
-    const ejariNeedsHrApprovalOnSave = false;
+    const ejariNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const insuranceCanView = isAdmin() || companyPerms.docLiveWithExpiry.view;
     const insuranceCanEdit = isAdmin() || companyPerms.docLiveWithExpiry.edit;
     const insuranceCanDownload = isAdmin() || companyPerms.docLiveWithExpiry.download;
@@ -1096,21 +1104,21 @@ function CompanyProfilePageContent() {
     const ownerPassportLiveErrors = useMemo(() => {
         if (modalType !== 'ownerPassport') return {};
         return validateOwnerPassportFields(modalData, {
-            owners: ownersForDisplay,
+            owners: ownersForEditDraft,
             ownerIndex: activeOwnerTabIndex,
             isRenewal: isRenewalModal,
             requireAttachment: !modalData?.attachment,
         });
-    }, [modalType, modalData, ownersForDisplay, activeOwnerTabIndex, isRenewalModal]);
+    }, [modalType, modalData, ownersForEditDraft, activeOwnerTabIndex, isRenewalModal]);
     const ownerPassportSaveBlocked = Object.keys(ownerPassportLiveErrors).length > 0;
     const ownerEmiratesIdLiveErrors = useMemo(() => {
         if (modalType !== 'ownerEmiratesId') return {};
         return validateOwnerEmiratesIdFields(modalData, {
-            owners: ownersForDisplay,
+            owners: ownersForEditDraft,
             ownerIndex: activeOwnerTabIndex,
             requireAttachment: !modalData?.attachment,
         });
-    }, [modalType, modalData, ownersForDisplay, activeOwnerTabIndex]);
+    }, [modalType, modalData, ownersForEditDraft, activeOwnerTabIndex]);
     const ownerEmiratesIdSaveBlocked = Object.keys(ownerEmiratesIdLiveErrors).length > 0;
     const passportExpiryMinDate = useMemo(() => {
         if (!modalData?.issueDate) return undefined;
@@ -1130,11 +1138,11 @@ function CompanyProfilePageContent() {
         if (modalType !== 'ownerVisa') return {};
         return validateOwnerVisaFields(modalData, {
             visaDocKey: modalData?.visaDocKey || 'visitVisa',
-            owners: ownersForDisplay,
+            owners: ownersForEditDraft,
             ownerIndex: activeOwnerTabIndex,
             requireAttachment: !modalData?.attachment,
         });
-    }, [modalType, modalData, ownersForDisplay, activeOwnerTabIndex]);
+    }, [modalType, modalData, ownersForEditDraft, activeOwnerTabIndex]);
     const ownerVisaSaveBlocked = Object.keys(ownerVisaLiveErrors).length > 0;
     const ownerLabourCardLiveErrors = useMemo(() => {
         if (modalType !== 'ownerLabourCard') return {};
@@ -2237,7 +2245,7 @@ function CompanyProfilePageContent() {
 
         } else if (type === 'ownerDetails') {
 
-            const owner = ownersForDisplay[activeOwnerTabIndex];
+            const owner = ownersForEditDraft[activeOwnerTabIndex];
 
             setModalData({
 
@@ -2258,7 +2266,7 @@ function CompanyProfilePageContent() {
             );
 
         } else if (type === 'ownerVisa') {
-            const owner = ownersForDisplay[activeOwnerTabIndex];
+            const owner = ownersForEditDraft[activeOwnerTabIndex];
             const visaDocKey = contextTab || 'visitVisa';
             const docData = (!isRenewal && owner?.[visaDocKey]) || {};
             const visaType =
@@ -2287,7 +2295,7 @@ function CompanyProfilePageContent() {
                 });
             }
         } else if (type === 'ownerLabourCard') {
-            const owner = ownersForDisplay[activeOwnerTabIndex];
+            const owner = ownersForEditDraft[activeOwnerTabIndex];
             const docData = owner?.labourCard || {};
             if (isRenewal) {
                 setModalData({
@@ -2307,7 +2315,7 @@ function CompanyProfilePageContent() {
                 });
             }
         } else if (type === 'ownerMedical') {
-            const owner = ownersForDisplay[activeOwnerTabIndex];
+            const owner = ownersForEditDraft[activeOwnerTabIndex];
             const docData = owner?.medical || {};
             if (isRenewal) {
                 setModalData({
@@ -2333,7 +2341,7 @@ function CompanyProfilePageContent() {
                 });
             }
         } else if (type === 'ownerDrivingLicense') {
-            const owner = ownersForDisplay[activeOwnerTabIndex];
+            const owner = ownersForEditDraft[activeOwnerTabIndex];
             const docData = owner?.drivingLicense || {};
             if (isRenewal) {
                 setModalData({
@@ -2360,7 +2368,7 @@ function CompanyProfilePageContent() {
             }
         } else if (['ownerPassport', 'ownerEmiratesId'].includes(type)) {
 
-            const owner = ownersForDisplay[activeOwnerTabIndex];
+            const owner = ownersForEditDraft[activeOwnerTabIndex];
 
             const fieldMap = {
 
@@ -4453,6 +4461,34 @@ function CompanyProfilePageContent() {
         };
     }, [company]);
 
+    const handleCancelCompanyPendingEdits = async () => {
+        if (!company?._id || cancellingCompanyPending || activationSubmitting) return;
+        const confirmed = window.confirm(
+            'Cancel these edits? Nothing will be sent to HR, and the company profile will stay on the current approved data.',
+        );
+        if (!confirmed) return;
+        try {
+            setCancellingCompanyPending(true);
+            const response = await axiosInstance.post(`/Company/${company._id}/cancel-pending-edits`);
+            if (response?.data?.company) setCompany(response.data.company);
+            if (response?.data?.activationProgress) setActivationProgressFromApi(response.data.activationProgress);
+            await fetchCompany();
+            setActivationSubmitModalOpen(false);
+            toast({
+                title: 'Edits cancelled',
+                description: response?.data?.message || 'The company profile stays on the current approved data.',
+            });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not cancel edits',
+                description: error.response?.data?.message || error.message || 'Something went wrong.',
+            });
+        } finally {
+            setCancellingCompanyPending(false);
+        }
+    };
+
     const openActivationSubmitModal = () => {
         if (!company?._id) return;
         if (
@@ -4957,6 +4993,19 @@ function CompanyProfilePageContent() {
         !onCompanyActivationHoldUi &&
         isCompanyProfileActivated &&
         hasUnsubmittedPendingCompanyChanges;
+    const showCancelCompanyPendingButton =
+        hasUnsubmittedPendingCompanyChanges && !canProcessCompanyActivationAsHr;
+    const cancelCompanyPendingButton = (extraClass = '') =>
+        showCancelCompanyPendingButton ? (
+            <button
+                type="button"
+                disabled={cancellingCompanyPending || activationSubmitting}
+                onClick={handleCancelCompanyPendingEdits}
+                className={extraClass}
+            >
+                {cancellingCompanyPending ? 'Cancelling...' : 'Cancel submit'}
+            </button>
+        ) : null;
     const canDirectActivateCompanyProfile =
         viewerIsDesignatedFlowchartHr || isAdmin();
     const showDirectInactiveActivationButton =
@@ -5417,6 +5466,9 @@ function CompanyProfilePageContent() {
                                         {activationSubmitLabel}
                                     </button>
                                 )}
+                                {cancelCompanyPendingButton(
+                                    'px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50',
+                                )}
                             </div>
                         </div>
                     )}
@@ -5542,6 +5594,9 @@ function CompanyProfilePageContent() {
                                                     {activationSubmitting ? 'Submitting...' : activationSubmitLabel}
                                                 </button>
                                             )}
+                                            {cancelCompanyPendingButton(
+                                                'xl:hidden px-2 py-0.5 rounded-md text-[8px] sm:text-[10px] font-bold bg-white text-red-700 border border-red-200 hover:bg-red-50 whitespace-nowrap shadow-sm disabled:opacity-50 uppercase tracking-wide',
+                                            )}
 
                                         </div>
 
@@ -5606,6 +5661,9 @@ function CompanyProfilePageContent() {
                                         >
                                             {activationSubmitting ? 'Submitting...' : activationSubmitLabel}
                                         </button>
+                                    )}
+                                    {cancelCompanyPendingButton(
+                                        'px-2 sm:px-3 py-1 sm:py-1.5 rounded-md sm:rounded-lg text-[9px] sm:text-xs font-bold bg-white text-red-700 border border-red-200 hover:bg-red-50 whitespace-nowrap shadow-sm disabled:opacity-50 uppercase tracking-wide',
                                     )}
                                 </div>
                             </div>
@@ -6098,13 +6156,18 @@ function CompanyProfilePageContent() {
                                                     <span className="font-semibold">{activationSubmitLabel}</span> when you are
                                                     finished.
                                                 </p>
-                                                <button
-                                                    type="button"
-                                                    onClick={openActivationSubmitModal}
-                                                    className="shrink-0 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
-                                                >
-                                                    {activationSubmitLabel}
-                                                </button>
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    {cancelCompanyPendingButton(
+                                                        'px-4 py-2 rounded-lg border border-red-200 bg-white text-red-700 text-xs font-bold shadow-sm hover:bg-red-50 disabled:opacity-50',
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={openActivationSubmitModal}
+                                                        className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
+                                                    >
+                                                        {activationSubmitLabel}
+                                                    </button>
+                                                </div>
                                             </div>
                                         ) : null}
 
@@ -6434,13 +6497,18 @@ function CompanyProfilePageContent() {
                                                         <span className="font-semibold">{activationSubmitLabel}</span> when
                                                         you are finished.
                                                     </p>
-                                                    <button
-                                                        type="button"
-                                                        onClick={openActivationSubmitModal}
-                                                        className="shrink-0 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
-                                                    >
-                                                        {activationSubmitLabel}
-                                                    </button>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        {cancelCompanyPendingButton(
+                                                            'px-4 py-2 rounded-lg border border-red-200 bg-white text-red-700 text-xs font-bold shadow-sm hover:bg-red-50 disabled:opacity-50',
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={openActivationSubmitModal}
+                                                            className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
+                                                        >
+                                                            {activationSubmitLabel}
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             ) : null}
 
@@ -7082,13 +7150,18 @@ function CompanyProfilePageContent() {
                                                                 <span className="font-semibold">{activationSubmitLabel}</span> when you are
                                                                 finished so HR can approve and apply them permanently.
                                                             </p>
-                                                            <button
-                                                                type="button"
-                                                                onClick={openActivationSubmitModal}
-                                                                className="shrink-0 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
-                                                            >
-                                                                {activationSubmitLabel}
-                                                            </button>
+                                                            <div className="flex items-center gap-2 shrink-0">
+                                                                {cancelCompanyPendingButton(
+                                                                    'px-4 py-2 rounded-lg border border-red-200 bg-white text-red-700 text-xs font-bold shadow-sm hover:bg-red-50 disabled:opacity-50',
+                                                                )}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={openActivationSubmitModal}
+                                                                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
+                                                                >
+                                                                    {activationSubmitLabel}
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                     ) : null}
 
@@ -13733,6 +13806,9 @@ function CompanyProfilePageContent() {
                                 >
                                     Cancel
                                 </button>
+                                {cancelCompanyPendingButton(
+                                    'px-4 py-2 rounded-xl border border-red-200 bg-white text-red-700 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed',
+                                )}
                                 <button
                                     type="button"
                                     onClick={handleSubmitForActivation}

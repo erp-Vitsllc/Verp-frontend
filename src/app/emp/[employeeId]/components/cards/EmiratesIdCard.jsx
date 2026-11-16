@@ -340,18 +340,10 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
     );
 
-    const getPendingSectionData = useCallback((sectionName) => {
-        const sec = String(sectionName || '').toLowerCase();
-        const match = pendingChanges.find((e) => String(e.section || '').toLowerCase() === sec);
-        return match?.proposedData || null;
-    }, [pendingChanges]);
-
-    const effectiveEmiratesIdDetails = useMemo(() => {
-        const live = employee?.emiratesIdDetails;
-        const pending = getPendingSectionData('emiratesid');
-        if (live?.number) return live;
-        return pending || live || null;
-    }, [employee?.emiratesIdDetails, getPendingSectionData]);
+    const effectiveEmiratesIdDetails = useMemo(
+        () => employee?.emiratesIdDetails || null,
+        [employee?.emiratesIdDetails],
+    );
 
     const hasNumber = useMemo(() =>
         !!effectiveEmiratesIdDetails?.number,

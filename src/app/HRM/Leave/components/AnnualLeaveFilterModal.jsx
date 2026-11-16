@@ -121,6 +121,8 @@ export default function AnnualLeaveFilterModal({
     enableAnnualEligibilityGate = false,
     embedded = false,
     note = '',
+    revisingApproved = false,
+    serverFlowchartHr = false,
 }) {
     const rootRef = useRef(null);
     const loadedSalaryVisibility = useLeaveSalaryVisibility();
@@ -132,6 +134,7 @@ export default function AnnualLeaveFilterModal({
     const [error, setError] = useState('');
     const [mounted, setMounted] = useState(false);
     const [isDesignatedHr, setIsDesignatedHr] = useState(false);
+    const [hrIdentityReady, setHrIdentityReady] = useState(false);
     const [hrOverride, setHrOverride] = useState(false);
     const [eligibility, setEligibility] = useState(null);
     const [eligibilityLoading, setEligibilityLoading] = useState(false);
@@ -141,11 +144,17 @@ export default function AnnualLeaveFilterModal({
     const [rejectReason, setRejectReason] = useState('');
     const isApplyMode = applyLabel === 'Apply' && !showReject;
     const showHrOverride = isApplyMode && isDesignatedHr;
+    // Flowchart HR editing an approved leave is not blocked by the employee calendar.
+    const knownFlowchartHr = Boolean(serverFlowchartHr || isDesignatedHr);
+    const hrRevision = Boolean(revisingApproved && knownFlowchartHr);
+    const hideEmployeeRules = Boolean(
+        revisingApproved && (knownFlowchartHr || !hrIdentityReady),
+    );
     const showAnnualEligibility = Boolean(
         leaveMode === 'annual' && employeeId && (enableAnnualEligibilityGate || isApplyMode),
     );
     const notEligible = Boolean(
-        showAnnualEligibility && eligibility?.groupCap?.over && !hrOverride,
+        showAnnualEligibility && eligibility?.groupCap?.over && !hrOverride && !hideEmployeeRules,
     );
     const showNotEligibleGate = Boolean(notEligible && !dateEditMode);
 
@@ -163,14 +172,14 @@ export default function AnnualLeaveFilterModal({
             ),
         [employeeId, salaryVisibility, selectedEmployee?.employeeId],
     );
-    const hrCanPickEarly = Boolean(showHrOverride && hrOverride);
+    const hrCanPickEarly = Boolean((showHrOverride && hrOverride) || hrRevision);
     const shade = useMemo(() => {
-        if (!showAnnualEligibility || !eligibility?.calendar) return null;
+        if (hideEmployeeRules || !showAnnualEligibility || !eligibility?.calendar) return null;
         return buildAnnualLeaveShade(eligibility.calendar, {
             processingStart: processingStartDate,
             allowEarly: hrCanPickEarly,
         });
-    }, [eligibility, hrCanPickEarly, processingStartDate, showAnnualEligibility]);
+    }, [eligibility, hideEmployeeRules, hrCanPickEarly, processingStartDate, showAnnualEligibility]);
     const rangeIssue =
         shade && !hrCanPickEarly
             ? describeAnnualLeaveRange({
@@ -185,7 +194,7 @@ export default function AnnualLeaveFilterModal({
             ? String(eligibility?.selectionMessage || '')
             : '';
     const noOpenDays = Boolean(shade && !(eligibility?.calendar?.openSpans || []).length);
-    const validationLines = showAnnualEligibility
+    const validationLines = showAnnualEligibility && !hideEmployeeRules
         ? buildAnnualLeaveValidationLines({
               calendar: eligibility?.calendar,
               allowance: eligibility?.allowance,
@@ -241,23 +250,28 @@ export default function AnnualLeaveFilterModal({
     }, [open, initialEmployeeId, initialStartDate, initialEndDate, initialLeaveMode]);
 
     useEffect(() => {
-        if (!open || !isApplyMode) {
+        const trackHr = open && (isApplyMode || revisingApproved);
+        if (!trackHr) {
             setIsDesignatedHr(false);
+            setHrIdentityReady(true);
             return undefined;
         }
         let cancelled = false;
+        setHrIdentityReady(false);
         (async () => {
             try {
                 const { data } = await axiosInstance.get('/Flowchart/active-holder/hr', { skipToast: true });
                 if (!cancelled) setIsDesignatedHr(viewerIsDesignatedFlowchartHr(storedViewerUser(), data));
             } catch {
                 if (!cancelled) setIsDesignatedHr(false);
+            } finally {
+                if (!cancelled) setHrIdentityReady(true);
             }
         })();
         return () => {
             cancelled = true;
         };
-    }, [isApplyMode, open]);
+    }, [isApplyMode, open, revisingApproved]);
 
     useEffect(() => {
         if (!open || !showAnnualEligibility) {
@@ -359,7 +373,7 @@ export default function AnnualLeaveFilterModal({
             setError('End date must be on or after start date.');
             return;
         }
-        if (showAnnualEligibility && eligibility?.allowanceBlocked && !isDesignatedHr) {
+        if (showAnnualEligibility && eligibility?.allowanceBlocked && !isDesignatedHr && !hideEmployeeRules) {
             setError(eligibility?.allowanceBlock?.message || 'This annual leave is outside the open 30-day period.');
             return;
         }
@@ -376,7 +390,7 @@ export default function AnnualLeaveFilterModal({
             endDate,
             employee: selectedEmployee,
             leaveMode,
-            hrOverride: Boolean(showHrOverride && hrOverride),
+            hrOverride: Boolean((showHrOverride && hrOverride) || hrRevision),
             sendToHr: Boolean(sendToHr && notEligible),
         });
     };
@@ -578,7 +592,7 @@ export default function AnnualLeaveFilterModal({
                                     !shade && !hrCanPickEarly
                                         ? disabledDaysBefore(laterDateKey(earliestStartDate, startDate))
                                         : null,
-                                    !shade && dateKeyToLocalDate(allowanceEnd)
+                                    !shade && !hrCanPickEarly && dateKeyToLocalDate(allowanceEnd)
                                         ? { after: dateKeyToLocalDate(allowanceEnd) }
                                         : null,
                                 ])}
@@ -590,6 +604,11 @@ export default function AnnualLeaveFilterModal({
                         </div>
                     </div>
                     {shade ? <LeaveShadeLegend className="mt-2" /> : null}
+                    {hrRevision ? (
+                        <p className="mt-2 text-left text-[11px] font-medium leading-snug text-[#1D4ED8]">
+                            Flowchart HR can change this approved leave. Closed days and coworkers already on leave do not block it.
+                        </p>
+                    ) : null}
                     {validationLines.length ? (
                         <div className="mt-2 space-y-1 text-left text-[11px] font-medium leading-snug">
                             {validationLines.map((line) => (
@@ -699,7 +718,8 @@ export default function AnnualLeaveFilterModal({
                             disabled={
                                 submitting ||
                                 !employeeId ||
-                                (showAnnualEligibility && eligibilityLoading) ||
+                                (revisingApproved && !serverFlowchartHr && !hrIdentityReady) ||
+                                (showAnnualEligibility && eligibilityLoading && !hrRevision) ||
                                 calendarBlocking
                             }
                             className="min-w-[110px] flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"

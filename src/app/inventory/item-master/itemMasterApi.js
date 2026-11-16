@@ -10,11 +10,17 @@ export function apiMessage(error, fallback) {
     return error?.response?.data?.message || error?.message || fallback;
 }
 
+const listImages = (path) => (ids) => axiosInstance
+    .get(`${base}/${path}/images`, { params: { ids: ids.join(',') } })
+    .then(dataOf);
+
 export const listCategories = () => axiosInstance.get(`${base}/categories`).then(dataOf);
+export const listCategoryImages = listImages('categories');
 export const createCategory = (payload) => axiosInstance.post(`${base}/categories`, payload).then(dataOf);
 export const updateCategory = (id, payload) => axiosInstance.put(`${base}/categories/${id}`, payload).then(dataOf);
 export const deleteCategory = (id) => axiosInstance.delete(`${base}/categories/${id}`).then(dataOf);
 
+export const listSubcategoryImages = listImages('subcategories');
 export const listSubcategories = (categoryId) => axiosInstance
     .get(`${base}/subcategories`, { params: categoryId ? { categoryId } : {} })
     .then(dataOf);
@@ -28,6 +34,7 @@ export const listItemOptions = (subcategoryId) => axiosInstance
 export const createItemOption = (payload) => axiosInstance.post(`${base}/item-options`, payload).then(dataOf);
 
 export const listBrands = () => axiosInstance.get(`${base}/brands`).then(dataOf);
+export const listBrandImages = listImages('brands');
 export const createBrand = (payload) => axiosInstance.post(`${base}/brands`, payload).then(dataOf);
 export const updateBrand = (id, payload) => axiosInstance.put(`${base}/brands/${id}`, payload).then(dataOf);
 export const deleteBrand = (id) => axiosInstance.delete(`${base}/brands/${id}`).then(dataOf);

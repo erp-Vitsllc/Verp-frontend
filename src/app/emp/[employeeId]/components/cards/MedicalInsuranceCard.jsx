@@ -9,6 +9,7 @@ import {
     canShowEmployeeRenewNotRenew,
     canDeleteEmployeeCard,
     employeePendingChangesForViewer,
+    isApiResponseQueuedForHr,
 } from '@/utils/employeeActivationSections';
 import { validateMedicalInsuranceForm } from '@/utils/employeeMedicalInsuranceValidation';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
@@ -151,7 +152,10 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                 isRenewal: isRenewing,
             });
 
-            if (fetchEmployee && (isRenewing || !updateEmployeeOptimistically)) {
+            const isQueuedApproval = isApiResponseQueuedForHr(response);
+            if (isQueuedApproval && fetchEmployee) {
+                await fetchEmployee(true).catch((err) => console.error('Error refreshing employee data:', err));
+            } else if (fetchEmployee && (isRenewing || !updateEmployeeOptimistically)) {
                 await fetchEmployee(true).catch((err) => console.error('Error refreshing employee data:', err));
             } else if (updateEmployeeOptimistically && response.data?.medicalInsuranceDetails) {
                 updateEmployeeOptimistically({
@@ -161,8 +165,10 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
 
             handleCloseMedicalInsuranceModal();
             toast({
-                title: isRenewing ? 'Medical Insurance renewed' : 'Medical Insurance updated',
-                description: 'Medical Insurance information has been saved successfully.',
+                title: isQueuedApproval ? 'Medical Insurance queued' : (isRenewing ? 'Medical Insurance renewed' : 'Medical Insurance updated'),
+                description: isQueuedApproval
+                    ? 'Change is stored for HR activation approval. The card stays as it is until HR approves.'
+                    : 'Medical Insurance information has been saved successfully.',
             });
         } catch (error) {
             console.error('Failed to save Medical Insurance', error);
@@ -365,18 +371,10 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
         [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
     );
 
-    const getPendingSectionData = useCallback((sectionName) => {
-        const sec = String(sectionName || '').toLowerCase();
-        const match = pendingChanges.find((e) => String(e.section || '').toLowerCase() === sec);
-        return match?.proposedData || null;
-    }, [pendingChanges]);
-
-    const effectiveMedicalInsuranceDetails = useMemo(() => {
-        const live = employee?.medicalInsuranceDetails;
-        const pending = getPendingSectionData('medicalinsurance');
-        if (live?.number || live?.provider) return live;
-        return pending || live || null;
-    }, [employee?.medicalInsuranceDetails, getPendingSectionData]);
+    const effectiveMedicalInsuranceDetails = useMemo(
+        () => employee?.medicalInsuranceDetails || null,
+        [employee?.medicalInsuranceDetails],
+    );
 
     const hasProvider = useMemo(() =>
         !!effectiveMedicalInsuranceDetails?.provider,

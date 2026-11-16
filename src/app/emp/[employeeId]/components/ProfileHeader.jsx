@@ -56,6 +56,8 @@ function ProfileHeader({
     pendingFields,
     canSendForApproval,
     handleSubmitForApproval,
+    onCancelPendingEdits,
+    cancellingPendingEdits = false,
     sendingApproval,
     awaitingApproval,
     handleActivateProfile,
@@ -856,6 +858,22 @@ function ProfileHeader({
                                                                 : 'Send for Activation'}
                                                 </button>
                                             )}
+                                {showSubmitActivationButton &&
+                                    hasPendingActivationChanges &&
+                                    !viewerIsDesignatedFlowchartHr &&
+                                    !awaitingApproval && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onCancelPendingEdits?.();
+                                            }}
+                                            disabled={cancellingPendingEdits || sendingApproval}
+                                            className="relative z-10 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-sm bg-white text-red-700 border border-red-200 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap shrink-0"
+                                        >
+                                            {cancellingPendingEdits ? 'Cancelling...' : 'Cancel submit'}
+                                        </button>
+                                    )}
                                         {(awaitingApproval || (hasLeftUserPending && showHrActivationReviewButton)) &&
                                             (hasPendingActivationChanges ||
                                                 hasProfileActivationHoldPending ||

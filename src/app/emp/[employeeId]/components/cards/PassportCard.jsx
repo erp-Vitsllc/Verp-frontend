@@ -210,9 +210,7 @@ const PassportCard = forwardRef(function PassportCard({
             toast({
                 title: isQueuedApproval ? "Passport queued" : "Passport details updated",
                 description: isQueuedApproval
-                    ? formData.isRenewal
-                        ? "Previous passport moved to Old Documents. New details are queued for HR approval."
-                        : "Change is stored for HR activation approval. Live card will update after approval."
+                    ? "Change is stored for HR activation approval. The card stays as it is until HR approves."
                     : "Passport information has been saved successfully."
             });
 
@@ -410,18 +408,10 @@ const PassportCard = forwardRef(function PassportCard({
         [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
     );
 
-    const getPendingSectionData = useCallback((sectionName) => {
-        const sec = String(sectionName || '').toLowerCase();
-        const match = pendingChanges.find((e) => String(e.section || '').toLowerCase() === sec);
-        return match?.proposedData || null;
-    }, [pendingChanges]);
-
-    const effectivePassportDetails = useMemo(() => {
-        const live = employee?.passportDetails;
-        const pending = getPendingSectionData('passport');
-        if (live?.number) return live;
-        return pending || live || null;
-    }, [employee?.passportDetails, getPendingSectionData]);
+    const effectivePassportDetails = useMemo(
+        () => employee?.passportDetails || null,
+        [employee?.passportDetails],
+    );
 
     const hasPassportNumber = useMemo(() =>
         !!effectivePassportDetails?.number,

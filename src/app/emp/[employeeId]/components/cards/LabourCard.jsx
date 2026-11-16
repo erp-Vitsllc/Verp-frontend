@@ -518,18 +518,10 @@ const LabourCard = forwardRef(function LabourCard({
         [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
     );
 
-    const getPendingSectionData = useCallback((sectionName) => {
-        const sec = String(sectionName || '').toLowerCase();
-        const match = pendingChanges.find((e) => String(e.section || '').toLowerCase() === sec);
-        return match?.proposedData || null;
-    }, [pendingChanges]);
-
-    const effectiveLabourCardDetails = useMemo(() => {
-        const live = employee?.labourCardDetails;
-        const pending = getPendingSectionData('labourcard');
-        if (live?.number) return live;
-        return pending || live || null;
-    }, [employee?.labourCardDetails, getPendingSectionData]);
+    const effectiveLabourCardDetails = useMemo(
+        () => employee?.labourCardDetails || null,
+        [employee?.labourCardDetails],
+    );
 
     const hasNumber = useMemo(() =>
         !!effectiveLabourCardDetails?.number,
@@ -537,10 +529,9 @@ const LabourCard = forwardRef(function LabourCard({
     );
 
     const hasDocument = useMemo(() => {
-        const pending = getPendingSectionData('labourcard');
-        const doc = employee?.labourCardDetails?.document || pending?.document;
+        const doc = employee?.labourCardDetails?.document;
         return !!(doc?.url || doc?.data || doc?.name);
-    }, [employee?.labourCardDetails?.document, getPendingSectionData]);
+    }, [employee?.labourCardDetails?.document]);
     const isCardExpired = useMemo(() => {
         const expRaw = effectiveLabourCardDetails?.expiryDate;
         if (!expRaw) return false;
