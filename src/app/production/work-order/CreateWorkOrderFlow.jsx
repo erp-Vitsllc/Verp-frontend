@@ -248,7 +248,7 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
             salespersonEmployeeId: salesperson?.employeeId || '',
             salespersonName: salesperson?.name || '',
             quotationId: linkedQuote?.id || '',
-            quotationRef: linkedQuote?.number || '',
+            quotationRef: linkedQuote?.number || quoteNumber.trim(),
             quotationDate: linkedQuote?.date || '',
             valueExclVat: linkedQuote?.valueExclVat || 0,
             vatAmount: linkedQuote?.vatAmount || 0,
@@ -273,8 +273,8 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
             return;
         }
         if (intent === 'create') {
-            if (!salesperson || !linkedQuote) {
-                setStepError('Customer, salesperson and a Zoho quotation are required.');
+            if (!salesperson || !quoteNumber.trim()) {
+                setStepError('Customer, salesperson and a quotation number are required.');
                 setStep(1);
                 return;
             }
@@ -325,8 +325,8 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
     };
 
     const goNext = () => {
-        if (!customer || !salesperson || !linkedQuote) {
-            setStepError('Select the customer and salesperson, then import a Zoho quotation before the next step.');
+        if (!customer || !salesperson || !quoteNumber.trim()) {
+            setStepError('Select the customer, salesperson and quotation number before the next step.');
             return;
         }
         setStepError('');
@@ -505,7 +505,7 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
                             </div>
                             <p className="mt-4 flex items-center gap-2 rounded-xl bg-[#f4f8fd] px-3 py-2.5 text-[13px] text-slate-500">
                                 <Info size={15} className="text-[#2f6fed]" />
-                                Work Order cannot be created without a valid Zoho quotation.
+                                Import fills the date and values when Zoho allows it. The quotation number is enough to continue.
                             </p>
                         </section>
                     </div>
