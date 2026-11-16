@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Download, LayoutGrid, List, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Download, LayoutGrid, List, PackagePlus, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
@@ -642,6 +642,11 @@ export default function ItemMasterList() {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h1 className="text-2xl font-bold text-slate-900">Item Master</h1>
                 <div className="flex flex-wrap items-center gap-2">
+                    {tab === 'items' && (access.canCreateItem || access.canEditItem) ? (
+                        <button type="button" onClick={() => navigateFromList(router, '/inventory/item-master/add-stock', listHref)} className={primaryButtonClass}>
+                            <PackagePlus size={15} /> Add Stock
+                        </button>
+                    ) : null}
                     {tab === 'items' && access.canCreateItem ? (
                         <button type="button" onClick={() => navigateFromList(router, '/inventory/item-master/add', listHref)} className={primaryButtonClass}>
                             <Plus size={15} /> Add Item

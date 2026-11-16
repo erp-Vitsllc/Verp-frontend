@@ -44,6 +44,8 @@ export const getItem = (id) => axiosInstance.get(`${base}/items/${id}`).then(dat
 export const createItem = (payload) => axiosInstance.post(`${base}/items`, payload).then(dataOf);
 export const updateItem = (id, payload) => axiosInstance.put(`${base}/items/${id}`, payload).then(dataOf);
 export const deleteItem = (id) => axiosInstance.delete(`${base}/items/${id}`).then(dataOf);
+export const listStockOptions = () => axiosInstance.get(`${base}/items/stock-options`).then(dataOf);
+export const addItemStock = (id, payload) => axiosInstance.post(`${base}/items/${id}/stock`, payload).then(dataOf);
 
 export function readImageFile(file, { required = false } = {}) {
     if (!file) {
