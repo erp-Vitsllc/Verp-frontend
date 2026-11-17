@@ -152,9 +152,9 @@ export function completionAwaitingApproval(task) {
 
 /**
  * Open-task tabs for one viewer.
- * Review Pending: nobody is assigned, or the assignee finished and the requester has not approved.
+ * Review Pending: nobody is assigned, or the task is waiting for this person to accept a completion.
  * My Task: the person who has the work now. A reassignee holds it.
- * After someone sends completed, that employee and the requester keep it on My Task until it is accepted.
+ * After an assignee or reassignee sends completed, only that employee keeps it on My Task until it is accepted.
  * My Requests: tasks this person requested, and tasks they handed to a reassignee.
  */
 export function openTaskTabs(task, role = {}) {
@@ -163,13 +163,21 @@ export function openTaskTabs(task, role = {}) {
     const original = Boolean(role.originalAssignee);
     const assignee = Boolean(role.assignee);
     const awaiting = completionAwaitingApproval(task);
-    if (taskWaitingOnRequester(task)) {
-        const completedHolder = taskHasReassignee(task) ? holder : assignee;
-        return { mine: awaiting && (requester || completedHolder), requests: false, review: requester };
-    }
     const reassigned = taskHasReassignee(task);
+    const sentComplete = reassigned ? holder : assignee;
+    if (taskWaitingOnRequester(task)) {
+        return { mine: awaiting && sentComplete, requests: false, review: requester };
+    }
+    const waitingOnAssignee = awaiting && Boolean(task.completionPending);
+    if (waitingOnAssignee) {
+        return {
+            mine: sentComplete,
+            requests: requester && !original,
+            review: original,
+        };
+    }
     return {
-        mine: (reassigned ? holder : assignee) || (requester && awaiting),
+        mine: reassigned ? holder : assignee,
         requests: requester || (reassigned && original && !holder),
         review: false,
     };
