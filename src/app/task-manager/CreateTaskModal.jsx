@@ -105,6 +105,7 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
     const { toast } = useToast();
     const fileRef = useRef(null);
     const pickerRef = useRef(null);
+    const justPickedRef = useRef(false);
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
     const [form, setForm] = useState(EMPTY_FORM);
@@ -171,6 +172,18 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
         window.addEventListener('mousedown', close);
         return () => window.removeEventListener('mousedown', close);
     }, [pickerOpen]);
+
+    const selectEmployee = (employeeId) => {
+        // Safari sends a second click to the assignee button after a choice inside a menu.
+        // That click would toggle the menu open again, so ignore it.
+        justPickedRef.current = true;
+        setField('assigneeId', employeeId);
+        setEmployeeQuery('');
+        setPickerOpen(false);
+        window.setTimeout(() => {
+            justPickedRef.current = false;
+        }, 300);
+    };
 
     const assigning = mode === 'assign';
     const assigneeLocked = !assigning && Boolean(initialTask) && initialTask.canReassign === false;
@@ -344,14 +357,20 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                     </div>
 
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <label>
+                        <div>
                             <FieldLabel required>Assignee</FieldLabel>
                             <div className="relative" ref={pickerRef}>
                                 <User size={15} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-slate-400" />
                                 <button
                                     type="button"
                                     disabled={loadingPeople || assigneeLocked}
-                                    onClick={() => setPickerOpen((open) => !open)}
+                                    onClick={() => {
+                                        if (justPickedRef.current) {
+                                            setPickerOpen(false);
+                                            return;
+                                        }
+                                        setPickerOpen((open) => !open);
+                                    }}
                                     className="flex h-10 w-full items-center rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-left text-sm outline-none focus:border-blue-500 disabled:bg-slate-50"
                                 >
                                     <span className={selectedEmployee ? 'truncate text-slate-800' : 'truncate text-slate-400'}>
@@ -382,11 +401,11 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                                                 <li key={employee.id}>
                                                     <button
                                                         type="button"
-                                                        onClick={() => {
-                                                            setField('assigneeId', employee.id);
-                                                            setEmployeeQuery('');
-                                                            setPickerOpen(false);
+                                                        onMouseDown={(event) => {
+                                                            event.preventDefault();
+                                                            selectEmployee(employee.id);
                                                         }}
+                                                        onClick={() => selectEmployee(employee.id)}
                                                         className={`block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
                                                             employee.id === form.assigneeId ? 'bg-blue-50 font-semibold text-[#2563EB]' : 'text-slate-700'
                                                         }`}
@@ -402,7 +421,7 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                             {assigneeLocked ? (
                                 <p className="mt-1 text-xs text-slate-500">Only the current assignee or admin super user can change the assignee.</p>
                             ) : null}
-                        </label>
+                        </div>
                         <label>
                             <FieldLabel required>Completion Date</FieldLabel>
                             <input

@@ -9,6 +9,7 @@ import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigat
 import PageSizeSelect from '../PageSizeSelect';
 import { pageLimit, pageSizeParam, pageWindow, slicePage } from '../listPageSize';
 import { fieldClass } from './CatalogModal';
+import AddStockModal from './AddStockModal';
 import { AddBrandModal, AddCategoryModal, AddSubcategoryModal } from './CatalogForms';
 import { useInventoryAccess } from './itemMasterAccess';
 import {
@@ -37,6 +38,8 @@ const TABS = [
 
 const primaryButtonClass = 'inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white';
 const quietButtonClass = 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700';
+
+const STOCK_DELETE_TITLE = 'Delete is unavailable while stock is greater than 0.';
 
 const statusClass = {
     'Stock In': 'bg-emerald-50 text-emerald-600',
@@ -234,6 +237,7 @@ export default function ItemMasterList() {
     const [status, setStatus] = useState(() => stockStatusParam(searchParams));
     const [linkedList, setLinkedList] = useState(null);
     const [modal, setModal] = useState('');
+    const [addStockOpen, setAddStockOpen] = useState(() => searchParams.get('addStock') === '1');
     const [returnToSubcategory, setReturnToSubcategory] = useState(false);
     const [itemError, setItemError] = useState('');
     const [openDescriptions, setOpenDescriptions] = useState(() => new Set());
@@ -280,6 +284,11 @@ export default function ItemMasterList() {
         setPage(pageParam(searchParams));
         setPageSize(pageSizeParam(searchParams));
     }, [searchKey, searchParams]);
+
+    useEffect(() => {
+        if (searchParams.get('addStock') !== '1') return;
+        setAddStockOpen(true);
+    }, [searchParams]);
 
     const loadCatalog = useCallback((quiet = false) => {
         const requestId = catalogRequest.current + 1;
@@ -614,10 +623,10 @@ export default function ItemMasterList() {
                 brandId,
                 status: status !== DEFAULT_STOCK_STATUS ? status : '',
             });
-            const header = ['Item Code', 'Description', 'Brand', 'Category', 'Model', 'Available', 'Status'];
+            const header = ['Item Code', 'Item Name', 'Brand', 'Model', 'Description', 'Category', 'Available', 'Status'];
             const lines = [header.map(csvCell).join(',')];
             (result.items || []).forEach((row) => {
-                const cells = [row.itemCode, row.description, row.brandName, row.categoryName, row.modelNumber, row.availableQuantity, row.status];
+                const cells = [row.itemCode, row.itemName, row.brandName, row.modelNumber, row.description, row.categoryName, row.availableQuantity, row.status];
                 lines.push(cells.map(csvCell).join(','));
             });
             const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -648,8 +657,8 @@ export default function ItemMasterList() {
         brand: 'Search brand...',
     }[tab];
     const showItemActions = access.canEditItem || access.canDeleteItem;
-    const itemColumnCount = showItemActions ? 8 : 7;
-    const itemHeadings = ['Item Code', 'Item Name / Description', 'Brand', 'Category', 'Model', 'Available', 'Status'];
+    const itemColumnCount = showItemActions ? 9 : 8;
+    const itemHeadings = ['Item Code', 'Item Name', 'Brand', 'Model', 'Description', 'Category', 'Available', 'Status'];
     if (showItemActions) itemHeadings.push('Actions');
 
     return (
@@ -658,7 +667,7 @@ export default function ItemMasterList() {
                 <h1 className="text-2xl font-bold text-slate-900">Item Master</h1>
                 <div className="flex flex-wrap items-center gap-2">
                     {tab === 'items' && (access.canCreateItem || access.canEditItem) ? (
-                        <button type="button" onClick={() => navigateFromList(router, '/inventory/item-master/add-stock', listHref)} className={primaryButtonClass}>
+                        <button type="button" onClick={() => setAddStockOpen(true)} className={primaryButtonClass}>
                             <PackagePlus size={15} /> Add Stock
                         </button>
                     ) : null}
@@ -765,7 +774,7 @@ export default function ItemMasterList() {
             {tab === 'items' ? (
                 <>
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[860px] text-left">
+                        <table className="w-full min-w-[980px] text-left">
                             <thead>
                                 <tr className="bg-[#F8FAFC] text-[11px] uppercase tracking-wide text-slate-400">
                                     {itemHeadings.map((heading) => (
@@ -789,6 +798,13 @@ export default function ItemMasterList() {
                                         className="cursor-pointer border-t border-slate-100 text-sm text-slate-700 hover:bg-slate-50"
                                     >
                                         <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-500">{row.itemCode}</td>
+                                        <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-800">{row.itemName}</td>
+                                        <ItemLinkCell
+                                            name={row.brandName}
+                                            label="brand"
+                                            onOpen={row.brandId ? () => showItems({ caption: `brand ${row.brandName || ''}`.trim(), brandId: row.brandId }) : null}
+                                        />
+                                        <td className="whitespace-nowrap px-3 py-3">{row.modelNumber}</td>
                                         <DescriptionCell
                                             text={row.description}
                                             open={openDescriptions.has(row._id)}
@@ -802,16 +818,10 @@ export default function ItemMasterList() {
                                             }}
                                         />
                                         <ItemLinkCell
-                                            name={row.brandName}
-                                            label="brand"
-                                            onOpen={row.brandId ? () => showItems({ caption: `brand ${row.brandName || ''}`.trim(), brandId: row.brandId }) : null}
-                                        />
-                                        <ItemLinkCell
                                             name={row.categoryName}
                                             label="category"
                                             onOpen={row.categoryId ? () => showItems({ caption: `category ${row.categoryName || ''}`.trim(), categoryId: row.categoryId }) : null}
                                         />
-                                        <td className="whitespace-nowrap px-3 py-3">{row.modelNumber}</td>
                                         <td className={`whitespace-nowrap px-3 py-3 font-semibold ${availableClass(row)}`}>{row.availableQuantity}</td>
                                         <td className="whitespace-nowrap px-3 py-3">
                                             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass[row.status] || 'bg-slate-100 text-slate-600'}`}>
@@ -826,6 +836,8 @@ export default function ItemMasterList() {
                                                     deleteLabel={`Delete ${row.itemCode || 'item'}`}
                                                     onEdit={access.canEditItem ? () => navigateFromList(router, `/inventory/item-master/${row._id}/edit`, listHref) : null}
                                                     onDelete={access.canDeleteItem ? () => removeItem(row) : null}
+                                                    deleteDisabled={countOf(row.availableQuantity) > 0}
+                                                    deleteTitle={STOCK_DELETE_TITLE}
                                                 />
                                             </td>
                                         ) : null}
@@ -868,6 +880,7 @@ export default function ItemMasterList() {
                     onOpen={(columnKey, row) => openCount('category', columnKey, row)}
                     onEdit={access.canEditCategory ? (row) => openEdit('category', row) : null}
                     onDelete={access.canDeleteCategory ? (row) => removeCatalog('category', row) : null}
+                    deleteLocked={(row) => countOf(row.stockQuantity) > 0}
                     deletingId={deletingId}
                     page={page}
                     pageSize={pageSize}
@@ -894,6 +907,7 @@ export default function ItemMasterList() {
                     onOpen={(columnKey, row) => openCount('subcategory', columnKey, row)}
                     onEdit={access.canEditSubcategory ? (row) => openEdit('subcategory', row) : null}
                     onDelete={access.canDeleteSubcategory ? (row) => removeCatalog('subcategory', row) : null}
+                    deleteLocked={(row) => countOf(row.stockQuantity) > 0}
                     deletingId={deletingId}
                     page={page}
                     pageSize={pageSize}
@@ -973,6 +987,20 @@ export default function ItemMasterList() {
                     onSaved={(saved) => finishCatalogSave('brand', saved)}
                 />
             ) : null}
+            {addStockOpen ? (
+                <AddStockModal
+                    onClose={() => {
+                        setAddStockOpen(false);
+                        if (searchParams.get('addStock') === '1') {
+                            const next = new URLSearchParams(searchParams.toString());
+                            next.delete('addStock');
+                            const query = next.toString();
+                            router.replace(query ? `/inventory/item-master?${query}` : '/inventory/item-master');
+                        }
+                    }}
+                    onSaved={() => setReloadToken((value) => value + 1)}
+                />
+            ) : null}
         </div>
     );
 }
@@ -1008,7 +1036,7 @@ function DescriptionCell({ text, open, onToggle }) {
                         onToggle();
                     }}
                     className="text-blue-700 hover:underline"
-                    aria-label="Show full item name"
+                    aria-label="Show full description"
                 >
                     ...
                 </button>
@@ -1035,13 +1063,14 @@ function ItemLinkCell({ name, label, onOpen }) {
     );
 }
 
-function RowActions({ editLabel, deleteLabel, deleting, onEdit, onDelete, compact = false }) {
+function RowActions({ editLabel, deleteLabel, deleting, onEdit, onDelete, deleteDisabled = false, deleteTitle = '', compact = false }) {
     const editClass = compact
         ? 'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50'
         : 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50';
     const deleteClass = compact
-        ? 'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50'
-        : 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50';
+        ? 'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50'
+        : 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50';
+    const locked = Boolean(deleteDisabled);
     return (
         <div className={`flex items-center ${compact ? 'gap-1' : 'gap-2'}`}>
             {onEdit ? (
@@ -1050,7 +1079,14 @@ function RowActions({ editLabel, deleteLabel, deleting, onEdit, onDelete, compac
                 </button>
             ) : null}
             {onDelete ? (
-                <button type="button" disabled={deleting} onClick={onDelete} className={deleteClass} aria-label={deleteLabel} title={deleting ? 'Deleting...' : 'Delete'}>
+                <button
+                    type="button"
+                    disabled={deleting || locked}
+                    onClick={onDelete}
+                    className={deleteClass}
+                    aria-label={deleteLabel}
+                    title={locked ? (deleteTitle || STOCK_DELETE_TITLE) : (deleting ? 'Deleting...' : 'Delete')}
+                >
                     <Trash2 size={13} /> {compact ? null : (deleting ? 'Deleting...' : 'Delete')}
                 </button>
             ) : null}
@@ -1150,7 +1186,7 @@ function CatalogImage({ src, pending, name }) {
     );
 }
 
-function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onDelete, deletingId, page, pageSize, onPageChange, onPageSizeChange, serial = false, images = null, imagesLoading = false }) {
+function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onDelete, deleteLocked = null, deletingId, page, pageSize, onPageChange, onPageSizeChange, serial = false, images = null, imagesLoading = false }) {
     const showActions = Boolean(onEdit || onDelete);
     const showImage = images != null;
     const columnCount = columns.length + (showActions ? 1 : 0) + (serial ? 1 : 0) + (showImage ? 1 : 0);
@@ -1237,6 +1273,8 @@ function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onD
                                             deleteLabel={`Delete ${row.name || noun}`}
                                             onEdit={onEdit ? () => onEdit(row) : null}
                                             onDelete={onDelete ? () => onDelete(row) : null}
+                                            deleteDisabled={Boolean(deleteLocked && deleteLocked(row))}
+                                            deleteTitle={STOCK_DELETE_TITLE}
                                         />
                                     </td>
                                 ) : null}

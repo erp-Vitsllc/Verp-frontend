@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { pendingHold, taskWaitingText } from './pendingHoldLine.js';
+import { completionApprovalStatus, pendingHold, taskWaitingText } from './pendingHoldLine.js';
 
 describe('pending hold line', () => {
     it('names the approval and the employee the task is waiting on', () => {
@@ -111,6 +111,35 @@ describe('pending hold line', () => {
             requesterName: 'Raseel Muhammad',
             holdSteps: [{ key: 'assigned', status: 'In Progress', personName: 'SHAMEEM ABDUL KAREEM' }],
         }).text, 'Pending with Raseel M');
+    });
+
+    it('shows a completed line in green for the requester and a waiting line for everyone else', () => {
+        const review = {
+            displayStatus: 'Pending Review',
+            reviewPending: true,
+            assigneeName: 'Raseel Muhammad',
+            requesterName: 'Farsana Ashraf',
+        };
+        assert.deepEqual(completionApprovalStatus(review, true), {
+            tone: 'completed',
+            text: 'Completed, waiting for Farsana A',
+        });
+        assert.deepEqual(completionApprovalStatus(review, false), {
+            tone: 'waiting',
+            text: 'Waiting for Farsana A',
+        });
+        const handedBack = {
+            displayStatus: 'Pending',
+            completionPending: true,
+            originalAssigneeName: 'Vishnu Prasad',
+            reassignedAssigneeName: 'Raseel Muhammad',
+            requesterName: 'Raj Angadembe',
+        };
+        assert.equal(completionApprovalStatus(handedBack, true).text, 'Completed, waiting for Vishnu P');
+        assert.equal(completionApprovalStatus(handedBack, true).tone, 'completed');
+        assert.equal(completionApprovalStatus(handedBack, false).text, 'Waiting for Vishnu P');
+        assert.equal(completionApprovalStatus(handedBack, false).tone, 'waiting');
+        assert.equal(completionApprovalStatus({ ...review, displayStatus: 'Completed', status: 'Completed' }, true), null);
     });
 
     it('stays hidden once the task is finished', () => {

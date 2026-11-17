@@ -28,8 +28,8 @@ import { useRegisterErpBackHandler } from '@/contexts/ErpBackHandlerContext';
 import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation';
 import LinkedText from '@/app/task-manager/linkedText';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
-import { taskWaitingText } from '@/app/task-manager/pendingHoldLine';
-import { pinnedAssignee, taskWaitingOnRequester } from '@/app/task-manager/taskInbox';
+import { completionApprovalStatus, taskWaitingText } from '@/app/task-manager/pendingHoldLine';
+import { pinnedAssignee, taskWaitingOnRequester, viewerRequestedTask } from '@/app/task-manager/taskInbox';
 import { deletedTaskToastDescription, refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
 import { isSystemSuperUser } from '@/utils/permissions';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
@@ -265,6 +265,16 @@ function TaskDetailsPage() {
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
+    const [viewer, setViewer] = useState(null);
+
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem('user') || localStorage.getItem('employeeUser');
+            setViewer(raw ? JSON.parse(raw) : null);
+        } catch {
+            setViewer(null);
+        }
+    }, []);
 
     const load = useCallback(async () => {
         const res = await axiosInstance.get(`/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}`, { skipToast: true });
@@ -625,6 +635,13 @@ function TaskDetailsPage() {
     const taskFinished = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.status === 'Cancelled' || task.status === 'Rejected' || task.closeScheduled || task.completionPending || task.reviewPending;
     const updatesLocked = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.status === 'Closed';
     const pendingWith = taskWaitingText(task);
+    const approvalStatus = completionApprovalStatus(task, viewerRequestedTask(task, viewer));
+    const statusText = approvalStatus?.text || pendingWith?.text || shownStatus;
+    const statusTone = approvalStatus?.tone === 'completed'
+        ? STATUS_STYLE.Completed
+        : approvalStatus?.tone === 'waiting'
+            ? PENDING_STYLE
+            : (STATUS_STYLE[shownStatus] || 'bg-slate-100 text-slate-600');
     const waitingForRequester = taskWaitingOnRequester(task);
     const actionLocked = generalClosed
         || task.displayStatus === 'Closed'
@@ -656,8 +673,8 @@ function TaskDetailsPage() {
                         <div>
                             <div className="flex flex-wrap items-center gap-2">
                                 <h1 className="text-lg font-bold text-slate-900">{number || 'Task'}</h1>
-                                <span className={`max-w-full whitespace-normal rounded-full px-2 py-0.5 text-xs font-semibold leading-5 ${STATUS_STYLE[shownStatus] || 'bg-slate-100 text-slate-600'}`}>
-                                    {pendingWith?.text || shownStatus}
+                                <span className={`max-w-full whitespace-normal rounded-full px-2 py-0.5 text-xs font-semibold leading-5 ${statusTone}`}>
+                                    {statusText}
                                 </span>
                             </div>
                             <h2 className="mt-1 text-2xl font-bold text-slate-900">{nameLines[0]}</h2>
@@ -874,7 +891,7 @@ function TaskDetailsPage() {
                         <Fact label="Task Priority" value={task.priority} pill={PRIORITY_STYLE[task.priority]} />
                         <Fact label="Request Date" value={formatWhen(task.requestDate)} icon={Calendar} />
                         <Fact label="Task Completion Date" value={formatDay(task.completionDate)} icon={Calendar} />
-                        <Fact label="Task Status" value={pendingWith?.text || shownStatus} pill={STATUS_STYLE[shownStatus] || 'bg-slate-100 text-slate-600'} />
+                        <Fact label="Task Status" value={statusText} pill={statusTone} />
                     </div>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
                         <PersonFact label="Requester Name" name={task.requesterName} role={task.requesterRole} photo={task.requesterPhoto} />

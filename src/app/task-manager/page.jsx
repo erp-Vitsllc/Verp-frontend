@@ -28,8 +28,8 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { formatCommandCenterNotificationMessage } from '@/utils/dashboardCommandCenterInbox';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
-import { taskWaitingText } from '@/app/task-manager/pendingHoldLine';
-import { finishedWorkRoles, openTaskTabs, pinnedAssignee, taskHasReassignee, taskWaitingOnRequester } from '@/app/task-manager/taskInbox';
+import { completionApprovalStatus, taskWaitingText } from '@/app/task-manager/pendingHoldLine';
+import { finishedWorkRoles, openTaskTabs, pinnedAssignee, taskHasReassignee, taskWaitingOnRequester, viewerRequestedTask } from '@/app/task-manager/taskInbox';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
 import { basePersonName, employeeListName, listedTaskNameLines, personKey, requesterEmployeeName, taskRolePeople } from '@/app/task-manager/taskRolePeople';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
@@ -200,6 +200,9 @@ function taskDetailsHref(task, tab) {
 }
 
 function taskIsMine(task, viewer) {
+    if (task?.reviewPending || task?.completionPending) {
+        return openTaskTabs(task, tabRole(task, viewer)).mine;
+    }
     if (taskWaitingOnRequester(task)) return false;
     // The stored mine flag is true for both people on a reassigned task. Only the reassignee still has the work.
     if (taskHasReassignee(task)) return viewerIsReassignedHolder(task, viewer);
@@ -326,13 +329,7 @@ function dateColumnLabel(board) {
 }
 
 function requestedByViewer(task, viewer) {
-    if (!viewer || !task) return false;
-    const { ids, names } = viewerIdentity(viewer);
-    const requesterIds = [task.requestedByUserId, task.requesterId, task.requestedById]
-        .map((value) => String(value || ''))
-        .filter(Boolean);
-    if (requesterIds.some((id) => ids.includes(id))) return true;
-    return viewerNameHits(names, requesterEmployeeName(task));
+    return viewerRequestedTask(task, viewer);
 }
 
 function taskIsCompleted(task) {
@@ -394,11 +391,12 @@ function taskOnBoard(task, board, viewer, stateFilter) {
         return openTaskTabs(task, tabRole(task, viewer)).requests && taskIsOpenState(task);
     }
     if (board === 'mine') {
-        if (taskWaitingOnRequester(task)) return false;
+        const tabs = openTaskTabs(task, tabRole(task, viewer));
+        if (taskWaitingOnRequester(task) && !tabs.mine) return false;
         const done = ownWorkDone(task, viewer);
         if (closed) return done || (assignedToViewer(task, viewer) && taskIsClosedState(task));
         if (done) return false;
-        return openTaskTabs(task, tabRole(task, viewer)).mine && taskIsOpenState(task);
+        return tabs.mine && taskIsOpenState(task);
     }
     if (board === 'completed') return taskInBoard(task, 'completed', viewer);
     return false;
@@ -644,12 +642,19 @@ function pageList(current, total) {
     return out;
 }
 
-function StatusCell({ task }) {
+function StatusCell({ task, viewer }) {
+    const approval = completionApprovalStatus(task, requestedByViewer(task, viewer));
     const badge = listStatus(task);
     const waiting = taskWaitingText(task);
+    const text = approval?.text || waiting?.text || badge;
+    const tone = approval?.tone === 'completed'
+        ? STATUS_STYLE.Completed
+        : approval?.tone === 'waiting'
+            ? PENDING_STYLE
+            : (STATUS_STYLE[badge] || 'bg-slate-100 text-slate-600');
     return (
-        <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-left text-[12px] font-semibold leading-4 ${STATUS_STYLE[badge] || 'bg-slate-100 text-slate-600'}`}>
-            {waiting?.text || badge}
+        <span className={`inline-flex rounded-full px-2.5 py-1 text-left text-[12px] font-semibold leading-4 ${approval ? 'whitespace-normal' : 'whitespace-nowrap'} ${tone}`}>
+            {text}
         </span>
     );
 }
@@ -1744,7 +1749,7 @@ function TaskManagerContent() {
                                                         </span>
                                                     </td>
                                                     <td className="px-3 py-3.5">
-                                                        <StatusCell task={task} />
+                                                        <StatusCell task={task} viewer={viewer} />
                                                     </td>
                                                     <td className="px-3 py-3.5 text-right">
                                                         <div className="inline-flex items-center justify-end gap-1">

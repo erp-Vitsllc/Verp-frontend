@@ -1,4 +1,4 @@
-import { basePersonName } from './taskRolePeople.js';
+import { basePersonName, requesterEmployeeName } from './taskRolePeople.js';
 
 const FINISHED = new Set(['Completed', 'Closed', 'Rejected', 'Cancelled', 'Dismissed']);
 const BLANK_ASSIGNEE = new Set(['', '-', '—', '–']);
@@ -122,10 +122,39 @@ export function finishedWorkRoles(task, identity = {}) {
     return roles;
 }
 
+/** The signed-in person created this task. */
+export function viewerRequestedTask(task, viewer) {
+    if (!viewer || !task) return false;
+    const ids = [viewer.employeeObjectId, viewer.empObjectId, viewer._id, viewer.id, viewer.userId]
+        .map((value) => String(value || ''))
+        .filter(Boolean);
+    const requesterIds = [task.requestedByUserId, task.requesterId, task.requestedById]
+        .map((value) => String(value || ''))
+        .filter(Boolean);
+    if (requesterIds.some((id) => ids.includes(id))) return true;
+    const names = [viewer.name, viewer.username]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean);
+    const raw = String(requesterEmployeeName(task) || '').trim().toLowerCase();
+    if (!raw) return false;
+    if (names.includes(raw)) return true;
+    const base = basePersonName(requesterEmployeeName(task)).toLowerCase();
+    return Boolean(base && names.includes(base));
+}
+
+/**
+ * Assignee or reassignee sent completed, and a requester or assignee still has to accept it.
+ */
+export function completionAwaitingApproval(task) {
+    if (!task || finishedTask(task)) return false;
+    return Boolean(task.reviewPending) || Boolean(task.completionPending);
+}
+
 /**
  * Open-task tabs for one viewer.
  * Review Pending: nobody is assigned, or the assignee finished and the requester has not approved.
  * My Task: the person who has the work now. A reassignee holds it.
+ * After someone sends completed, that employee and the requester keep it on My Task until it is accepted.
  * My Requests: tasks this person requested, and tasks they handed to a reassignee.
  */
 export function openTaskTabs(task, role = {}) {
@@ -133,12 +162,14 @@ export function openTaskTabs(task, role = {}) {
     const holder = Boolean(role.reassignedHolder);
     const original = Boolean(role.originalAssignee);
     const assignee = Boolean(role.assignee);
+    const awaiting = completionAwaitingApproval(task);
     if (taskWaitingOnRequester(task)) {
-        return { mine: false, requests: false, review: requester };
+        const completedHolder = taskHasReassignee(task) ? holder : assignee;
+        return { mine: awaiting && (requester || completedHolder), requests: false, review: requester };
     }
     const reassigned = taskHasReassignee(task);
     return {
-        mine: reassigned ? holder : assignee,
+        mine: (reassigned ? holder : assignee) || (requester && awaiting),
         requests: requester || (reassigned && original && !holder),
         review: false,
     };

@@ -36,8 +36,27 @@ describe('task inbox tabs', () => {
         };
         assert.equal(taskWaitingOnRequester(task), true);
         assert.equal(openTaskTabs(task, { ...requester, assignee: true }).review, true);
-        assert.equal(openTaskTabs(task, { ...requester, assignee: true }).mine, false);
+        assert.equal(openTaskTabs(task, { ...requester, assignee: true }).mine, true);
         assert.equal(openTaskTabs(task, { ...requester, assignee: true }).requests, false);
+        assert.deepEqual(openTaskTabs(task, { assignee: true }), { mine: true, requests: false, review: false });
+        assert.deepEqual(openTaskTabs(task, {}), { mine: false, requests: false, review: false });
+    });
+
+    it('keeps a reassignee completion on the requester My Task until they accept', () => {
+        const task = {
+            displayStatus: 'Pending',
+            completionPending: true,
+            assigneeName: 'Raseel Muhammad',
+            originalAssigneeName: 'Raseel Muhammad',
+            reassignedAssigneeName: 'Akhila Prasad',
+            reassignedAssigneeId: 'b2',
+        };
+        assert.deepEqual(openTaskTabs(task, requester), { mine: true, requests: true, review: false });
+        assert.deepEqual(openTaskTabs(task, { reassignedHolder: true, assignee: true }), {
+            mine: true,
+            requests: false,
+            review: false,
+        });
     });
 
     it('keeps the last assignee in the assignee slot while the requester reviews', () => {

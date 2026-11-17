@@ -13,6 +13,7 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
     const [pickerOpen, setPickerOpen] = useState(false);
     const [employeeQuery, setEmployeeQuery] = useState('');
     const pickerRef = useRef(null);
+    const justPickedRef = useRef(false);
 
     const selectedEmployee = employees.find((employee) => employee.id === assigneeId) || null;
     const visibleEmployees = useMemo(() => {
@@ -47,6 +48,17 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
             cancelled = true;
         };
     }, []);
+
+    const selectEmployee = (employeeId) => {
+        justPickedRef.current = true;
+        setAssigneeId(employeeId);
+        setEmployeeQuery('');
+        setPickerOpen(false);
+        setError('');
+        window.setTimeout(() => {
+            justPickedRef.current = false;
+        }, 300);
+    };
 
     const submit = async (event) => {
         event.preventDefault();
@@ -102,13 +114,19 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
                             <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-600">{task.priority}</span>
                         </div>
                     </div>
-                    <label className="block">
+                    <div className="block">
                         <span className="mb-1.5 block text-[13px] font-semibold text-slate-800">New Assignee <span className="text-rose-500">*</span></span>
                         <div className="relative" ref={pickerRef}>
                             <User size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                             <button
                                 type="button"
-                                onClick={() => setPickerOpen((open) => !open)}
+                                onClick={() => {
+                                    if (justPickedRef.current) {
+                                        setPickerOpen(false);
+                                        return;
+                                    }
+                                    setPickerOpen((open) => !open);
+                                }}
                                 className="flex h-10 w-full items-center rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-left text-sm text-slate-700 outline-none focus:border-blue-500"
                             >
                                 <span className={selectedEmployee ? 'truncate text-slate-800' : 'truncate text-slate-400'}>
@@ -137,12 +155,11 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
                                             <li key={employee.id}>
                                                 <button
                                                     type="button"
-                                                    onClick={() => {
-                                                        setAssigneeId(employee.id);
-                                                        setEmployeeQuery('');
-                                                        setPickerOpen(false);
-                                                        setError('');
+                                                    onMouseDown={(event) => {
+                                                        event.preventDefault();
+                                                        selectEmployee(employee.id);
                                                     }}
+                                                    onClick={() => selectEmployee(employee.id)}
                                                     className={`block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
                                                         employee.id === assigneeId ? 'bg-blue-50 font-semibold text-[#2563EB]' : 'text-slate-700'
                                                     }`}
@@ -155,7 +172,7 @@ export default function ReassignTaskModal({ task, onClose, onDone }) {
                                 </div>
                             )}
                         </div>
-                    </label>
+                    </div>
                     <label className="block">
                         <span className="mb-1.5 flex items-center justify-between text-[13px] font-semibold text-slate-800">
                             <span>Description <span className="text-rose-500">*</span></span>

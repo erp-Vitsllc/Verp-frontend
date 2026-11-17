@@ -107,6 +107,43 @@ export function pendingHold({ status, steps, assigneeName, finished = false } = 
     return { lines, approval: lines[0].approval, name: lines[0].name, text: `Pending with ${names.join(', ')}` };
 }
 
+/**
+ * Status while a completion is waiting for the requester or the assignee to accept it.
+ * The requester sees a completed line. Everyone else sees only who it is waiting for.
+ */
+export function completionApprovalStatus(task, viewerIsRequester) {
+    if (!task) return null;
+    const raw = String(task.displayStatus || task.status || '').trim();
+    const finished = Boolean(task.closeScheduled)
+        || raw === 'Completed'
+        || raw === 'Closed'
+        || raw === 'Approved'
+        || raw === 'Rejected'
+        || raw === 'Cancelled'
+        || raw === 'Dismissed'
+        || task.status === 'Completed'
+        || task.status === 'Cancelled'
+        || task.status === 'Rejected';
+    if (finished) return null;
+    const review = Boolean(task.reviewPending);
+    const completion = Boolean(task.completionPending);
+    if (!review && !completion) return null;
+    const rawName = review
+        ? requesterEmployeeName(task)
+        : (task.originalAssigneeName || task.mainAssigneeName || task.assigneeName || '');
+    const name = employeeListName(rawName);
+    if (viewerIsRequester) {
+        return {
+            tone: 'completed',
+            text: name ? `Completed, waiting for ${name}` : 'Completed, waiting for approval',
+        };
+    }
+    return {
+        tone: 'waiting',
+        text: name ? `Waiting for ${name}` : 'Waiting for approval',
+    };
+}
+
 /** Same waiting sentence for the task list and the task details. */
 export function taskWaitingText(task, steps) {
     if (!task) return null;
