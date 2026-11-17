@@ -27,6 +27,7 @@ import {
 } from './itemMasterApi';
 
 const STATUSES = ['Stock In', 'Low Stock', 'Out of Stock'];
+const DEFAULT_STOCK_STATUS = 'Stock In';
 const TABS = [
     { id: 'items', label: 'Items' },
     { id: 'category', label: 'Category' },
@@ -123,6 +124,12 @@ function tabParam(params) {
     return TABS.some((tab) => tab.id === value) ? value : 'items';
 }
 
+function stockStatusParam(params) {
+    const value = textParam(params, 'status');
+    if (value === 'All' || STATUSES.includes(value)) return value;
+    return DEFAULT_STOCK_STATUS;
+}
+
 function itemListHref({ tab, search, categoryId, subcategoryId, brandId, status, page, pageSize }) {
     return buildListReturnHref('/inventory/item-master', {
         tab: tab && tab !== 'items' ? tab : '',
@@ -130,7 +137,7 @@ function itemListHref({ tab, search, categoryId, subcategoryId, brandId, status,
         category: categoryId,
         subcategory: subcategoryId,
         brand: brandId,
-        status,
+        status: status !== DEFAULT_STOCK_STATUS ? status : '',
         page: page > 1 ? page : '',
         size: pageSize && pageSize !== '10' ? pageSize : '',
     });
@@ -224,7 +231,7 @@ export default function ItemMasterList() {
     const [categoryId, setCategoryId] = useState(() => textParam(searchParams, 'category'));
     const [subcategoryId, setSubcategoryId] = useState(() => textParam(searchParams, 'subcategory'));
     const [brandId, setBrandId] = useState(() => textParam(searchParams, 'brand'));
-    const [status, setStatus] = useState(() => textParam(searchParams, 'status'));
+    const [status, setStatus] = useState(() => stockStatusParam(searchParams));
     const [linkedList, setLinkedList] = useState(null);
     const [modal, setModal] = useState('');
     const [returnToSubcategory, setReturnToSubcategory] = useState(false);
@@ -245,7 +252,7 @@ export default function ItemMasterList() {
         categoryId,
         subcategoryId,
         brandId,
-        status,
+        status: status !== DEFAULT_STOCK_STATUS ? status : '',
         page,
         pageSize,
     }), [brandId, categoryId, page, pageSize, search, status, subcategoryId, tab]);
@@ -256,7 +263,7 @@ export default function ItemMasterList() {
         category: categoryId,
         subcategory: subcategoryId,
         brand: brandId,
-        status,
+        status: status !== DEFAULT_STOCK_STATUS ? status : '',
         page: page > 1 ? page : '',
         size: pageSize !== '10' ? pageSize : '',
     });
@@ -269,7 +276,7 @@ export default function ItemMasterList() {
         setCategoryId(textParam(searchParams, 'category'));
         setSubcategoryId(textParam(searchParams, 'subcategory'));
         setBrandId(textParam(searchParams, 'brand'));
-        setStatus(textParam(searchParams, 'status'));
+        setStatus(stockStatusParam(searchParams));
         setPage(pageParam(searchParams));
         setPageSize(pageSizeParam(searchParams));
     }, [searchKey, searchParams]);
@@ -331,7 +338,7 @@ export default function ItemMasterList() {
             categoryId,
             subcategoryId,
             brandId,
-            status,
+            status: status !== DEFAULT_STOCK_STATUS ? status : '',
         })
             .then((result) => {
                 if (cancelled) return;
@@ -598,7 +605,15 @@ export default function ItemMasterList() {
 
     const exportCsv = async () => {
         try {
-            const result = await listItems({ page: 1, limit: 0, search, categoryId, subcategoryId, brandId, status });
+            const result = await listItems({
+                page: 1,
+                limit: 0,
+                search,
+                categoryId,
+                subcategoryId,
+                brandId,
+                status: status !== DEFAULT_STOCK_STATUS ? status : '',
+            });
             const header = ['Item Code', 'Description', 'Brand', 'Category', 'Model', 'Available', 'Status'];
             const lines = [header.map(csvCell).join(',')];
             (result.items || []).forEach((row) => {
@@ -720,7 +735,7 @@ export default function ItemMasterList() {
                             {brands.map((row) => <option key={row._id} value={row._id}>{row.name}</option>)}
                         </Filter>
                         <Filter label="Stock Status" value={status} onChange={(value) => { setPage(1); setStatus(value); }}>
-                            <option value="">All</option>
+                            <option value="All">All</option>
                             {STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
                         </Filter>
                         <Filter label="Warehouse" value="" onChange={() => {}}>
@@ -762,7 +777,7 @@ export default function ItemMasterList() {
                                 {loading ? (
                                     <tr><td colSpan={itemColumnCount} className="px-3 py-8 text-center text-sm text-slate-400">Loading items...</td></tr>
                                 ) : rows.length === 0 ? (
-                                    <tr><td colSpan={itemColumnCount} className="px-3 py-8 text-center text-sm text-slate-400">{search || categoryId || subcategoryId || brandId || status ? 'No items match this filter.' : 'No items yet.'}</td></tr>
+                                    <tr><td colSpan={itemColumnCount} className="px-3 py-8 text-center text-sm text-slate-400">{search || categoryId || subcategoryId || brandId || status !== DEFAULT_STOCK_STATUS ? 'No items match this filter.' : 'No items yet.'}</td></tr>
                                 ) : rows.map((row) => (
                                     <ListTableRowLink
                                         key={row._id}

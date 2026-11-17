@@ -120,6 +120,15 @@ export function taskWaitingText(task, steps) {
         || task.status === 'Completed'
         || task.status === 'Cancelled'
         || task.status === 'Rejected';
+    if (!finished && task.reviewAccepted && task.taskCategory === 'General Task') {
+        const name = employeeListName(requesterEmployeeName(task));
+        return {
+            approval: '',
+            name,
+            lines: [],
+            text: name ? `Pending with ${name}` : 'Pending with requester',
+        };
+    }
     if (!finished && taskWaitingOnRequester(task)) {
         const name = employeeListName(requesterEmployeeName(task));
         return {

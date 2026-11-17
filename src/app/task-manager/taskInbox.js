@@ -43,6 +43,7 @@ function taskHasAssignee(task) {
 export function taskWaitingOnRequester(task) {
     if (finishedTask(task)) return false;
     if (task.reviewPending) return true;
+    if (task.reviewAccepted && task.taskCategory === 'General Task') return true;
     const display = String(task.displayStatus || '').trim();
     const raw = String(task.status || '').trim();
     if (display === 'Pending Review' || raw === 'Pending Review') return true;

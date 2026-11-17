@@ -2,7 +2,7 @@
 
 import { LIST_PAGE_SIZES } from './listPageSize';
 
-const LABELS = { 10: '10', 20: '20', 50: '50', all: 'All' };
+const LABELS = { 10: '10', 20: '20', 50: '50', 100: '100', all: 'All' };
 
 export default function PageSizeSelect({ value, onChange, disabled = false }) {
     return (

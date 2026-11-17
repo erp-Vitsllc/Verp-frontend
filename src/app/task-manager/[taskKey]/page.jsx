@@ -770,10 +770,10 @@ function TaskDetailsPage() {
                                     onClick={closeUnassigned}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
                                 >
-                                    <Check size={14} /> Close
+                                    <Check size={14} /> {generalTask ? 'Close task' : 'Close'}
                                 </button>
                             )}
-                            {task.canCloseNow && (
+                            {task.canCloseNow && !generalTask && (
                                 <button
                                     type="button"
                                     disabled={busy}

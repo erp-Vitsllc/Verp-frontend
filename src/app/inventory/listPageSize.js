@@ -1,4 +1,4 @@
-export const LIST_PAGE_SIZES = ['10', '20', '50', 'all'];
+export const LIST_PAGE_SIZES = ['10', '20', '50', '100', 'all'];
 
 export function pageSizeParam(params) {
     const value = String(params.get('size') || '10');

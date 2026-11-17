@@ -103,6 +103,14 @@ describe('pending hold line', () => {
             requesterBaseName: 'Farsana Ashraf',
             holdSteps: [{ key: 'assigned', status: 'In Progress', personName: 'Raseel Muhammad' }],
         }).text, 'Waiting for Farsana A');
+        assert.equal(taskWaitingText({
+            displayStatus: 'Pending',
+            taskCategory: 'General Task',
+            reviewAccepted: true,
+            assigneeName: 'SHAMEEM ABDUL KAREEM',
+            requesterName: 'Raseel Muhammad',
+            holdSteps: [{ key: 'assigned', status: 'In Progress', personName: 'SHAMEEM ABDUL KAREEM' }],
+        }).text, 'Pending with Raseel M');
     });
 
     it('stays hidden once the task is finished', () => {
