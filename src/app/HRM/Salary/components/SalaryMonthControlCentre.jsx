@@ -406,27 +406,28 @@ function employeeIdKey(value) {
     return String(value || '').trim().replace(/\s+/g, '').toUpperCase();
 }
 
-/** Paid is a green slot. Not paid is any other salary slot. Pending is a yellow slot. Processed is a green row. */
+/**
+ * Totals for the employees of this month only.
+ * Paid is a green slot (Zoho expense added). Not paid is every other employee in the list.
+ * Not processed is no slot number. Processed is any slot added this month.
+ */
 function slotPaySummary(employees, slotToneByEmployee, slotNoByEmployee) {
     let paidNet = 0;
     let unpaidNet = 0;
-    let pendingCount = 0;
-    let processedCount = 0;
+    let notProcessedNet = 0;
+    let processedNet = 0;
     for (const emp of employees || []) {
         const key = employeeIdKey(emp?.employeeId);
         if (!key) continue;
-        const tone = slotToneByEmployee?.get(key) || '';
-        const slotted = Boolean(tone) || Boolean(slotNoByEmployee?.has(key));
         const net = employeeNetPayable(emp);
-        if (tone === 'done') {
-            paidNet += net;
-            processedCount += 1;
-        } else if (slotted) {
-            unpaidNet += net;
-        }
-        if (tone === 'pending') pendingCount += 1;
+        const tone = slotToneByEmployee?.get(key) || '';
+        const hasSlot = slotNoByEmployee?.has(key) === true;
+        if (tone === 'done') paidNet += net;
+        else unpaidNet += net;
+        if (!hasSlot) notProcessedNet += net;
+        else processedNet += net;
     }
-    return { paidNet, unpaidNet, pendingCount, processedCount };
+    return { paidNet, unpaidNet, notProcessedNet, processedNet };
 }
 
 function salaryYearMonth(value) {
@@ -2847,13 +2848,13 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                             label: 'Paid (net)',
                                             value: formatMoney(slotPayStats.paidNet),
                                             tone: 'paid',
-                                            title: 'Net salary of employees in green paid slots',
+                                            title: 'Net salary of employees in a green slot. Zoho expense is added.',
                                         }}
                                         right={{
                                             label: 'Not paid (net)',
                                             value: formatMoney(slotPayStats.unpaidNet),
                                             tone: 'unpaid',
-                                            title: 'Net salary of employees in salary slots that are not green',
+                                            title: 'Net salary of employees in this month whose Zoho expense is not added.',
                                         }}
                                     />
                                 </MetricCard>
@@ -2905,16 +2906,15 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                     )}
                                     <MetricFoot
                                         left={{
-                                            label: 'Pending',
-                                            value: slotPayStats.pendingCount,
-                                            tone: 'pending',
-                                            title: 'Employees in yellow slots',
+                                            label: 'Not processed (net)',
+                                            value: formatMoney(slotPayStats.notProcessedNet),
+                                            title: 'Net salary of employees with no slot this month.',
                                         }}
                                         right={{
-                                            label: 'Processed',
-                                            value: slotPayStats.processedCount,
+                                            label: 'Processed (net)',
+                                            value: formatMoney(slotPayStats.processedNet),
                                             tone: 'processed',
-                                            title: 'Employees on green processed rows',
+                                            title: 'Net salary of employees who are in a slot this month.',
                                         }}
                                     />
                                 </MetricCard>

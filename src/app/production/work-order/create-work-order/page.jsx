@@ -37,7 +37,6 @@ export default function CreateWorkOrderPage() {
                     <main className="w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto bg-[#f3f7fb] p-3 sm:p-5 lg:p-6">
                         <CreateWorkOrderFlow
                             existingNumbers={orders.map((order) => order.workOrderNo).filter(Boolean)}
-                            projects={[...new Set(orders.map((order) => order.projectName).filter(Boolean))]}
                             onClose={back}
                             onSaved={back}
                         />

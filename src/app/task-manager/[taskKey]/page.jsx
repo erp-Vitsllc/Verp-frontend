@@ -26,9 +26,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import { useRegisterErpBackHandler } from '@/contexts/ErpBackHandlerContext';
 import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation';
+import LinkedText from '@/app/task-manager/linkedText';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
 import { taskWaitingText } from '@/app/task-manager/pendingHoldLine';
-import { taskWaitingOnRequester } from '@/app/task-manager/taskInbox';
+import { pinnedAssignee, taskWaitingOnRequester } from '@/app/task-manager/taskInbox';
 import { deletedTaskToastDescription, refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
 import { isSystemSuperUser } from '@/utils/permissions';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
@@ -252,6 +253,7 @@ function TaskDetailsPage() {
     const [task, setTask] = useState(null);
     const [error, setError] = useState('');
     const [editOpen, setEditOpen] = useState(false);
+    const [assignOpen, setAssignOpen] = useState(false);
     const [reassignOpen, setReassignOpen] = useState(false);
     const [noteAction, setNoteAction] = useState(null);
     const [menuOpen, setMenuOpen] = useState(false);
@@ -484,7 +486,7 @@ function TaskDetailsPage() {
             );
             setTask(res.data?.task || null);
             setTab('updates');
-            toast({ title: 'Task recalled', description: res.data?.message || 'The task is back with the reassigned employee.' });
+            toast({ title: 'Task recalled', description: res.data?.message || 'The completion request was removed.' });
         } catch (err) {
             toast({ title: 'Could not recall the task', description: err?.response?.data?.message || 'Try again.' });
         } finally {
@@ -561,7 +563,7 @@ function TaskDetailsPage() {
             );
             setTask(res.data?.task || null);
             setTab('updates');
-            toast({ title: 'Approved', description: res.data?.message || 'The assignee was removed.' });
+            toast({ title: 'Approved', description: res.data?.message || 'The assignee stays on this task.' });
         } catch (err) {
             const pending = pendingFromError(err, task?.accessPath);
             if (pending) setSourceBlock(pending);
@@ -621,8 +623,19 @@ function TaskDetailsPage() {
     const shownStatus = statusLabel(task.displayStatus || task.status);
     const generalClosed = task.taskCategory === 'General Task' && (task.displayStatus === 'Closed' || task.status === 'Completed');
     const taskFinished = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.status === 'Cancelled' || task.status === 'Rejected' || task.closeScheduled || task.completionPending || task.reviewPending;
+    const updatesLocked = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.status === 'Closed';
     const pendingWith = taskWaitingText(task);
     const waitingForRequester = taskWaitingOnRequester(task);
+    const actionLocked = generalClosed
+        || task.displayStatus === 'Closed'
+        || task.displayStatus === 'Completed'
+        || task.status === 'Completed'
+        || task.status === 'Cancelled'
+        || task.status === 'Rejected';
+    const showEdit = Boolean(task.canEdit) && !actionLocked;
+    const showReassign = Boolean(task.canReassign) && !actionLocked;
+    const showAssign = Boolean(task.canAssign) && !actionLocked;
+    const pinned = pinnedAssignee(task);
     const updates = Array.isArray(task.updates) ? task.updates : [];
     const comments = Array.isArray(task.comments) ? task.comments : [];
     const number = task.taskNumber || taskNumber || '';
@@ -720,7 +733,7 @@ function TaskDetailsPage() {
                                     <Check size={14} /> Complete my task
                                 </button>
                             )}
-                            {task.canRecallCompletion && (
+                            {(task.canRecallCompletion || task.canRecallGeneral) && (
                                 <button
                                     type="button"
                                     disabled={busy}
@@ -790,20 +803,30 @@ function TaskDetailsPage() {
                                     <Check size={14} /> Close this request
                                 </button>
                             )}
-                            {!generalClosed && (
+                            {showAssign && (
                                 <button
                                     type="button"
-                                    disabled={!task.canReassign || busy || task.displayStatus === 'Closed' || task.status === 'Completed'}
+                                    disabled={busy}
+                                    onClick={() => setAssignOpen(true)}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    <UserRound size={14} /> Assign
+                                </button>
+                            )}
+                            {showReassign && (
+                                <button
+                                    type="button"
+                                    disabled={busy}
                                     onClick={() => setReassignOpen(true)}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                     <RefreshCw size={14} /> Reassign
                                 </button>
                             )}
-                            {!generalClosed && (
+                            {showEdit && (
                                 <button
                                     type="button"
-                                    disabled={busy || task.displayStatus === 'Closed' || task.status === 'Completed'}
+                                    disabled={busy}
                                     onClick={() => setEditOpen(true)}
                                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                                 >
@@ -857,12 +880,12 @@ function TaskDetailsPage() {
                         <PersonFact label="Requester Name" name={task.requesterName} role={task.requesterRole} photo={task.requesterPhoto} />
                         <PersonFact
                             label="Assignee Name"
-                            name={waitingForRequester ? '' : (task.mainAssigneeName || task.assigneeName)}
-                            role={waitingForRequester ? '' : (task.reassignedAssigneeName ? (task.mainAssigneeRole || 'Assignee') : task.assigneeRole)}
-                            photo={waitingForRequester ? '' : (task.reassignedAssigneeName ? task.mainAssigneePhoto : (task.mainAssigneePhoto || task.assigneePhoto))}
-                            extraName={waitingForRequester ? '' : task.reassignedAssigneeName}
-                            extraPhoto={waitingForRequester ? '' : task.reassignedAssigneePhoto}
-                            extraRole={waitingForRequester ? '' : (task.reassignedAssigneeName ? task.assigneeRole : '')}
+                            name={pinned?.name || (waitingForRequester ? '' : (task.mainAssigneeName || task.assigneeName))}
+                            role={pinned ? pinned.role : (waitingForRequester ? '' : (task.reassignedAssigneeName ? (task.mainAssigneeRole || 'Assignee') : task.assigneeRole))}
+                            photo={pinned ? pinned.photo : (waitingForRequester ? '' : (task.reassignedAssigneeName ? task.mainAssigneePhoto : (task.mainAssigneePhoto || task.assigneePhoto)))}
+                            extraName={pinned || waitingForRequester ? '' : task.reassignedAssigneeName}
+                            extraPhoto={pinned || waitingForRequester ? '' : task.reassignedAssigneePhoto}
+                            extraRole={pinned || waitingForRequester ? '' : (task.reassignedAssigneeName ? task.assigneeRole : '')}
                         />
                         <Fact label="Department" value={task.department || '—'} icon={Building2} />
                         <Fact label="Related To" value={task.relatedTo || task.moduleLabel || '—'} icon={Link2} />
@@ -887,7 +910,11 @@ function TaskDetailsPage() {
                         {tab === 'overview' && (
                             <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-700">
                                 <p className="font-semibold text-slate-800">Description</p>
-                                <p className="mt-2 whitespace-pre-wrap leading-6">{task.description || 'No description.'}</p>
+                                {task.description ? (
+                                    <LinkedText text={task.description} className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700" />
+                                ) : (
+                                    <p className="mt-2 leading-6">No description.</p>
+                                )}
                                 {task.accessPath && task.taskCategory !== 'General Task' ? (
                                     <a
                                         href={task.accessPath}
@@ -904,8 +931,8 @@ function TaskDetailsPage() {
                         {tab === 'updates' && (
                             <div>
                                 <h3 className="mb-3 text-base font-semibold text-slate-800">Work Updates</h3>
-                                <div className={`mb-4 rounded-xl border border-slate-200 p-3 ${taskFinished ? 'opacity-60' : ''}`}>
-                                    <textarea value={updateText} onChange={(event) => setUpdateText(event.target.value)} rows={3} disabled={taskFinished} placeholder={taskFinished ? 'This task is closed. An admin super user can reopen it. The requester of a general task can reopen it with a reason.' : 'Write the work update. Type @ and a name to email that person.'} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-slate-50" />
+                                <div className={`mb-4 rounded-xl border border-slate-200 p-3 ${updatesLocked ? 'opacity-60' : ''}`}>
+                                    <textarea value={updateText} onChange={(event) => setUpdateText(event.target.value)} rows={3} disabled={updatesLocked} placeholder={updatesLocked ? 'This task is closed. An admin super user can reopen it. The requester of a general task can reopen it with a reason.' : 'Write the work update. Type @ and a name to email that person.'} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-slate-50" />
                                     {mentionChoices.length > 0 && (
                                         <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white">
                                             {mentionChoices.map((person) => (
@@ -922,7 +949,7 @@ function TaskDetailsPage() {
                                     )}
                                     <p className="mt-1 text-xs text-slate-500">Type @Name to email that person. With no @, the email goes to the current assignee.</p>
                                     <div className="mt-2 flex justify-end">
-                                        <button type="button" disabled={taskFinished || busy || !updateText.trim()} onClick={addUpdate} className="h-8 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-60">Post update</button>
+                                        <button type="button" disabled={updatesLocked || busy || !updateText.trim()} onClick={addUpdate} className="h-8 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-60">Post update</button>
                                     </div>
                                 </div>
                                 <div className="space-y-4">
@@ -947,7 +974,7 @@ function TaskDetailsPage() {
                                                             {item.badge && <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">{item.badge}</span>}
                                                         </div>
                                                         <p className="text-xs text-slate-500">{item.authorRole || '—'}</p>
-                                                        <p className="mt-1 text-sm text-slate-700">{item.text}</p>
+                                                        <LinkedText text={item.text} className="mt-1 whitespace-pre-wrap text-sm text-slate-700" />
                                                         <EmailChips item={item} />
                                                     </div>
                                                 </div>
@@ -1098,11 +1125,15 @@ function TaskDetailsPage() {
                     </div>
                 </div>
             )}
-            {editOpen && (
+            {(editOpen || assignOpen) && (
                 <CreateTaskModal
                     open
+                    mode={assignOpen ? 'assign' : 'edit'}
                     initialTask={task}
-                    onClose={() => setEditOpen(false)}
+                    onClose={() => {
+                        setEditOpen(false);
+                        setAssignOpen(false);
+                    }}
                     onCreated={() => load()}
                 />
             )}

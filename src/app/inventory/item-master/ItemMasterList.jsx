@@ -917,13 +917,11 @@ export default function ItemMasterList() {
                         empty={catalogEmpty(catalogError, brands, brandScope, catalogQuery, 'Brands could not be loaded.', 'No brands yet.', 'No brands match your search.', linkedList)}
                         images={brandPics.images}
                         imagesLoading={brandPics.loading}
-                        onEdit={access.canEditBrand ? (row) => openEdit('brand', row) : null}
-                        onDelete={access.canDeleteBrand ? (row) => removeCatalog('brand', row) : null}
-                        deletingId={deletingId}
                         page={page}
                         pageSize={pageSize}
                         onPageChange={setPage}
                         onPageSizeChange={changePageSize}
+                        onOpen={(row) => showItems({ caption: `brand ${row.name || ''}`.trim(), brandId: row._id })}
                     />
                 )
             ) : null}
@@ -1073,8 +1071,7 @@ function BrandViewSwitch({ value, onChange }) {
     );
 }
 
-function BrandThumbnailGrid({ rows, loading, empty, images, imagesLoading, onEdit, onDelete, deletingId, page, pageSize, onPageChange, onPageSizeChange }) {
-    const showActions = Boolean(onEdit || onDelete);
+function BrandThumbnailGrid({ rows, loading, empty, images, imagesLoading, page, pageSize, onPageChange, onPageSizeChange, onOpen }) {
     const range = pageWindow(rows.length, page, pageSize);
     const pageRows = slicePage(rows, range.currentPage, pageSize);
     return (
@@ -1084,34 +1081,27 @@ function BrandThumbnailGrid({ rows, loading, empty, images, imagesLoading, onEdi
             ) : rows.length === 0 ? (
                 <p className="py-8 text-center text-sm text-slate-400">{empty}</p>
             ) : (
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                <div className="grid grid-cols-12 gap-3">
                     {pageRows.map((row) => {
                         const image = brandImageSrc(images[String(row._id)]);
+                        const name = row.name || 'Brand';
                         return (
-                            <article key={row._id} className="min-w-0">
-                                <div className={`flex aspect-square items-center justify-center overflow-hidden rounded-xl border border-[#E6EDF5] shadow-sm ${image ? 'bg-white p-3' : 'bg-[#F8FAFC]'}`}>
-                                    {image ? (
-                                        <img src={image} alt="" className="h-full w-full object-contain" />
-                                    ) : imagesLoading ? (
-                                        <span className="h-8 w-8 animate-pulse rounded-md bg-slate-200" />
-                                    ) : (
-                                        <span className="px-3 text-center text-lg font-semibold text-slate-400">{brandInitials(row.name)}</span>
-                                    )}
-                                </div>
-                                <p className="mt-2 truncate text-center text-sm font-medium text-slate-800" title={row.name}>{row.name || '—'}</p>
-                                {showActions ? (
-                                    <div className="mt-2 flex flex-wrap justify-center gap-1">
-                                        <RowActions
-                                            compact
-                                            deleting={String(deletingId) === String(row._id)}
-                                            editLabel={`Edit ${row.name || 'brand'}`}
-                                            deleteLabel={`Delete ${row.name || 'brand'}`}
-                                            onEdit={onEdit ? () => onEdit(row) : null}
-                                            onDelete={onDelete ? () => onDelete(row) : null}
-                                        />
-                                    </div>
-                                ) : null}
-                            </article>
+                            <button
+                                key={row._id}
+                                type="button"
+                                title={name}
+                                aria-label={`Show items for ${name}`}
+                                onClick={() => onOpen(row)}
+                                className={`flex aspect-square min-w-0 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-[#E6EDF5] shadow-sm transition hover:border-blue-300 hover:shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${image ? 'bg-white p-2' : 'bg-[#F8FAFC]'}`}
+                            >
+                                {image ? (
+                                    <img src={image} alt="" className="h-full w-full object-contain" />
+                                ) : imagesLoading ? (
+                                    <span className="h-8 w-8 animate-pulse rounded-md bg-slate-200" />
+                                ) : (
+                                    <span className="px-1 text-center text-sm font-semibold text-slate-400">{brandInitials(row.name)}</span>
+                                )}
+                            </button>
                         );
                     })}
                 </div>

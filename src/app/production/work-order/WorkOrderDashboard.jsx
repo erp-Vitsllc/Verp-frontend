@@ -6,7 +6,6 @@ import axiosInstance from '@/utils/axios';
 import WorkOrderDetails from './WorkOrderDetails';
 import { formatAed, formatWorkOrderDate, nextWorkOrderNo } from './workOrderNumber';
 import {
-    Box,
     Calendar,
     CheckCircle2,
     ChevronRight,
@@ -125,25 +124,6 @@ const ACTIONS = [
         label: 'Create Work Order',
         icon: Plus,
         primary: true,
-        detail: 'A Zoho quotation is required. Each work order keeps one quotation and one LPO. More than one invoice can be raised against it.',
-    },
-    {
-        id: 'attach',
-        label: 'Attach to Project',
-        icon: Link2,
-        detail: 'Link the work order to a project that already exists. A project cannot be created on its own.',
-    },
-    {
-        id: 'project',
-        label: 'Create New Project',
-        icon: Box,
-        detail: 'Open the project from a work order. Independent project creation is not allowed.',
-    },
-    {
-        id: 'draft',
-        label: 'Save Draft',
-        icon: FileText,
-        detail: 'Keep the work order in Draft until the quotation and LPO are in place.',
     },
 ];
 
@@ -264,42 +244,10 @@ function TypeDonut({ total, segments }) {
     );
 }
 
-function Dialog({ title, onClose, children }) {
-    return (
-        <div
-            className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-900/35 p-4 sm:items-center"
-            onMouseDown={onClose}
-        >
-            <div
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="wo-dialog-title"
-                className="w-full max-w-md rounded-2xl border border-[#e6eef6] bg-white p-5 shadow-2xl"
-                onMouseDown={(event) => event.stopPropagation()}
-            >
-                <h3 id="wo-dialog-title" className="text-lg font-semibold text-slate-900">
-                    {title}
-                </h3>
-                <div className="mt-3 text-sm leading-6 text-slate-600">{children}</div>
-                <div className="mt-5 flex justify-end">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className={`rounded-xl bg-[#2f6fed] px-4 py-2 text-sm font-semibold text-white hover:bg-[#245fe0] ${FOCUS}`}
-                    >
-                        Close
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-}
-
 export default function WorkOrderDashboard() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const linkedId = searchParams.get('workOrder') || '';
-    const [action, setAction] = useState(null);
     const [detailId, setDetailId] = useState(linkedId || null);
     const [viewerKeys, setViewerKeys] = useState([]);
     const [orders, setOrders] = useState([]);
@@ -339,15 +287,6 @@ export default function WorkOrderDashboard() {
         }
     }, []);
 
-    useEffect(() => {
-        if (!action) return undefined;
-        const onKey = (event) => {
-            if (event.key === 'Escape') setAction(null);
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [action]);
-
     const summary = useMemo(() => summarize(orders), [orders]);
     const seesOrder = (ids) => ids.filter(Boolean).some((id) => viewerKeys.includes(String(id)));
     const draftNotices = orders.filter((order) => (
@@ -371,10 +310,6 @@ export default function WorkOrderDashboard() {
         document.getElementById('recent-work-orders')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         setPulseTable(true);
         window.setTimeout(() => setPulseTable(false), 900);
-    };
-
-    const closeDialog = () => {
-        setAction(null);
     };
 
     const dismissLpoNotice = async (orderId) => {
@@ -530,11 +465,7 @@ export default function WorkOrderDashboard() {
                                     key={item.id}
                                     type="button"
                                     onClick={() => {
-                                        if (item.id === 'create') {
-                                            router.push('/production/work-order/create-work-order');
-                                            return;
-                                        }
-                                        setAction(item);
+                                        router.push('/production/work-order/create-work-order');
                                     }}
                                     className={
                                         item.primary
@@ -681,12 +612,6 @@ export default function WorkOrderDashboard() {
                     </div>
                 </Panel>
             </div>
-
-            {action ? (
-                <Dialog title={action.label} onClose={closeDialog}>
-                    <p>{action.detail}</p>
-                </Dialog>
-            ) : null}
         </div>
     );
 }

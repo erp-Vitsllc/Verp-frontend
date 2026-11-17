@@ -5,6 +5,7 @@ import { Paperclip, Search, User, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
+import LinkedText from '@/app/task-manager/linkedText';
 
 const TASK_TYPE = 'General Task';
 const PRIORITIES = ['High', 'Medium', 'Low'];
@@ -25,6 +26,58 @@ function fileToDataUrl(file) {
         reader.onerror = () => reject(new Error('Could not read the file.'));
         reader.readAsDataURL(file);
     });
+}
+
+const DESCRIPTION_PLACEHOLDER = 'Request for new system access for the employee. Provide required details and approval.';
+
+function DescriptionField({ value, onChange }) {
+    const [editing, setEditing] = useState(false);
+    const areaRef = useRef(null);
+
+    useEffect(() => {
+        if (editing) areaRef.current?.focus();
+    }, [editing]);
+
+    const edit = () => setEditing(true);
+
+    return (
+        <div className={`w-full rounded-lg border px-3 py-2 text-sm text-slate-800 ${editing ? 'border-blue-500' : 'border-slate-200'}`}>
+            {editing ? (
+                <textarea
+                    ref={areaRef}
+                    value={value}
+                    onChange={(event) => onChange(event.target.value)}
+                    onBlur={() => {
+                        window.setTimeout(() => setEditing(false), 0);
+                    }}
+                    rows={3}
+                    placeholder={DESCRIPTION_PLACEHOLDER}
+                    className="w-full resize-none bg-transparent outline-none placeholder:text-slate-400"
+                />
+            ) : (
+                <div
+                    role="textbox"
+                    aria-label="Description"
+                    tabIndex={0}
+                    onClick={(event) => {
+                        if (event.target.closest('a')) return;
+                        edit();
+                    }}
+                    onKeyDown={(event) => {
+                        if (event.target.closest('a')) return;
+                        if (event.key === 'Enter' || event.key === ' ') edit();
+                    }}
+                    className="min-h-[72px] cursor-text"
+                >
+                    {String(value || '').trim() ? (
+                        <LinkedText text={value} className="whitespace-pre-wrap leading-6" />
+                    ) : (
+                        <span className="text-slate-400">{DESCRIPTION_PLACEHOLDER}</span>
+                    )}
+                </div>
+            )}
+        </div>
+    );
 }
 
 function FieldLabel({ children, required }) {
@@ -48,7 +101,7 @@ function toDateInput(value) {
     }).format(date);
 }
 
-export default function CreateTaskModal({ open, onClose, onCreated, initialTask = null }) {
+export default function CreateTaskModal({ open, onClose, onCreated, initialTask = null, mode = '' }) {
     const { toast } = useToast();
     const fileRef = useRef(null);
     const pickerRef = useRef(null);
@@ -119,7 +172,8 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
         return () => window.removeEventListener('mousedown', close);
     }, [pickerOpen]);
 
-    const assigneeLocked = Boolean(initialTask) && initialTask.canReassign === false;
+    const assigning = mode === 'assign';
+    const assigneeLocked = !assigning && Boolean(initialTask) && initialTask.canReassign === false;
     const assigneeOptions = [...employees];
     if (
         initialTask?.assigneeId &&
@@ -199,14 +253,17 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                 assigneeId: form.assigneeId,
                 completionDate: form.completionDate,
                 attachments,
+                ...(assigning ? { assign: true } : {}),
             };
             const editing = Boolean(initialTask?.actionId);
             const res = editing
                 ? await axiosInstance.patch(`/Employee/task-manager/tasks/${encodeURIComponent(initialTask.actionId)}`, payload, { skipToast: true })
                 : await axiosInstance.post('/Employee/task-manager/tasks', payload, { skipToast: true });
             toast({
-                title: editing ? 'Task updated' : 'Task created',
-                description: `${form.taskName.trim()} is listed under ${priority} priority.`,
+                title: assigning ? 'Task assigned' : editing ? 'Task updated' : 'Task created',
+                description: assigning
+                    ? `${form.taskName.trim()} was assigned.`
+                    : `${form.taskName.trim()} is listed under ${priority} priority.`,
             });
             onCreated?.(res.data?.task || {
                 actionId: initialTask?.actionId,
@@ -234,7 +291,7 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                 className="flex max-h-[92vh] w-full max-w-[680px] flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
             >
                 <div className="flex items-center justify-between bg-[#2563EB] px-5 py-3.5 text-white">
-                    <h2 className="text-[16px] font-semibold">{initialTask ? 'Edit Task' : 'Create New Task'}</h2>
+                    <h2 className="text-[16px] font-semibold">{assigning ? 'Assign Task' : initialTask ? 'Edit Task' : 'Create New Task'}</h2>
                     <button
                         type="button"
                         onClick={onClose}
@@ -281,16 +338,10 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                         />
                     </label>
 
-                    <label className="block">
+                    <div className="block">
                         <FieldLabel>Description</FieldLabel>
-                        <textarea
-                            value={form.description}
-                            onChange={(event) => setField('description', event.target.value)}
-                            rows={3}
-                            placeholder="Request for new system access for the employee. Provide required details and approval."
-                            className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-blue-500"
-                        />
-                    </label>
+                        <DescriptionField value={form.description} onChange={(next) => setField('description', next)} />
+                    </div>
 
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <label>
@@ -434,7 +485,7 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                         disabled={submitting}
                         className="h-10 rounded-lg bg-[#2563EB] px-4 text-sm font-semibold text-white hover:bg-[#1D4ED8] disabled:opacity-60"
                     >
-                        {submitting ? 'Saving...' : initialTask ? 'Save Task' : 'Create Task'}
+                        {submitting ? (assigning ? 'Assigning...' : 'Saving...') : assigning ? 'Assign' : initialTask ? 'Save Task' : 'Create Task'}
                     </button>
                 </div>
             </form>

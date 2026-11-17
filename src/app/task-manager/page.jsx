@@ -29,7 +29,7 @@ import { useToast } from '@/hooks/use-toast';
 import { formatCommandCenterNotificationMessage } from '@/utils/dashboardCommandCenterInbox';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
 import { taskWaitingText } from '@/app/task-manager/pendingHoldLine';
-import { openTaskTabs, taskHasReassignee, taskWaitingOnRequester } from '@/app/task-manager/taskInbox';
+import { finishedWorkRoles, openTaskTabs, pinnedAssignee, taskHasReassignee, taskWaitingOnRequester } from '@/app/task-manager/taskInbox';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
 import { basePersonName, employeeListName, listedTaskNameLines, personKey, requesterEmployeeName, taskRolePeople } from '@/app/task-manager/taskRolePeople';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
@@ -145,22 +145,6 @@ function taskIsClosedState(task) {
 
 function taskIsOpenState(task) {
     return !taskIsClosedState(task);
-}
-
-function closedGroup(task) {
-    const shown = listStatus(task);
-    if (shown === 'Completed' || shown === 'Closed') return 0;
-    if (shown === 'Rejected') return 1;
-    return 2;
-}
-
-/** All Task order: open and pending, then completed, then rejected. */
-function allTaskGroup(task) {
-    if (taskIsOpenState(task)) return 0;
-    const shown = listStatus(task);
-    if (shown === 'Completed' || shown === 'Closed') return 1;
-    if (shown === 'Rejected') return 2;
-    return 3;
 }
 
 function paramValue(params, key, fallback = '') {
@@ -365,13 +349,30 @@ function tabRole(task, viewer) {
     };
 }
 
+function finishedRoles(task, viewer) {
+    return finishedWorkRoles(task, viewerIdentity(viewer));
+}
+
+function ownWorkDone(task, viewer) {
+    const roles = finishedRoles(task, viewer);
+    return roles.includes('assignee') || roles.includes('reassignee');
+}
+
+/** In this person's closed list, finished work shows as completed even if someone else still has the task. */
+function rowForViewer(task, viewer) {
+    if (!ownWorkDone(task, viewer) || taskIsClosedState(task)) return task;
+    return { ...task, displayStatus: 'Completed' };
+}
+
 function taskInBoard(task, board, viewer) {
     if (board === 'all') return true;
     if (board === 'completed') return assignedToViewer(task, viewer) && taskIsCompleted(task);
     const tabs = openTaskTabs(task, tabRole(task, viewer));
-    if (board === 'mine') return tabs.mine && isOpenPending(listStatus(task));
+    if (board === 'mine') return tabs.mine && isOpenPending(listStatus(task)) && !ownWorkDone(task, viewer);
     // Card totals match the Open list: pending only. Closed, completed, and rejected stay out.
-    if (board === 'requests') return tabs.requests && taskIsOpenState(task);
+    if (board === 'requests') {
+        return tabs.requests && taskIsOpenState(task) && !finishedRoles(task, viewer).includes('requester');
+    }
     if (board === 'review') return tabs.review;
     return false;
 }
@@ -387,12 +388,16 @@ function taskOnBoard(task, board, viewer, stateFilter) {
     }
     if (board === 'requests') {
         if (taskWaitingOnRequester(task)) return false;
-        if (closed) return requestedByViewer(task, viewer) && taskIsClosedState(task);
+        const requesterDone = finishedRoles(task, viewer).includes('requester');
+        if (closed) return (requestedByViewer(task, viewer) && taskIsClosedState(task)) || requesterDone;
+        if (requesterDone) return false;
         return openTaskTabs(task, tabRole(task, viewer)).requests && taskIsOpenState(task);
     }
     if (board === 'mine') {
         if (taskWaitingOnRequester(task)) return false;
-        if (closed) return assignedToViewer(task, viewer) && taskIsClosedState(task);
+        const done = ownWorkDone(task, viewer);
+        if (closed) return done || (assignedToViewer(task, viewer) && taskIsClosedState(task));
+        if (done) return false;
         return openTaskTabs(task, tabRole(task, viewer)).mine && taskIsOpenState(task);
     }
     if (board === 'completed') return taskInBoard(task, 'completed', viewer);
@@ -650,6 +655,14 @@ function StatusCell({ task }) {
 }
 
 function AssigneeCell({ task }) {
+    const pinned = pinnedAssignee(task);
+    if (pinned?.name) {
+        return (
+            <div className="min-w-[190px]">
+                <PersonCell name={pinned.name} photo={pinned.photo} hint={pinned.name} />
+            </div>
+        );
+    }
     if (taskWaitingOnRequester(task)) {
         return (
             <div className="min-w-[190px]">
@@ -1023,6 +1036,7 @@ function TaskManagerContent() {
     const [openMenu, setOpenMenu] = useState(null);
     const [createOpen, setCreateOpen] = useState(false);
     const [editTask, setEditTask] = useState(null);
+    const [assignTask, setAssignTask] = useState(null);
     const [reassignTask, setReassignTask] = useState(null);
     const [deleteTask, setDeleteTask] = useState(null);
     const [deleting, setDeleting] = useState(false);
@@ -1237,26 +1251,26 @@ function TaskManagerContent() {
             includeStatus: false,
         };
         if (board !== 'all') {
-            return tasks.filter((task) => (
-                taskOnBoard(task, board, viewer, stateFilter) && taskMatchesListFilters(task, searchAndType)
-            ));
+            return tasks
+                .filter((task) => (
+                    taskOnBoard(task, board, viewer, stateFilter) && taskMatchesListFilters(task, searchAndType)
+                ))
+                .map((task) => rowForViewer(task, viewer));
         }
         const statusForList = stateFilter === 'closed'
             ? (status === 'Completed' || status === 'Rejected' || status === 'Cancelled' ? status : 'All Status')
             : status;
-        return tasks.filter((task) => (
-            taskOnBoard(task, board, viewer, stateFilter)
-            && taskMatchesListFilters(task, { ...listFilter, status: statusForList, includeStatus: true })
-        ));
+        return tasks
+            .filter((task) => (
+                taskOnBoard(task, board, viewer, stateFilter)
+                && taskMatchesListFilters(task, { ...listFilter, status: statusForList, includeStatus: true })
+            ))
+            .map((task) => rowForViewer(task, viewer));
     }, [tasks, board, viewer, listFilter, titles, typeFilter, query, stateFilter, status, priority]);
-    const sorted = useMemo(() => {
-        const rows = sortTaskRows(filtered, sortKey, sortDirection, titles, viewer, board);
-        if (board === 'all' && stateFilter !== 'open' && stateFilter !== 'closed' && sortKey === 'listDate') {
-            return [...rows].sort((left, right) => allTaskGroup(left) - allTaskGroup(right));
-        }
-        if (board === 'review' || board === 'completed' || stateFilter !== 'closed') return rows;
-        return [...rows].sort((left, right) => closedGroup(left) - closedGroup(right));
-    }, [filtered, sortKey, sortDirection, titles, board, stateFilter, viewer]);
+    const sorted = useMemo(
+        () => sortTaskRows(filtered, sortKey, sortDirection, titles, viewer, board),
+        [filtered, sortKey, sortDirection, titles, board, viewer],
+    );
 
     const pageSize = pageSizeChoice === 'all' ? Math.max(sorted.length, 1) : Number(pageSizeChoice);
     const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
@@ -1823,14 +1837,16 @@ function TaskManagerContent() {
                 </div>
             </div>
             <CreateTaskModal
-                open={createOpen || Boolean(editTask)}
-                initialTask={editTask}
+                open={createOpen || Boolean(editTask) || Boolean(assignTask)}
+                initialTask={assignTask || editTask}
+                mode={assignTask ? 'assign' : editTask ? 'edit' : 'create'}
                 onClose={() => {
                     setCreateOpen(false);
                     setEditTask(null);
+                    setAssignTask(null);
                 }}
                 onCreated={(created) => {
-                    if (!editTask) {
+                    if (!editTask && !assignTask) {
                         setScope('My Task');
                         setTypeFilter(displayTaskType(created?.taskType || created?.taskCategory) || 'All Types');
                         setQuery('');
@@ -1856,25 +1872,26 @@ function TaskManagerContent() {
                     {[
                         { id: 'return', label: 'Return to assignee' },
                         { id: 'edit', label: 'Edit' },
+                        { id: 'assign', label: 'Assign' },
                         { id: 'reassign', label: 'Reassign' },
                         { id: 'workflow', label: 'Workflow' },
                     ].map((item) => {
                         const task = tasks.find((row) => row.actionId === openMenu.id);
                         if (item.id === 'return' && !task?.canReturn) return null;
-                        const closed = task?.displayStatus === 'Closed';
-                        const disabled = closed && (item.id === 'edit' || item.id === 'reassign')
-                            || (item.id === 'reassign' && task && !task.canReassign);
+                        if (item.id === 'edit' && !task?.canEdit) return null;
+                        if (item.id === 'assign' && !task?.canAssign) return null;
+                        if (item.id === 'reassign' && !task?.canReassign) return null;
                         return (
                             <button
                                 key={item.id}
                                 type="button"
-                                disabled={disabled}
-                                title={disabled ? (closed ? 'This task is closed' : 'Only the requester, the current assignee, the original assignee, or an admin super user can reassign') : undefined}
                                 onClick={() => {
                                     setOpenMenu(null);
                                     if (!task) return;
                                     if (item.id === 'edit') {
                                         setEditTask(task);
+                                    } else if (item.id === 'assign') {
+                                        setAssignTask(task);
                                     } else if (item.id === 'return') {
                                         const href = taskDetailsHref(task);
                                         router.push(href.includes('?') ? `${href}&return=1` : `${href}?return=1`);
@@ -1884,7 +1901,7 @@ function TaskManagerContent() {
                                         openDetails(task, 'workflow');
                                     }
                                 }}
-                                className="block w-full px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                className="block w-full px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
                             >
                                 {item.label}
                             </button>

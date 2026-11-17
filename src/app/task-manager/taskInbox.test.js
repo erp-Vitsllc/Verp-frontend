@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { openTaskTabs, taskHasReassignee, taskWaitingOnRequester } from './taskInbox.js';
+import { finishedWorkRoles, openTaskTabs, pinnedAssignee, taskHasReassignee, taskWaitingOnRequester } from './taskInbox.js';
 
 const requester = {
     requester: true,
@@ -40,6 +40,43 @@ describe('task inbox tabs', () => {
         assert.equal(openTaskTabs(task, { ...requester, assignee: true }).requests, false);
     });
 
+    it('keeps the last assignee in the assignee slot while the requester reviews', () => {
+        const pinned = pinnedAssignee({
+            displayStatus: 'Pending Review',
+            reviewPending: true,
+            assigneeName: 'SHAMEEM ABDUL KAREEM (Raseel Muhammad)',
+            mainAssigneeName: 'SHAMEEM ABDUL KAREEM (Raseel Muhammad)',
+            assigneeRole: 'Purchasing Officer',
+            assigneePhoto: 'shameem.jpg',
+        });
+        assert.equal(pinned.name, 'SHAMEEM ABDUL KAREEM');
+        assert.equal(pinned.role, 'Purchasing Officer');
+        assert.equal(pinned.photo, 'shameem.jpg');
+    });
+
+    it('keeps the last assignee after the requester accepts, not as a reassignee', () => {
+        const pinned = pinnedAssignee({
+            displayStatus: 'Pending',
+            reviewAccepted: true,
+            assigneeName: 'Raseel Muhammad',
+            mainAssigneeName: 'Raseel Muhammad',
+            reassignedAssigneeName: 'SHAMEEM ABDUL KAREEM',
+            reassignedAssigneePhoto: 'shameem.jpg',
+            assigneeRole: 'Purchasing Officer',
+        });
+        assert.equal(pinned.name, 'SHAMEEM ABDUL KAREEM');
+        assert.equal(pinned.photo, 'shameem.jpg');
+        assert.equal(pinned.role, 'Purchasing Officer');
+    });
+
+    it('leaves an open assigned task on the normal assignee display', () => {
+        assert.equal(pinnedAssignee({
+            displayStatus: 'Pending',
+            assigneeName: 'Raseel Muhammad',
+            assigneeId: 'a1',
+        }), null);
+    });
+
     it('keeps a finished task off Review Pending', () => {
         const task = { displayStatus: 'Completed', assigneeName: '', reviewPending: true };
         assert.equal(taskWaitingOnRequester(task), false);
@@ -71,6 +108,23 @@ describe('task inbox tabs', () => {
             requests: true,
             review: false,
         });
+    });
+
+    it('keeps approved work in history for the reassignee, assignee, and requester', () => {
+        const task = {
+            displayStatus: 'Pending',
+            assigneeName: 'Raseel Muhammad',
+            assigneeId: 'original',
+            finishedBy: [
+                { id: 're', name: 'SHAMEEM ABDUL KAREEM', role: 'reassignee' },
+                { id: 'original', name: 'Raseel Muhammad', role: 'assignee' },
+                { name: 'Raj Angadembe', role: 'requester' },
+            ],
+        };
+        assert.deepEqual(finishedWorkRoles(task, { ids: ['re'], names: ['shameem abdul kareem'] }), ['reassignee']);
+        assert.deepEqual(finishedWorkRoles(task, { ids: ['original'], names: ['raseel muhammad'] }), []);
+        assert.deepEqual(finishedWorkRoles({ ...task, reviewAccepted: true }, { ids: ['original'], names: ['raseel muhammad'] }), ['assignee']);
+        assert.deepEqual(finishedWorkRoles(task, { names: ['raj angadembe'] }), ['requester']);
     });
 
     it('still lists a reassigned task under My Requests when the original assignee also requested it', () => {

@@ -6,13 +6,14 @@ import {
     ChevronLeft,
     ChevronRight,
     ClipboardList,
-    FolderPlus,
+    Coins,
     Gavel,
     Home,
     Info,
     Layers,
     Link2,
     Lock,
+    Paperclip,
     Save,
     UserRound,
     X,
@@ -32,11 +33,14 @@ const STEP1_RULES = [
 ];
 
 const STEP2_RULES = [
-    'Project cannot be created independently.',
-    'The first work order in a project becomes the Main Work Order.',
-    'Standalone work orders can later be attached to a project.',
     'Only one LPO choice can be on at a time.',
+    'Required: LPO number, date, value and attachment stay off. No LPO is added now.',
+    'Not required: an attachment is required. The salesperson is emailed and notified that the LPO was not filled.',
+    'LPO received: LPO number, date, value and attachment are required.',
+    'One quotation and one LPO per work order.',
 ];
+
+const fieldClass = `h-11 w-full rounded-xl border border-[#e5edf6] bg-white px-3 text-sm text-slate-800 outline-none disabled:cursor-not-allowed disabled:bg-[#f4f7fb] disabled:text-slate-400 ${FOCUS}`;
 
 const LPO_OPTIONS = [
     { id: 'required', label: 'Required' },
@@ -113,7 +117,7 @@ function SelectField({ id, value, onChange, placeholder, children }) {
     );
 }
 
-export default function CreateWorkOrderFlow({ existingNumbers, projects = [], onClose, onSaved }) {
+export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved }) {
     const { toast } = useToast();
     const [step, setStep] = useState(1);
     const [workOrderNo, setWorkOrderNo] = useState(() => nextWorkOrderNo(existingNumbers));
@@ -136,8 +140,6 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
     const [confirmationDate, setConfirmationDate] = useState(() => dubaiDateKey());
     const [location, setLocation] = useState('');
     const [description, setDescription] = useState('');
-    const [action, setAction] = useState('project');
-    const [projectName, setProjectName] = useState('');
     const [saving, setSaving] = useState(false);
     const [stepError, setStepError] = useState('');
 
@@ -200,6 +202,14 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
         quote?.number && quote.number.trim().toLowerCase() === quoteNumber.trim().toLowerCase(),
     );
     const linkedQuote = quoteLinked ? quote : null;
+    const lpoStatus = lpoMode === 'received' ? 'LPO received' : lpoMode === 'not_required' ? 'Not required' : 'Awaiting LPO';
+    const lpoStatusClass = lpoMode === 'received'
+        ? 'bg-blue-50 text-blue-600'
+        : lpoMode === 'not_required'
+            ? 'bg-slate-100 text-slate-600'
+            : 'bg-amber-50 text-amber-600';
+    const lpoLocked = lpoMode !== 'received';
+    const attachmentLocked = lpoMode === 'required';
 
     const importQuote = async () => {
         const number = quoteNumber.trim();
@@ -234,12 +244,6 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
     };
 
     const payload = async (intent) => {
-        const type = action === 'project' ? 'Main WO' : action === 'attach' ? 'Variation' : 'Standalone';
-        const namedProject = action === 'project'
-            ? (projectName.trim() || `${customer?.name || 'New'} Project`)
-            : action === 'attach'
-                ? projectName.trim()
-                : '';
         const attachment = lpoMode !== 'required' && lpoFile ? await readLocalFile(lpoFile) : null;
         return {
             intent,
@@ -261,8 +265,8 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
             confirmationDate,
             location,
             description,
-            type,
-            projectName: namedProject,
+            type: 'Standalone',
+            projectName: '',
         };
     };
 
@@ -292,10 +296,6 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
             }
             if (lpoMode === 'not_required' && !lpoFile) {
                 setStepError('Attach a file when LPO is not required.');
-                return;
-            }
-            if (action === 'attach' && !projectName.trim()) {
-                setStepError('Choose the project this work order attaches to.');
                 return;
             }
         }
@@ -354,7 +354,7 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
                         <div>
                             <h1 className="text-[24px] font-bold tracking-tight text-slate-900 sm:text-[28px]">Create Work Order</h1>
                             <p className="text-[13px] text-slate-500">
-                                {step === 1 ? 'Step 1 – Basic Information & Zoho Quotation' : 'Step 2 – Assignment, LPO & Confirmation'}
+                                {step === 1 ? 'Step 1 – Basic Information & Zoho Quotation' : 'Step 2 – LPO details'}
                             </p>
                         </div>
                     </div>
@@ -363,10 +363,10 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
 
             {step === 2 ? (
                 <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-                    <SummaryChip icon={ClipboardList} tint="bg-blue-50 text-[#2f6fed]" label="Work Order No." value={workOrderNo} />
-                    <SummaryChip icon={UserRound} tint="bg-violet-50 text-violet-600" label="Customer" value={customer?.name || '—'} />
-                    <SummaryChip icon={FileIcon} tint="bg-sky-50 text-sky-600" label="Quotation Ref" value={linkedQuote?.number || '—'} />
-                    <SummaryChip icon={ClipboardList} tint="bg-orange-50 text-orange-500" label="Total Value" value={formatAed(linkedQuote?.total || 0)} />
+                    <SummaryChip icon={UserRound} tint="bg-blue-50 text-[#2f6fed]" label="Customer" value={customer?.name || '—'} />
+                    <SummaryChip icon={Layers} tint="bg-blue-50 text-[#2f6fed]" label="LPO" value={lpoStatus} pillClass={lpoStatusClass} />
+                    <SummaryChip icon={ClipboardList} tint="bg-violet-50 text-violet-600" label="Type" value="Standalone" pillClass="bg-stone-100 text-stone-600" />
+                    <SummaryChip icon={Coins} tint="bg-blue-50 text-[#2f6fed]" label="Total Value" value={formatAed(linkedQuote?.total || 0)} />
                 </div>
             ) : null}
 
@@ -379,7 +379,7 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
                         </div>
                         <div className="flex flex-1 items-center gap-3 px-4 py-3 text-slate-400">
                             <span className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-semibold">2</span>
-                            <span className="text-sm font-medium">Assignment & Confirmation</span>
+                            <span className="text-sm font-medium">LPO details</span>
                         </div>
                     </div>
                 ) : (
@@ -394,7 +394,7 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
                         <div className="flex items-center gap-3 rounded-xl bg-[#e8f1ff] px-4 py-3">
                             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#2f6fed] text-sm font-bold text-white">2</span>
                             <span>
-                                <span className="block text-sm font-semibold text-[#2f6fed]">Assignment & Confirmation</span>
+                                <span className="block text-sm font-semibold text-[#2f6fed]">LPO details</span>
                                 <span className="text-[12px] text-slate-400">Step 2 of 2</span>
                             </span>
                         </div>
@@ -513,13 +513,49 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
                 </div>
             ) : (
                 <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-                    <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
-                        <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
-                            <ClipboardList size={16} className="text-[#2f6fed]" /> Order & Delivery Details
-                        </h2>
-                        <div>
-                            <FieldLabel required>LPO details</FieldLabel>
-                            <div role="radiogroup" aria-label="LPO details" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div className="space-y-4">
+                        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
+                            <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
+                                <Info size={16} className="text-[#2f6fed]" /> Work Order Information
+                            </h2>
+                            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <InfoItem label="Work Order Number" value={workOrderNo} />
+                                <InfoItem label="Salesperson" value={salesperson?.name || '—'} />
+                                <InfoItem label="Created Date" value={formatWorkOrderDate(createdOn)} />
+                                <InfoItem label="Quotation Ref" value={linkedQuote?.number || quoteNumber || '—'} />
+                                <div>
+                                    <dt className="text-[11px] uppercase tracking-wide text-slate-400">
+                                        Order Confirmation Date <span className="text-rose-500">*</span>
+                                    </dt>
+                                    <dd className="mt-1">
+                                        <input id="wo-confirm" type="date" value={confirmationDate} onChange={(event) => setConfirmationDate(event.target.value)} className={fieldClass} />
+                                    </dd>
+                                </div>
+                                <InfoItem label="Quotation Date" value={linkedQuote ? formatWorkOrderDate(linkedQuote.date) : '—'} />
+                                <div className="sm:col-span-2">
+                                    <dt className="text-[11px] uppercase tracking-wide text-slate-400">
+                                        Delivery Location <span className="text-rose-500">*</span>
+                                    </dt>
+                                    <dd className="mt-1">
+                                        <input id="wo-location" value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Delivery or installation location" className={fieldClass} />
+                                    </dd>
+                                </div>
+                                <div className="sm:col-span-2">
+                                    <dt className="text-[11px] uppercase tracking-wide text-slate-400">
+                                        Work Order Description <span className="text-rose-500">*</span>
+                                    </dt>
+                                    <dd className="mt-1">
+                                        <textarea id="wo-description" value={description} onChange={(event) => setDescription(event.target.value)} rows={3} className={`w-full rounded-xl border border-[#e5edf6] bg-white px-3 py-2 text-sm text-slate-800 outline-none ${FOCUS}`} />
+                                    </dd>
+                                </div>
+                            </dl>
+                        </section>
+
+                        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
+                            <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
+                                <Paperclip size={16} className="text-[#2f6fed]" /> LPO Details
+                            </h2>
+                            <div role="radiogroup" aria-label="LPO details" className="grid grid-cols-1 gap-1 rounded-xl bg-[#f4f7fb] p-1 sm:grid-cols-3">
                                 {LPO_OPTIONS.map((option) => {
                                     const active = lpoMode === option.id;
                                     return (
@@ -529,87 +565,56 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
                                             role="radio"
                                             aria-checked={active}
                                             onClick={() => setLpoMode(option.id)}
-                                            className={`h-11 rounded-xl border text-sm font-semibold ${FOCUS} ${active ? 'border-[#2f6fed] bg-[#e8f1ff] text-[#2f6fed]' : 'border-[#e5edf6] bg-white text-slate-600 hover:bg-slate-50'}`}
+                                            className={active
+                                                ? `h-11 rounded-lg bg-[#2f6fed] text-sm font-semibold text-white shadow-sm ${FOCUS}`
+                                                : `h-11 rounded-lg text-sm font-medium text-slate-600 hover:bg-white ${FOCUS}`}
                                         >
                                             {option.label}
                                         </button>
                                     );
                                 })}
                             </div>
-                            <p className="mt-2 text-[12px] text-slate-500">
+                            <p className="mt-3 text-[13px] leading-5 text-slate-500">
                                 {lpoMode === 'required'
-                                    ? 'LPO fields stay off. You do not add an LPO now.'
+                                    ? 'LPO number, date, value and attachment stay off. There is no need to add an LPO while Required is selected.'
                                     : lpoMode === 'not_required'
-                                        ? 'Attach a file. Creating the work order emails it to the salesperson and notifies them that the LPO was not filled.'
+                                        ? 'Attachment is required. Creating the work order emails the salesperson and notifies them that the LPO was not filled.'
                                         : 'Enter the LPO number, date, value and attachment.'}
                             </p>
-                        </div>
-                        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <label htmlFor="wo-lpo">
-                                <FieldLabel required={lpoMode === 'received'}>Customer LPO Number</FieldLabel>
-                                <input id="wo-lpo" value={lpoNo} disabled={lpoMode !== 'received'} onChange={(event) => setLpoNo(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none disabled:cursor-not-allowed disabled:bg-[#f4f7fb] disabled:text-slate-400 ${FOCUS}`} />
-                            </label>
-                            <label htmlFor="wo-lpo-date">
-                                <FieldLabel required={lpoMode === 'received'}>LPO Date</FieldLabel>
-                                <input id="wo-lpo-date" type="date" value={lpoDate} disabled={lpoMode !== 'received'} onChange={(event) => setLpoDate(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none disabled:cursor-not-allowed disabled:bg-[#f4f7fb] disabled:text-slate-400 ${FOCUS}`} />
-                            </label>
-                            <label htmlFor="wo-lpo-value">
-                                <FieldLabel required={lpoMode === 'received'}>LPO Value</FieldLabel>
-                                <input id="wo-lpo-value" type="number" min="0" step="0.01" value={lpoValue} disabled={lpoMode !== 'received'} onChange={(event) => setLpoValue(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none disabled:cursor-not-allowed disabled:bg-[#f4f7fb] disabled:text-slate-400 ${FOCUS}`} />
-                            </label>
-                            <label htmlFor="wo-confirm">
-                                <FieldLabel required>Order Confirmation Date</FieldLabel>
-                                <input id="wo-confirm" type="date" value={confirmationDate} onChange={(event) => setConfirmationDate(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
-                            </label>
-                        </div>
-                        <label htmlFor="wo-lpo-file" className="mt-4 block">
-                            <FieldLabel required={lpoMode !== 'required'}>Attachment</FieldLabel>
-                            <input
-                                id="wo-lpo-file"
-                                type="file"
-                                disabled={lpoMode === 'required'}
-                                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.txt,.csv"
-                                onChange={(event) => setLpoFile(event.target.files?.[0] || null)}
-                                className={`block w-full rounded-xl border border-[#e5edf6] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[#e8f1ff] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-[#2f6fed] disabled:cursor-not-allowed disabled:bg-[#f4f7fb] disabled:text-slate-400 ${FOCUS}`}
-                            />
-                            {lpoMode !== 'required' && lpoFile ? <p className="mt-1 text-[12px] text-slate-500">{lpoFile.name}</p> : null}
-                        </label>
-                        <label htmlFor="wo-location" className="mt-4 block">
-                            <FieldLabel required>Delivery / Installation Location</FieldLabel>
-                            <input id="wo-location" value={location} onChange={(event) => setLocation(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
-                        </label>
-                        <label htmlFor="wo-description" className="mt-4 block">
-                            <FieldLabel required>Work Order Description</FieldLabel>
-                            <textarea id="wo-description" value={description} onChange={(event) => setDescription(event.target.value)} rows={3} className={`w-full rounded-xl border border-[#e5edf6] px-3 py-2 text-sm outline-none ${FOCUS}`} />
-                        </label>
-                        {action === 'attach' ? (
-                            <label htmlFor="wo-project" className="mt-4 block">
-                                <FieldLabel required>Existing Project</FieldLabel>
-                                {projects.length ? (
-                                    <SelectField id="wo-project" value={projectName} placeholder="Select project" onChange={(event) => setProjectName(event.target.value)}>
-                                        {projects.map((name) => <option key={name} value={name}>{name}</option>)}
-                                    </SelectField>
-                                ) : (
-                                    <input id="wo-project" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Project name" className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
-                                )}
-                            </label>
-                        ) : null}
-                    </section>
-                    <div className="space-y-4">
-                        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)]">
-                            <h2 className="mb-3 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
-                                <Layers size={16} className="text-[#2f6fed]" /> Available Actions
-                            </h2>
-                            <div className="flex flex-col gap-2">
-                                <ActionButton active={action === 'standalone'} icon={Layers} onClick={() => setAction('standalone')}>Create as Standalone</ActionButton>
-                                <ActionButton active={action === 'attach'} icon={Link2} onClick={() => setAction('attach')}>Attach to Existing Project</ActionButton>
-                                <ActionButton active={action === 'project'} icon={FolderPlus} onClick={() => setAction('project')}>Create New Project</ActionButton>
-                                <ActionButton icon={Save} onClick={() => save('draft')} disabled={saving}>Save as Draft</ActionButton>
-                                <ActionButton icon={X} onClick={onClose}>Cancel</ActionButton>
+                            <div className="mt-4 overflow-x-auto">
+                                <div className="min-w-[720px]">
+                                    <div className="grid grid-cols-4 gap-3 border-b border-slate-100 pb-2 text-[11px] font-medium text-slate-400">
+                                        <span>LPO Number{lpoMode === 'received' ? <span className="text-rose-500"> *</span> : null}</span>
+                                        <span>LPO Date{lpoMode === 'received' ? <span className="text-rose-500"> *</span> : null}</span>
+                                        <span>LPO Value{lpoMode === 'received' ? <span className="text-rose-500"> *</span> : null}</span>
+                                        <span>Attachment{lpoMode !== 'required' ? <span className="text-rose-500"> *</span> : null}</span>
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-3 pt-3">
+                                        <input id="wo-lpo" aria-label="LPO Number" value={lpoNo} disabled={lpoLocked} onChange={(event) => setLpoNo(event.target.value)} className={fieldClass} />
+                                        <input id="wo-lpo-date" aria-label="LPO Date" type="date" value={lpoDate} disabled={lpoLocked} onChange={(event) => setLpoDate(event.target.value)} className={fieldClass} />
+                                        <input id="wo-lpo-value" aria-label="LPO Value" type="number" min="0" step="0.01" value={lpoValue} disabled={lpoLocked} onChange={(event) => setLpoValue(event.target.value)} className={fieldClass} />
+                                        <div>
+                                            <input
+                                                id="wo-lpo-file"
+                                                aria-label="LPO attachment"
+                                                type="file"
+                                                disabled={attachmentLocked}
+                                                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                                                onChange={(event) => setLpoFile(event.target.files?.[0] || null)}
+                                                className={`block w-full rounded-xl border border-[#e5edf6] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[#e8f1ff] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-[#2f6fed] disabled:cursor-not-allowed disabled:bg-[#f4f7fb] disabled:text-slate-400 ${FOCUS}`}
+                                            />
+                                            {!attachmentLocked && lpoFile ? (
+                                                <p className="mt-1 flex items-center gap-1 text-[12px] text-[#2f6fed]">
+                                                    <Paperclip size={12} /> {lpoFile.name}
+                                                </p>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </section>
-                        <RulesCard title="Validation & Rules" rules={STEP2_RULES} />
                     </div>
+                    <RulesCard title="Business Rules" rules={STEP2_RULES} />
                 </div>
             )}
 
@@ -639,34 +644,28 @@ export default function CreateWorkOrderFlow({ existingNumbers, projects = [], on
     );
 }
 
-function FileIcon(props) {
-    return <ClipboardList {...props} />;
-}
-
-function SummaryChip({ icon: Icon, tint, label, value }) {
+function SummaryChip({ icon: Icon, tint, label, value, pillClass }) {
     return (
-        <div className="flex items-center gap-3 rounded-2xl border border-[#e6eef6] bg-white px-3 py-3">
-            <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${tint}`}><Icon size={18} /></span>
+        <div className="flex items-center gap-3 rounded-2xl border border-[#e6eef6] bg-white px-3 py-3 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.45)]">
+            <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tint}`}><Icon size={18} /></span>
             <span className="min-w-0">
                 <span className="block text-[11px] text-slate-400">{label}</span>
-                <span className="block truncate text-sm font-bold text-slate-800">{value}</span>
+                {pillClass ? (
+                    <span className={`mt-0.5 inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[12px] font-semibold ${pillClass}`}>{value}</span>
+                ) : (
+                    <span className="block truncate text-sm font-bold text-slate-800">{value}</span>
+                )}
             </span>
         </div>
     );
 }
 
-function ActionButton({ active, icon: Icon, children, onClick, disabled }) {
+function InfoItem({ label, value }) {
     return (
-        <button
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            className={active
-                ? `flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#2f6fed] text-sm font-semibold text-white ${FOCUS}`
-                : `flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#e5edf6] bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60 ${FOCUS}`}
-        >
-            <Icon size={16} /> {children}
-        </button>
+        <div>
+            <dt className="text-[11px] uppercase tracking-wide text-slate-400">{label}</dt>
+            <dd className="mt-1 text-sm font-semibold text-slate-800">{value || '—'}</dd>
+        </div>
     );
 }
 
