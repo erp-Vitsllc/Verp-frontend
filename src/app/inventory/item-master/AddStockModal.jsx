@@ -41,20 +41,15 @@ function itemLabel(item) {
     return item.itemName || item.description || 'Item';
 }
 
-function sameStockIdentity(item, categoryId, subcategoryId, brandId, modelNumber) {
-    return sameId(item.categoryId, categoryId)
-        && sameId(item.subcategoryId, subcategoryId)
-        && sameId(item.brandId, brandId)
-        && namesEqual(item.modelNumber, modelNumber);
-}
-
 function modelOwners(model, rows) {
     const text = cleanText(model);
     if (!text) return [];
-    return rows.filter((row) => sameText(row.modelNumber, text));
+    return rows.filter((row) => namesEqual(row.modelNumber, text));
 }
 
-const MODEL_FIXED = 'This model no belongs to the selected item and cannot be changed.';
+function ownedModel(model, rows) {
+    return modelOwners(model, rows).find((row) => !row.pendingStock) || null;
+}
 
 function stockRow(saved) {
     return {
@@ -72,10 +67,11 @@ function stockRow(saved) {
     };
 }
 
-function itemStillVisible(item, nextCategory, nextSub) {
+function itemStillVisible(item, nextCategory, nextSub, nextBrand) {
     if (!item) return false;
     if (nextCategory && !sameId(item.categoryId, nextCategory)) return false;
     if (nextSub && !sameId(item.subcategoryId, nextSub)) return false;
+    if (nextBrand && !sameId(item.brandId, nextBrand)) return false;
     return true;
 }
 
@@ -255,11 +251,10 @@ export default function AddStockModal({ onClose, onSaved }) {
         brands.map((row) => ({ value: String(row._id), label: row.name || 'Brand' }))
     ), [brands]);
 
-    const scopedItems = useMemo(() => items.filter((item) => {
-        if (categoryId && !sameId(item.categoryId, categoryId)) return false;
-        if (subcategoryId && !sameId(item.subcategoryId, subcategoryId)) return false;
-        return true;
-    }), [items, categoryId, subcategoryId]);
+    const scopedItems = useMemo(
+        () => items.filter((item) => itemStillVisible(item, categoryId, subcategoryId, brandId)),
+        [items, categoryId, subcategoryId, brandId],
+    );
 
     const itemOptions = useMemo(
         () => scopedItems.map((item) => ({
@@ -272,18 +267,27 @@ export default function AddStockModal({ onClose, onSaved }) {
 
     const modelOptions = useMemo(() => {
         const values = new Set();
-        items.forEach((item) => {
+        scopedItems.forEach((item) => {
             const model = cleanText(item.modelNumber);
             if (model) values.add(model);
         });
         return [...values].sort((left, right) => left.localeCompare(right)).map((model) => ({ value: model, label: model }));
-    }, [items]);
+    }, [scopedItems]);
 
-    const keepOrClearItem = (nextCategory, nextSub) => {
+    const keepOrClearItem = (nextCategory, nextSub, nextBrand) => {
         const selected = items.find((row) => sameId(row._id, itemId));
-        if (itemStillVisible(selected, nextCategory, nextSub)) return;
-        setItemId('');
-        if (selected) setItemText('');
+        if (!itemStillVisible(selected, nextCategory, nextSub, nextBrand)) {
+            setItemId('');
+            if (selected) setItemText('');
+        }
+        const model = cleanText(modelNumber);
+        const owner = ownedModel(model, items);
+        if (!owner) return;
+        const categoryChanged = String(nextCategory || '') !== String(categoryId || '');
+        const subChanged = String(nextSub || '') !== String(subcategoryId || '');
+        const brandChanged = String(nextBrand || '') !== String(brandId || '');
+        const stillFits = itemStillVisible(owner, nextCategory, nextSub, nextBrand);
+        if (categoryChanged || subChanged || brandChanged || !stillFits) setModelNumber('');
     };
 
     const chooseCategory = (nextId) => {
@@ -294,7 +298,7 @@ export default function AddStockModal({ onClose, onSaved }) {
         setCategoryText(category?.name || '');
         setSubcategoryId(nextSub);
         if (!nextSub) setSubcategoryText('');
-        keepOrClearItem(nextId, nextSub);
+        keepOrClearItem(nextId, nextSub, brandId);
     };
 
     const typeCategory = (text) => {
@@ -304,7 +308,7 @@ export default function AddStockModal({ onClose, onSaved }) {
         setCategoryId('');
         setSubcategoryId('');
         setSubcategoryText('');
-        keepOrClearItem('', '');
+        keepOrClearItem('', '', brandId);
     };
 
     const commitCategory = (text) => {
@@ -314,7 +318,10 @@ export default function AddStockModal({ onClose, onSaved }) {
         if (selected && namesEqual(selected.name, name)) return;
         const matches = categories.filter((row) => namesEqual(row.name, name));
         if (matches.length === 1) chooseCategory(String(matches[0]._id));
-        else setCategoryId('');
+        else {
+            setCategoryId('');
+            if (ownedModel(modelNumber, items)) setModelNumber('');
+        }
     };
 
     const chooseSubcategory = (nextId) => {
@@ -325,7 +332,7 @@ export default function AddStockModal({ onClose, onSaved }) {
         if (category?.name) setCategoryText(category.name);
         setSubcategoryId(nextId);
         setSubcategoryText(sub?.name || '');
-        keepOrClearItem(nextCategory, nextId);
+        keepOrClearItem(nextCategory, nextId, brandId);
     };
 
     const typeSubcategory = (text) => {
@@ -333,7 +340,7 @@ export default function AddStockModal({ onClose, onSaved }) {
         const selected = rowById(subcategories, subcategoryId);
         if (selected && namesEqual(selected.name, text)) return;
         setSubcategoryId('');
-        keepOrClearItem(categoryId, '');
+        keepOrClearItem(categoryId, '', brandId);
     };
 
     const commitSubcategory = (text) => {
@@ -346,19 +353,25 @@ export default function AddStockModal({ onClose, onSaved }) {
             : subcategories;
         const matches = pool.filter((row) => namesEqual(row.name, name));
         if (matches.length === 1) chooseSubcategory(String(matches[0]._id));
-        else setSubcategoryId('');
+        else {
+            setSubcategoryId('');
+            if (ownedModel(modelNumber, items)) setModelNumber('');
+        }
     };
 
     const chooseBrand = (nextId) => {
         const brand = rowById(brands, nextId);
         setBrandId(nextId);
         setBrandText(brand?.name || '');
+        keepOrClearItem(categoryId, subcategoryId, nextId);
     };
 
     const typeBrand = (text) => {
         setBrandText(text);
         const selected = rowById(brands, brandId);
-        if (selected && !namesEqual(selected.name, text)) setBrandId('');
+        if (selected && namesEqual(selected.name, text)) return;
+        if (ownedModel(modelNumber, items)) setModelNumber('');
+        if (selected) setBrandId('');
     };
 
     const commitBrand = (text) => {
@@ -368,7 +381,10 @@ export default function AddStockModal({ onClose, onSaved }) {
         if (selected && namesEqual(selected.name, name)) return;
         const matches = brands.filter((row) => namesEqual(row.name, name));
         if (matches.length === 1) chooseBrand(String(matches[0]._id));
-        else setBrandId('');
+        else {
+            setBrandId('');
+            if (ownedModel(modelNumber, items)) setModelNumber('');
+        }
     };
 
     const chooseItem = (nextId) => {
@@ -385,12 +401,17 @@ export default function AddStockModal({ onClose, onSaved }) {
         setSubcategoryText(item.subcategoryName || rowById(subcategories, nextSub)?.name || '');
         setItemId(nextId);
         setItemText(itemLabel(item));
+        const owner = ownedModel(modelNumber, items);
+        if (owner && !sameId(owner._id, nextId)) setModelNumber('');
     };
 
     const typeItem = (text) => {
         setItemText(text);
         const selected = items.find((row) => sameId(row._id, itemId));
-        if (selected && !namesEqual(itemLabel(selected), text)) setItemId('');
+        if (selected && namesEqual(itemLabel(selected), text)) return;
+        if (selected) setItemId('');
+        const owner = ownedModel(modelNumber, items);
+        if (owner && !namesEqual(itemLabel(owner), text)) setModelNumber('');
     };
 
     const commitItem = (text) => {
@@ -458,9 +479,30 @@ export default function AddStockModal({ onClose, onSaved }) {
                 if (!useSubcategory) useSubcategory = String(selected.subcategoryId || '');
             }
         }
-        const itemName = cleanText(selected ? (selected.itemName || selected.description) : typedName);
-        if (!typedModel && selected) typedModel = cleanText(selected.modelNumber);
-        const model = typedModel || itemName;
+        let itemName = cleanText(selected ? (selected.itemName || selected.description) : typedName);
+        const owner = typedModel ? ownedModel(typedModel, items) : null;
+        if (owner) {
+            const ownerMatches = (!useCategory || sameId(owner.categoryId, useCategory))
+                && (!useSubcategory || sameId(owner.subcategoryId, useSubcategory))
+                && (!useBrand || sameId(owner.brandId, useBrand))
+                && (!itemName || namesEqual(itemLabel(owner), itemName));
+            if (ownerMatches) {
+                selected = owner;
+                if (!useCategory) useCategory = String(owner.categoryId || '');
+                if (!useSubcategory) useSubcategory = String(owner.subcategoryId || '');
+                if (!useBrand) useBrand = String(owner.brandId || '');
+                itemName = cleanText(owner.itemName || owner.description || itemName);
+            } else {
+                typedModel = '';
+            }
+        }
+        const sameTarget = Boolean(selected)
+            && sameId(selected.categoryId, useCategory)
+            && sameId(selected.subcategoryId, useSubcategory)
+            && sameId(selected.brandId, useBrand)
+            && namesEqual(itemLabel(selected), itemName)
+            && (!typedModel || !cleanText(selected.modelNumber) || namesEqual(selected.modelNumber, typedModel));
+        const model = typedModel || (sameTarget ? cleanText(selected.modelNumber) : '') || itemName;
         const sub = subcategories.find((row) => sameId(row._id, useSubcategory));
         if (!useCategory || !useSubcategory || !useBrand) {
             setError('Category, sub category, and brand are required.');
@@ -474,21 +516,8 @@ export default function AddStockModal({ onClose, onSaved }) {
             setError('Enter an item.');
             return;
         }
-        if (!selected && !access.canCreateItem) {
+        if (!sameTarget && !access.canCreateItem) {
             setError('Item create permission is required to add an item.');
-            return;
-        }
-        const owner = model ? modelOwners(model, items)[0] : null;
-        if (owner && (!selected || !sameId(owner._id, selected._id)) && !owner.pendingStock && !selected?.pendingStock) {
-            setError(MODEL_FIXED);
-            return;
-        }
-        if (selected && !selected.pendingStock && cleanText(selected.modelNumber) && !namesEqual(selected.modelNumber, model)) {
-            setError(MODEL_FIXED);
-            return;
-        }
-        if (selected && !selected.pendingStock && cleanText(selected.modelNumber) && !sameStockIdentity(selected, useCategory, useSubcategory, useBrand, model)) {
-            setError(MODEL_FIXED);
             return;
         }
         if (!Number.isFinite(amount) || amount <= 0) {
