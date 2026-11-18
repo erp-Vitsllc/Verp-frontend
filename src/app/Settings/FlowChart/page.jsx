@@ -32,7 +32,8 @@ const RESPONSIBILITY_CATEGORIES = [
     { id: 'accounts', label: 'Accounts' },
     { id: 'assetcontroller', label: 'Asset Controller' },
     { id: 'management', label: 'management' },
-    { id: 'admincontroller', label: 'Admin Officer' }
+    { id: 'admincontroller', label: 'Admin Officer' },
+    { id: 'purchaseofficer', label: 'Purchase Officer' }
 ];
 
 const BUSINESS_MODULES = [
@@ -42,7 +43,7 @@ const BUSINESS_MODULES = [
     { id: 'advance', label: 'Advance Request', color: 'from-cyan-500 to-blue-600', shadow: 'shadow-cyan-100', icon: 'Zap' }
 ];
 
-const CATEGORIES_REQUIRE_COMPANY_EMAIL = ['assigneduser', 'admincontroller', 'assetcontroller', 'hr'];
+const CATEGORIES_REQUIRE_COMPANY_EMAIL = ['assigneduser', 'admincontroller', 'assetcontroller', 'hr', 'purchaseofficer'];
 const CATEGORIES_POSITION_VIEW = ['assigneduser', 'admincontroller', 'assetcontroller', 'hr'];
 
 /** Match backend Flowchart.category (hr, assetcontroller, …) regardless of spacing/case */
@@ -1045,7 +1046,7 @@ export default function GlobalFlowChartPage() {
 
                                             {/* Second Level: Controllers */}
                                             <div className="flex flex-wrap justify-center gap-20 w-full max-w-6xl relative">
-                                                {['assigneduser', 'hr', 'accounts', 'assetcontroller', 'admincontroller'].map((catId) => {
+                                                {['assigneduser', 'hr', 'accounts', 'assetcontroller', 'admincontroller', 'purchaseofficer'].map((catId) => {
                                                     const group = responsibilities.filter(r => r.category === catId);
                                                     const catLabel = RESPONSIBILITY_CATEGORIES.find(c => c.id === catId)?.label;
 

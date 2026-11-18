@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { mapZohoBillListRows } from '@/utils/zohoVendorPayments';
+import { listInventoryBills } from '../bills/billsApi';
 import { listVendorBills, vendorApiMessage } from './vendorManagementApi';
 
 function statusClass(status) {
@@ -24,10 +25,35 @@ export default function VendorBills({ vendorId, reloadKey = 0 }) {
         let cancelled = false;
         setLoading(true);
         setError('');
-        listVendorBills(vendorId)
-            .then((data) => {
+        Promise.all([
+            listVendorBills(vendorId),
+            listInventoryBills(vendorId).catch(() => ({ bills: [] })),
+        ])
+            .then(([data, inventory]) => {
                 if (cancelled) return;
-                setRows(mapZohoBillListRows(Array.isArray(data?.bills) ? data.bills : []));
+                const stockRows = (Array.isArray(inventory?.bills) ? inventory.bills : []).map((bill) => ({
+                    id: bill.id,
+                    date: (() => {
+                        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(bill.purchaseDate || ''));
+                        if (!match) return 'N/A';
+                        const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+                        return Number.isNaN(date.getTime())
+                            ? 'N/A'
+                            : date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+                    })(),
+                    billNumber: bill.billNo || 'N/A',
+                    erpSource: 'Direct',
+                    referenceNumber: bill.lpoNo || 'N/A',
+                    status: 'Posted',
+                    dueDate: 'N/A',
+                    amount: Number(bill.value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                    balanceAmount: 'N/A',
+                    zohoUrl: '',
+                }));
+                setRows([
+                    ...stockRows,
+                    ...mapZohoBillListRows(Array.isArray(data?.bills) ? data.bills : []),
+                ]);
             })
             .catch((loadError) => {
                 if (cancelled) return;
@@ -62,7 +88,7 @@ export default function VendorBills({ vendorId, reloadKey = 0 }) {
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={9} className="px-4 py-10 text-center text-slate-500">No ERP bills are linked to Zoho for this vendor.</td>
+                                <td colSpan={9} className="px-4 py-10 text-center text-slate-500">No bills for this vendor.</td>
                             </tr>
                         ) : rows.map((row) => (
                             <tr key={row.id} className="border-b border-slate-100 text-slate-700">

@@ -37,6 +37,7 @@ import {
     ChevronRight,
     Search,
     Receipt,
+    Truck,
     Wallet,
     MessageCircle,
     Bell,
@@ -210,6 +211,8 @@ const menuItems = [
         submenu: [
             { label: 'Item Master', icon: Boxes, href: '/inventory/item-master', permissionModule: 'inventory_item_master' },
             { label: 'Vendor Management', icon: Store, href: '/inventory/vendor-management', permissionModule: 'inventory_vendor' },
+            { label: 'Bills', icon: Receipt, href: '/inventory/bills', permissionModule: 'inventory' },
+            { label: 'Delivery', icon: Truck, href: '/inventory/delivery', permissionModule: 'inventory' },
         ],
     },
     {
@@ -217,7 +220,9 @@ const menuItems = [
         label: 'CRM',
         icon: ContactRound,
         permissionModule: 'crm',
-        submenu: [{ label: 'Customers', icon: Users, permissionModule: 'crm' }],
+        submenu: [
+            { label: 'Customer', icon: Users, href: '/CRM/Customer', permissionModule: 'crm' },
+        ],
     },
     { id: 'Sales', label: 'Sales', icon: TrendingUp, permissionModule: 'sales' },
     {
@@ -226,6 +231,7 @@ const menuItems = [
         icon: Calculator,
         permissionModule: 'accounts',
         submenu: [
+            { label: 'Customers', icon: Users, permissionModule: 'crm' },
             { label: 'Vendors', icon: Users, permissionModule: 'purchases' },
             { label: 'Expenses', icon: HandCoins, permissionModule: 'purchases' },
             { label: 'Bills', icon: Receipt, permissionModule: 'purchases' },
@@ -336,14 +342,12 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'WhatsApp Permission') return '/Settings/NotificationEmails';
         if (label === 'Deleted Records') return '/Settings/DeletedRecords';
     }
+    if (parentId === 'Accounts' && label === 'Customers') return '/CRM/Customers';
     if (parentId === 'Accounts' && label === 'Vendors') return '/Accounts/Vendors';
     if (parentId === 'Accounts' && label === 'Expenses') return '/Accounts/Expenses';
     if (parentId === 'Accounts' && label === 'Bills') return '/Accounts/Bills';
     if (parentId === 'Accounts' && label === 'Payments Made') return '/Accounts/PaymentsMade';
     if (parentId === 'Accounts' && label === 'Payments') return '/Accounts/Payments';
-    if (parentId === 'CRM' && label === 'Customers') return '/CRM/Customers';
-    if (parentId === 'Production' && label === 'Work Order') return '/production/work-order';
-    return null;
 }
 
 export default function Sidebar() {
@@ -690,13 +694,16 @@ export default function Sidebar() {
                 setOpenSubmenu((prev) => (prev === 'HRM-Payroll' ? prev : 'HRM-Payroll'));
             }
         }
-        // CRM Detection
-        else if (pathname.startsWith('/CRM')) {
+        // CRM Detection. Customer is checked before Customers so the Accounts list stays under Accounts.
+        else if (pathname === '/CRM/Customer' || pathname.startsWith('/CRM/Customer/')) {
             setOpenMenu((prev) => (prev === 'CRM' ? prev : 'CRM'));
         }
-        // Accounts Detection (Vendors, Expenses, Bills, Payments Made, Payments)
-        else if (pathname.startsWith('/Accounts')) {
+        // Accounts Detection (Customers, Vendors, Expenses, Bills, Payments Made, Payments)
+        else if (pathname.startsWith('/Accounts') || pathname.startsWith('/CRM/Customers')) {
             setOpenMenu((prev) => (prev === 'Accounts' ? prev : 'Accounts'));
+        }
+        else if (pathname.startsWith('/CRM')) {
+            setOpenMenu((prev) => (prev === 'CRM' ? prev : 'CRM'));
         }
         // Settings Detection
         else if (pathname.startsWith('/Settings')) {
@@ -822,6 +829,10 @@ export default function Sidebar() {
             router.push('/Company');
         } else if (parentId === 'Accounts' && subItem.label === 'Vendors') {
             router.push('/Accounts/Vendors');
+        } else if (parentId === 'Accounts' && subItem.label === 'Customers') {
+            router.push('/CRM/Customers');
+        } else if (parentId === 'Accounts' && subItem.label === 'Vendors') {
+            router.push('/Accounts/Vendors');
         } else if (parentId === 'Accounts' && subItem.label === 'Expenses') {
             router.push('/Accounts/Expenses');
         } else if (parentId === 'Accounts' && subItem.label === 'Bills') {
@@ -830,10 +841,6 @@ export default function Sidebar() {
             router.push('/Accounts/PaymentsMade');
         } else if (parentId === 'Accounts' && subItem.label === 'Payments') {
             router.push('/Accounts/Payments');
-        } else if (parentId === 'CRM' && subItem.label === 'Customers') {
-            router.push('/CRM/Customers');
-        } else if (parentId === 'Production' && subItem.label === 'Work Order') {
-            router.push('/production/work-order');
         }
     };
 
@@ -897,6 +904,10 @@ export default function Sidebar() {
             return pathname?.startsWith('/Company');
         } else if (parentId === 'Accounts' && subItem.label === 'Vendors') {
             return pathname?.startsWith('/Accounts/Vendors');
+        } else if (parentId === 'Accounts' && subItem.label === 'Customers') {
+            return pathname?.startsWith('/CRM/Customers');
+        } else if (parentId === 'Accounts' && subItem.label === 'Vendors') {
+            return pathname?.startsWith('/Accounts/Vendors');
         } else if (parentId === 'Accounts' && subItem.label === 'Expenses') {
             return pathname?.startsWith('/Accounts/Expenses');
         } else if (parentId === 'Accounts' && subItem.label === 'Bills') {
@@ -910,8 +921,6 @@ export default function Sidebar() {
                 (pathname?.startsWith('/Accounts/Payment') &&
                     !pathname?.startsWith('/Accounts/PaymentsMade'))
             );
-        } else if (parentId === 'CRM' && subItem.label === 'Customers') {
-            return pathname?.startsWith('/CRM/Customers');
         }
         return false;
     };
@@ -946,8 +955,11 @@ export default function Sidebar() {
             if (vehicleOk || toolsOk) return true;
         }
 
-        // Accounts hosts both ERP Payments (accounts) and Zoho AP pages (purchases)
-        if (item.id === 'Accounts' && (hasAnyPermission('accounts') || hasAnyPermission('purchases'))) {
+        // Accounts hosts ERP Payments, Zoho payables, and the customer list.
+        if (
+            item.id === 'Accounts' &&
+            (hasAnyPermission('accounts') || hasAnyPermission('purchases') || hasAnyPermission('crm'))
+        ) {
             return true;
         }
 

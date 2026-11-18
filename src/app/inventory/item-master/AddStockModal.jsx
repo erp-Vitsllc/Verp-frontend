@@ -2,20 +2,26 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Boxes, Check, FileText, Pencil, Plus, RotateCcw, Store, Trash2, Upload, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import CatalogModal from './CatalogModal';
 import { useInventoryAccess } from './itemMasterAccess';
+import { listVendors } from '../vendor-management/vendorManagementApi';
 import {
-    addItemStock,
     apiMessage,
-    createPendingItem,
+    approveStockEntry,
+    getStockApprovalContext,
+    getStockEntry,
     listBrands,
     listCategories,
+    listStockEntries,
     listStockOptions,
     listSubcategories,
+    rejectStockEntry,
+    saveStockEntry,
 } from './itemMasterApi';
 
-const fieldClass = 'h-11 w-full rounded-lg border border-[#E6EDF5] bg-white px-3 text-sm text-slate-800 outline-none focus:border-blue-500';
+const fieldClass = 'h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-slate-800 outline-none focus:border-indigo-500';
+const MAX_BILL_BYTES = 10 * 1024 * 1024;
 
 function sameId(left, right) {
     return String(left || '') === String(right || '');
@@ -51,22 +57,6 @@ function ownedModel(model, rows) {
     return modelOwners(model, rows).find((row) => !row.pendingStock) || null;
 }
 
-function stockRow(saved) {
-    return {
-        _id: saved._id,
-        itemCode: saved.itemCode || '',
-        description: saved.description || '',
-        modelNumber: saved.modelNumber || '',
-        availableQuantity: saved.availableQuantity || 0,
-        categoryId: String(saved.categoryId || ''),
-        subcategoryId: String(saved.subcategoryId || ''),
-        brandId: String(saved.brandId || ''),
-        itemName: saved.itemName || saved.description || '',
-        brandName: saved.brandName || '',
-        pendingStock: Boolean(saved.pendingStock),
-    };
-}
-
 function itemStillVisible(item, nextCategory, nextSub) {
     if (!item) return false;
     if (nextCategory && !sameId(item.categoryId, nextCategory)) return false;
@@ -74,7 +64,42 @@ function itemStillVisible(item, nextCategory, nextSub) {
     return true;
 }
 
-function TypeSuggest({ label, text, options, placeholder, onText, onPick, onCommit, showAll = false }) {
+function requestId() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    return `stock-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function money(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '0.00';
+    return number.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function lineTotal(quantity, unitPrice) {
+    const qty = Number(quantity);
+    const price = Number(unitPrice);
+    if (!Number.isFinite(qty) || !Number.isFinite(price)) return 0;
+    return Math.round(qty * price * 100) / 100;
+}
+
+function readBillFile(file) {
+    if (!file) return Promise.resolve(null);
+    const allowed = ['application/pdf', 'image/jpeg', 'image/png'];
+    if (!allowed.includes(file.type)) return Promise.reject(new Error('Upload a PDF, JPG, or PNG file.'));
+    if (file.size > MAX_BILL_BYTES) return Promise.reject(new Error('File must be under 10 MB.'));
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({
+            name: file.name,
+            mimeType: file.type,
+            data: String(reader.result || ''),
+        });
+        reader.onerror = () => reject(new Error('Could not read the file.'));
+        reader.readAsDataURL(file);
+    });
+}
+
+function TypeSuggest({ label, text, options, placeholder, onText, onPick, onCommit, showAll = false, required = false }) {
     const rootRef = useRef(null);
     const menuRef = useRef(null);
     const [open, setOpen] = useState(false);
@@ -152,7 +177,10 @@ function TypeSuggest({ label, text, options, placeholder, onText, onPick, onComm
 
     return (
         <label ref={rootRef} className="relative block">
-            <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
+            <span className="mb-1.5 block text-sm font-medium text-slate-700">
+                {label}
+                {required ? <span className="text-red-500"> *</span> : null}
+            </span>
             <input
                 value={text}
                 placeholder={placeholder}
@@ -170,6 +198,7 @@ function TypeSuggest({ label, text, options, placeholder, onText, onPick, onComm
                 }}
                 onKeyDown={(event) => {
                     if (event.key === 'Escape') {
+                        event.stopPropagation();
                         setOpen(false);
                         return;
                     }
@@ -192,7 +221,7 @@ function TypeSuggest({ label, text, options, placeholder, onText, onPick, onComm
     );
 }
 
-export default function AddStockModal({ onClose, onSaved }) {
+export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) {
     const { toast } = useToast();
     const access = useInventoryAccess();
     const [categories, setCategories] = useState([]);
@@ -208,21 +237,70 @@ export default function AddStockModal({ onClose, onSaved }) {
     const [itemId, setItemId] = useState('');
     const [itemText, setItemText] = useState('');
     const [modelNumber, setModelNumber] = useState('');
-    const [quantity, setQuantity] = useState('');
-    const [price, setPrice] = useState('');
+    const [purchaseSource, setPurchaseSource] = useState('vendor');
+    const [vendors, setVendors] = useState([]);
+    const [vendorId, setVendorId] = useState('');
+    const [vendorText, setVendorText] = useState('');
+    const [purchaseDate, setPurchaseDate] = useState('');
+    const [billNo, setBillNo] = useState('');
+    const [lpoNo, setLpoNo] = useState('');
+    const [lines, setLines] = useState([]);
+    const [attachment, setAttachment] = useState(null);
+    const [dragOver, setDragOver] = useState(false);
+    const [drafts, setDrafts] = useState([]);
+    const [entryId, setEntryId] = useState('');
+    const [clientRequestId, setClientRequestId] = useState(requestId);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    const [directPost, setDirectPost] = useState(false);
+    const [approvalReady, setApprovalReady] = useState(false);
+    const [approverName, setApproverName] = useState('');
+    const [submittedByName, setSubmittedByName] = useState('');
+    const locked = Boolean(reviewEntryId);
+    const fileRef = useRef(null);
+    const onCloseRef = useRef(onClose);
+    onCloseRef.current = onClose;
 
     useEffect(() => {
         let cancelled = false;
-        Promise.all([listCategories(), listSubcategories(), listBrands(), listStockOptions()])
-            .then(([categoryResult, subcategoryResult, brandResult, stockResult]) => {
+        Promise.all([
+            listCategories(),
+            listSubcategories(),
+            listBrands(),
+            listStockOptions(),
+            listVendors({ limit: 0 }).catch(() => ({ vendors: [] })),
+            listStockEntries('draft').catch(() => ({ entries: [] })),
+        ])
+            .then(async ([categoryResult, subcategoryResult, brandResult, stockResult, vendorResult, draftResult]) => {
                 if (cancelled) return;
+                const vendorRows = Array.isArray(vendorResult?.vendors) ? vendorResult.vendors : [];
                 setCategories(Array.isArray(categoryResult) ? categoryResult : []);
                 setSubcategories(Array.isArray(subcategoryResult) ? subcategoryResult : []);
                 setBrands(Array.isArray(brandResult) ? brandResult : []);
                 setItems(Array.isArray(stockResult?.items) ? stockResult.items : []);
+                setVendors(vendorRows);
+                setDrafts(Array.isArray(draftResult?.entries) ? draftResult.entries : []);
+                const context = await getStockApprovalContext().catch(() => null);
+                if (cancelled) return;
+                setDirectPost(Boolean(context?.isPurchaseOfficer));
+                setApprovalReady(true);
+                if (!reviewEntryId) return;
+                const entry = await getStockEntry(reviewEntryId);
+                if (cancelled) return;
+                const vendor = vendorRows.find((row) => sameId(row.id, entry.vendorId));
+                setEntryId(String(entry._id || ''));
+                setClientRequestId(entry.clientRequestId || requestId());
+                setPurchaseSource(entry.purchaseSource === 'manual' ? 'manual' : 'vendor');
+                setVendorId(entry.vendorId || '');
+                setVendorText(vendor?.name || '');
+                setPurchaseDate(entry.purchaseDate || '');
+                setBillNo(entry.billNo || '');
+                setLpoNo(entry.lpoNo || '');
+                setLines((entry.lines || []).map((line, index) => ({ ...line, key: `${entry._id}-${index}` })));
+                setAttachment(entry.attachment?.name ? entry.attachment : null);
+                setApproverName(entry.approverName || context?.officerName || '');
+                setSubmittedByName(entry.submittedByName || '');
             })
             .catch((err) => {
                 if (!cancelled) setError(apiMessage(err, 'Could not load stock options.'));
@@ -232,6 +310,19 @@ export default function AddStockModal({ onClose, onSaved }) {
             });
         return () => {
             cancelled = true;
+        };
+    }, [reviewEntryId]);
+
+    useEffect(() => {
+        const onKey = (event) => {
+            if (event.key === 'Escape') onCloseRef.current();
+        };
+        window.addEventListener('keydown', onKey);
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            window.removeEventListener('keydown', onKey);
+            document.body.style.overflow = previousOverflow;
         };
     }, []);
 
@@ -464,10 +555,12 @@ export default function AddStockModal({ onClose, onSaved }) {
         else setModelNumber(model);
     };
 
-    const save = async (event) => {
-        event.preventDefault();
-        const amount = Number(quantity);
-        const cost = Number(price);
+    const vendorOptions = useMemo(
+        () => vendors.map((row) => ({ value: String(row.id), label: row.name || row.code || 'Vendor' })),
+        [vendors],
+    );
+
+    const resolveSelection = () => {
         const typedName = cleanText(itemText);
         const held = items.find((row) => sameId(row._id, itemId));
         let selected = held && namesEqual(itemLabel(held), typedName) ? held : null;
@@ -550,129 +643,539 @@ export default function AddStockModal({ onClose, onSaved }) {
         }
         if (!sameTarget && !access.canCreateItem) {
             setError('Item create permission is required to add an item.');
-            return;
+            return null;
         }
-        if (!Number.isFinite(amount) || amount <= 0) {
-            setError('Enter a quantity greater than zero.');
-            return;
-        }
-        if (price === '' || !Number.isFinite(cost) || cost < 0) {
-            setError('Enter a price.');
-            return;
-        }
+        const brandName = brandMatch?.name || rowById(brands, useBrand)?.name || '';
+        const description = sameTarget && selected?.description
+            ? selected.description
+            : [brandName, itemName, model, sub.name].map((part) => cleanText(part)).filter(Boolean).join(' ');
+        setError('');
+        return {
+            itemId: selected ? String(selected._id) : '',
+            categoryId: useCategory,
+            subcategoryId: useSubcategory,
+            brandId: useBrand,
+            modelNumber: model,
+            itemName,
+            description,
+            quantity: '',
+            unitPrice: '',
+        };
+    };
+
+    const addMaterial = () => {
+        const line = resolveSelection();
+        if (!line) return;
+        setLines((current) => [...current, { ...line, key: requestId() }]);
+        setItemId('');
+        setItemText('');
+        setModelNumber('');
+    };
+
+    const chooseVendor = (nextId) => {
+        const vendor = vendors.find((row) => sameId(row.id, nextId));
+        setVendorId(nextId);
+        setVendorText(vendor?.name || '');
+    };
+
+    const typeVendor = (text) => {
+        setVendorText(text);
+        const selected = vendors.find((row) => sameId(row.id, vendorId));
+        if (selected && namesEqual(selected.name, text)) return;
+        if (selected) setVendorId('');
+    };
+
+    const commitVendor = (text) => {
+        const name = cleanText(text);
+        setVendorText(name);
+        const selected = vendors.find((row) => sameId(row.id, vendorId));
+        if (selected && namesEqual(selected.name, name)) return;
+        const matches = vendors.filter((row) => namesEqual(row.name, name));
+        if (matches.length === 1) chooseVendor(String(matches[0].id));
+        else setVendorId('');
+    };
+
+    const updateLine = (key, patch) => {
+        setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
+    };
+
+    const removeLine = (key) => {
+        setLines((current) => current.filter((line) => line.key !== key));
+    };
+
+    const clearEntry = () => {
+        const dirty = lines.length || vendorText || purchaseDate || billNo || lpoNo || attachment || categoryText || itemText || modelNumber;
+        if (dirty && !window.confirm('Clear everything entered in this form? Saved stock records will not be deleted.')) return;
+        setPurchaseSource('vendor');
+        setVendorId('');
+        setVendorText('');
+        setPurchaseDate('');
+        setBillNo('');
+        setLpoNo('');
+        setLines([]);
+        setAttachment(null);
+        setEntryId('');
+        setClientRequestId(requestId());
+        setCategoryId('');
+        setCategoryText('');
+        setSubcategoryId('');
+        setSubcategoryText('');
+        setBrandId('');
+        setBrandText('');
+        setItemId('');
+        setItemText('');
+        setModelNumber('');
+        setError('');
+    };
+
+    const openDraft = async (id) => {
+        if (!id) return;
         setSaving(true);
         setError('');
         try {
-            let stockItem = selected;
-            if (!stockItem) {
-                const created = await createPendingItem({
-                    categoryId: useCategory,
-                    subcategoryId: useSubcategory,
-                    brandId: useBrand,
-                    itemName,
-                    modelNumber: typedModel,
-                });
-                stockItem = stockRow(created);
-            }
-            const saved = await addItemStock(stockItem._id, {
-                quantity: amount,
-                price: cost,
-                categoryId: useCategory,
-                subcategoryId: useSubcategory,
-                brandId: useBrand,
-                modelNumber: model,
-            });
-            const createdItem = Boolean(stockItem.pendingStock) || Boolean(saved.created);
-            toast({
-                title: createdItem ? 'New item created' : 'Stock added',
-                description: createdItem
-                    ? `${saved.itemCode || 'Item'} was created with ${saved.availableQuantity} in stock.`
-                    : `${saved.itemCode || 'Item'} available is now ${saved.availableQuantity}.`,
-            });
-            onSaved?.();
-            onClose();
+            const entry = await getStockEntry(id);
+            const vendor = vendors.find((row) => sameId(row.id, entry.vendorId));
+            setEntryId(String(entry._id || ''));
+            setClientRequestId(entry.clientRequestId || requestId());
+            setPurchaseSource(entry.purchaseSource === 'manual' ? 'manual' : 'vendor');
+            setVendorId(entry.vendorId || '');
+            setVendorText(vendor?.name || '');
+            setPurchaseDate(entry.purchaseDate || '');
+            setBillNo(entry.billNo || '');
+            setLpoNo(entry.lpoNo || '');
+            setLines((entry.lines || []).map((line, index) => ({ ...line, key: `${entry._id}-${index}` })));
+            setAttachment(entry.attachment?.name ? entry.attachment : null);
         } catch (err) {
-            const message = apiMessage(err, 'Could not add stock.');
-            setError(message);
-            toast({ title: 'Could not add stock', description: message, variant: 'destructive' });
+            setError(apiMessage(err, 'Could not open the draft.'));
         } finally {
             setSaving(false);
         }
     };
 
+    const useBill = async (file) => {
+        try {
+            const next = await readBillFile(file);
+            if (next) setAttachment(next);
+        } catch (err) {
+            setError(err.message || 'Could not read the file.');
+        }
+    };
+
+    const submit = async (status) => {
+        if (status === 'posted' && purchaseSource === 'vendor') {
+            if (!vendorId) {
+                setError('Vendor name is required.');
+                return;
+            }
+            if (!purchaseDate) {
+                setError('Purchase date is required.');
+                return;
+            }
+            if (!cleanText(billNo)) {
+                setError('Bill no is required.');
+                return;
+            }
+        }
+        if (status === 'posted') {
+            if (lines.length === 0) {
+                setError('Add at least one item.');
+                return;
+            }
+            for (let index = 0; index < lines.length; index += 1) {
+                const line = lines[index];
+                const amount = Number(line.quantity);
+                const cost = line.unitPrice === '' ? NaN : Number(line.unitPrice);
+                if (!Number.isFinite(amount) || amount <= 0) {
+                    setError(`Enter a quantity greater than zero on row ${index + 1}.`);
+                    return;
+                }
+                if (line.unitPrice === '' || !Number.isFinite(cost) || cost < 0) {
+                    setError(`Enter a price on row ${index + 1}.`);
+                    return;
+                }
+            }
+        }
+        setSaving(true);
+        setError('');
+        try {
+            const saved = await saveStockEntry({
+                id: entryId,
+                clientRequestId,
+                status,
+                purchaseSource,
+                vendorId: purchaseSource === 'vendor' ? vendorId : '',
+                purchaseDate: purchaseSource === 'vendor' ? purchaseDate : '',
+                billNo: purchaseSource === 'vendor' ? billNo : '',
+                lpoNo: purchaseSource === 'vendor' ? lpoNo : '',
+                lines: lines.map((line) => ({
+                    itemId: line.itemId,
+                    categoryId: line.categoryId,
+                    subcategoryId: line.subcategoryId,
+                    brandId: line.brandId,
+                    modelNumber: line.modelNumber,
+                    itemName: line.itemName,
+                    description: line.description,
+                    quantity: line.quantity,
+                    unitPrice: line.unitPrice,
+                })),
+                attachment: attachment ? {
+                    name: attachment.name,
+                    mimeType: attachment.mimeType,
+                    publicId: attachment.publicId || '',
+                    url: attachment.url || '',
+                    data: attachment.data || '',
+                } : null,
+            });
+            if (status === 'posted') {
+                if (saved.status === 'pending') {
+                    toast({
+                        title: 'Submitted',
+                        description: `Waiting for ${saved.approverName || 'the purchase officer'}.`,
+                    });
+                } else {
+                    toast({ title: 'Stock added', description: 'The stock entry was saved and inventory was updated.' });
+                }
+                onSaved?.();
+                onClose();
+                return;
+            }
+            setEntryId(String(saved._id || entryId));
+            if (saved.clientRequestId) setClientRequestId(saved.clientRequestId);
+            toast({ title: 'Draft saved', description: 'Inventory quantities were not changed.' });
+            const draftResult = await listStockEntries('draft').catch(() => ({ entries: [] }));
+            setDrafts(Array.isArray(draftResult?.entries) ? draftResult.entries : []);
+        } catch (err) {
+            const message = apiMessage(err, 'Could not save the stock entry.');
+            setError(message);
+            toast({ title: 'Could not save', description: message, variant: 'destructive' });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const decide = async (action) => {
+        if (!reviewEntryId) return;
+        setSaving(true);
+        setError('');
+        try {
+            if (action === 'accept') {
+                await approveStockEntry(reviewEntryId);
+                toast({ title: 'Stock accepted', description: 'Inventory was updated.' });
+            } else {
+                await rejectStockEntry(reviewEntryId);
+                toast({ title: 'Stock rejected', description: 'The waiting stock was removed.' });
+            }
+            onSaved?.();
+            onClose();
+        } catch (err) {
+            const message = apiMessage(err, 'Could not update this stock entry.');
+            setError(message);
+            toast({ title: 'Could not update', description: message, variant: 'destructive' });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const grandTotal = lines.reduce((sum, line) => sum + lineTotal(line.quantity, line.unitPrice), 0);
+    const actionLabel = directPost ? 'OK' : 'Submit';
+
     return (
-        <CatalogModal title="Add Stock" onClose={onClose} wide>
-            <form onSubmit={save} className="flex min-h-0 flex-col">
-                <div className="max-h-[min(36rem,calc(100vh-11rem))] overflow-y-auto px-5 py-4">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-3 sm:p-6">
+            <form
+                onSubmit={(event) => event.preventDefault()}
+                className="flex max-h-[calc(100vh-1.5rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Add Bill"
+            >
+                <div className="flex items-center justify-between gap-3 border-b border-[#EEF2F7] px-5 py-4">
+                    <div className="flex items-center gap-2">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                            <Boxes size={18} />
+                        </span>
+                        <h2 className="text-lg font-semibold text-slate-900">Add Bill</h2>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {locked ? null : (
+                            <button type="button" onClick={clearEntry} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-indigo-200 px-3 text-sm font-semibold text-indigo-700">
+                                <RotateCcw size={14} /> Reset
+                            </button>
+                        )}
+                        <button type="button" onClick={onClose} aria-label="Close" className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100">
+                            <X size={18} />
+                        </button>
+                    </div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
                     {error ? <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
+                    {locked ? (
+                        <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                            Waiting for {approverName || 'the purchase officer'}.
+                            {submittedByName ? ` Submitted by ${submittedByName}.` : ''}
+                        </p>
+                    ) : null}
+                    {!locked && drafts.length ? (
+                        <label className="mb-4 block text-sm text-slate-600">
+                            <span className="mb-1 block font-medium">Saved drafts</span>
+                            <select
+                                className={fieldClass}
+                                value={entryId}
+                                onChange={(event) => openDraft(event.target.value)}
+                            >
+                                <option value="">Open a draft</option>
+                                {drafts.map((draft) => (
+                                    <option key={draft._id} value={draft._id}>
+                                        {draft.purchaseSource === 'manual' ? 'Manual' : 'Vendor'}
+                                        {draft.billNo ? ` · ${draft.billNo}` : ''}
+                                        {` · ${draft.lineCount || 0} items`}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    ) : null}
                     {loading ? <p className="text-sm text-slate-500">Loading items...</p> : (
-                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <TypeSuggest
-                                label="Sub category"
-                                text={subcategoryText}
-                                options={subcategoryOptions}
-                                placeholder="Type sub category"
-                                onText={typeSubcategory}
-                                onPick={chooseSubcategory}
-                                onCommit={commitSubcategory}
-                            />
-                            <TypeSuggest
-                                label="Category"
-                                text={categoryText}
-                                options={categoryOptions}
-                                placeholder="Type category"
-                                onText={typeCategory}
-                                onPick={chooseCategory}
-                                onCommit={commitCategory}
-                            />
-                            <TypeSuggest
-                                label="Item"
-                                text={itemText}
-                                options={itemOptions}
-                                placeholder="Type item"
-                                onText={typeItem}
-                                onPick={chooseItem}
-                                onCommit={commitItem}
-                            />
-                            <TypeSuggest
-                                label="Brand"
-                                text={brandText}
-                                options={brandOptions}
-                                placeholder="Type brand"
-                                onText={typeBrand}
-                                onPick={chooseBrand}
-                                onCommit={commitBrand}
-                                showAll
-                            />
-                            <TypeSuggest
-                                label="Model no"
-                                text={modelNumber}
-                                options={modelOptions}
-                                placeholder="Type model no"
-                                onText={typeModel}
-                                onPick={chooseModel}
-                                onCommit={commitModel}
-                            />
-                            <label>
-                                <span className="mb-1.5 block text-sm font-medium text-slate-700">Quantity</span>
-                                <input type="number" min="0" step="0.01" value={quantity} onChange={(event) => setQuantity(event.target.value)} className={fieldClass} />
-                            </label>
-                            <label>
-                                <span className="mb-1.5 block text-sm font-medium text-slate-700">Price</span>
-                                <input type="number" min="0" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} className={fieldClass} />
-                            </label>
+                        <div className="space-y-4">
+                            {locked ? null : (
+                            <>
+                            <div>
+                                <p className="mb-2 text-sm font-medium text-slate-700">Purchase Source</p>
+                                <div className="inline-flex rounded-xl bg-[#F3F4F8] p-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setPurchaseSource('vendor')}
+                                        className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold ${purchaseSource === 'vendor' ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}
+                                    >
+                                        <Store size={15} /> Vendor
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPurchaseSource('manual')}
+                                        className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold ${purchaseSource === 'manual' ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}
+                                    >
+                                        <Pencil size={15} /> Manual
+                                    </button>
+                                </div>
+                            </div>
+                            {purchaseSource === 'vendor' ? (
+                                <div className="grid grid-cols-1 gap-3 rounded-xl bg-[#F5F7FB] p-4 sm:grid-cols-2 xl:grid-cols-4">
+                                    <TypeSuggest
+                                        label="Vendor Name"
+                                        required
+                                        text={vendorText}
+                                        options={vendorOptions}
+                                        placeholder="Select vendor"
+                                        onText={typeVendor}
+                                        onPick={chooseVendor}
+                                        onCommit={commitVendor}
+                                    />
+                                    <label>
+                                        <span className="mb-1.5 block text-sm font-medium text-slate-700">Purchase Date <span className="text-red-500">*</span></span>
+                                        <input type="date" value={purchaseDate} onChange={(event) => setPurchaseDate(event.target.value)} className={fieldClass} />
+                                    </label>
+                                    <label>
+                                        <span className="mb-1.5 block text-sm font-medium text-slate-700">Bill No <span className="text-red-500">*</span></span>
+                                        <input value={billNo} onChange={(event) => setBillNo(event.target.value)} placeholder="Enter bill no" className={fieldClass} />
+                                    </label>
+                                    <label>
+                                        <span className="mb-1.5 block text-sm font-medium text-slate-700">LPO No</span>
+                                        <input value={lpoNo} onChange={(event) => setLpoNo(event.target.value)} placeholder="Enter LPO no (optional)" className={fieldClass} />
+                                    </label>
+                                </div>
+                            ) : null}
+                            <div className="rounded-xl bg-[#F5F7FB] p-4">
+                                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                                    <TypeSuggest
+                                        label="Category"
+                                        required
+                                        text={categoryText}
+                                        options={categoryOptions}
+                                        placeholder="Select category"
+                                        onText={typeCategory}
+                                        onPick={chooseCategory}
+                                        onCommit={commitCategory}
+                                    />
+                                    <TypeSuggest
+                                        label="Sub Category"
+                                        required
+                                        text={subcategoryText}
+                                        options={subcategoryOptions}
+                                        placeholder="Select sub category"
+                                        onText={typeSubcategory}
+                                        onPick={chooseSubcategory}
+                                        onCommit={commitSubcategory}
+                                    />
+                                    <TypeSuggest
+                                        label="Item"
+                                        required
+                                        text={itemText}
+                                        options={itemOptions}
+                                        placeholder="Select item"
+                                        onText={typeItem}
+                                        onPick={chooseItem}
+                                        onCommit={commitItem}
+                                    />
+                                    <TypeSuggest
+                                        label="Brand"
+                                        required
+                                        text={brandText}
+                                        options={brandOptions}
+                                        placeholder="Select brand"
+                                        onText={typeBrand}
+                                        onPick={chooseBrand}
+                                        onCommit={commitBrand}
+                                        showAll
+                                    />
+                                    <TypeSuggest
+                                        label="Model No"
+                                        text={modelNumber}
+                                        options={modelOptions}
+                                        placeholder="Enter model no"
+                                        onText={typeModel}
+                                        onPick={chooseModel}
+                                        onCommit={commitModel}
+                                    />
+                                    <div className="flex items-end justify-end">
+                                        <button type="button" onClick={addMaterial} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white">
+                                            <Plus size={16} /> Add
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            </>
+                            )}
+                            {locked && purchaseSource === 'vendor' ? (
+                                <div className="grid grid-cols-1 gap-3 rounded-xl bg-[#F5F7FB] p-4 text-sm text-slate-700 sm:grid-cols-2 xl:grid-cols-4">
+                                    <p><span className="block text-xs text-slate-400">Vendor</span>{vendorText || '—'}</p>
+                                    <p><span className="block text-xs text-slate-400">Purchase date</span>{purchaseDate || '—'}</p>
+                                    <p><span className="block text-xs text-slate-400">Bill no</span>{billNo || '—'}</p>
+                                    <p><span className="block text-xs text-slate-400">LPO no</span>{lpoNo || '—'}</p>
+                                </div>
+                            ) : null}
+                            <div className="overflow-x-auto rounded-xl border border-[#EEF2F7]">
+                                <table className="w-full min-w-[720px] text-left text-sm">
+                                    <thead className="bg-[#EEF1F8] text-slate-500">
+                                        <tr>
+                                            {['Sl.No', 'Description', 'Qty', 'Unit Price', 'Total', ''].map((heading) => (
+                                                <th key={heading || 'action'} className="px-3 py-3 font-medium">{heading}</th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {lines.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={6} className="px-3 py-6 text-center text-slate-400">No items added yet.</td>
+                                            </tr>
+                                        ) : lines.map((line, index) => (
+                                            <tr key={line.key} className="border-t border-[#EEF2F7]">
+                                                <td className="px-3 py-3 text-slate-500">{index + 1}</td>
+                                                <td className="px-3 py-3 text-slate-800">{line.description}</td>
+                                                <td className="px-3 py-3">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={line.quantity}
+                                                        readOnly={locked}
+                                                        onChange={(event) => updateLine(line.key, { quantity: event.target.value })}
+                                                        className="h-10 w-24 rounded-lg border border-[#E2E8F0] px-2 text-sm outline-none focus:border-indigo-500 read-only:bg-slate-50"
+                                                    />
+                                                </td>
+                                                <td className="px-3 py-3">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={line.unitPrice}
+                                                        readOnly={locked}
+                                                        onChange={(event) => updateLine(line.key, { unitPrice: event.target.value })}
+                                                        className="h-10 w-32 rounded-lg border border-[#E2E8F0] px-2 text-sm outline-none focus:border-indigo-500 read-only:bg-slate-50"
+                                                    />
+                                                </td>
+                                                <td className="px-3 py-3 font-semibold text-slate-900">{money(lineTotal(line.quantity, line.unitPrice))}</td>
+                                                <td className="px-3 py-3">
+                                                    {locked ? null : (
+                                                        <button type="button" onClick={() => removeLine(line.key)} aria-label={`Remove row ${index + 1}`} className="text-red-500 hover:text-red-700">
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {lines.length ? (
+                                <p className="text-right text-sm font-semibold text-slate-800">Grand total {money(grandTotal)}</p>
+                            ) : null}
+                            <div>
+                                <p className="mb-2 text-sm font-medium text-slate-800">Bill Attachment <span className="font-normal text-slate-400">(Optional)</span></p>
+                                {locked ? (
+                                    <p className="rounded-xl border border-[#D5DDEA] bg-[#F8FAFC] px-4 py-3 text-sm text-slate-600">{attachment?.name || 'No attachment'}</p>
+                                ) : (
+                                <div
+                                    onDragOver={(event) => {
+                                        event.preventDefault();
+                                        setDragOver(true);
+                                    }}
+                                    onDragLeave={() => setDragOver(false)}
+                                    onDrop={(event) => {
+                                        event.preventDefault();
+                                        setDragOver(false);
+                                        useBill(event.dataTransfer.files?.[0]);
+                                    }}
+                                    className={`flex flex-col items-center justify-center rounded-xl border border-dashed px-4 py-5 text-center ${dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-[#D5DDEA] bg-[#F8FAFC]'}`}
+                                >
+                                    <Upload size={18} className="text-indigo-500" />
+                                    <button type="button" onClick={() => fileRef.current?.click()} className="mt-1 text-sm font-semibold text-indigo-600">
+                                        Choose File
+                                    </button>
+                                    <p className="text-xs text-slate-400">or drag and drop · PDF, JPG, PNG (max 10 MB)</p>
+                                    {attachment?.name ? (
+                                        <button type="button" onClick={() => setAttachment(null)} className="mt-2 text-xs text-slate-500 hover:text-red-600">
+                                            {attachment.name} · Remove
+                                        </button>
+                                    ) : null}
+                                    <input
+                                        ref={fileRef}
+                                        type="file"
+                                        accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                                        className="hidden"
+                                        onChange={(event) => {
+                                            useBill(event.target.files?.[0]);
+                                            event.target.value = '';
+                                        }}
+                                    />
+                                </div>
+                                )}
+                            </div>
                         </div>
                     )}
                 </div>
-                <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[#E6EDF5] px-5 py-4">
-                    <button type="button" onClick={onClose} className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-4 text-sm font-medium text-slate-700">
-                        Cancel
-                    </button>
-                    <button type="submit" disabled={saving || loading} className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-60">
-                        {saving ? 'Saving...' : 'Add Stock'}
-                    </button>
+                <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[#EEF2F7] px-5 py-4">
+                    <button type="button" onClick={onClose} className="h-10 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-600">Cancel</button>
+                    {locked ? (
+                        directPost ? (
+                            <>
+                                <button type="button" onClick={() => decide('reject')} disabled={saving || loading} className="h-10 rounded-lg border border-red-200 px-4 text-sm font-semibold text-red-600 disabled:opacity-60">
+                                    {saving ? 'Saving...' : 'Reject'}
+                                </button>
+                                <button type="button" onClick={() => decide('accept')} disabled={saving || loading} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">
+                                    <Check size={15} /> {saving ? 'Saving...' : 'Accept'}
+                                </button>
+                            </>
+                        ) : null
+                    ) : (
+                        <>
+                            <button type="button" onClick={() => submit('draft')} disabled={saving || loading} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-indigo-200 px-4 text-sm font-semibold text-indigo-700 disabled:opacity-60">
+                                <FileText size={15} /> Draft
+                            </button>
+                            <button type="button" onClick={() => submit('posted')} disabled={saving || loading || !approvalReady} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">
+                                <Check size={15} /> {saving ? 'Saving...' : actionLabel}
+                            </button>
+                        </>
+                    )}
                 </div>
             </form>
-        </CatalogModal>
+        </div>
     );
 }

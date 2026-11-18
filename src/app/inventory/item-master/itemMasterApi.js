@@ -47,6 +47,12 @@ export const deleteItem = (id) => axiosInstance.delete(`${base}/items/${id}`).th
 export const listStockOptions = () => axiosInstance.get(`${base}/items/stock-options`).then(dataOf);
 export const createPendingItem = (payload) => axiosInstance.post(`${base}/items/pending`, payload).then(dataOf);
 export const addItemStock = (id, payload) => axiosInstance.post(`${base}/items/${id}/stock`, payload).then(dataOf);
+export const listStockEntries = (status) => axiosInstance.get(`${base}/stock-entries`, { params: { status } }).then(dataOf);
+export const getStockEntry = (id) => axiosInstance.get(`${base}/stock-entries/${id}`).then(dataOf);
+export const saveStockEntry = (payload) => axiosInstance.post(`${base}/stock-entries`, payload).then(dataOf);
+export const getStockApprovalContext = () => axiosInstance.get(`${base}/stock-entries/approval-context`).then(dataOf);
+export const approveStockEntry = (id) => axiosInstance.post(`${base}/stock-entries/${id}/approve`).then(dataOf);
+export const rejectStockEntry = (id) => axiosInstance.post(`${base}/stock-entries/${id}/reject`).then(dataOf);
 
 export function readImageFile(file, { required = false } = {}) {
     if (!file) {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Download, LayoutGrid, List, PackagePlus, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Bell, Download, LayoutGrid, List, Pencil, Plus, Receipt, Search, Trash2 } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
@@ -22,6 +22,7 @@ import {
     listBrands,
     listCategories,
     listCategoryImages,
+    getStockApprovalContext,
     listItems,
     listSubcategories,
     listSubcategoryImages,
@@ -47,6 +48,11 @@ const statusClass = {
     'Low Stock': 'bg-orange-50 text-orange-600',
     'Out of Stock': 'bg-red-50 text-red-600',
 };
+
+function statusBadgeClass(status) {
+    if (String(status || '').startsWith('Waiting for ')) return 'bg-amber-50 text-amber-700';
+    return statusClass[status] || 'bg-slate-100 text-slate-600';
+}
 
 function asRows(value) {
     return Array.isArray(value) ? value : [];
@@ -237,7 +243,9 @@ export default function ItemMasterList() {
     const [status, setStatus] = useState(() => stockStatusParam(searchParams));
     const [linkedList, setLinkedList] = useState(null);
     const [modal, setModal] = useState('');
-    const [addStockOpen, setAddStockOpen] = useState(() => searchParams.get('addStock') === '1');
+    const [addStockOpen, setAddStockOpen] = useState(() => searchParams.get('addStock') === '1' || Boolean(searchParams.get('stockEntry')));
+    const [reviewEntryId, setReviewEntryId] = useState(() => searchParams.get('stockEntry') || '');
+    const [stockApprovals, setStockApprovals] = useState({ isPurchaseOfficer: false, entries: [] });
     const [returnToSubcategory, setReturnToSubcategory] = useState(false);
     const [itemError, setItemError] = useState('');
     const [openDescriptions, setOpenDescriptions] = useState(() => new Set());
@@ -286,9 +294,31 @@ export default function ItemMasterList() {
     }, [searchKey, searchParams]);
 
     useEffect(() => {
-        if (searchParams.get('addStock') !== '1') return;
-        setAddStockOpen(true);
+        const reviewId = searchParams.get('stockEntry') || '';
+        if (reviewId) {
+            setReviewEntryId(reviewId);
+            setAddStockOpen(true);
+        }
+        if (searchParams.get('addStock') === '1') setAddStockOpen(true);
     }, [searchParams]);
+
+    useEffect(() => {
+        if (!access.ready || !access.canViewItems) return undefined;
+        if (!localStorage.getItem('token')) return undefined;
+        let cancelled = false;
+        getStockApprovalContext()
+            .then((result) => {
+                if (cancelled) return;
+                setStockApprovals({
+                    isPurchaseOfficer: Boolean(result?.isPurchaseOfficer),
+                    entries: Array.isArray(result?.entries) ? result.entries : [],
+                });
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [access.ready, access.canViewItems, reloadToken]);
 
     const loadCatalog = useCallback((quiet = false) => {
         const requestId = catalogRequest.current + 1;
@@ -623,7 +653,7 @@ export default function ItemMasterList() {
                 brandId,
                 status: status !== DEFAULT_STOCK_STATUS ? status : '',
             });
-            const header = ['Item Code', 'Item Name', 'Brand', 'Model', 'Description', 'Category', 'Available', 'Status'];
+            const header = ['Item Code', 'Item Name', 'Brand', 'Model', 'Description', 'Category', 'Qty', 'Status'];
             const lines = [header.map(csvCell).join(',')];
             (result.items || []).forEach((row) => {
                 const cells = [row.itemCode, row.itemName, row.brandName, row.modelNumber, row.description, row.categoryName, row.availableQuantity, row.status];
@@ -658,7 +688,7 @@ export default function ItemMasterList() {
     }[tab];
     const showItemActions = access.canEditItem || access.canDeleteItem;
     const itemColumnCount = showItemActions ? 9 : 8;
-    const itemHeadings = ['Item Code', 'Item Name', 'Brand', 'Model', 'Description', 'Category', 'Available', 'Status'];
+    const itemHeadings = ['Item Code', 'Item Name', 'Brand', 'Model', 'Description', 'Category', 'Qty', 'Status'];
     if (showItemActions) itemHeadings.push('Actions');
 
     return (
@@ -667,8 +697,17 @@ export default function ItemMasterList() {
                 <h1 className="text-2xl font-bold text-slate-900">Item Master</h1>
                 <div className="flex flex-wrap items-center gap-2">
                     {tab === 'items' && (access.canCreateItem || access.canEditItem) ? (
-                        <button type="button" onClick={() => setAddStockOpen(true)} className={primaryButtonClass}>
-                            <PackagePlus size={15} /> Add Stock
+                        <button type="button" onClick={() => {
+                            setReviewEntryId('');
+                            setAddStockOpen(true);
+                            if (searchParams.get('stockEntry')) {
+                                const next = new URLSearchParams(searchParams.toString());
+                                next.delete('stockEntry');
+                                const query = next.toString();
+                                router.replace(query ? `/inventory/item-master?${query}` : '/inventory/item-master');
+                            }
+                        }} className={primaryButtonClass}>
+                            <Receipt size={15} /> Add Bill
                         </button>
                     ) : null}
                     {tab === 'items' && access.canCreateItem ? (
@@ -698,6 +737,39 @@ export default function ItemMasterList() {
                     ) : null}
                 </div>
             </div>
+
+            {tab === 'items' && stockApprovals.isPurchaseOfficer && stockApprovals.entries.length ? (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-900">
+                        <Bell size={16} />
+                        Stock waiting for your approval
+                    </div>
+                    <ul className="space-y-1">
+                        {stockApprovals.entries.map((entry) => (
+                            <li key={entry._id}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setReviewEntryId(String(entry._id));
+                                        setAddStockOpen(true);
+                                        const next = new URLSearchParams(searchParams.toString());
+                                        next.set('stockEntry', String(entry._id));
+                                        router.replace(`/inventory/item-master?${next.toString()}`);
+                                    }}
+                                    className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left text-sm text-amber-950 hover:bg-amber-100"
+                                >
+                                    <span>
+                                        {entry.billNo || 'Stock bill'}
+                                        {entry.submittedByName ? ` · ${entry.submittedByName}` : ''}
+                                        {` · ${entry.lineCount || 0} item${entry.lineCount === 1 ? '' : 's'}`}
+                                    </span>
+                                    <span className="shrink-0 font-semibold text-amber-800">Review</span>
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ) : null}
 
             <div role="tablist" aria-label="Item Master" className="mb-4 flex gap-1 overflow-x-auto border-b border-[#E6EDF5]">
                 {TABS.map((item) => (
@@ -824,7 +896,7 @@ export default function ItemMasterList() {
                                         />
                                         <td className={`whitespace-nowrap px-3 py-3 font-semibold ${availableClass(row)}`}>{row.availableQuantity}</td>
                                         <td className="whitespace-nowrap px-3 py-3">
-                                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass[row.status] || 'bg-slate-100 text-slate-600'}`}>
+                                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(row.status)}`}>
                                                 {row.status}
                                             </span>
                                         </td>
@@ -989,11 +1061,15 @@ export default function ItemMasterList() {
             ) : null}
             {addStockOpen ? (
                 <AddStockModal
+                    key={reviewEntryId || 'new-bill'}
+                    reviewEntryId={reviewEntryId}
                     onClose={() => {
                         setAddStockOpen(false);
-                        if (searchParams.get('addStock') === '1') {
+                        setReviewEntryId('');
+                        if (searchParams.get('addStock') === '1' || searchParams.get('stockEntry')) {
                             const next = new URLSearchParams(searchParams.toString());
                             next.delete('addStock');
+                            next.delete('stockEntry');
                             const query = next.toString();
                             router.replace(query ? `/inventory/item-master?${query}` : '/inventory/item-master');
                         }

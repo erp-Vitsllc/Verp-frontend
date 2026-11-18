@@ -9,6 +9,8 @@ import { useInventoryAccess } from '@/app/inventory/item-master/itemMasterAccess
 const TITLES = {
     'item-master': 'Item Master',
     'vendor-management': 'Vendor Management',
+    bills: 'Bills',
+    delivery: 'Delivery',
 };
 
 export default function InventorySectionPage() {

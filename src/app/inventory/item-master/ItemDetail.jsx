@@ -108,7 +108,7 @@ export default function ItemDetail({ item }) {
                         <h2 className="text-xl font-bold leading-snug text-slate-900">{item.description}</h2>
                         <p className="mt-1 text-sm text-slate-500">Model: {item.modelNumber}</p>
                         <div className="mt-3 flex flex-wrap gap-2">
-                            <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${statusClass[item.status] || 'bg-slate-100 text-slate-600'}`}>
+                            <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${String(item.status || '').startsWith('Waiting for ') ? 'bg-amber-50 text-amber-700' : (statusClass[item.status] || 'bg-slate-100 text-slate-600')}`}>
                                 {item.status}
                             </span>
                             {item.itemName ? (
