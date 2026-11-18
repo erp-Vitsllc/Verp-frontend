@@ -2,7 +2,6 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Plus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import CatalogModal from './CatalogModal';
 import { useInventoryAccess } from './itemMasterAccess';
@@ -30,16 +29,23 @@ function sameText(left, right) {
     return cleanText(left) === cleanText(right);
 }
 
+function namesEqual(left, right) {
+    return cleanText(left).toLowerCase() === cleanText(right).toLowerCase();
+}
+
+function rowById(rows, id) {
+    return rows.find((row) => sameId(row._id, id));
+}
+
 function itemLabel(item) {
-    const name = item.itemName || item.description || 'Item';
-    return item.itemCode ? `${item.itemCode} — ${name}` : name;
+    return item.itemName || item.description || 'Item';
 }
 
 function sameStockIdentity(item, categoryId, subcategoryId, brandId, modelNumber) {
     return sameId(item.categoryId, categoryId)
         && sameId(item.subcategoryId, subcategoryId)
         && sameId(item.brandId, brandId)
-        && sameText(item.modelNumber, modelNumber);
+        && namesEqual(item.modelNumber, modelNumber);
 }
 
 function modelOwners(model, rows) {
@@ -49,11 +55,6 @@ function modelOwners(model, rows) {
 }
 
 const MODEL_FIXED = 'This model no belongs to the selected item and cannot be changed.';
-
-function optionMatches(option, needle) {
-    const haystack = cleanText(option.searchText || option.label).toLowerCase();
-    return haystack.includes(needle);
-}
 
 function stockRow(saved) {
     return {
@@ -73,22 +74,25 @@ function stockRow(saved) {
 
 function itemStillVisible(item, nextCategory, nextSub) {
     if (!item) return false;
-    if (item.pendingStock) return true;
     if (nextCategory && !sameId(item.categoryId, nextCategory)) return false;
     if (nextSub && !sameId(item.subcategoryId, nextSub)) return false;
     return true;
 }
 
-function SearchSelect({ label, value, options, placeholder, onChange, onCreate, creating }) {
+function TypeSuggest({ label, text, options, placeholder, onText, onPick, onCommit }) {
     const rootRef = useRef(null);
     const menuRef = useRef(null);
     const [open, setOpen] = useState(false);
-    const [query, setQuery] = useState('');
     const [menuStyle, setMenuStyle] = useState(null);
-    const selected = options.find((option) => option.value === value);
-    const needle = query.trim().toLowerCase();
-    const shown = needle ? options.filter((option) => optionMatches(option, needle)) : options;
-    const canCreate = Boolean(onCreate) && Boolean(needle) && shown.length === 0;
+    const [active, setActive] = useState(0);
+    const needle = cleanText(text).toLowerCase();
+    const shown = needle
+        ? options.filter((option) => cleanText(option.label).toLowerCase().includes(needle))
+        : options;
+
+    useEffect(() => {
+        setActive(0);
+    }, [needle, shown.length]);
 
     useLayoutEffect(() => {
         if (!open) return undefined;
@@ -110,7 +114,7 @@ function SearchSelect({ label, value, options, placeholder, onChange, onCreate, 
             window.removeEventListener('resize', place);
             window.removeEventListener('scroll', place, true);
         };
-    }, [open]);
+    }, [open, text]);
 
     useEffect(() => {
         if (!open) return undefined;
@@ -123,76 +127,73 @@ function SearchSelect({ label, value, options, placeholder, onChange, onCreate, 
         return () => document.removeEventListener('mousedown', close);
     }, [open]);
 
-    const menu = open && menuStyle ? createPortal(
-        <div
+    const pick = (option) => {
+        onPick(option.value);
+        setOpen(false);
+    };
+
+    const menu = open && menuStyle && shown.length ? createPortal(
+        <ul
             ref={menuRef}
             style={menuStyle}
-            className="overflow-hidden rounded-lg border border-[#E6EDF5] bg-white shadow-lg"
+            className="max-h-56 overflow-y-auto rounded-lg border border-[#E6EDF5] bg-white py-1 shadow-lg"
+            onMouseDown={(event) => event.preventDefault()}
         >
-            <input
-                autoFocus
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search"
-                className="h-10 w-full border-b border-[#E6EDF5] px-3 text-sm outline-none"
-            />
-            <ul className="max-h-56 overflow-y-auto py-1">
-                {shown.length === 0 ? (
-                    <li className="px-3 py-2 text-sm text-slate-400">No matches</li>
-                ) : shown.map((option) => (
-                    <li key={`${option.label}:${option.value}`}>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                onChange(option.value);
-                                setOpen(false);
-                                setQuery('');
-                            }}
-                            className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50"
-                        >
-                            {option.label}
-                        </button>
-                    </li>
-                ))}
-            </ul>
-            {canCreate ? (
-                <button
-                    type="button"
-                    disabled={creating}
-                    onClick={() => {
-                        const text = query.trim();
-                        setOpen(false);
-                        setQuery('');
-                        onCreate(text);
-                    }}
-                    className="flex w-full items-center gap-2 border-t border-[#E6EDF5] px-3 py-2.5 text-left text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-60"
-                >
-                    <Plus size={15} /> Add {query.trim()}
-                </button>
-            ) : null}
-        </div>,
+            {shown.map((option, index) => (
+                <li key={`${option.label}:${option.value}`}>
+                    <button
+                        type="button"
+                        onMouseEnter={() => setActive(index)}
+                        onClick={() => pick(option)}
+                        className={`w-full px-3 py-2 text-left text-sm ${index === active ? 'bg-blue-600 text-white' : 'text-slate-700'}`}
+                    >
+                        {option.label}
+                    </button>
+                </li>
+            ))}
+        </ul>,
         document.body,
     ) : null;
 
     return (
-        <div ref={rootRef} className="relative">
+        <label ref={rootRef} className="relative block">
             <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
-            <button
-                type="button"
+            <input
+                value={text}
+                placeholder={placeholder}
+                autoComplete="off"
                 aria-expanded={open}
-                onClick={() => {
-                    setOpen((current) => !current);
-                    setQuery('');
+                aria-autocomplete="list"
+                onChange={(event) => {
+                    onText(event.target.value);
+                    setOpen(true);
                 }}
-                className={`${fieldClass} flex items-center justify-between text-left`}
-            >
-                <span className={selected ? 'truncate text-slate-800' : 'truncate text-slate-400'}>
-                    {selected?.label || placeholder}
-                </span>
-                <ChevronDown size={16} className="shrink-0 text-slate-400" />
-            </button>
+                onFocus={() => setOpen(true)}
+                onBlur={() => {
+                    setOpen(false);
+                    onCommit?.(text);
+                }}
+                onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                        setOpen(false);
+                        return;
+                    }
+                    if (!open || shown.length === 0) return;
+                    if (event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        setActive((current) => (current + 1) % shown.length);
+                    } else if (event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        setActive((current) => (current - 1 + shown.length) % shown.length);
+                    } else if (event.key === 'Enter') {
+                        event.preventDefault();
+                        pick(shown[Math.min(active, shown.length - 1)]);
+                    }
+                }}
+                className={fieldClass}
+            />
             {menu}
-        </div>
+        </label>
     );
 }
 
@@ -204,15 +205,18 @@ export default function AddStockModal({ onClose, onSaved }) {
     const [brands, setBrands] = useState([]);
     const [items, setItems] = useState([]);
     const [categoryId, setCategoryId] = useState('');
+    const [categoryText, setCategoryText] = useState('');
     const [subcategoryId, setSubcategoryId] = useState('');
+    const [subcategoryText, setSubcategoryText] = useState('');
     const [brandId, setBrandId] = useState('');
+    const [brandText, setBrandText] = useState('');
     const [itemId, setItemId] = useState('');
+    const [itemText, setItemText] = useState('');
     const [modelNumber, setModelNumber] = useState('');
     const [quantity, setQuantity] = useState('');
     const [price, setPrice] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [creating, setCreating] = useState('');
     const [error, setError] = useState('');
 
     useEffect(() => {
@@ -252,7 +256,6 @@ export default function AddStockModal({ onClose, onSaved }) {
     ), [brands]);
 
     const scopedItems = useMemo(() => items.filter((item) => {
-        if (item.pendingStock) return true;
         if (categoryId && !sameId(item.categoryId, categoryId)) return false;
         if (subcategoryId && !sameId(item.subcategoryId, subcategoryId)) return false;
         return true;
@@ -276,40 +279,96 @@ export default function AddStockModal({ onClose, onSaved }) {
         return [...values].sort((left, right) => left.localeCompare(right)).map((model) => ({ value: model, label: model }));
     }, [items]);
 
-    const rememberItem = (saved, nextModel) => {
-        const row = stockRow(saved);
-        setItems((current) => {
-            const next = current.filter((item) => !sameId(item._id, row._id));
-            next.push(row);
-            return next;
-        });
-        setCategoryId(row.categoryId);
-        setSubcategoryId(row.subcategoryId);
-        setBrandId(row.brandId);
-        setItemId(String(row._id));
-        if (nextModel !== undefined) setModelNumber(cleanText(nextModel));
+    const keepOrClearItem = (nextCategory, nextSub) => {
+        const selected = items.find((row) => sameId(row._id, itemId));
+        if (itemStillVisible(selected, nextCategory, nextSub)) return;
+        setItemId('');
+        if (selected) setItemText('');
     };
 
     const chooseCategory = (nextId) => {
-        const sub = subcategories.find((row) => sameId(row._id, subcategoryId));
+        const category = rowById(categories, nextId);
+        const sub = rowById(subcategories, subcategoryId);
         const nextSub = sub && sameId(sub.categoryId, nextId) ? subcategoryId : '';
-        const selected = items.find((row) => sameId(row._id, itemId));
         setCategoryId(nextId);
+        setCategoryText(category?.name || '');
         setSubcategoryId(nextSub);
-        setItemId(itemStillVisible(selected, nextId, nextSub) ? itemId : '');
+        if (!nextSub) setSubcategoryText('');
+        keepOrClearItem(nextId, nextSub);
+    };
+
+    const typeCategory = (text) => {
+        setCategoryText(text);
+        const selected = rowById(categories, categoryId);
+        if (selected && namesEqual(selected.name, text)) return;
+        setCategoryId('');
+        setSubcategoryId('');
+        setSubcategoryText('');
+        keepOrClearItem('', '');
+    };
+
+    const commitCategory = (text) => {
+        const name = cleanText(text);
+        setCategoryText(name);
+        const selected = rowById(categories, categoryId);
+        if (selected && namesEqual(selected.name, name)) return;
+        const matches = categories.filter((row) => namesEqual(row.name, name));
+        if (matches.length === 1) chooseCategory(String(matches[0]._id));
+        else setCategoryId('');
     };
 
     const chooseSubcategory = (nextId) => {
-        const sub = subcategories.find((row) => sameId(row._id, nextId));
+        const sub = rowById(subcategories, nextId);
         const nextCategory = sub?.categoryId ? String(sub.categoryId) : categoryId;
-        const selected = items.find((row) => sameId(row._id, itemId));
+        const category = rowById(categories, nextCategory);
         setCategoryId(nextCategory);
+        if (category?.name) setCategoryText(category.name);
         setSubcategoryId(nextId);
-        setItemId(itemStillVisible(selected, nextCategory, nextId) ? itemId : '');
+        setSubcategoryText(sub?.name || '');
+        keepOrClearItem(nextCategory, nextId);
+    };
+
+    const typeSubcategory = (text) => {
+        setSubcategoryText(text);
+        const selected = rowById(subcategories, subcategoryId);
+        if (selected && namesEqual(selected.name, text)) return;
+        setSubcategoryId('');
+        keepOrClearItem(categoryId, '');
+    };
+
+    const commitSubcategory = (text) => {
+        const name = cleanText(text);
+        setSubcategoryText(name);
+        const selected = rowById(subcategories, subcategoryId);
+        if (selected && namesEqual(selected.name, name)) return;
+        const pool = categoryId
+            ? subcategories.filter((row) => sameId(row.categoryId, categoryId))
+            : subcategories;
+        const matches = pool.filter((row) => namesEqual(row.name, name));
+        if (matches.length === 1) chooseSubcategory(String(matches[0]._id));
+        else setSubcategoryId('');
     };
 
     const chooseBrand = (nextId) => {
+        const brand = rowById(brands, nextId);
         setBrandId(nextId);
+        setBrandText(brand?.name || '');
+    };
+
+    const typeBrand = (text) => {
+        setBrandText(text);
+        const selected = rowById(brands, brandId);
+        if (selected && !namesEqual(selected.name, text)) setBrandId('');
+    };
+
+    const commitBrand = (text) => {
+        const name = cleanText(text);
+        setBrandText(name);
+        const selected = rowById(brands, brandId);
+        if (selected && namesEqual(selected.name, name)) return;
+        const matches = brands.filter((row) => namesEqual(row.name, name));
+        if (matches.length === 1) chooseBrand(String(matches[0]._id));
+        else setBrandId('');
     };
 
     const chooseItem = (nextId) => {
@@ -318,111 +377,117 @@ export default function AddStockModal({ onClose, onSaved }) {
             setItemId('');
             return;
         }
-        setCategoryId(String(item.categoryId || ''));
-        setSubcategoryId(String(item.subcategoryId || ''));
-        setBrandId(String(item.brandId || ''));
+        const nextCategory = String(item.categoryId || '');
+        const nextSub = String(item.subcategoryId || '');
+        setCategoryId(nextCategory);
+        setSubcategoryId(nextSub);
+        setCategoryText(item.categoryName || rowById(categories, nextCategory)?.name || '');
+        setSubcategoryText(item.subcategoryName || rowById(subcategories, nextSub)?.name || '');
         setItemId(nextId);
-        setModelNumber(cleanText(item.modelNumber));
+        setItemText(itemLabel(item));
+    };
+
+    const typeItem = (text) => {
+        setItemText(text);
+        const selected = items.find((row) => sameId(row._id, itemId));
+        if (selected && !namesEqual(itemLabel(selected), text)) setItemId('');
+    };
+
+    const commitItem = (text) => {
+        const name = cleanText(text);
+        setItemText(name);
+        const selected = items.find((row) => sameId(row._id, itemId));
+        if (selected && namesEqual(itemLabel(selected), name)) return;
+        const matches = scopedItems.filter((item) => namesEqual(itemLabel(item), name));
+        if (matches.length === 1) chooseItem(String(matches[0]._id));
+        else setItemId('');
     };
 
     const chooseModel = (nextModel) => {
-        const model = cleanText(nextModel);
-        const owner = modelOwners(model, items)[0];
-        setModelNumber(model);
-        if (!owner) return;
-        setCategoryId(String(owner.categoryId || ''));
-        setSubcategoryId(String(owner.subcategoryId || ''));
-        setBrandId(String(owner.brandId || ''));
-        setItemId(String(owner._id));
+        setModelNumber(cleanText(nextModel));
     };
 
-    const addTemporaryItem = async (name) => {
-        if (!access.canCreateItem) {
-            setError('Item create permission is required to add an item.');
-            return;
-        }
-        if (!categoryId || !subcategoryId || !brandId) {
-            setError('Select category, sub category, and brand before adding an item.');
-            return;
-        }
-        setCreating('item');
-        setError('');
-        try {
-            const saved = await createPendingItem({
-                categoryId,
-                subcategoryId,
-                brandId,
-                itemName: name,
-            });
-            rememberItem(saved);
-            setModelNumber('');
-        } catch (err) {
-            setError(apiMessage(err, 'Could not save the item.'));
-        } finally {
-            setCreating('');
-        }
-    };
-
-    const addTemporaryModel = async (model) => {
-        if (!access.canCreateItem) {
-            setError('Item create permission is required to add a model no.');
-            return;
-        }
-        const selected = items.find((row) => sameId(row._id, itemId));
-        const itemName = cleanText(selected?.itemName || selected?.description);
-        if (!categoryId || !subcategoryId || !brandId || !itemName) {
-            setError('Select category, sub category, brand, and item before adding a model no.');
-            return;
-        }
-        setCreating('model');
-        setError('');
-        try {
-            const saved = await createPendingItem({
-                categoryId,
-                subcategoryId,
-                brandId,
-                itemName,
-                modelNumber: model,
-                itemId,
-            });
-            rememberItem(saved, model);
-        } catch (err) {
-            setError(apiMessage(err, 'Could not save the model no.'));
-        } finally {
-            setCreating('');
-        }
+    const commitModel = (text) => {
+        setModelNumber(cleanText(text));
     };
 
     const save = async (event) => {
         event.preventDefault();
         const amount = Number(quantity);
         const cost = Number(price);
-        const selected = items.find((row) => sameId(row._id, itemId));
-        const itemName = cleanText(selected?.itemName || selected?.description);
-        const model = cleanText(modelNumber) || itemName;
-        const sub = subcategories.find((row) => sameId(row._id, subcategoryId));
-        if (!categoryId || !subcategoryId || !brandId) {
+        const typedName = cleanText(itemText);
+        const held = items.find((row) => sameId(row._id, itemId));
+        let selected = held && namesEqual(itemLabel(held), typedName) ? held : null;
+        const categoryMatch = (() => {
+            const typed = cleanText(categoryText);
+            const heldCategory = rowById(categories, categoryId);
+            if (heldCategory && namesEqual(heldCategory.name, typed)) return heldCategory;
+            const matches = categories.filter((row) => namesEqual(row.name, typed));
+            return matches.length === 1 ? matches[0] : null;
+        })();
+        const brandMatch = (() => {
+            const typed = cleanText(brandText);
+            const heldBrand = rowById(brands, brandId);
+            if (heldBrand && namesEqual(heldBrand.name, typed)) return heldBrand;
+            const matches = brands.filter((row) => namesEqual(row.name, typed));
+            return matches.length === 1 ? matches[0] : null;
+        })();
+        let useCategory = categoryMatch ? String(categoryMatch._id) : '';
+        let useBrand = brandMatch ? String(brandMatch._id) : '';
+        const subTyped = cleanText(subcategoryText);
+        const subPool = useCategory
+            ? subcategories.filter((row) => sameId(row.categoryId, useCategory))
+            : subcategories;
+        let subMatch = rowById(subPool, subcategoryId);
+        if (!subMatch || !namesEqual(subMatch.name, subTyped)) {
+            const matches = subPool.filter((row) => namesEqual(row.name, subTyped));
+            subMatch = matches.length === 1 ? matches[0] : null;
+        }
+        let useSubcategory = subMatch ? String(subMatch._id) : '';
+        if (!useCategory && subMatch?.categoryId) useCategory = String(subMatch.categoryId);
+        let typedModel = cleanText(modelNumber);
+        if (!selected && typedName) {
+            const matches = scopedItems.filter((item) => namesEqual(itemLabel(item), typedName));
+            if (matches.length > 1) {
+                setError('More than one item has this name. Select it from the list.');
+                return;
+            }
+            if (matches.length === 1) {
+                selected = matches[0];
+                if (!useCategory) useCategory = String(selected.categoryId || '');
+                if (!useSubcategory) useSubcategory = String(selected.subcategoryId || '');
+            }
+        }
+        const itemName = cleanText(selected ? (selected.itemName || selected.description) : typedName);
+        if (!typedModel && selected) typedModel = cleanText(selected.modelNumber);
+        const model = typedModel || itemName;
+        const sub = subcategories.find((row) => sameId(row._id, useSubcategory));
+        if (!useCategory || !useSubcategory || !useBrand) {
             setError('Category, sub category, and brand are required.');
             return;
         }
-        if (!sub || !sameId(sub.categoryId, categoryId)) {
+        if (!sub || !sameId(sub.categoryId, useCategory)) {
             setError('Sub category does not belong to the selected category.');
             return;
         }
-        if (!selected) {
-            setError('Select an item.');
+        if (!itemName) {
+            setError('Enter an item.');
+            return;
+        }
+        if (!selected && !access.canCreateItem) {
+            setError('Item create permission is required to add an item.');
             return;
         }
         const owner = model ? modelOwners(model, items)[0] : null;
-        if (owner && !sameId(owner._id, selected._id) && !selected.pendingStock) {
+        if (owner && (!selected || !sameId(owner._id, selected._id)) && !owner.pendingStock && !selected?.pendingStock) {
             setError(MODEL_FIXED);
             return;
         }
-        if (!selected.pendingStock && cleanText(selected.modelNumber) && !sameText(selected.modelNumber, model)) {
+        if (selected && !selected.pendingStock && cleanText(selected.modelNumber) && !namesEqual(selected.modelNumber, model)) {
             setError(MODEL_FIXED);
             return;
         }
-        if (!selected.pendingStock && cleanText(selected.modelNumber) && !sameStockIdentity(selected, categoryId, subcategoryId, brandId, model)) {
+        if (selected && !selected.pendingStock && cleanText(selected.modelNumber) && !sameStockIdentity(selected, useCategory, useSubcategory, useBrand, model)) {
             setError(MODEL_FIXED);
             return;
         }
@@ -437,15 +502,26 @@ export default function AddStockModal({ onClose, onSaved }) {
         setSaving(true);
         setError('');
         try {
-            const saved = await addItemStock(selected._id, {
+            let stockItem = selected;
+            if (!stockItem) {
+                const created = await createPendingItem({
+                    categoryId: useCategory,
+                    subcategoryId: useSubcategory,
+                    brandId: useBrand,
+                    itemName,
+                    modelNumber: typedModel,
+                });
+                stockItem = stockRow(created);
+            }
+            const saved = await addItemStock(stockItem._id, {
                 quantity: amount,
                 price: cost,
-                categoryId,
-                subcategoryId,
-                brandId,
+                categoryId: useCategory,
+                subcategoryId: useSubcategory,
+                brandId: useBrand,
                 modelNumber: model,
             });
-            const createdItem = Boolean(selected.pendingStock) || Boolean(saved.created);
+            const createdItem = Boolean(stockItem.pendingStock) || Boolean(saved.created);
             toast({
                 title: createdItem ? 'New item created' : 'Stock added',
                 description: createdItem
@@ -470,44 +546,50 @@ export default function AddStockModal({ onClose, onSaved }) {
                     {error ? <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
                     {loading ? <p className="text-sm text-slate-500">Loading items...</p> : (
                         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <SearchSelect
+                            <TypeSuggest
                                 label="Sub category"
-                                value={subcategoryId}
+                                text={subcategoryText}
                                 options={subcategoryOptions}
-                                placeholder="Select sub category"
-                                onChange={chooseSubcategory}
+                                placeholder="Type sub category"
+                                onText={typeSubcategory}
+                                onPick={chooseSubcategory}
+                                onCommit={commitSubcategory}
                             />
-                            <SearchSelect
+                            <TypeSuggest
                                 label="Category"
-                                value={categoryId}
+                                text={categoryText}
                                 options={categoryOptions}
-                                placeholder="Select category"
-                                onChange={chooseCategory}
+                                placeholder="Type category"
+                                onText={typeCategory}
+                                onPick={chooseCategory}
+                                onCommit={commitCategory}
                             />
-                            <SearchSelect
+                            <TypeSuggest
                                 label="Item"
-                                value={itemId}
+                                text={itemText}
                                 options={itemOptions}
-                                placeholder="Select item"
-                                onChange={chooseItem}
-                                onCreate={access.canCreateItem ? addTemporaryItem : undefined}
-                                creating={creating === 'item'}
+                                placeholder="Type item"
+                                onText={typeItem}
+                                onPick={chooseItem}
+                                onCommit={commitItem}
                             />
-                            <SearchSelect
+                            <TypeSuggest
                                 label="Brand"
-                                value={brandId}
+                                text={brandText}
                                 options={brandOptions}
-                                placeholder="Select brand"
-                                onChange={chooseBrand}
+                                placeholder="Type brand"
+                                onText={typeBrand}
+                                onPick={chooseBrand}
+                                onCommit={commitBrand}
                             />
-                            <SearchSelect
+                            <TypeSuggest
                                 label="Model no"
-                                value={modelNumber}
+                                text={modelNumber}
                                 options={modelOptions}
-                                placeholder="Select model no (optional)"
-                                onChange={chooseModel}
-                                onCreate={access.canCreateItem ? addTemporaryModel : undefined}
-                                creating={creating === 'model'}
+                                placeholder="Type model no"
+                                onText={setModelNumber}
+                                onPick={chooseModel}
+                                onCommit={commitModel}
                             />
                             <label>
                                 <span className="mb-1.5 block text-sm font-medium text-slate-700">Quantity</span>
