@@ -67,22 +67,21 @@ function stockRow(saved) {
     };
 }
 
-function itemStillVisible(item, nextCategory, nextSub, nextBrand) {
+function itemStillVisible(item, nextCategory, nextSub) {
     if (!item) return false;
     if (nextCategory && !sameId(item.categoryId, nextCategory)) return false;
     if (nextSub && !sameId(item.subcategoryId, nextSub)) return false;
-    if (nextBrand && !sameId(item.brandId, nextBrand)) return false;
     return true;
 }
 
-function TypeSuggest({ label, text, options, placeholder, onText, onPick, onCommit }) {
+function TypeSuggest({ label, text, options, placeholder, onText, onPick, onCommit, showAll = false }) {
     const rootRef = useRef(null);
     const menuRef = useRef(null);
     const [open, setOpen] = useState(false);
     const [menuStyle, setMenuStyle] = useState(null);
     const [active, setActive] = useState(0);
     const needle = cleanText(text).toLowerCase();
-    const shown = needle
+    const shown = !showAll && needle
         ? options.filter((option) => cleanText(option.label).toLowerCase().includes(needle))
         : options;
 
@@ -252,8 +251,8 @@ export default function AddStockModal({ onClose, onSaved }) {
     ), [brands]);
 
     const scopedItems = useMemo(
-        () => items.filter((item) => itemStillVisible(item, categoryId, subcategoryId, brandId)),
-        [items, categoryId, subcategoryId, brandId],
+        () => items.filter((item) => itemStillVisible(item, categoryId, subcategoryId)),
+        [items, categoryId, subcategoryId],
     );
 
     const itemOptions = useMemo(
@@ -268,26 +267,25 @@ export default function AddStockModal({ onClose, onSaved }) {
     const modelOptions = useMemo(() => {
         const values = new Set();
         scopedItems.forEach((item) => {
+            if (brandId && !sameId(item.brandId, brandId)) return;
             const model = cleanText(item.modelNumber);
             if (model) values.add(model);
         });
         return [...values].sort((left, right) => left.localeCompare(right)).map((model) => ({ value: model, label: model }));
-    }, [scopedItems]);
+    }, [brandId, scopedItems]);
 
     const keepOrClearItem = (nextCategory, nextSub, nextBrand) => {
         const selected = items.find((row) => sameId(row._id, itemId));
-        if (!itemStillVisible(selected, nextCategory, nextSub, nextBrand)) {
+        if (!itemStillVisible(selected, nextCategory, nextSub)) {
             setItemId('');
             if (selected) setItemText('');
         }
-        const model = cleanText(modelNumber);
-        const owner = ownedModel(model, items);
+        const owner = ownedModel(modelNumber, items);
         if (!owner) return;
         const categoryChanged = String(nextCategory || '') !== String(categoryId || '');
         const subChanged = String(nextSub || '') !== String(subcategoryId || '');
         const brandChanged = String(nextBrand || '') !== String(brandId || '');
-        const stillFits = itemStillVisible(owner, nextCategory, nextSub, nextBrand);
-        if (categoryChanged || subChanged || brandChanged || !stillFits) setModelNumber('');
+        if (categoryChanged || subChanged || brandChanged) setModelNumber('');
     };
 
     const chooseCategory = (nextId) => {
@@ -424,12 +422,46 @@ export default function AddStockModal({ onClose, onSaved }) {
         else setItemId('');
     };
 
+    const fillFromModel = (owner, model) => {
+        const nextCategory = String(owner.categoryId || '');
+        const nextSub = String(owner.subcategoryId || '');
+        const nextBrand = String(owner.brandId || '');
+        setCategoryId(nextCategory);
+        setSubcategoryId(nextSub);
+        setBrandId(nextBrand);
+        setCategoryText(owner.categoryName || rowById(categories, nextCategory)?.name || '');
+        setSubcategoryText(owner.subcategoryName || rowById(subcategories, nextSub)?.name || '');
+        setBrandText(owner.brandName || rowById(brands, nextBrand)?.name || '');
+        setItemId(String(owner._id));
+        setItemText(itemLabel(owner));
+        setModelNumber(cleanText(model));
+    };
+
     const chooseModel = (nextModel) => {
-        setModelNumber(cleanText(nextModel));
+        const model = cleanText(nextModel);
+        const owners = modelOwners(model, items);
+        const owner = owners.find((row) => !row.pendingStock) || owners[0];
+        if (!owner) {
+            setModelNumber(model);
+            return;
+        }
+        fillFromModel(owner, model);
+    };
+
+    const typeModel = (text) => {
+        setModelNumber(text);
+        const model = cleanText(text);
+        const owners = modelOwners(model, items);
+        if (owners.length !== 1 || !namesEqual(owners[0].modelNumber, model)) return;
+        fillFromModel(owners[0], model);
     };
 
     const commitModel = (text) => {
-        setModelNumber(cleanText(text));
+        const model = cleanText(text);
+        const owners = modelOwners(model, items);
+        const owner = owners.find((row) => !row.pendingStock) || (owners.length === 1 ? owners[0] : null);
+        if (owner && namesEqual(owner.modelNumber, model)) fillFromModel(owner, model);
+        else setModelNumber(model);
     };
 
     const save = async (event) => {
@@ -610,13 +642,14 @@ export default function AddStockModal({ onClose, onSaved }) {
                                 onText={typeBrand}
                                 onPick={chooseBrand}
                                 onCommit={commitBrand}
+                                showAll
                             />
                             <TypeSuggest
                                 label="Model no"
                                 text={modelNumber}
                                 options={modelOptions}
                                 placeholder="Type model no"
-                                onText={setModelNumber}
+                                onText={typeModel}
                                 onPick={chooseModel}
                                 onCommit={commitModel}
                             />
