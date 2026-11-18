@@ -8,8 +8,10 @@ import { emailProblem, normalizePhone, phoneProblem } from '@/app/inventory/vend
 import {
     createCustomer,
     customerApiMessage,
+    isSavedCustomer,
     listZohoCustomerOptions,
     nextCustomerCode,
+    normalizeZohoOption,
     previewZohoCustomer,
     updateCustomer,
 } from './customerApi';
@@ -143,7 +145,7 @@ function TextField({ label, value, onChange, type = 'text' }) {
 }
 
 export default function AddCustomerModal({ onClose, onSaved, customer = null }) {
-    const editing = Boolean(customer?.id);
+    const editing = isSavedCustomer(customer);
     const savedZohoId = String(customer?.zohoContactId || '');
     const [options, setOptions] = useState([]);
     const [linkedIds, setLinkedIds] = useState([]);
@@ -162,17 +164,21 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null }) 
     useEffect(() => {
         let cancelled = false;
         setLoadingOptions(true);
-        Promise.all([listZohoCustomerOptions(), nextCustomerCode()])
-            .then(([customers, code]) => {
+        Promise.allSettled([listZohoCustomerOptions(), nextCustomerCode()])
+            .then(([customersResult, codeResult]) => {
                 if (cancelled) return;
-                setOptions(Array.isArray(customers) ? customers : []);
-                setLinkedIds(Array.isArray(code?.linkedZohoIds) ? code.linkedZohoIds.map(String) : []);
-                if (!editing && code?.customerCode) {
-                    setForm((current) => ({ ...current, code: current.code || code.customerCode }));
+                if (customersResult.status === 'fulfilled') {
+                    setOptions((Array.isArray(customersResult.value) ? customersResult.value : []).map(normalizeZohoOption).filter(Boolean));
+                } else {
+                    setError(customerApiMessage(customersResult.reason, 'Could not load Zoho customers.'));
                 }
-            })
-            .catch((loadError) => {
-                if (!cancelled) setError(customerApiMessage(loadError, 'Could not load Zoho customers.'));
+                if (codeResult.status === 'fulfilled') {
+                    const code = codeResult.value;
+                    setLinkedIds(Array.isArray(code?.linkedZohoIds) ? code.linkedZohoIds.map(String) : []);
+                    if (!editing && code?.customerCode) {
+                        setForm((current) => ({ ...current, code: current.code || code.customerCode }));
+                    }
+                }
             })
             .finally(() => {
                 if (!cancelled) setLoadingOptions(false);
@@ -197,7 +203,10 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null }) 
                 setForm((current) => formFromCustomer(data, current.code || data?.code || data?.customerCode || ''));
             })
             .catch((loadError) => {
-                if (!cancelled) setError(customerApiMessage(loadError, 'Could not read this Zoho customer.'));
+                if (cancelled) return;
+                const status = loadError?.response?.status ?? loadError?.originalError?.response?.status;
+                if (status === 404) return;
+                setError(customerApiMessage(loadError, 'Could not read this Zoho customer.'));
             })
             .finally(() => {
                 if (!cancelled) setLoadingPreview(false);
@@ -207,17 +216,25 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null }) 
         };
     }, [editing, savedZohoId, zohoContactId]);
 
+    function applyZoho(id) {
+        setZohoContactId(id);
+        const option = options.find((row) => row.id === id);
+        if (!option) return;
+        setEmailError(emailProblem(option.email));
+        setForm((current) => ({
+            ...formFromCustomer(option, current.code),
+            code: current.code,
+            brands: current.brands,
+            products: current.products,
+        }));
+    }
+
     const choices = useMemo(() => {
         const taken = new Set(linkedIds);
         if (savedZohoId) taken.delete(savedZohoId);
         const rows = options
-            .map((option) => {
-                const id = String(option.contact_id || option.customer_id || '').trim();
-                const name = String(option.company_name || option.contact_name || option.customer_name || '').trim();
-                if (!id || !name || taken.has(id)) return null;
-                return { id, name };
-            })
-            .filter(Boolean);
+            .filter((option) => option.id && option.name && !taken.has(option.id))
+            .map((option) => ({ id: option.id, name: option.name }));
         if (savedZohoId && !rows.some((row) => row.id === savedZohoId)) {
             rows.push({ id: savedZohoId, name: customer?.name || 'Current customer' });
         }
@@ -274,7 +291,7 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null }) 
     }
 
     return (
-        <CatalogModal title={editing ? 'Edit Customer' : 'Add Customer'} onClose={onClose} wide>
+        <CatalogModal title={customer?.id ? 'Edit Customer' : 'Add Customer'} onClose={onClose} wide>
             <form onSubmit={onSubmit} className="flex min-h-0 flex-col">
                 <div className="max-h-[min(36rem,calc(100vh-11rem))] overflow-y-auto px-5 py-4">
                     {error ? <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
@@ -285,7 +302,7 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null }) 
                             value={zohoContactId}
                             disabled={loadingOptions || saving}
                             loading={loadingOptions}
-                            onChange={setZohoContactId}
+                            onChange={applyZoho}
                         />
                     </div>
                     {!loadingOptions && choices.length === 0 ? (

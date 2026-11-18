@@ -10,7 +10,7 @@ import PageSizeSelect from '@/app/inventory/PageSizeSelect';
 import { pageLimit, pageSizeParam, pageWindow } from '@/app/inventory/listPageSize';
 import AddCustomerModal from './AddCustomerModal';
 import { useCrmAccess } from './crmAccess';
-import { customerApiMessage, deleteCustomer, listCustomers } from './customerApi';
+import { customerApiMessage, deleteCustomer, isSavedCustomer, listCustomers } from './customerApi';
 
 const EMPTY_FILTERS = { products: [], brands: [], paymentTerms: [] };
 
@@ -463,7 +463,7 @@ export default function CustomerManagementList() {
                                 enabled={Boolean(customer.id)}
                             >
                                 <tr className="cursor-pointer border-b border-slate-100 text-slate-700 hover:bg-slate-50">
-                                    <td className="whitespace-nowrap px-4 py-3.5">{customer.code}</td>
+                                    <td className="whitespace-nowrap px-4 py-3.5">{customer.code || 'N/A'}</td>
                                     <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{customer.name}</td>
                                     <td className="whitespace-nowrap px-4 py-3.5">{displayValue(customer.location)}</td>
                                     <td className="whitespace-nowrap px-4 py-3.5">{displayValue(customer.contact)}</td>
@@ -494,7 +494,7 @@ export default function CustomerManagementList() {
                                                         <Pencil size={13} /> Edit
                                                     </button>
                                                 ) : null}
-                                                {access.canDelete ? (
+                                                {access.canDelete && isSavedCustomer(customer) ? (
                                                     <button
                                                         type="button"
                                                         disabled={deletingId === customer.id}

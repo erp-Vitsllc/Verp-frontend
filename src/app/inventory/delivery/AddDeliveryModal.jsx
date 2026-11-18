@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Boxes,
     Briefcase,
@@ -34,7 +35,6 @@ import {
 
 const TYPES = [
     { id: 'Project', label: 'Project', icon: Briefcase },
-    { id: 'Annual', label: 'Annual', icon: Calendar },
     { id: 'Manual', label: 'Manual', icon: Pointer },
 ];
 
@@ -58,7 +58,7 @@ export function formatDoDate(value) {
 }
 
 function isScheduled(type) {
-    return type === 'Project' || type === 'Annual';
+    return type === 'Project';
 }
 
 function asArray(value) {
@@ -94,12 +94,30 @@ function emptyForm() {
 function emptyDraft() {
     return {
         categoryId: '',
+        categoryText: '',
         subcategoryId: '',
+        subcategoryText: '',
         itemOptionId: '',
+        itemText: '',
         brandId: '',
-        modelItemId: '',
+        brandText: '',
         modelNumber: '',
     };
+}
+
+function cleanText(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function namesEqual(left, right) {
+    return cleanText(left).toLowerCase() === cleanText(right).toLowerCase();
+}
+
+function matchOne(rows, text) {
+    const name = cleanText(text);
+    if (!name) return null;
+    const matches = rows.filter((row) => namesEqual(row.label, name));
+    return matches.length === 1 ? matches[0] : null;
 }
 
 function manualDescription(itemName, extra) {
@@ -128,6 +146,128 @@ function Field({ label, required = false, hint = '', children }) {
             {hint ? <span className="mb-1.5 block text-xs text-slate-400">{hint}</span> : null}
             {children}
         </div>
+    );
+}
+
+function SuggestField({ label, required = false, text, options, placeholder, onText, onPick, onCommit }) {
+    const rootRef = useRef(null);
+    const menuRef = useRef(null);
+    const [open, setOpen] = useState(false);
+    const [menuStyle, setMenuStyle] = useState(null);
+    const [active, setActive] = useState(0);
+    const needle = cleanText(text).toLowerCase();
+    const shown = needle
+        ? options.filter((option) => cleanText(option.label).toLowerCase().includes(needle))
+        : options;
+
+    useEffect(() => {
+        setActive(0);
+    }, [needle, shown.length]);
+
+    useLayoutEffect(() => {
+        if (!open) return undefined;
+        const place = () => {
+            const rect = rootRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            setMenuStyle({
+                position: 'fixed',
+                top: rect.bottom + 4,
+                left: rect.left,
+                width: rect.width,
+                zIndex: 80,
+            });
+        };
+        place();
+        window.addEventListener('resize', place);
+        window.addEventListener('scroll', place, true);
+        return () => {
+            window.removeEventListener('resize', place);
+            window.removeEventListener('scroll', place, true);
+        };
+    }, [open, text]);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const close = (event) => {
+            if (rootRef.current?.contains(event.target)) return;
+            if (menuRef.current?.contains(event.target)) return;
+            setOpen(false);
+        };
+        document.addEventListener('mousedown', close);
+        return () => document.removeEventListener('mousedown', close);
+    }, [open]);
+
+    const pick = (option) => {
+        onPick(option.value);
+        setOpen(false);
+    };
+
+    const menu = open && menuStyle && shown.length ? createPortal(
+        <ul
+            ref={menuRef}
+            style={menuStyle}
+            className="max-h-56 overflow-y-auto rounded-xl border border-[#E6E2F2] bg-white py-1 shadow-lg"
+            onMouseDown={(event) => event.preventDefault()}
+        >
+            {shown.map((option, index) => (
+                <li key={`${option.label}:${option.value}`}>
+                    <button
+                        type="button"
+                        onMouseEnter={() => setActive(index)}
+                        onClick={() => pick(option)}
+                        className={`w-full px-3 py-2 text-left text-sm ${index === active ? 'bg-[#7C3AED] text-white' : 'text-slate-700'}`}
+                    >
+                        {option.label}
+                    </button>
+                </li>
+            ))}
+        </ul>,
+        document.body,
+    ) : null;
+
+    return (
+        <label ref={rootRef} className="relative block">
+            <span className="mb-1.5 block text-sm font-medium text-slate-700">
+                {label}
+                {required ? <span className="text-red-500"> *</span> : null}
+            </span>
+            <input
+                value={text}
+                placeholder={placeholder}
+                autoComplete="off"
+                aria-expanded={open}
+                aria-autocomplete="list"
+                onChange={(event) => {
+                    onText(event.target.value);
+                    setOpen(true);
+                }}
+                onFocus={() => setOpen(true)}
+                onBlur={() => {
+                    setOpen(false);
+                    onCommit?.(text);
+                }}
+                onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                        event.stopPropagation();
+                        setOpen(false);
+                        return;
+                    }
+                    if (!open || shown.length === 0) return;
+                    if (event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        setActive((current) => (current + 1) % shown.length);
+                    } else if (event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        setActive((current) => (current - 1 + shown.length) % shown.length);
+                    } else if (event.key === 'Enter') {
+                        event.preventDefault();
+                        pick(shown[Math.min(active, shown.length - 1)]);
+                    }
+                }}
+                className={inputClass}
+            />
+            {menu}
+        </label>
     );
 }
 
@@ -491,24 +631,34 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         const source = form.projectName && named.length ? named : workOrders;
         return source.map((row) => ({ id: row.id, label: row.no }));
     }, [form.projectName, workOrders]);
-    const subcategoryChoices = useMemo(() => subcategories.filter((row) => {
-        if (!draft.categoryId) return false;
-        return row.categoryId === draft.categoryId || row.categoryIds.includes(draft.categoryId);
-    }), [draft.categoryId, subcategories]);
-    const itemChoices = useMemo(
-        () => itemOptions.filter((row) => row.subcategoryId === draft.subcategoryId),
-        [draft.subcategoryId, itemOptions],
-    );
-    const modelChoices = useMemo(() => inventoryItems.filter((row) => {
-        if (draft.categoryId && row.categoryId !== draft.categoryId) return false;
-        if (draft.subcategoryId && row.subcategoryId !== draft.subcategoryId) return false;
-        if (draft.itemOptionId && row.itemOptionId !== draft.itemOptionId) return false;
-        if (draft.brandId && row.brandId !== draft.brandId) return false;
-        return Boolean(row.modelNumber || row.description);
-    }).map((row) => ({
-        id: row._id,
-        label: row.modelNumber || row.description,
-    })), [draft.brandId, draft.categoryId, draft.itemOptionId, draft.subcategoryId, inventoryItems]);
+    const subcategoryOptions = useMemo(() => {
+        const rows = draft.categoryId
+            ? subcategories.filter((row) => row.categoryId === draft.categoryId || row.categoryIds.includes(draft.categoryId))
+            : subcategories;
+        return rows.map((row) => ({ value: row.id, label: row.label }));
+    }, [draft.categoryId, subcategories]);
+    const itemChoices = useMemo(() => {
+        const allowedSubs = new Set(subcategoryOptions.map((row) => row.value));
+        const rows = draft.subcategoryId
+            ? itemOptions.filter((row) => row.subcategoryId === draft.subcategoryId)
+            : draft.categoryId
+                ? itemOptions.filter((row) => allowedSubs.has(row.subcategoryId))
+                : itemOptions;
+        return rows.map((row) => ({ value: row.id, label: row.label }));
+    }, [draft.categoryId, draft.subcategoryId, itemOptions, subcategoryOptions]);
+    const modelOptions = useMemo(() => {
+        const values = new Set();
+        inventoryItems.forEach((row) => {
+            if (row.pendingStock) return;
+            if (draft.categoryId && row.categoryId !== draft.categoryId) return;
+            if (draft.subcategoryId && row.subcategoryId !== draft.subcategoryId) return;
+            if (draft.brandId && row.brandId !== draft.brandId) return;
+            if (draft.itemOptionId && row.itemOptionId !== draft.itemOptionId) return;
+            const model = cleanText(row.modelNumber);
+            if (model) values.add(model);
+        });
+        return [...values].sort((left, right) => left.localeCompare(right)).map((model) => ({ value: model, label: model }));
+    }, [draft.brandId, draft.categoryId, draft.itemOptionId, draft.subcategoryId, inventoryItems]);
 
     function chooseCustomer(customerId) {
         const nextCustomer = customers.find((row) => row.id === customerId) || null;
@@ -592,39 +742,144 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         setLineError('');
     }
 
+    function ownedItem(model) {
+        const text = cleanText(model);
+        if (!text) return null;
+        return inventoryItems.find((row) => !row.pendingStock && namesEqual(row.modelNumber, text)) || null;
+    }
+
+    function fillFromItem(owner, model) {
+        const category = categories.find((row) => row.id === owner.categoryId);
+        const subcategory = subcategories.find((row) => row.id === owner.subcategoryId);
+        const brand = brands.find((row) => row.id === owner.brandId);
+        const item = itemOptions.find((row) => row.id === owner.itemOptionId);
+        setDraft({
+            categoryId: category?.id || '',
+            categoryText: category?.label || '',
+            subcategoryId: subcategory?.id || '',
+            subcategoryText: subcategory?.label || '',
+            itemOptionId: item?.id || '',
+            itemText: item?.label || owner.itemName || '',
+            brandId: brand?.id || '',
+            brandText: brand?.label || '',
+            modelNumber: cleanText(model),
+        });
+        setLineError('');
+    }
+
+    function chooseCategory(nextId) {
+        const category = categories.find((row) => row.id === nextId);
+        const sub = subcategories.find((row) => row.id === draft.subcategoryId);
+        const keepSub = sub && (sub.categoryId === nextId || sub.categoryIds.includes(nextId));
+        setDraft((current) => ({
+            ...current,
+            categoryId: nextId,
+            categoryText: category?.label || '',
+            subcategoryId: keepSub ? current.subcategoryId : '',
+            subcategoryText: keepSub ? current.subcategoryText : '',
+            itemOptionId: keepSub ? current.itemOptionId : '',
+            itemText: keepSub ? current.itemText : '',
+            modelNumber: current.modelNumber && ownedItem(current.modelNumber) ? '' : current.modelNumber,
+        }));
+    }
+
+    function chooseSubcategory(nextId) {
+        const sub = subcategories.find((row) => row.id === nextId);
+        const category = categories.find((row) => row.id === (sub?.categoryId || draft.categoryId));
+        setDraft((current) => ({
+            ...current,
+            categoryId: category?.id || current.categoryId,
+            categoryText: category?.label || current.categoryText,
+            subcategoryId: nextId,
+            subcategoryText: sub?.label || '',
+            itemOptionId: '',
+            itemText: '',
+            modelNumber: current.modelNumber && ownedItem(current.modelNumber) ? '' : current.modelNumber,
+        }));
+    }
+
+    function chooseItem(nextId) {
+        const item = itemOptions.find((row) => row.id === nextId);
+        setDraft((current) => ({
+            ...current,
+            itemOptionId: nextId,
+            itemText: item?.label || '',
+            modelNumber: current.modelNumber && ownedItem(current.modelNumber)?.itemOptionId !== nextId ? '' : current.modelNumber,
+        }));
+    }
+
+    function chooseBrand(nextId) {
+        const brand = brands.find((row) => row.id === nextId);
+        setDraft((current) => ({
+            ...current,
+            brandId: nextId,
+            brandText: brand?.label || '',
+            modelNumber: current.modelNumber && ownedItem(current.modelNumber) ? '' : current.modelNumber,
+        }));
+    }
+
     function addLine() {
-        const category = categories.find((row) => row.id === draft.categoryId);
-        const subcategory = subcategories.find((row) => row.id === draft.subcategoryId);
-        const item = itemChoices.find((row) => row.id === draft.itemOptionId);
-        const brand = brands.find((row) => row.id === draft.brandId);
-        const typedModel = draft.modelNumber.trim();
-        const catalogItem = scheduled
-            ? inventoryItems.find((row) => row.brandId === draft.brandId && String(row.modelNumber || '').toLowerCase() === typedModel.toLowerCase()) || null
-            : inventoryItems.find((row) => row._id === draft.modelItemId) || null;
-        const modelNumber = scheduled ? typedModel : (catalogItem?.modelNumber || catalogItem?.description || '');
-        if (!category) {
-            setLineError('Select a category.');
+        const categoryText = cleanText(draft.categoryText);
+        let category = (categories.find((row) => row.id === draft.categoryId && namesEqual(row.label, categoryText))
+            || matchOne(categories, categoryText));
+        const subPool = category
+            ? subcategories.filter((row) => row.categoryId === category.id || row.categoryIds.includes(category.id))
+            : subcategories;
+        const subText = cleanText(draft.subcategoryText);
+        let subcategory = (subPool.find((row) => row.id === draft.subcategoryId && namesEqual(row.label, subText))
+            || matchOne(subPool, subText));
+        if (!category && subcategory) {
+            category = categories.find((row) => row.id === subcategory.categoryId) || null;
+        }
+        const brandText = cleanText(draft.brandText);
+        let brand = (brands.find((row) => row.id === draft.brandId && namesEqual(row.label, brandText))
+            || matchOne(brands, brandText));
+        const optionPool = subcategory
+            ? itemOptions.filter((row) => row.subcategoryId === subcategory.id)
+            : itemOptions;
+        const itemText = cleanText(draft.itemText);
+        let item = (optionPool.find((row) => row.id === draft.itemOptionId && namesEqual(row.label, itemText))
+            || matchOne(optionPool, itemText));
+        let typedModel = cleanText(draft.modelNumber);
+        const owner = ownedItem(typedModel);
+        if (owner) {
+            const ownerName = owner.itemName || itemOptions.find((row) => row.id === owner.itemOptionId)?.label || '';
+            const ownerMatches = (!category || owner.categoryId === category.id)
+                && (!subcategory || owner.subcategoryId === subcategory.id)
+                && (!brand || owner.brandId === brand.id)
+                && (!itemText || namesEqual(ownerName, itemText));
+            if (ownerMatches) {
+                category = categories.find((row) => row.id === owner.categoryId) || category;
+                subcategory = subcategories.find((row) => row.id === owner.subcategoryId) || subcategory;
+                brand = brands.find((row) => row.id === owner.brandId) || brand;
+                item = itemOptions.find((row) => row.id === owner.itemOptionId) || item;
+            } else {
+                typedModel = '';
+            }
+        }
+        if (!category || !subcategory || !brand) {
+            setLineError('Category, sub category, and brand are required.');
             return;
         }
-        if (!subcategory) {
-            setLineError('Select a sub category.');
+        if (subcategory.categoryId !== category.id && !subcategory.categoryIds.includes(category.id)) {
+            setLineError('Sub category does not belong to the selected category.');
             return;
         }
-        if (!item) {
-            setLineError('Select an item.');
+        const itemName = cleanText(item?.label || itemText);
+        if (!itemName) {
+            setLineError('Enter an item.');
             return;
         }
-        if (!brand) {
-            setLineError('Select a brand.');
-            return;
-        }
-        if (!modelNumber) {
-            setLineError(scheduled ? 'Enter a model number.' : 'Select a model number.');
-            return;
-        }
+        const sameTarget = Boolean(owner)
+            && owner.categoryId === category.id
+            && owner.subcategoryId === subcategory.id
+            && owner.brandId === brand.id
+            && (!typedModel || namesEqual(owner.modelNumber, typedModel));
+        const modelNumber = typedModel || (sameTarget ? cleanText(owner.modelNumber) : '') || itemName;
+        const catalogItem = sameTarget ? owner : null;
         const description = scheduled
-            ? [brand.label, modelNumber, item.label].filter(Boolean).join(' ')
-            : manualDescription(item.label, catalogItem?.description || modelNumber);
+            ? [brand.label, modelNumber, itemName].filter(Boolean).join(' ')
+            : manualDescription(itemName, catalogItem?.description || modelNumber);
         const detail = scheduled
             ? `${category.label} > ${subcategory.label} | Brand: ${brand.label} | Model No: ${modelNumber}`
             : '';
@@ -634,8 +889,8 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
             categoryName: category.label,
             subcategoryId: subcategory.id,
             subcategoryName: subcategory.label,
-            itemOptionId: item.id,
-            itemName: item.label,
+            itemOptionId: item?.id || '',
+            itemName,
             brandId: brand.id,
             brandName: brand.label,
             modelNumber,
@@ -900,48 +1155,120 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                             </button>
                         </div>
 
-                        {scheduled ? (
-                            <>
-                                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                                    <SelectField label="Category" required value={draft.categoryId} placeholder="Select category..." options={categories} disabled={loading} onChange={(categoryId) => setDraft({ ...emptyDraft(), categoryId })} />
-                                    <SelectField label="Sub Category" required value={draft.subcategoryId} placeholder="Select sub category..." options={subcategoryChoices} disabled={!draft.categoryId} onChange={(subcategoryId) => setDraft((current) => ({ ...current, subcategoryId, itemOptionId: '', modelItemId: '' }))} />
-                                    <SelectField label="Item" required value={draft.itemOptionId} placeholder="Select item..." options={itemChoices} disabled={!draft.subcategoryId} onChange={(itemOptionId) => setDraft((current) => ({ ...current, itemOptionId, modelItemId: '' }))} />
-                                </div>
-                                <div className="mt-3 grid grid-cols-1 items-end gap-3 md:grid-cols-[1fr_1fr_auto]">
-                                    <SelectField label="Brand" required value={draft.brandId} placeholder="Select brand..." options={brands} disabled={loading} onChange={(brandId) => setDraft((current) => ({ ...current, brandId }))} />
-                                    <Field label="Model No" required>
-                                        <input
-                                            value={draft.modelNumber}
-                                            onChange={(event) => setDraft((current) => ({ ...current, modelNumber: event.target.value }))}
-                                            onKeyDown={(event) => {
-                                                if (event.key === 'Enter') {
-                                                    event.preventDefault();
-                                                    addLine();
-                                                }
-                                            }}
-                                            placeholder="Enter model no..."
-                                            className={inputClass}
-                                        />
-                                    </Field>
-                                    <button type="button" onClick={addLine} className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-[#7C3AED] px-6 text-sm font-semibold text-white hover:bg-[#6D28D9]">
-                                        <Plus className="h-4 w-4" />
-                                        Add
-                                    </button>
-                                </div>
-                            </>
-                        ) : (
-                            <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-6">
-                                <SelectField label="Category" required value={draft.categoryId} placeholder="Select category..." options={categories} disabled={loading} onChange={(categoryId) => setDraft({ ...emptyDraft(), categoryId })} />
-                                <SelectField label="Sub Category" required value={draft.subcategoryId} placeholder="Select sub category..." options={subcategoryChoices} disabled={!draft.categoryId} onChange={(subcategoryId) => setDraft((current) => ({ ...current, subcategoryId, itemOptionId: '', modelItemId: '' }))} />
-                                <SelectField label="Item" required value={draft.itemOptionId} placeholder="Select item..." options={itemChoices} disabled={!draft.subcategoryId} onChange={(itemOptionId) => setDraft((current) => ({ ...current, itemOptionId, modelItemId: '' }))} />
-                                <SelectField label="Brand" required value={draft.brandId} placeholder="Select brand..." options={brands} disabled={loading} onChange={(brandId) => setDraft((current) => ({ ...current, brandId, modelItemId: '' }))} />
-                                <SelectField label="Model No" required value={draft.modelItemId} placeholder="Select model no..." options={modelChoices} disabled={!draft.itemOptionId || !draft.brandId} onChange={(modelItemId) => setDraft((current) => ({ ...current, modelItemId }))} />
-                                <button type="button" onClick={addLine} className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-[#7C3AED] px-4 text-sm font-semibold text-white hover:bg-[#6D28D9]">
+                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                            <SuggestField
+                                label="Category"
+                                required
+                                text={draft.categoryText}
+                                options={categories.map((row) => ({ value: row.id, label: row.label }))}
+                                placeholder="Select category..."
+                                onText={(text) => setDraft((current) => ({
+                                    ...current,
+                                    categoryText: text,
+                                    categoryId: namesEqual(categories.find((row) => row.id === current.categoryId)?.label, text) ? current.categoryId : '',
+                                    subcategoryId: namesEqual(categories.find((row) => row.id === current.categoryId)?.label, text) ? current.subcategoryId : '',
+                                    subcategoryText: namesEqual(categories.find((row) => row.id === current.categoryId)?.label, text) ? current.subcategoryText : '',
+                                    itemOptionId: namesEqual(categories.find((row) => row.id === current.categoryId)?.label, text) ? current.itemOptionId : '',
+                                    itemText: namesEqual(categories.find((row) => row.id === current.categoryId)?.label, text) ? current.itemText : '',
+                                }))}
+                                onPick={chooseCategory}
+                                onCommit={(text) => {
+                                    const selected = categories.find((row) => row.id === draft.categoryId);
+                                    if (selected && namesEqual(selected.label, text)) return;
+                                    const match = matchOne(categories, text);
+                                    if (match) chooseCategory(match.id);
+                                }}
+                            />
+                            <SuggestField
+                                label="Sub Category"
+                                required
+                                text={draft.subcategoryText}
+                                options={subcategoryOptions}
+                                placeholder="Select sub category..."
+                                onText={(text) => setDraft((current) => ({
+                                    ...current,
+                                    subcategoryText: text,
+                                    subcategoryId: namesEqual(subcategories.find((row) => row.id === current.subcategoryId)?.label, text) ? current.subcategoryId : '',
+                                    itemOptionId: '',
+                                    itemText: '',
+                                }))}
+                                onPick={chooseSubcategory}
+                                onCommit={(text) => {
+                                    const selected = subcategories.find((row) => row.id === draft.subcategoryId);
+                                    if (selected && namesEqual(selected.label, text)) return;
+                                    const pool = draft.categoryId
+                                        ? subcategories.filter((row) => row.categoryId === draft.categoryId || row.categoryIds.includes(draft.categoryId))
+                                        : subcategories;
+                                    const match = matchOne(pool, text);
+                                    if (match) chooseSubcategory(match.id);
+                                }}
+                            />
+                            <SuggestField
+                                label="Item"
+                                required
+                                text={draft.itemText}
+                                options={itemChoices}
+                                placeholder="Select item..."
+                                onText={(text) => setDraft((current) => ({
+                                    ...current,
+                                    itemText: text,
+                                    itemOptionId: namesEqual(itemOptions.find((row) => row.id === current.itemOptionId)?.label, text) ? current.itemOptionId : '',
+                                }))}
+                                onPick={chooseItem}
+                                onCommit={(text) => {
+                                    const selected = itemOptions.find((row) => row.id === draft.itemOptionId);
+                                    if (selected && namesEqual(selected.label, text)) return;
+                                    const match = matchOne(itemChoices.map((row) => ({ id: row.value, label: row.label })), text);
+                                    if (match) chooseItem(match.id);
+                                }}
+                            />
+                            <SuggestField
+                                label="Brand"
+                                required
+                                text={draft.brandText}
+                                options={brands.map((row) => ({ value: row.id, label: row.label }))}
+                                placeholder="Select brand..."
+                                onText={(text) => setDraft((current) => ({
+                                    ...current,
+                                    brandText: text,
+                                    brandId: namesEqual(brands.find((row) => row.id === current.brandId)?.label, text) ? current.brandId : '',
+                                }))}
+                                onPick={chooseBrand}
+                                onCommit={(text) => {
+                                    const selected = brands.find((row) => row.id === draft.brandId);
+                                    if (selected && namesEqual(selected.label, text)) return;
+                                    const match = matchOne(brands, text);
+                                    if (match) chooseBrand(match.id);
+                                }}
+                            />
+                            <SuggestField
+                                label="Model No"
+                                text={draft.modelNumber}
+                                options={modelOptions}
+                                placeholder="Enter model no..."
+                                onText={(text) => {
+                                    setDraft((current) => ({ ...current, modelNumber: text }));
+                                    const owner = ownedItem(text);
+                                    if (owner && namesEqual(owner.modelNumber, text)) fillFromItem(owner, text);
+                                }}
+                                onPick={(model) => {
+                                    const owner = ownedItem(model);
+                                    if (owner) fillFromItem(owner, model);
+                                    else setDraft((current) => ({ ...current, modelNumber: model }));
+                                }}
+                                onCommit={(text) => {
+                                    const owner = ownedItem(text);
+                                    if (owner && namesEqual(owner.modelNumber, text)) fillFromItem(owner, text);
+                                    else setDraft((current) => ({ ...current, modelNumber: cleanText(text) }));
+                                }}
+                            />
+                            <div className="flex items-end justify-end">
+                                <button type="button" onClick={addLine} className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-[#7C3AED] px-6 text-sm font-semibold text-white hover:bg-[#6D28D9]">
                                     <Plus className="h-4 w-4" />
                                     Add
                                 </button>
                             </div>
-                        )}
+                        </div>
                         {lineError ? <p className="mt-2 text-sm text-red-600">{lineError}</p> : null}
 
                         <div className="mt-4 overflow-hidden rounded-xl border border-[#E7E2F4] bg-white">
