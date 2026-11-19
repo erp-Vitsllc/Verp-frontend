@@ -360,7 +360,7 @@ export default function CustomerManagementList() {
     }
 
     function exportRows() {
-        const header = ['Customer Code', 'Customer Name', 'Location', 'Primary Contact', 'Brands', 'Products', 'Outstanding', 'Status'];
+        const header = ['Customer Code', 'Customer Name', 'Location', 'Primary Contact', 'Brands', 'Products', 'Outstanding Receivables', 'Status'];
         const lines = rows.map((customer) => [
             customer.code,
             customer.name,
@@ -438,11 +438,11 @@ export default function CustomerManagementList() {
                                 'Primary Contact',
                                 'Brands',
                                 'Products',
-                                'Outstanding',
+                                'Outstanding Receivables',
                                 'Status',
                                 ...(showActions ? ['Action'] : []),
                             ].map((heading) => (
-                                <th key={heading} className={`whitespace-nowrap px-4 py-3 font-medium ${heading === 'Outstanding' || heading === 'Products' ? 'text-right' : ''}`}>{heading}</th>
+                                <th key={heading} className={`whitespace-nowrap px-4 py-3 font-medium ${heading === 'Outstanding Receivables' || heading === 'Products' ? 'text-right' : ''}`}>{heading}</th>
                             ))}
                         </tr>
                     </thead>

@@ -244,6 +244,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
     const [purchaseDate, setPurchaseDate] = useState('');
     const [billNo, setBillNo] = useState('');
     const [lpoNo, setLpoNo] = useState('');
+    const [note, setNote] = useState('');
     const [lines, setLines] = useState([]);
     const [attachment, setAttachment] = useState(null);
     const [dragOver, setDragOver] = useState(false);
@@ -254,7 +255,6 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [directPost, setDirectPost] = useState(false);
-    const [approvalReady, setApprovalReady] = useState(false);
     const [approverName, setApproverName] = useState('');
     const [submittedByName, setSubmittedByName] = useState('');
     const locked = Boolean(reviewEntryId);
@@ -284,7 +284,6 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                 const context = await getStockApprovalContext().catch(() => null);
                 if (cancelled) return;
                 setDirectPost(Boolean(context?.isPurchaseOfficer));
-                setApprovalReady(true);
                 if (!reviewEntryId) return;
                 const entry = await getStockEntry(reviewEntryId);
                 if (cancelled) return;
@@ -297,6 +296,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                 setPurchaseDate(entry.purchaseDate || '');
                 setBillNo(entry.billNo || '');
                 setLpoNo(entry.lpoNo || '');
+                setNote(entry.note || '');
                 setLines((entry.lines || []).map((line, index) => ({ ...line, key: `${entry._id}-${index}` })));
                 setAttachment(entry.attachment?.name ? entry.attachment : null);
                 setApproverName(entry.approverName || context?.officerName || '');
@@ -704,7 +704,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
     };
 
     const clearEntry = () => {
-        const dirty = lines.length || vendorText || purchaseDate || billNo || lpoNo || attachment || categoryText || itemText || modelNumber;
+        const dirty = lines.length || vendorText || purchaseDate || billNo || lpoNo || note || attachment || categoryText || itemText || modelNumber;
         if (dirty && !window.confirm('Clear everything entered in this form? Saved stock records will not be deleted.')) return;
         setPurchaseSource('vendor');
         setVendorId('');
@@ -712,6 +712,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
         setPurchaseDate('');
         setBillNo('');
         setLpoNo('');
+        setNote('');
         setLines([]);
         setAttachment(null);
         setEntryId('');
@@ -743,6 +744,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
             setPurchaseDate(entry.purchaseDate || '');
             setBillNo(entry.billNo || '');
             setLpoNo(entry.lpoNo || '');
+            setNote(entry.note || '');
             setLines((entry.lines || []).map((line, index) => ({ ...line, key: `${entry._id}-${index}` })));
             setAttachment(entry.attachment?.name ? entry.attachment : null);
         } catch (err) {
@@ -807,6 +809,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                 purchaseDate: purchaseSource === 'vendor' ? purchaseDate : '',
                 billNo: purchaseSource === 'vendor' ? billNo : '',
                 lpoNo: purchaseSource === 'vendor' ? lpoNo : '',
+                note,
                 lines: lines.map((line) => ({
                     itemId: line.itemId,
                     categoryId: line.categoryId,
@@ -980,8 +983,27 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                                         <span className="mb-1.5 block text-sm font-medium text-slate-700">LPO No</span>
                                         <input value={lpoNo} onChange={(event) => setLpoNo(event.target.value)} placeholder="Enter LPO no (optional)" className={fieldClass} />
                                     </label>
+                                    <label className="sm:col-span-2 xl:col-span-4">
+                                        <span className="mb-1.5 block text-sm font-medium text-slate-700">Note</span>
+                                        <textarea
+                                            value={note}
+                                            onChange={(event) => setNote(event.target.value)}
+                                            placeholder="Enter note..."
+                                            className={`${fieldClass} h-auto min-h-[88px] py-2`}
+                                        />
+                                    </label>
                                 </div>
-                            ) : null}
+                            ) : (
+                                <label className="block">
+                                    <span className="mb-1.5 block text-sm font-medium text-slate-700">Note</span>
+                                    <textarea
+                                        value={note}
+                                        onChange={(event) => setNote(event.target.value)}
+                                        placeholder="Enter note..."
+                                        className={`${fieldClass} h-auto min-h-[88px] py-2`}
+                                    />
+                                </label>
+                            )}
                             <div className="rounded-xl bg-[#F5F7FB] p-4">
                                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                                     <TypeSuggest
@@ -1049,13 +1071,18 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                                     <p><span className="block text-xs text-slate-400">Purchase date</span>{purchaseDate || '—'}</p>
                                     <p><span className="block text-xs text-slate-400">Bill no</span>{billNo || '—'}</p>
                                     <p><span className="block text-xs text-slate-400">LPO no</span>{lpoNo || '—'}</p>
+                                    <p className="sm:col-span-2 xl:col-span-4 whitespace-pre-wrap"><span className="block text-xs text-slate-400">Note</span>{note || '—'}</p>
+                                </div>
+                            ) : locked ? (
+                                <div className="rounded-xl bg-[#F5F7FB] p-4 text-sm text-slate-700">
+                                    <p className="whitespace-pre-wrap"><span className="block text-xs text-slate-400">Note</span>{note || '—'}</p>
                                 </div>
                             ) : null}
                             <div className="overflow-x-auto rounded-xl border border-[#EEF2F7]">
                                 <table className="w-full min-w-[720px] text-left text-sm">
                                     <thead className="bg-[#EEF1F8] text-slate-500">
                                         <tr>
-                                            {['Sl.No', 'Description', 'Qty', 'Unit Price', 'Total', ''].map((heading) => (
+                                            {['Sl.No', 'Item', 'Qty', 'Unit Price', 'Total', ''].map((heading) => (
                                                 <th key={heading || 'action'} className="px-3 py-3 font-medium">{heading}</th>
                                             ))}
                                         </tr>
@@ -1068,7 +1095,13 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                                         ) : lines.map((line, index) => (
                                             <tr key={line.key} className="border-t border-[#EEF2F7]">
                                                 <td className="px-3 py-3 text-slate-500">{index + 1}</td>
-                                                <td className="px-3 py-3 text-slate-800">{line.description}</td>
+                                                <td className="px-3 py-3 text-slate-800">
+                                                    <p className="font-medium">{line.itemName || line.description}</p>
+                                                    {line.description && line.itemName && line.description !== line.itemName ? (
+                                                        <p className="mt-0.5 text-xs text-slate-400">{line.description}</p>
+                                                    ) : null}
+                                                    {line.modelNumber ? <p className="mt-0.5 text-xs text-slate-400">Model {line.modelNumber}</p> : null}
+                                                </td>
                                                 <td className="px-3 py-3">
                                                     <input
                                                         type="number"
@@ -1151,7 +1184,8 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                         </div>
                     )}
                 </div>
-                <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[#EEF2F7] px-5 py-4">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-[#EEF2F7] px-5 py-4">
+                    {error ? <p className="mr-auto min-w-[220px] text-sm text-red-600">{error}</p> : null}
                     <button type="button" onClick={onClose} className="h-10 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-600">Cancel</button>
                     {locked ? (
                         directPost ? (
@@ -1169,7 +1203,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                             <button type="button" onClick={() => submit('draft')} disabled={saving || loading} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-indigo-200 px-4 text-sm font-semibold text-indigo-700 disabled:opacity-60">
                                 <FileText size={15} /> Draft
                             </button>
-                            <button type="button" onClick={() => submit('posted')} disabled={saving || loading || !approvalReady} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">
+                            <button type="button" onClick={() => submit('posted')} disabled={saving || loading} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">
                                 <Check size={15} /> {saving ? 'Saving...' : actionLabel}
                             </button>
                         </>

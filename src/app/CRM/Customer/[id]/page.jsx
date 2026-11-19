@@ -16,6 +16,13 @@ export default function CustomerDetailPage() {
     const [loading, setLoading] = useState(true);
     const requestSeq = useRef(0);
 
+    const showCustomer = useCallback((next) => {
+        requestSeq.current += 1;
+        setCustomer(next);
+        setError('');
+        setLoading(false);
+    }, []);
+
     const load = useCallback(() => {
         if (!customerId) return undefined;
         const seq = ++requestSeq.current;
@@ -40,10 +47,36 @@ export default function CustomerDetailPage() {
         };
     }, [customerId]);
 
-    useEffect(() => {
-        if (!access.ready || !access.canView) return undefined;
+    const reload = useCallback((next) => {
+        if (next && typeof next === 'object' && Array.isArray(next.contacts)) {
+            showCustomer(next);
+            return undefined;
+        }
         return load();
-    }, [access.ready, access.canView, load]);
+    }, [load, showCustomer]);
+
+    useEffect(() => {
+        if (!access.ready || !access.canView || !customerId) return undefined;
+        const seq = ++requestSeq.current;
+        let cancelled = false;
+        getCustomer(customerId)
+            .then((row) => {
+                if (cancelled || seq !== requestSeq.current) return;
+                setCustomer(row);
+                setError('');
+            })
+            .catch((loadError) => {
+                if (cancelled || seq !== requestSeq.current) return;
+                setCustomer(null);
+                setError(customerApiMessage(loadError, 'Could not open this customer.'));
+            })
+            .finally(() => {
+                if (!cancelled && seq === requestSeq.current) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [access.ready, access.canView, customerId]);
 
     return (
         <ItemMasterShell>
@@ -53,7 +86,7 @@ export default function CustomerDetailPage() {
                 </p>
             ) : null}
             {access.canView && error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
-            {access.canView && customer ? <CustomerDetail customer={customer} onReload={load} /> : null}
+            {access.canView && customer ? <CustomerDetail customer={customer} onReload={reload} /> : null}
             {access.canView && loading && !customer && !error ? <p className="text-sm text-slate-500">Loading customer...</p> : null}
         </ItemMasterShell>
     );

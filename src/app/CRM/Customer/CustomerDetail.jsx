@@ -2,11 +2,20 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Building2, Printer, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Building2, Pencil, Plus, Printer, RefreshCw, Star, Trash2 } from 'lucide-react';
 import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
-import { customerApiMessage, syncCustomerFromZoho } from './customerApi';
+import AddCustomerContactModal from './AddCustomerContactModal';
+import { CustomerDeliveries, CustomerInvoices, CustomerProjects } from './CustomerRecords';
+import { useCrmAccess } from './crmAccess';
+import {
+    customerApiMessage,
+    deleteCustomerContact,
+    isSavedCustomer,
+    markCustomerContactPrimary,
+    syncCustomerFromZoho,
+} from './customerApi';
 
-const TABS = ['Overview', 'Contacts', 'Products', 'Brands', 'Bills', 'Pricing', 'RFQs', 'POs', 'Documents'];
+const TABS = ['Overview', 'Contacts', 'Invoice', 'Delivery', 'Projects', 'Pricing', 'RFQs', 'POs', 'Documents'];
 
 function shown(value) {
     const text = String(value || '').trim();
@@ -51,14 +60,38 @@ function Lines({ values, link }) {
     );
 }
 
+function firstValue(values) {
+    return (Array.isArray(values) ? values.find(Boolean) : '') || '';
+}
+
+function customerWithPrimary(current, contact) {
+    const contactId = String(contact?.id || '');
+    const contacts = (Array.isArray(current?.contacts) ? current.contacts : []).map((row) => ({
+        ...row,
+        isPrimary: String(row.id) === contactId,
+    })).sort((left, right) => Number(Boolean(right.isPrimary)) - Number(Boolean(left.isPrimary)));
+    const chosen = contacts.find((row) => row.isPrimary);
+    return {
+        ...current,
+        contacts,
+        contact: chosen?.name || '',
+        phone: firstValue(chosen?.phones),
+        email: firstValue(chosen?.emails),
+    };
+}
+
 export default function CustomerDetail({ customer, onReload }) {
     const router = useRouter();
+    const access = useCrmAccess();
     const [tab, setTab] = useState('Contacts');
     const [syncing, setSyncing] = useState(false);
     const [syncError, setSyncError] = useState('');
+    const [contactModal, setContactModal] = useState(null);
+    const [busyId, setBusyId] = useState('');
+    const [actionError, setActionError] = useState('');
     const contacts = Array.isArray(customer.contacts) ? customer.contacts : [];
-    const brands = Array.isArray(customer.brands) ? customer.brands.filter(Boolean) : [];
     const site = websiteHref(customer.website);
+    const canManageContacts = isSavedCustomer(customer);
 
     async function syncFromZoho() {
         setSyncing(true);
@@ -70,6 +103,41 @@ export default function CustomerDetail({ customer, onReload }) {
             setSyncError(customerApiMessage(err, 'Could not sync this customer from Zoho.'));
         } finally {
             setSyncing(false);
+        }
+    }
+
+    async function removeContact(contact) {
+        const label = contact.name || 'this contact';
+        if (!window.confirm(`Delete ${label}?`)) return;
+        setBusyId(String(contact.id));
+        setActionError('');
+        try {
+            await deleteCustomerContact(customer.id, contact.id);
+            onReload();
+        } catch (err) {
+            setActionError(customerApiMessage(err, 'Could not delete this contact.'));
+        } finally {
+            setBusyId('');
+        }
+    }
+
+    async function makePrimary(contact) {
+        if (contact.isPrimary || !contact.id) return;
+        const contactId = String(contact.id);
+        setBusyId(contactId);
+        setActionError('');
+        const previous = customer;
+        onReload(customerWithPrimary(customer, contact));
+        try {
+            const saved = await markCustomerContactPrimary(customer.id, contactId);
+            if (saved?.contacts) onReload(saved);
+            else onReload();
+        } catch (err) {
+            onReload(previous);
+            onReload();
+            setActionError(customerApiMessage(err, 'Could not mark this contact as primary.'));
+        } finally {
+            setBusyId('');
         }
     }
 
@@ -100,7 +168,7 @@ export default function CustomerDetail({ customer, onReload }) {
             </div>
 
             <section className="rounded-2xl border border-[#E6EDF5] bg-white p-4 sm:p-5">
-                <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(11rem,0.7fr)_minmax(180px,0.7fr)_auto] lg:items-start">
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(13rem,0.8fr)_minmax(180px,0.7fr)_auto] lg:items-start">
                     <div className="flex min-w-0 gap-4">
                         <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-[#E6EDF5] text-blue-600">
                             <Building2 size={28} />
@@ -120,9 +188,9 @@ export default function CustomerDetail({ customer, onReload }) {
                             </dl>
                         </div>
                     </div>
-                    <div className="min-w-[11rem] space-y-4 border-[#E6EDF5] lg:border-l lg:pl-6">
+                    <div className="min-w-[13rem] space-y-4 border-[#E6EDF5] lg:border-l lg:pl-6">
                         <div>
-                            <p className="text-sm text-slate-500">Outstanding</p>
+                            <p className="text-sm text-slate-500">Outstanding Receivables</p>
                             <p className="mt-1 text-lg font-bold text-slate-900">{money(customer.outstandingPayment, customer.currencyCode)}</p>
                         </div>
                         <div>
@@ -179,12 +247,25 @@ export default function CustomerDetail({ customer, onReload }) {
 
                 {tab === 'Contacts' ? (
                     <div className="p-4 sm:p-5">
-                        <h2 className="mb-4 text-lg font-bold text-slate-900">Customer Contacts</h2>
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                            <h2 className="text-lg font-bold text-slate-900">Customer Contacts</h2>
+                            {canManageContacts && !(access.ready && !access.canCreate) ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setContactModal({ mode: 'add' })}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white"
+                                >
+                                    <Plus size={14} />
+                                    Add Contact
+                                </button>
+                            ) : null}
+                        </div>
+                        {actionError ? <p className="mb-3 text-sm text-red-600">{actionError}</p> : null}
                         <div className="overflow-x-auto">
                             <table className="min-w-full text-left text-sm">
                                 <thead>
                                     <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
-                                        {['Name', 'Designation', 'Email(s)', 'Phone(s)'].map((heading) => (
+                                        {['Name', 'Designation', 'Email(s)', 'Phone(s)', ...(canManageContacts ? ['Action'] : [])].map((heading) => (
                                             <th key={heading} className="whitespace-nowrap px-4 py-3 font-medium">{heading}</th>
                                         ))}
                                     </tr>
@@ -192,7 +273,7 @@ export default function CustomerDetail({ customer, onReload }) {
                                 <tbody>
                                     {contacts.length === 0 ? (
                                         <tr>
-                                            <td colSpan={4} className="px-4 py-10 text-center text-slate-500">No contacts yet.</td>
+                                            <td colSpan={canManageContacts ? 5 : 4} className="px-4 py-10 text-center text-slate-500">No contacts yet.</td>
                                         </tr>
                                     ) : contacts.map((contact) => (
                                         <tr key={contact.id} className="border-b border-slate-100 text-slate-700">
@@ -203,37 +284,57 @@ export default function CustomerDetail({ customer, onReload }) {
                                             <td className="whitespace-nowrap px-4 py-3.5">{contact.designation || 'N/A'}</td>
                                             <td className="px-4 py-3.5"><Lines values={contact.emails} link="mail" /></td>
                                             <td className="whitespace-nowrap px-4 py-3.5"><Lines values={contact.phones} /></td>
+                                            {canManageContacts ? (
+                                                <td className="px-4 py-3.5">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        {access.canEdit ? (
+                                                            <button
+                                                                type="button"
+                                                                disabled={busyId === String(contact.id)}
+                                                                onClick={() => setContactModal({ mode: 'edit', contact })}
+                                                                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-2.5 text-sm font-medium text-slate-700 disabled:opacity-50"
+                                                            >
+                                                                <Pencil size={13} />
+                                                                Edit
+                                                            </button>
+                                                        ) : null}
+                                                        {access.canDelete ? (
+                                                            <button
+                                                                type="button"
+                                                                disabled={busyId === String(contact.id)}
+                                                                onClick={() => removeContact(contact)}
+                                                                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                                            >
+                                                                <Trash2 size={13} />
+                                                                Delete
+                                                            </button>
+                                                        ) : null}
+                                                        {access.canEdit ? (
+                                                            <button
+                                                                type="button"
+                                                                disabled={contact.isPrimary || busyId === String(contact.id)}
+                                                                onClick={() => makePrimary(contact)}
+                                                                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-blue-200 px-2.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                                                            >
+                                                                <Star size={13} />
+                                                                {contact.isPrimary ? 'Primary' : 'Mark as primary'}
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+                                                </td>
+                                            ) : null}
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
                     </div>
-                ) : tab === 'Brands' ? (
-                    <div className="p-4 sm:p-5">
-                        {brands.length === 0 ? (
-                            <p className="py-10 text-center text-sm text-slate-500">No brands yet.</p>
-                        ) : (
-                            <div className="flex flex-wrap gap-4">
-                                {brands.map((brand) => (
-                                    <div
-                                        key={brand}
-                                        className="flex size-32 items-center justify-center rounded-xl border border-[#E6EDF5] bg-white p-3 text-center text-sm font-semibold leading-snug text-slate-900 shadow-sm"
-                                    >
-                                        <span className="line-clamp-4 break-words">{brand}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                ) : tab === 'Products' ? (
-                    <div className="p-4 sm:p-5">
-                        {customer.products == null ? (
-                            <p className="py-10 text-center text-sm text-slate-500">No products yet.</p>
-                        ) : (
-                            <p className="text-sm text-slate-700">Products: <span className="font-semibold text-slate-900">{customer.products}</span></p>
-                        )}
-                    </div>
+                ) : tab === 'Invoice' ? (
+                    <CustomerInvoices customerId={customer.id} />
+                ) : tab === 'Delivery' ? (
+                    <CustomerDeliveries customerId={customer.id} />
+                ) : tab === 'Projects' ? (
+                    <CustomerProjects customerId={customer.id} />
                 ) : tab === 'Overview' ? (
                     <dl className="grid gap-4 p-5 text-sm sm:grid-cols-2">
                         <div>
@@ -249,6 +350,18 @@ export default function CustomerDetail({ customer, onReload }) {
                     <p className="px-5 py-10 text-sm text-slate-500">No records yet.</p>
                 )}
             </section>
+
+            {contactModal ? (
+                <AddCustomerContactModal
+                    customerId={customer.id}
+                    contact={contactModal.contact}
+                    onClose={() => setContactModal(null)}
+                    onSaved={() => {
+                        setContactModal(null);
+                        onReload();
+                    }}
+                />
+            ) : null}
         </div>
     );
 }

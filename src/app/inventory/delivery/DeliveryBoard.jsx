@@ -1,28 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Check, Plus, Trash2, X } from 'lucide-react';
 import AddDeliveryModal, { formatDoDate } from './AddDeliveryModal';
-import { deleteDelivery, deliveryApiMessage, listDeliveries } from './deliveryApi';
+import { approveDelivery, deleteDelivery, deliveryApiMessage, listDeliveries, rejectDelivery } from './deliveryApi';
 
 const STATUS_CLASS = {
     Draft: 'bg-slate-100 text-slate-600',
     Submitted: 'bg-violet-50 text-violet-700',
+    Confirming: 'bg-violet-50 text-violet-700',
     Confirmed: 'bg-emerald-50 text-emerald-700',
+    Rejected: 'bg-red-50 text-red-600',
 };
-
-function readPurchasingOfficer() {
-    try {
-        const raw = localStorage.getItem('employeeUser') || localStorage.getItem('user');
-        const user = raw ? JSON.parse(raw) : null;
-        const text = [user?.designation, user?.department, user?.role, user?.groupName]
-            .filter(Boolean)
-            .join(' ');
-        return /purchasing officer/i.test(text);
-    } catch {
-        return false;
-    }
-}
 
 export default function DeliveryBoard() {
     const [rows, setRows] = useState([]);
@@ -30,15 +19,15 @@ export default function DeliveryBoard() {
     const [error, setError] = useState('');
     const [open, setOpen] = useState(false);
     const [deletingId, setDeletingId] = useState('');
-    const [localOfficer, setLocalOfficer] = useState(false);
-    const [officerFromApi, setOfficerFromApi] = useState(null);
+    const [decidingId, setDecidingId] = useState('');
+    const [purchasingOfficer, setPurchasingOfficer] = useState(false);
 
     const load = useCallback(() => {
         setLoading(true);
         return listDeliveries()
             .then((data) => {
                 setRows(Array.isArray(data?.deliveries) ? data.deliveries : []);
-                setOfficerFromApi(Boolean(data?.purchasingOfficer));
+                setPurchasingOfficer(Boolean(data?.purchasingOfficer));
                 setError('');
             })
             .catch((loadError) => {
@@ -49,13 +38,13 @@ export default function DeliveryBoard() {
     }, []);
 
     useEffect(() => {
-        setLocalOfficer(readPurchasingOfficer());
         load();
     }, [load]);
 
     async function removeDelivery(row) {
         const label = row.deliveryNo || 'this delivery order';
-        if (!window.confirm(`Delete ${label}?`)) return;
+        const stockNote = row.status === 'Confirmed' ? ' Delivered quantity will go back into stock.' : '';
+        if (!window.confirm(`Delete ${label}?${stockNote}`)) return;
         setDeletingId(row.id);
         setError('');
         try {
@@ -68,7 +57,23 @@ export default function DeliveryBoard() {
         }
     }
 
-    const purchasingOfficer = officerFromApi == null ? localOfficer : officerFromApi;
+    async function decide(row, action) {
+        const label = row.deliveryNo || 'this delivery';
+        if (action === 'reject' && !window.confirm(`Reject ${label}? Stock will not change.`)) return;
+        setDecidingId(row.id);
+        setError('');
+        try {
+            if (action === 'approve') await approveDelivery(row.id);
+            else await rejectDelivery(row.id);
+            await load();
+        } catch (decideError) {
+            setError(deliveryApiMessage(decideError, action === 'approve' ? 'Could not approve this delivery.' : 'Could not reject this delivery.'));
+        } finally {
+            setDecidingId('');
+        }
+    }
+
+    const waiting = purchasingOfficer ? rows.filter((row) => row.status === 'Submitted') : [];
 
     return (
         <section className="rounded-2xl border border-[#E6EDF5] bg-white p-4 sm:p-6">
@@ -88,6 +93,12 @@ export default function DeliveryBoard() {
             </div>
 
             {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+
+            {waiting.length ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                    {waiting.length} delivery {waiting.length === 1 ? 'order is' : 'orders are'} waiting for your approval. Approving reduces the delivered quantity from each item.
+                </div>
+            ) : null}
 
             <div className="mt-5 overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
@@ -121,15 +132,39 @@ export default function DeliveryBoard() {
                                     </span>
                                 </td>
                                 <td className="whitespace-nowrap px-4 py-3.5">
-                                    <button
-                                        type="button"
-                                        disabled={deletingId === row.id}
-                                        onClick={() => removeDelivery(row)}
-                                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-40"
-                                        aria-label={`Delete ${row.deliveryNo}`}
-                                    >
-                                        <Trash2 className="h-4 w-4" />
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        {purchasingOfficer && row.status === 'Submitted' ? (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    disabled={decidingId === row.id}
+                                                    onClick={() => decide(row, 'approve')}
+                                                    className="inline-flex h-8 items-center gap-1 rounded-lg bg-[#7C3AED] px-2.5 text-xs font-semibold text-white hover:bg-[#6D28D9] disabled:opacity-40"
+                                                >
+                                                    <Check className="h-3.5 w-3.5" />
+                                                    Approve
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={decidingId === row.id}
+                                                    onClick={() => decide(row, 'reject')}
+                                                    className="inline-flex h-8 items-center gap-1 rounded-lg border border-red-200 px-2.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40"
+                                                >
+                                                    <X className="h-3.5 w-3.5" />
+                                                    Reject
+                                                </button>
+                                            </>
+                                        ) : null}
+                                        <button
+                                            type="button"
+                                            disabled={deletingId === row.id}
+                                            onClick={() => removeDelivery(row)}
+                                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-40"
+                                            aria-label={`Delete ${row.deliveryNo}`}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         ))}

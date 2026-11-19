@@ -42,6 +42,14 @@ export function createDelivery(payload) {
     return axiosInstance.post('/Inventory/deliveries', payload, quiet).then((response) => response.data);
 }
 
+export function approveDelivery(id) {
+    return axiosInstance.post(`/Inventory/deliveries/${id}/approve`, {}, quiet).then((response) => response.data);
+}
+
+export function rejectDelivery(id) {
+    return axiosInstance.post(`/Inventory/deliveries/${id}/reject`, {}, quiet).then((response) => response.data);
+}
+
 export function deleteDelivery(id) {
     return axiosInstance.delete(`/Inventory/deliveries/${id}`, quiet).then((response) => response.data);
 }

@@ -90,6 +90,38 @@ export function syncCustomerFromZoho(id) {
     return axiosInstance.post(`/CRM/customers/${encodeURIComponent(id)}/sync`, {}, { skipToast: true, timeout: 120000 }).then(dataOf);
 }
 
+export function listCustomerInvoices(id) {
+    return axiosInstance.get(`/CRM/customers/${encodeURIComponent(id)}/invoices`, { skipToast: true, timeout: 120000 }).then(dataOf);
+}
+
+export function listCustomerDeliveries(id) {
+    return axiosInstance.get(`/CRM/customers/${encodeURIComponent(id)}/deliveries`, { skipToast: true }).then(dataOf);
+}
+
+export function listCustomerProjects(id) {
+    return axiosInstance.get(`/CRM/customers/${encodeURIComponent(id)}/projects`, { skipToast: true }).then(dataOf);
+}
+
+export function createCustomerContact(customerId, payload) {
+    return axiosInstance.post(`/CRM/customers/${customerId}/contacts`, payload, { skipToast: true }).then(dataOf);
+}
+
+function contactUrl(customerId, contactId, suffix = '') {
+    return `/CRM/customers/${encodeURIComponent(customerId)}/contacts/${encodeURIComponent(contactId)}${suffix}`;
+}
+
+export function updateCustomerContact(customerId, contactId, payload) {
+    return axiosInstance.put(contactUrl(customerId, contactId), payload, { skipToast: true }).then(dataOf);
+}
+
+export function deleteCustomerContact(customerId, contactId) {
+    return axiosInstance.delete(contactUrl(customerId, contactId), { skipToast: true }).then(dataOf);
+}
+
+export function markCustomerContactPrimary(customerId, contactId) {
+    return axiosInstance.post(contactUrl(customerId, contactId, '/primary'), {}, { skipToast: true }).then(dataOf);
+}
+
 export function deleteCustomer(id) {
     return axiosInstance.delete(`/CRM/customers/${id}`, { skipToast: true }).then(dataOf);
 }

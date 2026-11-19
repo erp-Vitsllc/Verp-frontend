@@ -87,6 +87,7 @@ function emptyForm() {
         deliveryAddress: '',
         contactPersonName: '',
         contactNumber: '',
+        note: '',
         lines: [],
     };
 }
@@ -102,6 +103,7 @@ function emptyDraft() {
         brandId: '',
         brandText: '',
         modelNumber: '',
+        quantity: '1',
     };
 }
 
@@ -113,19 +115,21 @@ function namesEqual(left, right) {
     return cleanText(left).toLowerCase() === cleanText(right).toLowerCase();
 }
 
+function inStock(row) {
+    return Boolean(row) && !row.pendingStock && Number(row.availableQuantity) > 0;
+}
+
+function reservedQuantity(lines, itemId, exceptIndex = -1) {
+    return lines.reduce((sum, row, index) => (
+        index !== exceptIndex && row.inventoryItemId === itemId ? sum + Number(row.quantity || 0) : sum
+    ), 0);
+}
+
 function matchOne(rows, text) {
     const name = cleanText(text);
     if (!name) return null;
     const matches = rows.filter((row) => namesEqual(row.label, name));
     return matches.length === 1 ? matches[0] : null;
-}
-
-function manualDescription(itemName, extra) {
-    const name = String(itemName || '').trim();
-    const detail = String(extra || '').trim();
-    if (!name) return detail;
-    if (!detail || detail.toLowerCase() === name.toLowerCase()) return name;
-    return `${name} – ${detail}`;
 }
 
 function escapeHtml(value) {
@@ -503,6 +507,7 @@ function printDelivery(form, customerName, workOrderNo) {
             <div><strong>Customer</strong><br>${escapeHtml(customerName || '—')}</div>
             <div><strong>Contact</strong><br>${escapeHtml(form.contactPersonName || '—')} ${escapeHtml(form.contactNumber || '')}</div>
             <div><strong>Address</strong><br>${escapeHtml(form.deliveryAddress || '—')}</div>
+            ${form.note?.trim() ? `<div style="grid-column:1 / -1;white-space:pre-wrap"><strong>Note</strong><br>${escapeHtml(form.note.trim())}</div>` : ''}
         </div>
         <table>
             <thead><tr><th>SI</th><th>Description</th><th>Qty</th></tr></thead>
@@ -631,34 +636,60 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         const source = form.projectName && named.length ? named : workOrders;
         return source.map((row) => ({ id: row.id, label: row.no }));
     }, [form.projectName, workOrders]);
+    const stockedItems = useMemo(() => inventoryItems.filter(inStock), [inventoryItems]);
+    const stockedCategories = useMemo(() => {
+        const ids = new Set(stockedItems.map((row) => row.categoryId));
+        return categories.filter((row) => ids.has(row.id));
+    }, [categories, stockedItems]);
+    const stockedSubcategories = useMemo(() => {
+        const ids = new Set(stockedItems.map((row) => row.subcategoryId));
+        return subcategories.filter((row) => ids.has(row.id));
+    }, [stockedItems, subcategories]);
+    const stockedBrands = useMemo(() => {
+        const ids = new Set(stockedItems.map((row) => row.brandId));
+        return brands.filter((row) => ids.has(row.id));
+    }, [brands, stockedItems]);
+    const stockedItemOptions = useMemo(() => {
+        const ids = new Set(stockedItems.map((row) => row.itemOptionId).filter(Boolean));
+        const fromCatalog = itemOptions.filter((row) => ids.has(row.id));
+        const extras = stockedItems.flatMap((row) => {
+            if (row.itemOptionId) return [];
+            const label = cleanText(row.itemName || row.description);
+            if (!label) return [];
+            return [{ id: row._id, label, subcategoryId: row.subcategoryId }];
+        });
+        return [...fromCatalog, ...extras];
+    }, [itemOptions, stockedItems]);
     const subcategoryOptions = useMemo(() => {
-        const rows = draft.categoryId
-            ? subcategories.filter((row) => row.categoryId === draft.categoryId || row.categoryIds.includes(draft.categoryId))
-            : subcategories;
+        const rows = stockedSubcategories.filter((row) => {
+            if (draft.categoryId && row.categoryId !== draft.categoryId && !row.categoryIds.includes(draft.categoryId)) return false;
+            return stockedItems.some((item) => item.subcategoryId === row.id && (!draft.categoryId || item.categoryId === draft.categoryId));
+        });
         return rows.map((row) => ({ value: row.id, label: row.label }));
-    }, [draft.categoryId, subcategories]);
+    }, [draft.categoryId, stockedItems, stockedSubcategories]);
     const itemChoices = useMemo(() => {
         const allowedSubs = new Set(subcategoryOptions.map((row) => row.value));
-        const rows = draft.subcategoryId
-            ? itemOptions.filter((row) => row.subcategoryId === draft.subcategoryId)
-            : draft.categoryId
-                ? itemOptions.filter((row) => allowedSubs.has(row.subcategoryId))
-                : itemOptions;
+        const rows = stockedItemOptions.filter((row) => {
+            if (draft.subcategoryId) return row.subcategoryId === draft.subcategoryId;
+            if (draft.categoryId) return allowedSubs.has(row.subcategoryId);
+            return true;
+        });
         return rows.map((row) => ({ value: row.id, label: row.label }));
-    }, [draft.categoryId, draft.subcategoryId, itemOptions, subcategoryOptions]);
+    }, [draft.categoryId, draft.subcategoryId, stockedItemOptions, subcategoryOptions]);
     const modelOptions = useMemo(() => {
-        const values = new Set();
-        inventoryItems.forEach((row) => {
-            if (row.pendingStock) return;
+        const values = new Map();
+        stockedItems.forEach((row) => {
             if (draft.categoryId && row.categoryId !== draft.categoryId) return;
             if (draft.subcategoryId && row.subcategoryId !== draft.subcategoryId) return;
             if (draft.brandId && row.brandId !== draft.brandId) return;
-            if (draft.itemOptionId && row.itemOptionId !== draft.itemOptionId) return;
+            if (draft.itemOptionId && row.itemOptionId !== draft.itemOptionId && row._id !== draft.itemOptionId) return;
             const model = cleanText(row.modelNumber);
-            if (model) values.add(model);
+            if (model) values.set(model, Number(row.availableQuantity) || 0);
         });
-        return [...values].sort((left, right) => left.localeCompare(right)).map((model) => ({ value: model, label: model }));
-    }, [draft.brandId, draft.categoryId, draft.itemOptionId, draft.subcategoryId, inventoryItems]);
+        return [...values.entries()]
+            .sort((left, right) => left[0].localeCompare(right[0]))
+            .map(([model, quantity]) => ({ value: model, label: `${model} · ${quantity} in stock` }));
+    }, [draft.brandId, draft.categoryId, draft.itemOptionId, draft.subcategoryId, stockedItems]);
 
     function chooseCustomer(customerId) {
         const nextCustomer = customers.find((row) => row.id === customerId) || null;
@@ -745,7 +776,7 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
     function ownedItem(model) {
         const text = cleanText(model);
         if (!text) return null;
-        return inventoryItems.find((row) => !row.pendingStock && namesEqual(row.modelNumber, text)) || null;
+        return stockedItems.find((row) => namesEqual(row.modelNumber, text)) || null;
     }
 
     function fillFromItem(owner, model) {
@@ -799,7 +830,7 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
     }
 
     function chooseItem(nextId) {
-        const item = itemOptions.find((row) => row.id === nextId);
+        const item = stockedItemOptions.find((row) => row.id === nextId) || itemOptions.find((row) => row.id === nextId);
         setDraft((current) => ({
             ...current,
             itemOptionId: nextId,
@@ -820,96 +851,109 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
 
     function addLine() {
         const categoryText = cleanText(draft.categoryText);
-        let category = (categories.find((row) => row.id === draft.categoryId && namesEqual(row.label, categoryText))
-            || matchOne(categories, categoryText));
+        let category = (stockedCategories.find((row) => row.id === draft.categoryId && namesEqual(row.label, categoryText))
+            || matchOne(stockedCategories, categoryText));
         const subPool = category
-            ? subcategories.filter((row) => row.categoryId === category.id || row.categoryIds.includes(category.id))
-            : subcategories;
+            ? stockedSubcategories.filter((row) => row.categoryId === category.id || row.categoryIds.includes(category.id))
+            : stockedSubcategories;
         const subText = cleanText(draft.subcategoryText);
         let subcategory = (subPool.find((row) => row.id === draft.subcategoryId && namesEqual(row.label, subText))
             || matchOne(subPool, subText));
         if (!category && subcategory) {
-            category = categories.find((row) => row.id === subcategory.categoryId) || null;
+            category = stockedCategories.find((row) => row.id === subcategory.categoryId) || null;
         }
         const brandText = cleanText(draft.brandText);
-        let brand = (brands.find((row) => row.id === draft.brandId && namesEqual(row.label, brandText))
-            || matchOne(brands, brandText));
+        let brand = (stockedBrands.find((row) => row.id === draft.brandId && namesEqual(row.label, brandText))
+            || matchOne(stockedBrands, brandText));
         const optionPool = subcategory
-            ? itemOptions.filter((row) => row.subcategoryId === subcategory.id)
-            : itemOptions;
+            ? stockedItemOptions.filter((row) => row.subcategoryId === subcategory.id)
+            : stockedItemOptions;
         const itemText = cleanText(draft.itemText);
         let item = (optionPool.find((row) => row.id === draft.itemOptionId && namesEqual(row.label, itemText))
             || matchOne(optionPool, itemText));
         let typedModel = cleanText(draft.modelNumber);
         const owner = ownedItem(typedModel);
         if (owner) {
-            const ownerName = owner.itemName || itemOptions.find((row) => row.id === owner.itemOptionId)?.label || '';
+            const ownerName = owner.itemName || stockedItemOptions.find((row) => row.id === owner.itemOptionId)?.label || '';
             const ownerMatches = (!category || owner.categoryId === category.id)
                 && (!subcategory || owner.subcategoryId === subcategory.id)
                 && (!brand || owner.brandId === brand.id)
-                && (!itemText || namesEqual(ownerName, itemText));
+                && (!itemText || namesEqual(ownerName, itemText) || namesEqual(owner.description, itemText));
             if (ownerMatches) {
-                category = categories.find((row) => row.id === owner.categoryId) || category;
-                subcategory = subcategories.find((row) => row.id === owner.subcategoryId) || subcategory;
-                brand = brands.find((row) => row.id === owner.brandId) || brand;
-                item = itemOptions.find((row) => row.id === owner.itemOptionId) || item;
+                category = stockedCategories.find((row) => row.id === owner.categoryId) || category;
+                subcategory = stockedSubcategories.find((row) => row.id === owner.subcategoryId) || subcategory;
+                brand = stockedBrands.find((row) => row.id === owner.brandId) || brand;
+                item = stockedItemOptions.find((row) => row.id === owner.itemOptionId) || item;
             } else {
                 typedModel = '';
             }
         }
+        const typedSomething = categoryText || subText || brandText || itemText || typedModel;
         if (!category || !subcategory || !brand) {
-            setLineError('Category, sub category, and brand are required.');
+            setLineError(typedSomething ? 'Only items that are in stock can be added.' : 'Category, sub category, and brand are required.');
             return;
         }
         if (subcategory.categoryId !== category.id && !subcategory.categoryIds.includes(category.id)) {
             setLineError('Sub category does not belong to the selected category.');
             return;
         }
-        const itemName = cleanText(item?.label || itemText);
-        if (!itemName) {
+        const matches = stockedItems.filter((row) => {
+            if (row.categoryId !== category.id || row.subcategoryId !== subcategory.id || row.brandId !== brand.id) return false;
+            if (item) {
+                if (row.itemOptionId) {
+                    if (row.itemOptionId !== item.id) return false;
+                } else if (row._id !== item.id && !namesEqual(row.itemName || row.description, item.label)) return false;
+            } else if (itemText && !namesEqual(row.itemName || row.description, itemText)) return false;
+            if (typedModel && !namesEqual(row.modelNumber, typedModel)) return false;
+            return true;
+        });
+        if (!item && !itemText && matches.length !== 1) {
             setLineError('Enter an item.');
             return;
         }
-        const sameTarget = Boolean(owner)
-            && owner.categoryId === category.id
-            && owner.subcategoryId === subcategory.id
-            && owner.brandId === brand.id
-            && (!typedModel || namesEqual(owner.modelNumber, typedModel));
-        const modelNumber = typedModel || (sameTarget ? cleanText(owner.modelNumber) : '') || itemName;
-        const catalogItem = sameTarget ? owner : null;
-        const description = scheduled
-            ? [brand.label, modelNumber, itemName].filter(Boolean).join(' ')
-            : manualDescription(itemName, catalogItem?.description || modelNumber);
-        const detail = scheduled
-            ? `${category.label} > ${subcategory.label} | Brand: ${brand.label} | Model No: ${modelNumber}`
-            : '';
-        const unit = scheduled ? (catalogItem?.unitOfMeasure || 'Unit') : '';
+        if (matches.length === 0) {
+            setLineError('Only items that are in stock can be added.');
+            return;
+        }
+        if (matches.length > 1) {
+            setLineError('Select the model no of the stocked item.');
+            return;
+        }
+        const stockItem = matches[0];
+        const quantity = Number(draft.quantity);
+        if (!Number.isInteger(quantity) || quantity < 1) {
+            setLineError('Enter a whole quantity of at least 1.');
+            return;
+        }
+        const onHand = Number(stockItem.availableQuantity) || 0;
+        const already = reservedQuantity(form.lines, stockItem._id);
+        if (already + quantity > onHand) {
+            setLineError(`${stockItem.itemName || stockItem.description || 'This item'} only has ${onHand} in stock.`);
+            return;
+        }
+        const itemName = cleanText(stockItem.itemName || item?.label || stockItem.description);
+        const modelNumber = cleanText(stockItem.modelNumber);
+        const description = stockItem.description || [brand.label, modelNumber, itemName].filter(Boolean).join(' ');
+        const detail = `${category.label} > ${subcategory.label} | Brand: ${brand.label}${modelNumber ? ` | Model No: ${modelNumber}` : ''}`;
         const line = {
+            lineKey: `${stockItem._id}-${Date.now()}-${form.lines.length}`,
             categoryId: category.id,
             categoryName: category.label,
             subcategoryId: subcategory.id,
             subcategoryName: subcategory.label,
-            itemOptionId: item?.id || '',
+            itemOptionId: stockItem.itemOptionId || '',
             itemName,
             brandId: brand.id,
             brandName: brand.label,
             modelNumber,
-            inventoryItemId: catalogItem?._id || '',
+            inventoryItemId: stockItem._id,
             description,
             detail,
-            quantity: 1,
-            unit,
+            quantity,
+            unit: stockItem.unitOfMeasure || '',
+            stockOnHand: onHand,
         };
-        setForm((current) => {
-            const index = current.lines.findIndex((row) => row.description === description && row.detail === detail);
-            if (index === -1) return { ...current, lines: [...current.lines, line] };
-            return {
-                ...current,
-                lines: current.lines.map((row, lineIndex) => (
-                    lineIndex === index ? { ...row, quantity: Number(row.quantity) + 1 } : row
-                )),
-            };
-        });
+        setForm((current) => ({ ...current, lines: [...current.lines, line] }));
         setDraft(emptyDraft());
         setLineError('');
         setError('');
@@ -928,6 +972,7 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
             deliveryAddress: form.deliveryAddress.trim(),
             contactPersonName: form.contactPersonName.trim(),
             contactNumber: form.contactNumber.trim(),
+            note: form.note.trim(),
             lines: form.lines.map((line) => ({
                 ...line,
                 quantity: Number(line.quantity) || 0,
@@ -944,8 +989,19 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         if (!form.contactPersonName.trim()) return 'Choose a contact person.';
         if (form.contactNumber.replace(/\D/g, '').length < 6) return 'Enter a contact number.';
         if (form.lines.length === 0) return 'Add at least one delivery item.';
+        if (form.lines.some((line) => !line.inventoryItemId)) return 'Only items that are in stock can be added.';
         if (form.lines.some((line) => !Number.isInteger(Number(line.quantity)) || Number(line.quantity) < 1)) {
             return 'Enter a whole quantity of at least 1.';
+        }
+        const totals = new Map();
+        form.lines.forEach((line) => {
+            totals.set(line.inventoryItemId, (totals.get(line.inventoryItemId) || 0) + Number(line.quantity));
+        });
+        for (const [itemId, quantity] of totals) {
+            const item = inventoryItems.find((row) => row._id === itemId);
+            const onHand = Number(item?.availableQuantity) || 0;
+            if (!inStock(item)) return 'Only items that are in stock can be added.';
+            if (quantity > onHand) return `${item.itemName || item.description || 'An item'} only has ${onHand} in stock.`;
         }
         return '';
     }
@@ -968,7 +1024,7 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         }
     }
 
-    const confirmLabel = purchasingOfficer ? 'OK' : 'Submit';
+    const confirmLabel = 'Submit';
     const DetailsIcon = scheduled ? Truck : UserRound;
 
     return (
@@ -1077,7 +1133,18 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                             </div>
                         ) : null}
 
-                        <div className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${scheduled ? 'mt-3 xl:grid-cols-4' : ''}`}>
+                        <div className={scheduled ? 'mt-3' : ''}>
+                            <Field label="Note">
+                                <textarea
+                                    value={form.note}
+                                    onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
+                                    placeholder="Enter note..."
+                                    className={areaClass}
+                                />
+                            </Field>
+                        </div>
+
+                        <div className={`mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 ${scheduled ? 'xl:grid-cols-4' : ''}`}>
                             <Field label="Customer Name" required hint="(From CRM customer list)">
                                 <Picker
                                     placeholder={loading ? 'Loading customers...' : 'Search customer...'}
@@ -1138,10 +1205,18 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
 
                     <section className="mt-4 rounded-2xl border border-[#ECE8F6] bg-[#F7F6FC] p-4">
                         <div className="mb-4 flex items-center justify-between gap-3">
-                            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                                <Boxes className="h-4 w-4 text-[#7C3AED]" />
-                                Add Delivery Item
-                            </h3>
+                            <div>
+                                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                                    <Boxes className="h-4 w-4 text-[#7C3AED]" />
+                                    Add Delivery Item
+                                </h3>
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Only items in stock can be added. Each item is listed on its own row.
+                                    {purchasingOfficer
+                                        ? ' Submitting reduces that quantity now.'
+                                        : ' Quantity is reduced after the purchase officer approves.'}
+                                </p>
+                            </div>
                             <button
                                 type="button"
                                 onClick={() => {
@@ -1160,22 +1235,22 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                 label="Category"
                                 required
                                 text={draft.categoryText}
-                                options={categories.map((row) => ({ value: row.id, label: row.label }))}
+                                options={stockedCategories.map((row) => ({ value: row.id, label: row.label }))}
                                 placeholder="Select category..."
                                 onText={(text) => setDraft((current) => ({
                                     ...current,
                                     categoryText: text,
-                                    categoryId: namesEqual(categories.find((row) => row.id === current.categoryId)?.label, text) ? current.categoryId : '',
-                                    subcategoryId: namesEqual(categories.find((row) => row.id === current.categoryId)?.label, text) ? current.subcategoryId : '',
-                                    subcategoryText: namesEqual(categories.find((row) => row.id === current.categoryId)?.label, text) ? current.subcategoryText : '',
-                                    itemOptionId: namesEqual(categories.find((row) => row.id === current.categoryId)?.label, text) ? current.itemOptionId : '',
-                                    itemText: namesEqual(categories.find((row) => row.id === current.categoryId)?.label, text) ? current.itemText : '',
+                                    categoryId: namesEqual(stockedCategories.find((row) => row.id === current.categoryId)?.label, text) ? current.categoryId : '',
+                                    subcategoryId: namesEqual(stockedCategories.find((row) => row.id === current.categoryId)?.label, text) ? current.subcategoryId : '',
+                                    subcategoryText: namesEqual(stockedCategories.find((row) => row.id === current.categoryId)?.label, text) ? current.subcategoryText : '',
+                                    itemOptionId: namesEqual(stockedCategories.find((row) => row.id === current.categoryId)?.label, text) ? current.itemOptionId : '',
+                                    itemText: namesEqual(stockedCategories.find((row) => row.id === current.categoryId)?.label, text) ? current.itemText : '',
                                 }))}
                                 onPick={chooseCategory}
                                 onCommit={(text) => {
-                                    const selected = categories.find((row) => row.id === draft.categoryId);
+                                    const selected = stockedCategories.find((row) => row.id === draft.categoryId);
                                     if (selected && namesEqual(selected.label, text)) return;
-                                    const match = matchOne(categories, text);
+                                    const match = matchOne(stockedCategories, text);
                                     if (match) chooseCategory(match.id);
                                 }}
                             />
@@ -1188,17 +1263,17 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                 onText={(text) => setDraft((current) => ({
                                     ...current,
                                     subcategoryText: text,
-                                    subcategoryId: namesEqual(subcategories.find((row) => row.id === current.subcategoryId)?.label, text) ? current.subcategoryId : '',
+                                    subcategoryId: namesEqual(stockedSubcategories.find((row) => row.id === current.subcategoryId)?.label, text) ? current.subcategoryId : '',
                                     itemOptionId: '',
                                     itemText: '',
                                 }))}
                                 onPick={chooseSubcategory}
                                 onCommit={(text) => {
-                                    const selected = subcategories.find((row) => row.id === draft.subcategoryId);
+                                    const selected = stockedSubcategories.find((row) => row.id === draft.subcategoryId);
                                     if (selected && namesEqual(selected.label, text)) return;
                                     const pool = draft.categoryId
-                                        ? subcategories.filter((row) => row.categoryId === draft.categoryId || row.categoryIds.includes(draft.categoryId))
-                                        : subcategories;
+                                        ? stockedSubcategories.filter((row) => row.categoryId === draft.categoryId || row.categoryIds.includes(draft.categoryId))
+                                        : stockedSubcategories;
                                     const match = matchOne(pool, text);
                                     if (match) chooseSubcategory(match.id);
                                 }}
@@ -1212,11 +1287,11 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                 onText={(text) => setDraft((current) => ({
                                     ...current,
                                     itemText: text,
-                                    itemOptionId: namesEqual(itemOptions.find((row) => row.id === current.itemOptionId)?.label, text) ? current.itemOptionId : '',
+                                    itemOptionId: namesEqual(stockedItemOptions.find((row) => row.id === current.itemOptionId)?.label, text) ? current.itemOptionId : '',
                                 }))}
                                 onPick={chooseItem}
                                 onCommit={(text) => {
-                                    const selected = itemOptions.find((row) => row.id === draft.itemOptionId);
+                                    const selected = stockedItemOptions.find((row) => row.id === draft.itemOptionId);
                                     if (selected && namesEqual(selected.label, text)) return;
                                     const match = matchOne(itemChoices.map((row) => ({ id: row.value, label: row.label })), text);
                                     if (match) chooseItem(match.id);
@@ -1226,18 +1301,18 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                 label="Brand"
                                 required
                                 text={draft.brandText}
-                                options={brands.map((row) => ({ value: row.id, label: row.label }))}
+                                options={stockedBrands.map((row) => ({ value: row.id, label: row.label }))}
                                 placeholder="Select brand..."
                                 onText={(text) => setDraft((current) => ({
                                     ...current,
                                     brandText: text,
-                                    brandId: namesEqual(brands.find((row) => row.id === current.brandId)?.label, text) ? current.brandId : '',
+                                    brandId: namesEqual(stockedBrands.find((row) => row.id === current.brandId)?.label, text) ? current.brandId : '',
                                 }))}
                                 onPick={chooseBrand}
                                 onCommit={(text) => {
-                                    const selected = brands.find((row) => row.id === draft.brandId);
+                                    const selected = stockedBrands.find((row) => row.id === draft.brandId);
                                     if (selected && namesEqual(selected.label, text)) return;
-                                    const match = matchOne(brands, text);
+                                    const match = matchOne(stockedBrands, text);
                                     if (match) chooseBrand(match.id);
                                 }}
                             />
@@ -1262,7 +1337,24 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                     else setDraft((current) => ({ ...current, modelNumber: cleanText(text) }));
                                 }}
                             />
-                            <div className="flex items-end justify-end">
+                            <div className="flex items-end justify-end gap-2">
+                                <label className="block">
+                                    <span className="mb-1.5 block text-sm font-medium text-slate-700">Qty <span className="text-red-500">*</span></span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        step={1}
+                                        value={draft.quantity}
+                                        aria-label="Quantity to add"
+                                        onChange={(event) => {
+                                            const next = event.target.value;
+                                            if (next === '' || /^\d+$/.test(next)) {
+                                                setDraft((current) => ({ ...current, quantity: next }));
+                                            }
+                                        }}
+                                        className={`${inputClass} w-24`}
+                                    />
+                                </label>
                                 <button type="button" onClick={addLine} className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-[#7C3AED] px-6 text-sm font-semibold text-white hover:bg-[#6D28D9]">
                                     <Plus className="h-4 w-4" />
                                     Add
@@ -1276,23 +1368,28 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                 <thead className="bg-[#F3EEFF] text-slate-700">
                                     <tr>
                                         <th className="w-14 px-4 py-3 font-semibold">SI</th>
-                                        <th className="px-4 py-3 font-semibold">Description</th>
+                                        <th className="px-4 py-3 font-semibold">Item</th>
+                                        <th className="px-4 py-3 text-right font-semibold">In stock</th>
                                         <th className="px-4 py-3 text-right font-semibold">Qty</th>
-                                        <th className="w-24 px-4 py-3 text-right font-semibold">{scheduled ? 'Action' : ''}</th>
+                                        <th className="w-24 px-4 py-3 text-right font-semibold">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {form.lines.length === 0 ? (
                                         <tr>
-                                            <td colSpan={4} className="px-4 py-8 text-center text-slate-400">Add an item to this delivery.</td>
+                                            <td colSpan={5} className="px-4 py-8 text-center text-slate-400">Add an item to this delivery.</td>
                                         </tr>
-                                    ) : form.lines.map((line, index) => (
-                                        <tr key={`${line.description}-${index}`} className="border-t border-[#F1EEF8]">
+                                    ) : form.lines.map((line, index) => {
+                                        const live = inventoryItems.find((row) => row._id === line.inventoryItemId);
+                                        const onHand = live ? Number(live.availableQuantity) || 0 : Number(line.stockOnHand) || 0;
+                                        return (
+                                        <tr key={line.lineKey || `${line.inventoryItemId}-${index}`} className="border-t border-[#F1EEF8]">
                                             <td className="px-4 py-3 text-slate-500">{index + 1}</td>
                                             <td className="px-4 py-3">
-                                                <p className="font-medium text-slate-800">{line.description}</p>
+                                                <p className="font-medium text-slate-800">{line.itemName || line.description}</p>
                                                 {line.detail ? <p className="mt-0.5 text-xs text-slate-400">{line.detail}</p> : null}
                                             </td>
+                                            <td className="px-4 py-3 text-right tabular-nums text-slate-500">{onHand}</td>
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center justify-end gap-2">
                                                     <input
@@ -1303,6 +1400,12 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                                         onChange={(event) => {
                                                             const quantity = Number(event.target.value);
                                                             if (!Number.isInteger(quantity) || quantity < 1) return;
+                                                            const others = reservedQuantity(form.lines, line.inventoryItemId, index);
+                                                            if (others + quantity > onHand) {
+                                                                setLineError(`${line.itemName || line.description} only has ${onHand} in stock.`);
+                                                                return;
+                                                            }
+                                                            setLineError('');
                                                             setForm((current) => ({
                                                                 ...current,
                                                                 lines: current.lines.map((row, lineIndex) => (
@@ -1329,7 +1432,8 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                                 </button>
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>

@@ -31,25 +31,32 @@ export default function VendorBills({ vendorId, reloadKey = 0 }) {
         ])
             .then(([data, inventory]) => {
                 if (cancelled) return;
-                const stockRows = (Array.isArray(inventory?.bills) ? inventory.bills : []).map((bill) => ({
-                    id: bill.id,
-                    date: (() => {
-                        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(bill.purchaseDate || ''));
-                        if (!match) return 'N/A';
-                        const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-                        return Number.isNaN(date.getTime())
-                            ? 'N/A'
-                            : date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-                    })(),
-                    billNumber: bill.billNo || 'N/A',
-                    erpSource: 'Direct',
-                    referenceNumber: bill.lpoNo || 'N/A',
-                    status: 'Posted',
-                    dueDate: 'N/A',
-                    amount: Number(bill.value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-                    balanceAmount: 'N/A',
-                    zohoUrl: '',
-                }));
+                const stockRows = (Array.isArray(inventory?.bills) ? inventory.bills : []).flatMap((bill) => {
+                    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(bill.purchaseDate || ''));
+                    const date = match
+                        ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+                        : null;
+                    const dateLabel = date && !Number.isNaN(date.getTime())
+                        ? date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                        : 'N/A';
+                    const lines = Array.isArray(bill.lines) && bill.lines.length
+                        ? bill.lines
+                        : [{ itemName: '', description: '', quantity: 0, total: bill.value }];
+                    return lines.map((line, index) => ({
+                        id: `${bill.id}-${index}`,
+                        date: index === 0 ? dateLabel : '',
+                        billNumber: index === 0 ? (bill.billNo || 'N/A') : '',
+                        itemName: line.itemName || line.description || 'Item',
+                        quantity: line.quantity ?? 0,
+                        erpSource: index === 0 ? 'Direct' : '',
+                        referenceNumber: index === 0 ? (bill.lpoNo || 'N/A') : '',
+                        status: index === 0 ? 'Posted' : '',
+                        dueDate: index === 0 ? 'N/A' : '',
+                        amount: Number(line.total || (Number(line.quantity) * Number(line.unitPrice)) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                        balanceAmount: index === 0 ? 'N/A' : '',
+                        zohoUrl: '',
+                    }));
+                });
                 setRows([
                     ...stockRows,
                     ...mapZohoBillListRows(Array.isArray(data?.bills) ? data.bills : []),
@@ -76,30 +83,34 @@ export default function VendorBills({ vendorId, reloadKey = 0 }) {
                 <table className="min-w-full text-left text-sm">
                     <thead>
                         <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
-                            {['Date', 'Bill #', 'Source', 'Reference #', 'Status', 'Due Date', 'Amount', 'Balance Due', 'Zoho'].map((heading) => (
-                                <th key={heading} className="whitespace-nowrap px-4 py-3 font-medium">{heading}</th>
+                            {['Date', 'Bill #', 'Item', 'Qty', 'Source', 'Reference #', 'Status', 'Due Date', 'Amount', 'Balance Due', 'Zoho'].map((heading) => (
+                                <th key={heading} className={`whitespace-nowrap px-4 py-3 font-medium ${heading === 'Qty' ? 'text-right' : ''}`}>{heading}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={9} className="px-4 py-10 text-center text-slate-500">Loading bills...</td>
+                                <td colSpan={11} className="px-4 py-10 text-center text-slate-500">Loading bills...</td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={9} className="px-4 py-10 text-center text-slate-500">No bills for this vendor.</td>
+                                <td colSpan={11} className="px-4 py-10 text-center text-slate-500">No bills for this vendor.</td>
                             </tr>
                         ) : rows.map((row) => (
                             <tr key={row.id} className="border-b border-slate-100 text-slate-700">
                                 <td className="whitespace-nowrap px-4 py-3.5">{row.date}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{row.billNumber}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5">{row.erpSource || 'ERP'}</td>
+                                <td className="max-w-[240px] px-4 py-3.5">{row.itemName || ''}</td>
+                                <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums">{row.quantity == null ? '' : row.quantity}</td>
+                                <td className="whitespace-nowrap px-4 py-3.5">{row.erpSource || (row.itemName ? '' : 'ERP')}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5">{row.referenceNumber || 'N/A'}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5">
-                                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${statusClass(row.status)}`}>
-                                        {String(row.status || 'N/A').replace(/_/g, ' ')}
-                                    </span>
+                                    {row.status ? (
+                                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${statusClass(row.status)}`}>
+                                            {String(row.status).replace(/_/g, ' ')}
+                                        </span>
+                                    ) : null}
                                 </td>
                                 <td className="whitespace-nowrap px-4 py-3.5">{row.dueDate}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5">{row.amount}</td>
