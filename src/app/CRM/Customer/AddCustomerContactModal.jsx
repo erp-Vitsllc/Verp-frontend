@@ -8,7 +8,7 @@ import { createCustomerContact, customerApiMessage, updateCustomerContact } from
 
 const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), { ssr: false });
 
-export default function AddCustomerContactModal({ customerId, contact, onClose, onSaved }) {
+export default function AddCustomerContactModal({ customerId, contact, onClose, onSaved, stacked = false }) {
     const [name, setName] = useState(contact?.name || '');
     const [designation, setDesignation] = useState(contact?.designation || '');
     const [email, setEmail] = useState(contact?.emails?.[0] || '');
@@ -40,9 +40,10 @@ export default function AddCustomerContactModal({ customerId, contact, onClose, 
             entries: [{ email: email.trim(), phone: phone.trim() }],
         };
         try {
-            if (contact?.id) await updateCustomerContact(customerId, contact.id, payload);
-            else await createCustomerContact(customerId, payload);
-            onSaved();
+            const saved = contact?.id
+                ? await updateCustomerContact(customerId, contact.id, payload)
+                : await createCustomerContact(customerId, payload);
+            onSaved(saved);
         } catch (saveError) {
             setError(customerApiMessage(saveError, 'Could not save this contact.'));
             setSaving(false);
@@ -50,7 +51,7 @@ export default function AddCustomerContactModal({ customerId, contact, onClose, 
     }
 
     return (
-        <CatalogModal title={contact ? 'Edit Contact' : 'Add Contact'} onClose={onClose} wide>
+        <CatalogModal title={contact ? 'Edit Contact' : 'Add Contact'} onClose={onClose} wide stacked={stacked}>
             <form onSubmit={onSubmit} className="flex min-h-0 flex-col">
                 <div className="max-h-[min(40rem,calc(100vh-11rem))] overflow-y-auto px-5 py-4">
                     {error ? <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}

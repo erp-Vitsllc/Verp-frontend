@@ -41,6 +41,9 @@ export const deleteBrand = (id) => axiosInstance.delete(`${base}/brands/${id}`).
 
 export const listItems = (params) => axiosInstance.get(`${base}/items`, { params }).then(dataOf);
 export const getItem = (id) => axiosInstance.get(`${base}/items/${id}`).then(dataOf);
+export const listItemPurchaseHistory = (id) => axiosInstance.get(`${base}/items/${id}/purchase-history`).then(dataOf);
+export const listItemDeliveryHistory = (id) => axiosInstance.get(`${base}/items/${id}/delivery-history`).then(dataOf);
+export const listItemDocuments = (id) => axiosInstance.get(`${base}/items/${id}/documents`).then(dataOf);
 export const createItem = (payload) => axiosInstance.post(`${base}/items`, payload).then(dataOf);
 export const updateItem = (id, payload) => axiosInstance.put(`${base}/items/${id}`, payload).then(dataOf);
 export const deleteItem = (id) => axiosInstance.delete(`${base}/items/${id}`).then(dataOf);

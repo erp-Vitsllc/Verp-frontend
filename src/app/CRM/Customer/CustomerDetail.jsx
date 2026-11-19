@@ -15,7 +15,7 @@ import {
     syncCustomerFromZoho,
 } from './customerApi';
 
-const TABS = ['Overview', 'Contacts', 'Invoice', 'Delivery', 'Projects', 'Pricing', 'RFQs', 'POs', 'Documents'];
+const TABS = ['Overview', 'Contacts', 'Invoice', 'Delivery', 'Projects', 'RFQs', 'POs', 'Documents'];
 
 function shown(value) {
     const text = String(value || '').trim();

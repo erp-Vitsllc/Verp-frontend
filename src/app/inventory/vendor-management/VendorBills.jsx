@@ -8,6 +8,9 @@ import { listVendorBills, vendorApiMessage } from './vendorManagementApi';
 
 function statusClass(status) {
     const value = String(status || '').toLowerCase();
+    if (value.includes('draft')) return 'bg-amber-50 text-amber-700';
+    if (value.includes('submit')) return 'bg-blue-50 text-blue-700';
+    if (value.includes('created') || value.includes('posted') || value.includes('approv')) return 'bg-emerald-50 text-emerald-700';
     if (value.includes('overdue')) return 'bg-red-50 text-red-700';
     if (value.includes('partial') || value.includes('unpaid') || value.includes('pending')) return 'bg-amber-50 text-amber-700';
     if (value.includes('paid')) return 'bg-emerald-50 text-emerald-700';
@@ -50,7 +53,7 @@ export default function VendorBills({ vendorId, reloadKey = 0 }) {
                         quantity: line.quantity ?? 0,
                         erpSource: index === 0 ? 'Direct' : '',
                         referenceNumber: index === 0 ? (bill.lpoNo || 'N/A') : '',
-                        status: index === 0 ? 'Posted' : '',
+                        status: index === 0 ? (bill.status || 'Created') : '',
                         dueDate: index === 0 ? 'N/A' : '',
                         amount: Number(line.total || (Number(line.quantity) * Number(line.unitPrice)) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
                         balanceAmount: index === 0 ? 'N/A' : '',

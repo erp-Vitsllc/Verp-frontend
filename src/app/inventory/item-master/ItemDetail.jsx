@@ -1,13 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Copy, Package, Pencil } from 'lucide-react';
+import { Copy, Package, Paperclip, Pencil } from 'lucide-react';
 import { useInventoryAccess } from './itemMasterAccess';
 import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
+import { apiMessage, listItemDeliveryHistory, listItemDocuments, listItemPurchaseHistory } from './itemMasterApi';
 import { saveItemDuplicateDraft } from './itemDuplicateDraft';
+import AddStockModal from './AddStockModal';
+import AddDeliveryModal from '../delivery/AddDeliveryModal';
 
-const TABS = ['Overview', 'Stock', 'Vendors', 'Price History', 'Purchases', 'Transactions', 'Documents'];
+const TABS = ['Overview', 'Purchase History', 'Delivery History', 'Documents'];
 
 const statusClass = {
     'Stock In': 'bg-emerald-50 text-emerald-600',
@@ -20,6 +23,20 @@ function unitWord(quantity, unit) {
     const plural = { Box: 'Boxes', Metre: 'Metres', Quantity: 'Quantity' };
     const single = { Box: 'Box', Metre: 'Metre', Quantity: 'Quantity' };
     return `${quantity} ${Number(quantity) === 1 ? (single[unit] || unit) : (plural[unit] || unit)}`;
+}
+
+function formatPurchaseDate(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+    if (!match) return '—';
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function formatPrice(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '—';
+    return number.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function InfoTable({ title, rows, action, note }) {
@@ -44,13 +61,337 @@ function InfoTable({ title, rows, action, note }) {
     );
 }
 
+function PurchaseHistory({ itemId }) {
+    const router = useRouter();
+    const [rows, setRows] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [billId, setBillId] = useState('');
+
+    useEffect(() => {
+        if (!itemId) return undefined;
+        let cancelled = false;
+        setLoading(true);
+        listItemPurchaseHistory(itemId)
+            .then((data) => {
+                if (cancelled) return;
+                setRows(Array.isArray(data?.purchases) ? data.purchases : []);
+                setError('');
+            })
+            .catch((loadError) => {
+                if (cancelled) return;
+                setRows([]);
+                setError(apiMessage(loadError, 'Could not load purchase history.'));
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [itemId]);
+
+    return (
+        <div className="mt-4 overflow-x-auto rounded-xl border border-[#E6EDF5]">
+            {error ? <p className="px-4 py-3 text-sm text-red-600">{error}</p> : null}
+            <table className="min-w-full text-left text-sm">
+                <thead>
+                    <tr className="border-b border-[#E6EDF5] bg-[#F8FAFC] text-slate-500">
+                        {['Purchase Date', 'Vendor Name', 'Bill No', 'Qty Added', 'Unit Price'].map((heading) => (
+                            <th key={heading} className={`whitespace-nowrap px-4 py-3 font-medium ${['Qty Added', 'Unit Price'].includes(heading) ? 'text-right' : ''}`}>{heading}</th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {loading ? (
+                        <tr>
+                            <td colSpan={5} className="px-4 py-10 text-center text-slate-500">Loading purchase history...</td>
+                        </tr>
+                    ) : rows.length === 0 ? (
+                        <tr>
+                            <td colSpan={5} className="px-4 py-10 text-center text-slate-400">No purchase history yet.</td>
+                        </tr>
+                    ) : rows.map((row) => (
+                        <tr
+                            key={row.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => row.entryId && setBillId(String(row.entryId))}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    if (row.entryId) setBillId(String(row.entryId));
+                                }
+                            }}
+                            className="cursor-pointer border-t border-[#F1F5F9] text-slate-700 hover:bg-[#F8FAFC]"
+                        >
+                            <td className="whitespace-nowrap px-4 py-3">{formatPurchaseDate(row.purchaseDate)}</td>
+                            <td className="max-w-[240px] truncate px-4 py-3">
+                                {row.vendorId ? (
+                                    <button
+                                        type="button"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            router.push(`/inventory/vendor-management/${row.vendorId}`);
+                                        }}
+                                        className="max-w-full truncate font-medium text-indigo-600 hover:underline"
+                                    >
+                                        {row.vendorName || 'Vendor'}
+                                    </button>
+                                ) : (row.vendorName || '—')}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-800">{row.billNo || '—'}</td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{row.quantity ?? 0}</td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatPrice(row.unitPrice)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+            {billId ? (
+                <AddStockModal
+                    viewOnly
+                    editEntryId={billId}
+                    onClose={() => setBillId('')}
+                />
+            ) : null}
+        </div>
+    );
+}
+
+function DeliveryHistory({ itemId }) {
+    const router = useRouter();
+    const [rows, setRows] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [delivery, setDelivery] = useState(null);
+
+    useEffect(() => {
+        if (!itemId) return undefined;
+        let cancelled = false;
+        setLoading(true);
+        listItemDeliveryHistory(itemId)
+            .then((data) => {
+                if (cancelled) return;
+                setRows(Array.isArray(data?.deliveries) ? data.deliveries : []);
+                setError('');
+            })
+            .catch((loadError) => {
+                if (cancelled) return;
+                setRows([]);
+                setError(apiMessage(loadError, 'Could not load delivery history.'));
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [itemId]);
+
+    const openDelivery = (row) => {
+        if (row?.delivery) setDelivery(row.delivery);
+    };
+
+    return (
+        <div className="mt-4 overflow-x-auto rounded-xl border border-[#E6EDF5]">
+            {error ? <p className="px-4 py-3 text-sm text-red-600">{error}</p> : null}
+            <table className="min-w-full text-left text-sm">
+                <thead>
+                    <tr className="border-b border-[#E6EDF5] bg-[#F8FAFC] text-slate-500">
+                        {['Delivery Date', 'Customer Name', 'DO No', 'Qty', 'Unit Price'].map((heading) => (
+                            <th key={heading} className={`whitespace-nowrap px-4 py-3 font-medium ${['Qty', 'Unit Price'].includes(heading) ? 'text-right' : ''}`}>{heading}</th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {loading ? (
+                        <tr>
+                            <td colSpan={5} className="px-4 py-10 text-center text-slate-500">Loading delivery history...</td>
+                        </tr>
+                    ) : rows.length === 0 ? (
+                        <tr>
+                            <td colSpan={5} className="px-4 py-10 text-center text-slate-400">No delivery history yet.</td>
+                        </tr>
+                    ) : rows.map((row) => (
+                        <tr
+                            key={row.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openDelivery(row)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    openDelivery(row);
+                                }
+                            }}
+                            className="cursor-pointer border-t border-[#F1F5F9] text-slate-700 hover:bg-[#F8FAFC]"
+                        >
+                            <td className="whitespace-nowrap px-4 py-3">{formatPurchaseDate(row.deliveryDate)}</td>
+                            <td className="max-w-[240px] truncate px-4 py-3">
+                                {row.customerId ? (
+                                    <button
+                                        type="button"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            router.push(`/CRM/Customer/${row.customerId}`);
+                                        }}
+                                        className="max-w-full truncate font-medium text-indigo-600 hover:underline"
+                                    >
+                                        {row.customerName || 'Customer'}
+                                    </button>
+                                ) : (row.customerName || '—')}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3">
+                                <button
+                                    type="button"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        openDelivery(row);
+                                    }}
+                                    className="font-medium text-indigo-600 hover:underline"
+                                >
+                                    {row.deliveryNo || '—'}
+                                </button>
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{row.quantity ?? 0}</td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatPrice(row.unitPrice)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+            {delivery ? (
+                <AddDeliveryModal
+                    readOnly
+                    delivery={delivery}
+                    onClose={() => setDelivery(null)}
+                    onSaved={() => setDelivery(null)}
+                />
+            ) : null}
+        </div>
+    );
+}
+
+function Documents({ itemId }) {
+    const router = useRouter();
+    const [rows, setRows] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [billId, setBillId] = useState('');
+
+    useEffect(() => {
+        if (!itemId) return undefined;
+        let cancelled = false;
+        setLoading(true);
+        listItemDocuments(itemId)
+            .then((data) => {
+                if (cancelled) return;
+                setRows(Array.isArray(data?.documents) ? data.documents : []);
+                setError('');
+            })
+            .catch((loadError) => {
+                if (cancelled) return;
+                setRows([]);
+                setError(apiMessage(loadError, 'Could not load documents.'));
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [itemId]);
+
+    return (
+        <div className="mt-4 overflow-x-auto rounded-xl border border-[#E6EDF5]">
+            {error ? <p className="px-4 py-3 text-sm text-red-600">{error}</p> : null}
+            <table className="min-w-full text-left text-sm">
+                <thead>
+                    <tr className="border-b border-[#E6EDF5] bg-[#F8FAFC] text-slate-500">
+                        {['Purchase Date', 'Vendor Name', 'Bill No', 'Attachment'].map((heading) => (
+                            <th key={heading} className="whitespace-nowrap px-4 py-3 font-medium">{heading}</th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {loading ? (
+                        <tr>
+                            <td colSpan={4} className="px-4 py-10 text-center text-slate-500">Loading documents...</td>
+                        </tr>
+                    ) : rows.length === 0 ? (
+                        <tr>
+                            <td colSpan={4} className="px-4 py-10 text-center text-slate-400">No bill attachments yet.</td>
+                        </tr>
+                    ) : rows.map((row) => (
+                        <tr
+                            key={row.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => row.entryId && setBillId(String(row.entryId))}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    if (row.entryId) setBillId(String(row.entryId));
+                                }
+                            }}
+                            className="cursor-pointer border-t border-[#F1F5F9] text-slate-700 hover:bg-[#F8FAFC]"
+                        >
+                            <td className="whitespace-nowrap px-4 py-3">{formatPurchaseDate(row.purchaseDate)}</td>
+                            <td className="max-w-[240px] truncate px-4 py-3">
+                                {row.vendorId ? (
+                                    <button
+                                        type="button"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            router.push(`/inventory/vendor-management/${row.vendorId}`);
+                                        }}
+                                        className="max-w-full truncate font-medium text-indigo-600 hover:underline"
+                                    >
+                                        {row.vendorName || 'Vendor'}
+                                    </button>
+                                ) : (row.vendorName || '—')}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-800">{row.billNo || '—'}</td>
+                            <td className="max-w-[280px] truncate px-4 py-3">
+                                {row.fileUrl ? (
+                                    <a
+                                        href={row.fileUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        onClick={(event) => event.stopPropagation()}
+                                        className="inline-flex max-w-full items-center gap-1.5 font-medium text-indigo-600 hover:underline"
+                                    >
+                                        <Paperclip size={14} className="shrink-0" />
+                                        <span className="truncate">{row.fileName || 'Attachment'}</span>
+                                    </a>
+                                ) : (
+                                    <span className="inline-flex items-center gap-1.5 text-slate-600">
+                                        <Paperclip size={14} />
+                                        {row.fileName || 'Attachment'}
+                                    </span>
+                                )}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+            {billId ? (
+                <AddStockModal
+                    viewOnly
+                    editEntryId={billId}
+                    onClose={() => setBillId('')}
+                />
+            ) : null}
+        </div>
+    );
+}
+
 export default function ItemDetail({ item }) {
     const router = useRouter();
     const access = useInventoryAccess();
     const [tab, setTab] = useState('Overview');
-    const available = Number(item.availableQuantity) || 0;
-    const reserved = Number(item.reservationQuantity) || 0;
-    const current = available + reserved;
+    const onHand = Number(item.availableQuantity) || 0;
+    const brought = Number(item.broughtQuantity) || 0;
+    const sold = Number(item.soldQuantity) || 0;
     const categoryPath = [item.categoryName, item.subcategoryName, item.itemName].filter(Boolean).join(' > ');
 
     const duplicate = () => {
@@ -122,15 +463,15 @@ export default function ItemDetail({ item }) {
                 </div>
                 <div className="rounded-xl border border-[#E6EDF5] p-4">
                     <p className="text-xs text-slate-500">Current Stock</p>
-                    <p className="mt-1 text-2xl font-bold text-emerald-600">{unitWord(current, item.unitOfMeasure)}</p>
+                    <p className="mt-1 text-2xl font-bold text-emerald-600">{unitWord(onHand, item.unitOfMeasure)}</p>
                     <div className="mt-3 grid grid-cols-2 gap-3 border-t border-[#F1F5F9] pt-3">
                         <div>
-                            <p className="text-xs text-slate-400">Available</p>
-                            <p className="font-semibold text-slate-800">{unitWord(available, item.unitOfMeasure)}</p>
+                            <p className="text-xs text-slate-400">Brought</p>
+                            <p className="font-semibold text-slate-800">{unitWord(brought, item.unitOfMeasure)}</p>
                         </div>
                         <div>
-                            <p className="text-xs text-slate-400">Reserved</p>
-                            <p className="font-semibold text-slate-800">{unitWord(reserved, item.unitOfMeasure)}</p>
+                            <p className="text-xs text-slate-400">Sold</p>
+                            <p className="font-semibold text-slate-800">{unitWord(sold, item.unitOfMeasure)}</p>
                         </div>
                     </div>
                 </div>
@@ -187,8 +528,12 @@ export default function ItemDetail({ item }) {
                         )}
                     />
                 </div>
+            ) : tab === 'Purchase History' ? (
+                <PurchaseHistory itemId={item._id} />
+            ) : tab === 'Delivery History' ? (
+                <DeliveryHistory itemId={item._id} />
             ) : (
-                <p className="px-1 py-10 text-center text-sm text-slate-400">No {tab.toLowerCase()} records yet.</p>
+                <Documents itemId={item._id} />
             )}
         </div>
     );

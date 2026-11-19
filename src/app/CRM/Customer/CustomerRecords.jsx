@@ -12,7 +12,7 @@ import {
 
 function statusClass(status) {
     const value = String(status || '').toLowerCase();
-    if (value.includes('overdue')) return 'bg-red-50 text-red-700';
+    if (value.includes('overdue') || value.includes('reject')) return 'bg-red-50 text-red-700';
     if (value.includes('partial') || value.includes('unpaid') || value.includes('pending') || value.includes('await')) return 'bg-amber-50 text-amber-700';
     if (value.includes('paid') || value.includes('complete') || value.includes('confirm')) return 'bg-emerald-50 text-emerald-700';
     if (value.includes('progress') || value.includes('open') || value.includes('sent') || value.includes('submit')) return 'bg-blue-50 text-blue-700';
@@ -33,6 +33,12 @@ function money(amount, currency) {
     } catch {
         return `${code} ${value.toFixed(2)}`;
     }
+}
+
+function deliveryStatusLabel(status) {
+    if (status === 'Confirmed') return 'Delivered';
+    if (status === 'Rejected') return 'Rejected';
+    return 'Pending for delivery';
 }
 
 function formatDate(value) {
@@ -161,38 +167,28 @@ export function CustomerDeliveries({ customerId }) {
             <table className="min-w-full text-left text-sm">
                 <thead>
                     <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
-                        {['DO No', 'Date', 'Type', 'Project', 'Item', 'Qty', 'Status'].map((heading) => (
-                            <th key={heading} className={`whitespace-nowrap px-4 py-3 font-medium ${heading === 'Qty' ? 'text-right' : ''}`}>{heading}</th>
+                        {['Delivery No', 'Date', 'Type', 'Project', 'Amount', 'Status'].map((heading) => (
+                            <th key={heading} className={`whitespace-nowrap px-4 py-3 font-medium ${heading === 'Amount' ? 'text-right' : ''}`}>{heading}</th>
                         ))}
                     </tr>
                 </thead>
                 <tbody>
                     {loading || rows.length === 0 ? (
-                        <EmptyRow colSpan={7} loading={loading} loadingLabel="Loading deliveries..." empty="No deliveries for this customer." />
-                    ) : rows.flatMap((row) => {
-                        const lines = Array.isArray(row.lines) && row.lines.length
-                            ? row.lines
-                            : [{ itemName: '', description: '', quantity: row.itemCount || 0, unit: '' }];
-                        return lines.map((line, index) => (
-                            <tr key={`${row.id}-${index}`} className="border-b border-slate-100 text-slate-700">
-                                <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{index === 0 ? row.deliveryNo : ''}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5">{index === 0 ? formatDate(row.doDate) : ''}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5">{index === 0 ? (row.deliveryType || 'N/A') : ''}</td>
-                                <td className="max-w-[220px] truncate px-4 py-3.5">{index === 0 ? (row.projectName || 'N/A') : ''}</td>
-                                <td className="max-w-[280px] px-4 py-3.5">{line.itemName || line.description || 'Item'}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums">
-                                    {line.quantity ?? 0}{line.unit ? ` ${line.unit}` : ''}
-                                </td>
-                                <td className="whitespace-nowrap px-4 py-3.5">
-                                    {index === 0 ? (
-                                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(row.status)}`}>
-                                            {row.status || 'N/A'}
-                                        </span>
-                                    ) : null}
-                                </td>
-                            </tr>
-                        ));
-                    })}
+                        <EmptyRow colSpan={6} loading={loading} loadingLabel="Loading deliveries..." empty="No deliveries for this customer." />
+                    ) : rows.map((row) => (
+                        <tr key={row.id} className="border-b border-slate-100 text-slate-700">
+                            <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{row.deliveryNo || 'N/A'}</td>
+                            <td className="whitespace-nowrap px-4 py-3.5">{formatDate(row.doDate)}</td>
+                            <td className="whitespace-nowrap px-4 py-3.5">{row.deliveryType || 'N/A'}</td>
+                            <td className="max-w-[220px] truncate px-4 py-3.5">{row.projectName || 'N/A'}</td>
+                            <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums">{money(row.amount, 'AED')}</td>
+                            <td className="whitespace-nowrap px-4 py-3.5">
+                                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${deliveryStatusLabel(row.status) === 'Delivered' ? 'bg-emerald-50 text-emerald-700' : statusClass(deliveryStatusLabel(row.status))}`}>
+                                    {deliveryStatusLabel(row.status)}
+                                </span>
+                            </td>
+                        </tr>
+                    ))}
                 </tbody>
             </table>
         </Shell>

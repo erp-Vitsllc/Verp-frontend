@@ -9,7 +9,7 @@ function sidebarStaysOpen() {
     return localStorage.getItem('sidebar_isOpen') !== 'false';
 }
 
-export default function CatalogModal({ title, onClose, children, wide = false }) {
+export default function CatalogModal({ title, onClose, children, wide = false, stacked = false }) {
     const [shiftForSidebar, setShiftForSidebar] = useState(true);
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
@@ -39,7 +39,7 @@ export default function CatalogModal({ title, onClose, children, wide = false })
     }, []);
 
     return (
-        <div className={`fixed inset-y-0 right-0 z-30 flex items-center justify-center bg-slate-900/40 p-4 ${shiftForSidebar ? 'left-72' : 'left-0'}`}>
+        <div className={`fixed inset-y-0 right-0 flex items-center justify-center bg-slate-900/40 p-4 ${stacked ? 'z-[90]' : 'z-30'} ${shiftForSidebar ? 'left-72' : 'left-0'}`}>
             <div
                 role="dialog"
                 aria-modal="true"

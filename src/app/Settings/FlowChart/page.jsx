@@ -21,7 +21,8 @@ import {
     Loader2,
     Trash2
 } from 'lucide-react';
-import { isAdmin } from '@/utils/permissions';
+import { isAdmin, isSystemSuperUser } from '@/utils/permissions';
+import { clearFlowchartRowsCache } from '@/utils/flowchartRowsCache';
 import { useToast } from '@/hooks/use-toast';
 import { navHrefProps } from '@/utils/linkContextMenu';
 import HrPanel from './components/HrPanel';
@@ -428,6 +429,7 @@ export default function GlobalFlowChartPage() {
     const [currentUserEmpId, setCurrentUserEmpId] = useState(null);
     const [currentUserEmpCustomId, setCurrentUserEmpCustomId] = useState(null);
     const [currentUserIsAdmin, setCurrentUserIsAdmin] = useState(false);
+    const [currentUserIsSuperUser, setCurrentUserIsSuperUser] = useState(false);
     const [pendingActions, setPendingActions] = useState([]);
 
     useEffect(() => {
@@ -439,6 +441,7 @@ export default function GlobalFlowChartPage() {
                 setCurrentUserEmpId(user.employeeObjectId || user._id);
                 setCurrentUserEmpCustomId(user.employeeId);
                 setCurrentUserIsAdmin(isAdmin());
+                setCurrentUserIsSuperUser(isSystemSuperUser());
             } catch (e) {
                 console.error("Error parsing user data:", e);
             }
@@ -622,15 +625,21 @@ export default function GlobalFlowChartPage() {
         }
     };
 
-    const handleDeleteResponsibility = async (id, label) => {
-        if (!id) return;
-        if (!window.confirm(`Are you sure you want to delete the assignment for "${label}"? This will completely remove it from the database.`)) {
+    const handleDeleteResponsibility = async (id, label, categoryKey) => {
+        if (!currentUserIsSuperUser) return;
+        if (!id && !categoryKey) return;
+        if (!window.confirm(`Remove the assignment for "${label}"? This position will become Unassigned and the employee will be removed from it.`)) {
             return;
         }
         setIsSubmitting(true);
         try {
-            await axiosInstance.delete(`/Flowchart/${id}`);
-            toast({ title: "Success", description: `Designation for "${label}" deleted successfully.` });
+            if (categoryKey) {
+                await axiosInstance.delete(`/Flowchart/category/${encodeURIComponent(categoryKey)}`);
+            } else {
+                await axiosInstance.delete(`/Flowchart/${id}`);
+            }
+            clearFlowchartRowsCache();
+            toast({ title: "Unassigned", description: `"${label}" is now unassigned. The employee was removed from this position.` });
             // Refresh data
             await Promise.all([
                 fetchCompanies(),
@@ -845,26 +854,28 @@ export default function GlobalFlowChartPage() {
                                                                 </td>
                                                                 <td className="px-8 py-6 text-right pr-12">
                                                                     <div className="flex items-center justify-end gap-2">
-                                                                        {canIRespond ? (
+                                                                        {canIRespond && (
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => setResponsibilityReviewModal({ resp, positionLabel: cat.label })}
                                                                                 disabled={isSubmitting}
-                                                                                className="px-4 py-2 bg-amber-50 border-2 border-amber-200 text-amber-900 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-amber-100 transition-all flex items-center gap-1.5 ml-auto disabled:opacity-50"
+                                                                                className="px-4 py-2 bg-amber-50 border-2 border-amber-200 text-amber-900 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-amber-100 transition-all flex items-center gap-1.5 disabled:opacity-50"
                                                                             >
                                                                                 <Eye size={14} /> Review
                                                                             </button>
-                                                                        ) : (
+                                                                        )}
+                                                                        {currentUserIsSuperUser && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleDeleteResponsibility(resp._id, cat.label, resp.category || cat.id)}
+                                                                                disabled={isSubmitting}
+                                                                                className="px-4 py-2 bg-white border-2 border-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                                                                            >
+                                                                                <Trash2 size={14} /> Delete
+                                                                            </button>
+                                                                        )}
+                                                                        {!canIRespond && (
                                                                             <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                                {currentUserIsAdmin && (
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        onClick={() => handleDeleteResponsibility(resp._id, cat.label)}
-                                                                                        className="px-4 py-2 bg-white border-2 border-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-all flex items-center gap-1.5"
-                                                                                    >
-                                                                                        <Trash2 size={14} /> Delete
-                                                                                    </button>
-                                                                                )}
                                                                                 <button
                                                                                     type="button"
                                                                                     onClick={() => {
@@ -955,7 +966,7 @@ export default function GlobalFlowChartPage() {
                                                             </td>
                                                             <td className="px-8 py-6 text-right pr-12">
                                                                 <div className="flex items-center justify-end gap-2">
-                                                                    {canIRespond ? (
+                                                                    {canIRespond && (
                                                                         <button
                                                                             type="button"
                                                                             onClick={() =>
@@ -965,21 +976,23 @@ export default function GlobalFlowChartPage() {
                                                                                 })
                                                                             }
                                                                             disabled={isSubmitting}
-                                                                            className="px-4 py-2 bg-amber-50 border-2 border-amber-200 text-amber-900 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-amber-100 transition-all flex items-center gap-1.5 ml-auto disabled:opacity-50"
+                                                                            className="px-4 py-2 bg-amber-50 border-2 border-amber-200 text-amber-900 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-amber-100 transition-all flex items-center gap-1.5 disabled:opacity-50"
                                                                         >
                                                                             <Eye size={14} /> Review
                                                                         </button>
-                                                                    ) : (
+                                                                    )}
+                                                                    {currentUserIsSuperUser && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleDeleteResponsibility(resp._id, resp.category?.toUpperCase(), resp.category)}
+                                                                            disabled={isSubmitting}
+                                                                            className="px-4 py-2 bg-white border-2 border-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                                                                        >
+                                                                            <Trash2 size={14} /> Delete
+                                                                        </button>
+                                                                    )}
+                                                                    {!canIRespond && (
                                                                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                            {currentUserIsAdmin && (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={() => handleDeleteResponsibility(resp._id, resp.category?.toUpperCase())}
-                                                                                    className="px-4 py-2 bg-white border-2 border-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-all flex items-center gap-1.5"
-                                                                                >
-                                                                                    <Trash2 size={14} /> Delete
-                                                                                </button>
-                                                                            )}
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => {
@@ -1034,6 +1047,16 @@ export default function GlobalFlowChartPage() {
                                                         <div className="text-center">
                                                             <p className="text-sm sm:text-base lg:text-lg font-black text-slate-800">{r.employeeName}</p>
                                                             <p className="text-[9px] sm:text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mt-1 bg-blue-50 px-2 sm:px-3 py-1 rounded-full border border-blue-100 inline-block">Chief Executive</p>
+                                                            {currentUserIsSuperUser && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleDeleteResponsibility(r._id, 'management', r.category || 'management')}
+                                                                    disabled={isSubmitting}
+                                                                    className="mt-3 px-4 py-2 bg-white border-2 border-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-all inline-flex items-center gap-1.5 disabled:opacity-50"
+                                                                >
+                                                                    <Trash2 size={14} /> Delete
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 ))}
@@ -1065,6 +1088,16 @@ export default function GlobalFlowChartPage() {
                                                                         <div className="text-center">
                                                                             <p className="text-sm font-black text-slate-700 group-hover:text-emerald-700 transition-colors">{r.employeeName}</p>
                                                                             <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mt-0.5">{catLabel}</p>
+                                                                            {currentUserIsSuperUser && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleDeleteResponsibility(r._id, catLabel || catId, r.category || catId)}
+                                                                                    disabled={isSubmitting}
+                                                                                    className="mt-3 px-4 py-2 bg-white border-2 border-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-all inline-flex items-center gap-1.5 disabled:opacity-50"
+                                                                                >
+                                                                                    <Trash2 size={14} /> Delete
+                                                                                </button>
+                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                 ))}

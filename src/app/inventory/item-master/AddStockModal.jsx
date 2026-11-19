@@ -13,14 +13,14 @@ import {
     getStockEntry,
     listBrands,
     listCategories,
-    listStockEntries,
     listStockOptions,
     listSubcategories,
     rejectStockEntry,
     saveStockEntry,
 } from './itemMasterApi';
 
-const fieldClass = 'h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-slate-800 outline-none focus:border-indigo-500';
+const fieldClass = 'h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-slate-800 outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-700';
+const PURCHASER_REQUIRED = 'Add purchaser on workflow. Then only can create or submit. Else Draft or Cancel.';
 const MAX_BILL_BYTES = 10 * 1024 * 1024;
 
 function sameId(left, right) {
@@ -221,7 +221,7 @@ function TypeSuggest({ label, text, options, placeholder, onText, onPick, onComm
     );
 }
 
-export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) {
+export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', editEntryId = '', viewOnly = false, allowEdit = false }) {
     const { toast } = useToast();
     const access = useInventoryAccess();
     const [categories, setCategories] = useState([]);
@@ -248,16 +248,18 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
     const [lines, setLines] = useState([]);
     const [attachment, setAttachment] = useState(null);
     const [dragOver, setDragOver] = useState(false);
-    const [drafts, setDrafts] = useState([]);
     const [entryId, setEntryId] = useState('');
     const [clientRequestId, setClientRequestId] = useState(requestId);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [directPost, setDirectPost] = useState(false);
+    const [purchaserAssigned, setPurchaserAssigned] = useState(true);
     const [approverName, setApproverName] = useState('');
     const [submittedByName, setSubmittedByName] = useState('');
-    const locked = Boolean(reviewEntryId);
+    const [loadedStatus, setLoadedStatus] = useState('');
+    const sourceEntryId = reviewEntryId || editEntryId;
+    const locked = Boolean(viewOnly) || Boolean(reviewEntryId) || (Boolean(editEntryId) && loadedStatus !== '' && loadedStatus !== 'draft' && !allowEdit);
     const fileRef = useRef(null);
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
@@ -270,9 +272,8 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
             listBrands(),
             listStockOptions(),
             listVendors({ limit: 0 }).catch(() => ({ vendors: [] })),
-            listStockEntries('draft').catch(() => ({ entries: [] })),
         ])
-            .then(async ([categoryResult, subcategoryResult, brandResult, stockResult, vendorResult, draftResult]) => {
+            .then(async ([categoryResult, subcategoryResult, brandResult, stockResult, vendorResult]) => {
                 if (cancelled) return;
                 const vendorRows = Array.isArray(vendorResult?.vendors) ? vendorResult.vendors : [];
                 setCategories(Array.isArray(categoryResult) ? categoryResult : []);
@@ -280,14 +281,15 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                 setBrands(Array.isArray(brandResult) ? brandResult : []);
                 setItems(Array.isArray(stockResult?.items) ? stockResult.items : []);
                 setVendors(vendorRows);
-                setDrafts(Array.isArray(draftResult?.entries) ? draftResult.entries : []);
                 const context = await getStockApprovalContext().catch(() => null);
                 if (cancelled) return;
                 setDirectPost(Boolean(context?.isPurchaseOfficer));
-                if (!reviewEntryId) return;
-                const entry = await getStockEntry(reviewEntryId);
+                setPurchaserAssigned(context?.hasPurchaseOfficer !== false);
+                if (!sourceEntryId) return;
+                const entry = await getStockEntry(sourceEntryId);
                 if (cancelled) return;
                 const vendor = vendorRows.find((row) => sameId(row.id, entry.vendorId));
+                setLoadedStatus(entry.status || '');
                 setEntryId(String(entry._id || ''));
                 setClientRequestId(entry.clientRequestId || requestId());
                 setPurchaseSource(entry.purchaseSource === 'manual' ? 'manual' : 'vendor');
@@ -311,7 +313,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
         return () => {
             cancelled = true;
         };
-    }, [reviewEntryId]);
+    }, [sourceEntryId]);
 
     useEffect(() => {
         const onKey = (event) => {
@@ -667,9 +669,6 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
         const line = resolveSelection();
         if (!line) return;
         setLines((current) => [...current, { ...line, key: requestId() }]);
-        setItemId('');
-        setItemText('');
-        setModelNumber('');
     };
 
     const chooseVendor = (nextId) => {
@@ -703,20 +702,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
         setLines((current) => current.filter((line) => line.key !== key));
     };
 
-    const clearEntry = () => {
-        const dirty = lines.length || vendorText || purchaseDate || billNo || lpoNo || note || attachment || categoryText || itemText || modelNumber;
-        if (dirty && !window.confirm('Clear everything entered in this form? Saved stock records will not be deleted.')) return;
-        setPurchaseSource('vendor');
-        setVendorId('');
-        setVendorText('');
-        setPurchaseDate('');
-        setBillNo('');
-        setLpoNo('');
-        setNote('');
-        setLines([]);
-        setAttachment(null);
-        setEntryId('');
-        setClientRequestId(requestId());
+    const resetItemFields = () => {
         setCategoryId('');
         setCategoryText('');
         setSubcategoryId('');
@@ -726,32 +712,6 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
         setItemId('');
         setItemText('');
         setModelNumber('');
-        setError('');
-    };
-
-    const openDraft = async (id) => {
-        if (!id) return;
-        setSaving(true);
-        setError('');
-        try {
-            const entry = await getStockEntry(id);
-            const vendor = vendors.find((row) => sameId(row.id, entry.vendorId));
-            setEntryId(String(entry._id || ''));
-            setClientRequestId(entry.clientRequestId || requestId());
-            setPurchaseSource(entry.purchaseSource === 'manual' ? 'manual' : 'vendor');
-            setVendorId(entry.vendorId || '');
-            setVendorText(vendor?.name || '');
-            setPurchaseDate(entry.purchaseDate || '');
-            setBillNo(entry.billNo || '');
-            setLpoNo(entry.lpoNo || '');
-            setNote(entry.note || '');
-            setLines((entry.lines || []).map((line, index) => ({ ...line, key: `${entry._id}-${index}` })));
-            setAttachment(entry.attachment?.name ? entry.attachment : null);
-        } catch (err) {
-            setError(apiMessage(err, 'Could not open the draft.'));
-        } finally {
-            setSaving(false);
-        }
     };
 
     const useBill = async (file) => {
@@ -764,6 +724,10 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
     };
 
     const submit = async (status) => {
+        if (status === 'posted' && !purchaserAssigned) {
+            setError(PURCHASER_REQUIRED);
+            return;
+        }
         if (status === 'posted' && purchaseSource === 'vendor') {
             if (!vendorId) {
                 setError('Vendor name is required.');
@@ -833,10 +797,10 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                 if (saved.status === 'pending') {
                     toast({
                         title: 'Submitted',
-                        description: `Waiting for ${saved.approverName || 'the purchase officer'}.`,
+                        description: `Waiting for ${saved.approverName || 'the purchase officer'}. Stock is added when they approve.`,
                     });
                 } else {
-                    toast({ title: 'Stock added', description: 'The stock entry was saved and inventory was updated.' });
+                    toast({ title: 'Stock added', description: 'The bill was created and inventory was updated.' });
                 }
                 onSaved?.();
                 onClose();
@@ -844,9 +808,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
             }
             setEntryId(String(saved._id || entryId));
             if (saved.clientRequestId) setClientRequestId(saved.clientRequestId);
-            toast({ title: 'Draft saved', description: 'Inventory quantities were not changed.' });
-            const draftResult = await listStockEntries('draft').catch(() => ({ entries: [] }));
-            setDrafts(Array.isArray(draftResult?.entries) ? draftResult.entries : []);
+            toast({ title: 'Draft saved', description: 'This bill is listed on Bills as Drafted. Stock was not added.' });
         } catch (err) {
             const message = apiMessage(err, 'Could not save the stock entry.');
             setError(message);
@@ -899,11 +861,6 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                         <h2 className="text-lg font-semibold text-slate-900">Add Bill</h2>
                     </div>
                     <div className="flex items-center gap-2">
-                        {locked ? null : (
-                            <button type="button" onClick={clearEntry} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-indigo-200 px-3 text-sm font-semibold text-indigo-700">
-                                <RotateCcw size={14} /> Reset
-                            </button>
-                        )}
                         <button type="button" onClick={onClose} aria-label="Close" className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100">
                             <X size={18} />
                         </button>
@@ -911,49 +868,35 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
                     {error ? <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
-                    {locked ? (
+                    {reviewEntryId ? (
                         <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
                             Waiting for {approverName || 'the purchase officer'}.
                             {submittedByName ? ` Submitted by ${submittedByName}.` : ''}
                         </p>
                     ) : null}
-                    {!locked && drafts.length ? (
-                        <label className="mb-4 block text-sm text-slate-600">
-                            <span className="mb-1 block font-medium">Saved drafts</span>
-                            <select
-                                className={fieldClass}
-                                value={entryId}
-                                onChange={(event) => openDraft(event.target.value)}
-                            >
-                                <option value="">Open a draft</option>
-                                {drafts.map((draft) => (
-                                    <option key={draft._id} value={draft._id}>
-                                        {draft.purchaseSource === 'manual' ? 'Manual' : 'Vendor'}
-                                        {draft.billNo ? ` · ${draft.billNo}` : ''}
-                                        {` · ${draft.lineCount || 0} items`}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
+                    {editEntryId && locked && !viewOnly ? (
+                        <p className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">This bill is approved.</p>
                     ) : null}
                     {loading ? <p className="text-sm text-slate-500">Loading items...</p> : (
                         <div className="space-y-4">
-                            {locked ? null : (
+                            {!locked || viewOnly ? (
                             <>
                             <div>
                                 <p className="mb-2 text-sm font-medium text-slate-700">Purchase Source</p>
                                 <div className="inline-flex rounded-xl bg-[#F3F4F8] p-1">
                                     <button
                                         type="button"
+                                        disabled={viewOnly}
                                         onClick={() => setPurchaseSource('vendor')}
-                                        className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold ${purchaseSource === 'vendor' ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}
+                                        className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold disabled:cursor-not-allowed ${purchaseSource === 'vendor' ? 'bg-indigo-600 text-white disabled:opacity-100' : 'text-slate-600'}`}
                                     >
                                         <Store size={15} /> Vendor
                                     </button>
                                     <button
                                         type="button"
+                                        disabled={viewOnly}
                                         onClick={() => setPurchaseSource('manual')}
-                                        className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold ${purchaseSource === 'manual' ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}
+                                        className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold disabled:cursor-not-allowed ${purchaseSource === 'manual' ? 'bg-indigo-600 text-white disabled:opacity-100' : 'text-slate-600'}`}
                                     >
                                         <Pencil size={15} /> Manual
                                     </button>
@@ -961,32 +904,40 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                             </div>
                             {purchaseSource === 'vendor' ? (
                                 <div className="grid grid-cols-1 gap-3 rounded-xl bg-[#F5F7FB] p-4 sm:grid-cols-2 xl:grid-cols-4">
-                                    <TypeSuggest
-                                        label="Vendor Name"
-                                        required
-                                        text={vendorText}
-                                        options={vendorOptions}
-                                        placeholder="Select vendor"
-                                        onText={typeVendor}
-                                        onPick={chooseVendor}
-                                        onCommit={commitVendor}
-                                    />
+                                    {viewOnly ? (
+                                        <label>
+                                            <span className="mb-1.5 block text-sm font-medium text-slate-700">Vendor Name</span>
+                                            <input value={vendorText} disabled className={fieldClass} />
+                                        </label>
+                                    ) : (
+                                        <TypeSuggest
+                                            label="Vendor Name"
+                                            required
+                                            text={vendorText}
+                                            options={vendorOptions}
+                                            placeholder="Select vendor"
+                                            onText={typeVendor}
+                                            onPick={chooseVendor}
+                                            onCommit={commitVendor}
+                                        />
+                                    )}
                                     <label>
                                         <span className="mb-1.5 block text-sm font-medium text-slate-700">Purchase Date <span className="text-red-500">*</span></span>
-                                        <input type="date" value={purchaseDate} onChange={(event) => setPurchaseDate(event.target.value)} className={fieldClass} />
+                                        <input type="date" value={purchaseDate} disabled={viewOnly} onChange={(event) => setPurchaseDate(event.target.value)} className={fieldClass} />
                                     </label>
                                     <label>
                                         <span className="mb-1.5 block text-sm font-medium text-slate-700">Bill No <span className="text-red-500">*</span></span>
-                                        <input value={billNo} onChange={(event) => setBillNo(event.target.value)} placeholder="Enter bill no" className={fieldClass} />
+                                        <input value={billNo} disabled={viewOnly} onChange={(event) => setBillNo(event.target.value)} placeholder="Enter bill no" className={fieldClass} />
                                     </label>
                                     <label>
                                         <span className="mb-1.5 block text-sm font-medium text-slate-700">LPO No</span>
-                                        <input value={lpoNo} onChange={(event) => setLpoNo(event.target.value)} placeholder="Enter LPO no (optional)" className={fieldClass} />
+                                        <input value={lpoNo} disabled={viewOnly} onChange={(event) => setLpoNo(event.target.value)} placeholder="Enter LPO no (optional)" className={fieldClass} />
                                     </label>
                                     <label className="sm:col-span-2 xl:col-span-4">
                                         <span className="mb-1.5 block text-sm font-medium text-slate-700">Note</span>
                                         <textarea
                                             value={note}
+                                            disabled={viewOnly}
                                             onChange={(event) => setNote(event.target.value)}
                                             placeholder="Enter note..."
                                             className={`${fieldClass} h-auto min-h-[88px] py-2`}
@@ -998,12 +949,14 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                                     <span className="mb-1.5 block text-sm font-medium text-slate-700">Note</span>
                                     <textarea
                                         value={note}
+                                        disabled={viewOnly}
                                         onChange={(event) => setNote(event.target.value)}
                                         placeholder="Enter note..."
                                         className={`${fieldClass} h-auto min-h-[88px] py-2`}
                                     />
                                 </label>
                             )}
+                            {viewOnly ? null : (
                             <div className="rounded-xl bg-[#F5F7FB] p-4">
                                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                                     <TypeSuggest
@@ -1056,16 +1009,20 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                                         onPick={chooseModel}
                                         onCommit={commitModel}
                                     />
-                                    <div className="flex items-end justify-end">
+                                    <div className="flex items-end justify-end gap-2">
+                                        <button type="button" onClick={resetItemFields} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600">
+                                            <RotateCcw size={16} /> Reset
+                                        </button>
                                         <button type="button" onClick={addMaterial} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white">
                                             <Plus size={16} /> Add
                                         </button>
                                     </div>
                                 </div>
                             </div>
-                            </>
                             )}
-                            {locked && purchaseSource === 'vendor' ? (
+                            </>
+                            ) : null}
+                            {locked && !viewOnly && purchaseSource === 'vendor' ? (
                                 <div className="grid grid-cols-1 gap-3 rounded-xl bg-[#F5F7FB] p-4 text-sm text-slate-700 sm:grid-cols-2 xl:grid-cols-4">
                                     <p><span className="block text-xs text-slate-400">Vendor</span>{vendorText || '—'}</p>
                                     <p><span className="block text-xs text-slate-400">Purchase date</span>{purchaseDate || '—'}</p>
@@ -1073,7 +1030,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                                     <p><span className="block text-xs text-slate-400">LPO no</span>{lpoNo || '—'}</p>
                                     <p className="sm:col-span-2 xl:col-span-4 whitespace-pre-wrap"><span className="block text-xs text-slate-400">Note</span>{note || '—'}</p>
                                 </div>
-                            ) : locked ? (
+                            ) : locked && !viewOnly ? (
                                 <div className="rounded-xl bg-[#F5F7FB] p-4 text-sm text-slate-700">
                                     <p className="whitespace-pre-wrap"><span className="block text-xs text-slate-400">Note</span>{note || '—'}</p>
                                 </div>
@@ -1109,8 +1066,9 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                                                         step="0.01"
                                                         value={line.quantity}
                                                         readOnly={locked}
+                                                        disabled={viewOnly || locked}
                                                         onChange={(event) => updateLine(line.key, { quantity: event.target.value })}
-                                                        className="h-10 w-24 rounded-lg border border-[#E2E8F0] px-2 text-sm outline-none focus:border-indigo-500 read-only:bg-slate-50"
+                                                        className="h-10 w-24 rounded-lg border border-[#E2E8F0] px-2 text-sm outline-none focus:border-indigo-500 read-only:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-50"
                                                     />
                                                 </td>
                                                 <td className="px-3 py-3">
@@ -1120,8 +1078,9 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                                                         step="0.01"
                                                         value={line.unitPrice}
                                                         readOnly={locked}
+                                                        disabled={viewOnly || locked}
                                                         onChange={(event) => updateLine(line.key, { unitPrice: event.target.value })}
-                                                        className="h-10 w-32 rounded-lg border border-[#E2E8F0] px-2 text-sm outline-none focus:border-indigo-500 read-only:bg-slate-50"
+                                                        className="h-10 w-32 rounded-lg border border-[#E2E8F0] px-2 text-sm outline-none focus:border-indigo-500 read-only:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-50"
                                                     />
                                                 </td>
                                                 <td className="px-3 py-3 font-semibold text-slate-900">{money(lineTotal(line.quantity, line.unitPrice))}</td>
@@ -1185,10 +1144,22 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                     )}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-[#EEF2F7] px-5 py-4">
-                    {error ? <p className="mr-auto min-w-[220px] text-sm text-red-600">{error}</p> : null}
-                    <button type="button" onClick={onClose} className="h-10 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-600">Cancel</button>
-                    {locked ? (
-                        directPost ? (
+                    {(!locked && !purchaserAssigned) || (error && error !== PURCHASER_REQUIRED) ? (
+                        <div className="mr-auto flex min-w-[220px] max-w-xl flex-col gap-1">
+                            {!locked && !purchaserAssigned ? (
+                                <p className="text-sm font-medium text-amber-700">{PURCHASER_REQUIRED}</p>
+                            ) : null}
+                            {error && error !== PURCHASER_REQUIRED ? (
+                                <p className="text-sm text-red-600">{error}</p>
+                            ) : null}
+                        </div>
+                    ) : null}
+                    {viewOnly ? (
+                        <button type="button" onClick={onClose} className="h-10 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-700">Close</button>
+                    ) : null}
+                    {viewOnly ? null : <button type="button" onClick={onClose} className="h-10 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-600">Cancel</button>}
+                    {viewOnly ? null : locked ? (
+                        reviewEntryId && directPost ? (
                             <>
                                 <button type="button" onClick={() => decide('reject')} disabled={saving || loading} className="h-10 rounded-lg border border-red-200 px-4 text-sm font-semibold text-red-600 disabled:opacity-60">
                                     {saving ? 'Saving...' : 'Reject'}
@@ -1203,7 +1174,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '' }) 
                             <button type="button" onClick={() => submit('draft')} disabled={saving || loading} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-indigo-200 px-4 text-sm font-semibold text-indigo-700 disabled:opacity-60">
                                 <FileText size={15} /> Draft
                             </button>
-                            <button type="button" onClick={() => submit('posted')} disabled={saving || loading} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">
+                            <button type="button" onClick={() => submit('posted')} disabled={saving || loading || !purchaserAssigned} title={!purchaserAssigned ? PURCHASER_REQUIRED : undefined} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                                 <Check size={15} /> {saving ? 'Saving...' : actionLabel}
                             </button>
                         </>

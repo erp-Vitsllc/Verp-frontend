@@ -42,6 +42,10 @@ export function createDelivery(payload) {
     return axiosInstance.post('/Inventory/deliveries', payload, quiet).then((response) => response.data);
 }
 
+export function updateDelivery(id, payload) {
+    return axiosInstance.put(`/Inventory/deliveries/${id}`, payload, quiet).then((response) => response.data);
+}
+
 export function approveDelivery(id) {
     return axiosInstance.post(`/Inventory/deliveries/${id}/approve`, {}, quiet).then((response) => response.data);
 }

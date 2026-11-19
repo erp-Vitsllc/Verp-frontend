@@ -144,7 +144,7 @@ function TextField({ label, value, onChange, type = 'text' }) {
     );
 }
 
-export default function AddCustomerModal({ onClose, onSaved, customer = null }) {
+export default function AddCustomerModal({ onClose, onSaved, customer = null, stacked = false }) {
     const editing = isSavedCustomer(customer);
     const savedZohoId = String(customer?.zohoContactId || '');
     const [options, setOptions] = useState([]);
@@ -291,7 +291,7 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null }) 
     }
 
     return (
-        <CatalogModal title={customer?.id ? 'Edit Customer' : 'Add Customer'} onClose={onClose} wide>
+        <CatalogModal title={customer?.id ? 'Edit Customer' : 'Add Customer'} onClose={onClose} wide stacked={stacked}>
             <form onSubmit={onSubmit} className="flex min-h-0 flex-col">
                 <div className="max-h-[min(36rem,calc(100vh-11rem))] overflow-y-auto px-5 py-4">
                     {error ? <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}

@@ -20,8 +20,11 @@ import {
     UserRound,
     X,
 } from 'lucide-react';
+import AddCustomerModal from '../../CRM/Customer/AddCustomerModal';
+import AddCustomerContactModal from '../../CRM/Customer/AddCustomerContactModal';
 import {
     createDelivery,
+    updateDelivery,
     deliveryApiMessage,
     getDeliveryCustomer,
     listDeliveryBrands,
@@ -92,6 +95,22 @@ function emptyForm() {
     };
 }
 
+function formFromDelivery(delivery) {
+    if (!delivery) return emptyForm();
+    return {
+        deliveryType: delivery.deliveryType || 'Project',
+        doDate: delivery.doDate || todayKey(),
+        projectName: delivery.projectName || '',
+        workOrderId: delivery.workOrderId || '',
+        customerId: delivery.customerId || '',
+        deliveryAddress: delivery.deliveryAddress || '',
+        contactPersonName: delivery.contactPersonName || '',
+        contactNumber: delivery.contactNumber || '',
+        note: delivery.note || '',
+        lines: Array.isArray(delivery.lines) ? delivery.lines.map((line) => ({ ...line })) : [],
+    };
+}
+
 function emptyDraft() {
     return {
         categoryId: '',
@@ -103,7 +122,7 @@ function emptyDraft() {
         brandId: '',
         brandText: '',
         modelNumber: '',
-        quantity: '1',
+        quantity: '0',
     };
 }
 
@@ -305,17 +324,17 @@ function Picker({
     value,
     onChange,
     disabled,
-    allowCustom = false,
-    emptyLabel,
+    emptyLabel = 'No matches.',
+    onAdd,
+    addLabel = 'Add new',
 }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [menuBox, setMenuBox] = useState(null);
     const rootRef = useRef(null);
-    const onChangeRef = useRef(onChange);
-    onChangeRef.current = onChange;
+    const menuRef = useRef(null);
     const selected = options.find((option) => option.id === value) || null;
-    const display = selected?.label || (allowCustom ? value : '');
+    const display = selected?.label || '';
     const filtered = useMemo(() => {
         const needle = query.trim().toLowerCase();
         if (!needle) return options;
@@ -326,7 +345,7 @@ function Picker({
         if (!open) return undefined;
         const onPointerDown = (event) => {
             if (rootRef.current?.contains(event.target)) return;
-            if (allowCustom) onChangeRef.current(query.trim());
+            if (menuRef.current?.contains(event.target)) return;
             setOpen(false);
         };
         const place = () => {
@@ -334,29 +353,25 @@ function Picker({
             if (!node) return;
             const rect = node.getBoundingClientRect();
             const spaceBelow = window.innerHeight - rect.bottom;
-            const openUp = spaceBelow < 180 && rect.top > spaceBelow;
+            const openUp = spaceBelow < 220 && rect.top > spaceBelow;
             setMenuBox({
                 left: rect.left,
                 width: rect.width,
-                maxHeight: Math.max(120, Math.min(240, openUp ? rect.top - 12 : spaceBelow - 12)),
+                maxHeight: Math.max(160, Math.min(280, openUp ? rect.top - 12 : spaceBelow - 12)),
                 top: openUp ? undefined : rect.bottom + 4,
                 bottom: openUp ? window.innerHeight - rect.top + 4 : undefined,
             });
         };
-        const onScroll = (event) => {
-            if (rootRef.current?.contains(event.target)) return;
-            place();
-        };
         place();
         document.addEventListener('mousedown', onPointerDown);
         window.addEventListener('resize', place);
-        window.addEventListener('scroll', onScroll, true);
+        window.addEventListener('scroll', place, true);
         return () => {
             document.removeEventListener('mousedown', onPointerDown);
             window.removeEventListener('resize', place);
-            window.removeEventListener('scroll', onScroll, true);
+            window.removeEventListener('scroll', place, true);
         };
-    }, [allowCustom, open, query]);
+    }, [open]);
 
     function choose(option) {
         onChange(option.id);
@@ -364,61 +379,27 @@ function Picker({
         setOpen(false);
     }
 
-    function openPicker() {
-        if (disabled) return;
-        setQuery(allowCustom ? display : '');
-        setOpen(true);
-    }
-
-    const showCustom = allowCustom && query.trim() && !filtered.some((option) => option.label.toLowerCase() === query.trim().toLowerCase());
-
     return (
         <div ref={rootRef} className="relative">
-            {open ? (
-                <div className="relative">
-                    {LeadingIcon ? <LeadingIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /> : null}
-                    <input
-                        autoFocus
-                        value={query}
-                        disabled={disabled}
-                        placeholder={placeholder}
-                        onChange={(event) => setQuery(event.target.value)}
-                        onKeyDown={(event) => {
-                            if (event.key === 'Escape') {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                setOpen(false);
-                                return;
-                            }
-                            if (event.key === 'Enter') {
-                                event.preventDefault();
-                                if (filtered.length === 1) choose(filtered[0]);
-                                else if (showCustom) {
-                                    onChange(query.trim());
-                                    setOpen(false);
-                                }
-                            }
-                        }}
-                        className={`${inputClass} ${LeadingIcon ? 'pl-9' : ''} pr-9`}
-                    />
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 rotate-180 text-slate-400" />
-                </div>
-            ) : (
-                <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={openPicker}
-                    className={`${inputClass} flex items-center gap-2 text-left`}
-                >
-                    {LeadingIcon ? <LeadingIcon className="h-4 w-4 shrink-0 text-slate-400" /> : null}
-                    <span className={`min-w-0 flex-1 truncate ${display ? 'text-slate-800' : 'text-slate-400'}`}>
-                        {display || placeholder}
-                    </span>
-                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
-                </button>
-            )}
+            <button
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                    if (disabled) return;
+                    setQuery('');
+                    setOpen((current) => !current);
+                }}
+                className={`${inputClass} flex items-center gap-2 text-left disabled:cursor-not-allowed`}
+            >
+                {LeadingIcon ? <LeadingIcon className="h-4 w-4 shrink-0 text-slate-400" /> : null}
+                <span className={`min-w-0 flex-1 truncate ${display ? 'text-slate-800' : 'text-slate-400'}`}>
+                    {display || placeholder}
+                </span>
+                <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 ${open ? 'rotate-180' : ''}`} />
+            </button>
             {open && menuBox ? (
                 <div
+                    ref={menuRef}
                     style={{
                         position: 'fixed',
                         left: menuBox.left,
@@ -428,30 +409,54 @@ function Picker({
                         maxHeight: menuBox.maxHeight,
                         zIndex: 80,
                     }}
-                    className="overflow-y-auto rounded-xl border border-[#E6E2F2] bg-white py-1 shadow-lg"
+                    className="flex flex-col overflow-hidden rounded-xl border border-[#E6E2F2] bg-white shadow-lg"
                 >
-                    {filtered.length === 0 && !showCustom ? (
-                        <p className="px-3 py-2 text-sm text-slate-500">{emptyLabel}</p>
-                    ) : filtered.map((option) => (
-                        <button
-                            key={option.id}
-                            type="button"
-                            onClick={() => choose(option)}
-                            className={`block w-full truncate px-3 py-2 text-left text-sm ${option.id === value ? 'bg-[#F3EEFF] font-medium text-[#6D28D9]' : 'text-slate-700 hover:bg-slate-50'}`}
-                        >
-                            {option.label}
-                        </button>
-                    ))}
-                    {showCustom ? (
+                    <div className="border-b border-[#F1EEF8] p-2">
+                        <input
+                            autoFocus
+                            value={query}
+                            placeholder="Search..."
+                            onChange={(event) => setQuery(event.target.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Escape') {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setOpen(false);
+                                    return;
+                                }
+                                if (event.key === 'Enter' && filtered.length === 1) {
+                                    event.preventDefault();
+                                    choose(filtered[0]);
+                                }
+                            }}
+                            className="h-9 w-full rounded-lg border border-[#E6E2F2] px-3 text-sm text-slate-800 outline-none focus:border-[#7C3AED]"
+                        />
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto py-1">
+                        {filtered.length === 0 ? (
+                            <p className="px-3 py-2 text-sm text-slate-500">{emptyLabel}</p>
+                        ) : filtered.map((option) => (
+                            <button
+                                key={option.id}
+                                type="button"
+                                onClick={() => choose(option)}
+                                className={`block w-full truncate px-3 py-2 text-left text-sm ${option.id === value ? 'bg-[#F3EEFF] font-medium text-[#6D28D9]' : 'text-slate-700 hover:bg-slate-50'}`}
+                            >
+                                {option.label}
+                            </button>
+                        ))}
+                    </div>
+                    {onAdd ? (
                         <button
                             type="button"
                             onClick={() => {
-                                onChange(query.trim());
                                 setOpen(false);
+                                setQuery('');
+                                onAdd();
                             }}
-                            className="block w-full truncate px-3 py-2 text-left text-sm text-[#6D28D9] hover:bg-[#F6F3FF]"
+                            className="border-t border-[#F1EEF8] px-3 py-2 text-center text-sm font-semibold text-[#7C3AED] hover:bg-[#F6F3FF]"
                         >
-                            Use “{query.trim()}”
+                            + {addLabel}
                         </button>
                     ) : null}
                 </div>
@@ -481,7 +486,7 @@ function printDelivery(form, customerName, workOrderNo) {
     const rows = form.lines.map((line, index) => `
         <tr>
             <td>${index + 1}</td>
-            <td>${escapeHtml(line.description)}${line.detail ? `<div class="muted">${escapeHtml(line.detail)}</div>` : ''}</td>
+            <td>${escapeHtml(line.itemName || line.description)}${line.description && line.itemName && line.description !== line.itemName ? `<div class="muted">${escapeHtml(line.description)}</div>` : ''}${line.modelNumber ? `<div class="muted">Model ${escapeHtml(line.modelNumber)}</div>` : ''}</td>
             <td>${escapeHtml(line.quantity)}${line.unit ? ` ${escapeHtml(line.unit)}` : ''}</td>
         </tr>
     `).join('');
@@ -520,8 +525,8 @@ function printDelivery(form, customerName, workOrderNo) {
     return true;
 }
 
-export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer = false }) {
-    const [form, setForm] = useState(emptyForm);
+export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer = false, delivery = null, readOnly = false }) {
+    const [form, setForm] = useState(() => formFromDelivery(delivery));
     const [draft, setDraft] = useState(emptyDraft);
     const [customers, setCustomers] = useState([]);
     const [contacts, setContacts] = useState([]);
@@ -536,14 +541,18 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
     const [saving, setSaving] = useState('');
     const [error, setError] = useState('');
     const [lineError, setLineError] = useState('');
+    const [customerModal, setCustomerModal] = useState(false);
+    const [contactModal, setContactModal] = useState(false);
     const customerRequest = useRef(0);
+    const nestedOpen = useRef(false);
+    nestedOpen.current = customerModal || contactModal;
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
     const scheduled = isScheduled(form.deliveryType);
 
     useEffect(() => {
         const onKey = (event) => {
-            if (event.key === 'Escape') onCloseRef.current();
+            if (event.key === 'Escape' && !nestedOpen.current) onCloseRef.current();
         };
         window.addEventListener('keydown', onKey);
         const previousOverflow = document.body.style.overflow;
@@ -660,39 +669,53 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         });
         return [...fromCatalog, ...extras];
     }, [itemOptions, stockedItems]);
-    const subcategoryOptions = useMemo(() => {
-        const rows = stockedSubcategories.filter((row) => {
-            if (draft.categoryId && row.categoryId !== draft.categoryId && !row.categoryIds.includes(draft.categoryId)) return false;
-            return stockedItems.some((item) => item.subcategoryId === row.id && (!draft.categoryId || item.categoryId === draft.categoryId));
-        });
-        return rows.map((row) => ({ value: row.id, label: row.label }));
-    }, [draft.categoryId, stockedItems, stockedSubcategories]);
-    const itemChoices = useMemo(() => {
-        const allowedSubs = new Set(subcategoryOptions.map((row) => row.value));
-        const rows = stockedItemOptions.filter((row) => {
-            if (draft.subcategoryId) return row.subcategoryId === draft.subcategoryId;
-            if (draft.categoryId) return allowedSubs.has(row.subcategoryId);
+    function narrowedItems(skip) {
+        return stockedItems.filter((row) => {
+            if (skip !== 'category' && draft.categoryId && row.categoryId !== draft.categoryId) return false;
+            if (skip !== 'subcategory' && draft.subcategoryId && row.subcategoryId !== draft.subcategoryId) return false;
+            if (skip !== 'brand' && draft.brandId && row.brandId !== draft.brandId) return false;
+            if (skip !== 'item' && draft.itemOptionId && row.itemOptionId !== draft.itemOptionId && row._id !== draft.itemOptionId) return false;
+            if (skip !== 'model' && cleanText(draft.modelNumber) && !namesEqual(row.modelNumber, draft.modelNumber)) return false;
             return true;
         });
-        return rows.map((row) => ({ value: row.id, label: row.label }));
-    }, [draft.categoryId, draft.subcategoryId, stockedItemOptions, subcategoryOptions]);
-    const modelOptions = useMemo(() => {
+    }
+    const categoryChoices = useMemo(() => {
+        const ids = new Set(narrowedItems('category').map((row) => row.categoryId));
+        return stockedCategories.filter((row) => ids.has(row.id)).map((row) => ({ id: row.id, label: row.label }));
+    }, [draft.subcategoryId, draft.brandId, draft.itemOptionId, draft.modelNumber, stockedCategories, stockedItems]);
+    const subcategoryChoices = useMemo(() => {
+        const ids = new Set(narrowedItems('subcategory').map((row) => row.subcategoryId));
+        return stockedSubcategories.filter((row) => ids.has(row.id)).map((row) => ({ id: row.id, label: row.label }));
+    }, [draft.categoryId, draft.brandId, draft.itemOptionId, draft.modelNumber, stockedItems, stockedSubcategories]);
+    const itemChoices = useMemo(() => {
+        const rows = narrowedItems('item');
+        const seen = new Map();
+        rows.forEach((row) => {
+            const option = stockedItemOptions.find((item) => item.id === row.itemOptionId) || stockedItemOptions.find((item) => item.id === row._id);
+            const id = option?.id || row.itemOptionId || row._id;
+            const label = option?.label || cleanText(row.itemName || row.description);
+            if (id && label && !seen.has(id)) seen.set(id, label);
+        });
+        return [...seen.entries()].map(([id, label]) => ({ id, label })).sort((left, right) => left.label.localeCompare(right.label));
+    }, [draft.categoryId, draft.subcategoryId, draft.brandId, draft.modelNumber, stockedItemOptions, stockedItems]);
+    const brandChoices = useMemo(() => {
+        const ids = new Set(narrowedItems('brand').map((row) => row.brandId));
+        return stockedBrands.filter((row) => ids.has(row.id)).map((row) => ({ id: row.id, label: row.label }));
+    }, [draft.categoryId, draft.subcategoryId, draft.itemOptionId, draft.modelNumber, stockedBrands, stockedItems]);
+    const modelChoices = useMemo(() => {
         const values = new Map();
-        stockedItems.forEach((row) => {
-            if (draft.categoryId && row.categoryId !== draft.categoryId) return;
-            if (draft.subcategoryId && row.subcategoryId !== draft.subcategoryId) return;
-            if (draft.brandId && row.brandId !== draft.brandId) return;
-            if (draft.itemOptionId && row.itemOptionId !== draft.itemOptionId && row._id !== draft.itemOptionId) return;
+        narrowedItems('model').forEach((row) => {
             const model = cleanText(row.modelNumber);
-            if (model) values.set(model, Number(row.availableQuantity) || 0);
+            if (!model || values.has(model)) return;
+            values.set(model, Number(row.availableQuantity) || 0);
         });
         return [...values.entries()]
             .sort((left, right) => left[0].localeCompare(right[0]))
-            .map(([model, quantity]) => ({ value: model, label: `${model} · ${quantity} in stock` }));
+            .map(([model, quantity]) => ({ id: model, label: `${model} · ${quantity} in stock` }));
     }, [draft.brandId, draft.categoryId, draft.itemOptionId, draft.subcategoryId, stockedItems]);
 
-    function chooseCustomer(customerId) {
-        const nextCustomer = customers.find((row) => row.id === customerId) || null;
+    function chooseCustomer(customerId, known) {
+        const nextCustomer = known || customers.find((row) => row.id === customerId) || null;
         const ticket = customerRequest.current + 1;
         customerRequest.current = ticket;
         const fallback = nextCustomer && (nextCustomer.contact || nextCustomer.phone)
@@ -763,16 +786,6 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         if (match && match.id !== form.customerId) chooseCustomer(match.id);
     }
 
-    function resetForm() {
-        const deliveryType = form.deliveryType;
-        setForm({ ...emptyForm(), deliveryType });
-        setDraft(emptyDraft());
-        setContacts([]);
-        setContactId('');
-        setError('');
-        setLineError('');
-    }
-
     function ownedItem(model) {
         const text = cleanText(model);
         if (!text) return null;
@@ -784,69 +797,96 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         const subcategory = subcategories.find((row) => row.id === owner.subcategoryId);
         const brand = brands.find((row) => row.id === owner.brandId);
         const item = itemOptions.find((row) => row.id === owner.itemOptionId);
-        setDraft({
-            categoryId: category?.id || '',
+        setDraft((current) => ({
+            categoryId: category?.id || owner.categoryId || '',
             categoryText: category?.label || '',
-            subcategoryId: subcategory?.id || '',
+            subcategoryId: subcategory?.id || owner.subcategoryId || '',
             subcategoryText: subcategory?.label || '',
-            itemOptionId: item?.id || '',
+            itemOptionId: item?.id || owner.itemOptionId || '',
             itemText: item?.label || owner.itemName || '',
-            brandId: brand?.id || '',
+            brandId: brand?.id || owner.brandId || '',
             brandText: brand?.label || '',
-            modelNumber: cleanText(model),
+            modelNumber: cleanText(model || owner.modelNumber),
+            quantity: current.quantity ?? '0',
+        }));
+        setLineError('');
+    }
+
+    function commitStock(next) {
+        const matches = stockedItems.filter((row) => {
+            if (next.categoryId && row.categoryId !== next.categoryId) return false;
+            if (next.subcategoryId && row.subcategoryId !== next.subcategoryId) return false;
+            if (next.brandId && row.brandId !== next.brandId) return false;
+            if (next.itemOptionId && row.itemOptionId !== next.itemOptionId && row._id !== next.itemOptionId) return false;
+            if (next.modelNumber && !namesEqual(row.modelNumber, next.modelNumber)) return false;
+            return true;
         });
+        if (matches.length === 1) {
+            fillFromItem(matches[0], matches[0].modelNumber);
+            return;
+        }
+        const category = categories.find((row) => row.id === next.categoryId);
+        const subcategory = subcategories.find((row) => row.id === next.subcategoryId);
+        const brand = brands.find((row) => row.id === next.brandId);
+        const item = stockedItemOptions.find((row) => row.id === next.itemOptionId);
+        setDraft((current) => ({
+            ...current,
+            categoryId: next.categoryId || '',
+            categoryText: category?.label || '',
+            subcategoryId: next.subcategoryId || '',
+            subcategoryText: subcategory?.label || '',
+            brandId: next.brandId || '',
+            brandText: brand?.label || '',
+            itemOptionId: next.itemOptionId || '',
+            itemText: item?.label || '',
+            modelNumber: next.modelNumber || '',
+        }));
         setLineError('');
     }
 
     function chooseCategory(nextId) {
-        const category = categories.find((row) => row.id === nextId);
-        const sub = subcategories.find((row) => row.id === draft.subcategoryId);
-        const keepSub = sub && (sub.categoryId === nextId || sub.categoryIds.includes(nextId));
-        setDraft((current) => ({
-            ...current,
-            categoryId: nextId,
-            categoryText: category?.label || '',
-            subcategoryId: keepSub ? current.subcategoryId : '',
-            subcategoryText: keepSub ? current.subcategoryText : '',
-            itemOptionId: keepSub ? current.itemOptionId : '',
-            itemText: keepSub ? current.itemText : '',
-            modelNumber: current.modelNumber && ownedItem(current.modelNumber) ? '' : current.modelNumber,
-        }));
+        commitStock({ categoryId: nextId, subcategoryId: '', brandId: '', itemOptionId: '', modelNumber: '' });
     }
 
     function chooseSubcategory(nextId) {
         const sub = subcategories.find((row) => row.id === nextId);
-        const category = categories.find((row) => row.id === (sub?.categoryId || draft.categoryId));
-        setDraft((current) => ({
-            ...current,
-            categoryId: category?.id || current.categoryId,
-            categoryText: category?.label || current.categoryText,
+        commitStock({
+            categoryId: sub?.categoryId || draft.categoryId,
             subcategoryId: nextId,
-            subcategoryText: sub?.label || '',
+            brandId: '',
             itemOptionId: '',
-            itemText: '',
-            modelNumber: current.modelNumber && ownedItem(current.modelNumber) ? '' : current.modelNumber,
-        }));
+            modelNumber: '',
+        });
     }
 
     function chooseItem(nextId) {
-        const item = stockedItemOptions.find((row) => row.id === nextId) || itemOptions.find((row) => row.id === nextId);
-        setDraft((current) => ({
-            ...current,
+        commitStock({
+            categoryId: draft.categoryId,
+            subcategoryId: draft.subcategoryId,
+            brandId: draft.brandId,
             itemOptionId: nextId,
-            itemText: item?.label || '',
-            modelNumber: current.modelNumber && ownedItem(current.modelNumber)?.itemOptionId !== nextId ? '' : current.modelNumber,
-        }));
+            modelNumber: '',
+        });
     }
 
     function chooseBrand(nextId) {
-        const brand = brands.find((row) => row.id === nextId);
-        setDraft((current) => ({
-            ...current,
+        commitStock({
+            categoryId: draft.categoryId,
+            subcategoryId: draft.subcategoryId,
             brandId: nextId,
-            brandText: brand?.label || '',
-            modelNumber: current.modelNumber && ownedItem(current.modelNumber) ? '' : current.modelNumber,
-        }));
+            itemOptionId: draft.itemOptionId,
+            modelNumber: '',
+        });
+    }
+
+    function chooseModel(model) {
+        commitStock({
+            categoryId: draft.categoryId,
+            subcategoryId: draft.subcategoryId,
+            brandId: draft.brandId,
+            itemOptionId: draft.itemOptionId,
+            modelNumber: model,
+        });
     }
 
     function addLine() {
@@ -933,8 +973,8 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         }
         const itemName = cleanText(stockItem.itemName || item?.label || stockItem.description);
         const modelNumber = cleanText(stockItem.modelNumber);
-        const description = stockItem.description || [brand.label, modelNumber, itemName].filter(Boolean).join(' ');
-        const detail = `${category.label} > ${subcategory.label} | Brand: ${brand.label}${modelNumber ? ` | Model No: ${modelNumber}` : ''}`;
+        const description = cleanText(stockItem.description)
+            || [brand.label, itemName, modelNumber, subcategory.label].filter(Boolean).join(' ');
         const line = {
             lineKey: `${stockItem._id}-${Date.now()}-${form.lines.length}`,
             categoryId: category.id,
@@ -948,7 +988,7 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
             modelNumber,
             inventoryItemId: stockItem._id,
             description,
-            detail,
+            detail: '',
             quantity,
             unit: stockItem.unitOfMeasure || '',
             stockOnHand: onHand,
@@ -999,8 +1039,14 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         });
         for (const [itemId, quantity] of totals) {
             const item = inventoryItems.find((row) => row._id === itemId);
-            const onHand = Number(item?.availableQuantity) || 0;
-            if (!inStock(item)) return 'Only items that are in stock can be added.';
+            const baseline = Array.isArray(delivery?.stockLines) ? delivery.stockLines : (delivery?.lines || []);
+            const alreadyOut = delivery?.stockApplied
+                ? baseline.reduce((sum, line) => (
+                    line.inventoryItemId === itemId ? sum + Number(line.quantity || 0) : sum
+                ), 0)
+                : 0;
+            const onHand = (Number(item?.availableQuantity) || 0) + alreadyOut;
+            if (!item || item.pendingStock || onHand <= 0) return 'Only items that are in stock can be added.';
             if (quantity > onHand) return `${item.itemName || item.description || 'An item'} only has ${onHand} in stock.`;
         }
         return '';
@@ -1015,8 +1061,9 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         setSaving(action);
         setError('');
         try {
-            await createDelivery({ ...payload(), action });
-            onSaved();
+            const body = { ...payload(), action };
+            const saved = delivery?.id ? await updateDelivery(delivery.id, body) : await createDelivery(body);
+            onSaved(saved);
         } catch (saveError) {
             setError(deliveryApiMessage(saveError, 'Could not save this delivery order.'));
         } finally {
@@ -1027,7 +1074,42 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
     const confirmLabel = 'Submit';
     const DetailsIcon = scheduled ? Truck : UserRound;
 
+    function rememberCustomer(saved) {
+        const id = String(saved?.id || saved?._id || '');
+        if (!id) return;
+        const row = {
+            id,
+            name: saved?.name || '',
+            address: saved?.address || saved?.location || '',
+            contact: saved?.contact || saved?.primaryContact || '',
+            phone: saved?.phone || '',
+        };
+        setCustomers((current) => [...current.filter((item) => item.id !== id), row].filter((item) => item.id && item.name));
+        setCustomerModal(false);
+        chooseCustomer(id, row);
+    }
+
+    function rememberContact(saved) {
+        const person = {
+            id: String(saved?.id || saved?._id || ''),
+            name: saved?.name || 'Contact',
+            phones: asArray(saved?.phones).map((phone) => String(phone || '')).filter(Boolean),
+            isPrimary: Boolean(saved?.isPrimary),
+        };
+        if (!person.id) return;
+        setContacts((current) => [...current.filter((row) => row.id !== person.id), person]);
+        setContactId(person.id);
+        setForm((current) => ({
+            ...current,
+            contactPersonName: person.name,
+            contactNumber: person.phones[0] || '',
+        }));
+        setContactModal(false);
+        setError('');
+    }
+
     return (
+        <>
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/45 p-3 backdrop-blur-[2px] sm:p-6">
             <div
                 role="dialog"
@@ -1040,17 +1122,9 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F3EEFF] text-[#7C3AED]">
                             <Boxes className="h-5 w-5" />
                         </span>
-                        <h2 id="add-delivery-title" className="truncate text-xl font-bold text-slate-900">Add Delivery</h2>
+                        <h2 id="add-delivery-title" className="truncate text-xl font-bold text-slate-900">{readOnly ? 'Delivery' : delivery?.id ? 'Edit Delivery' : 'Add Delivery'}</h2>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={resetForm}
-                            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#DDD6FE] px-3 text-sm font-semibold text-[#7C3AED] hover:bg-[#F6F3FF]"
-                        >
-                            <RotateCcw className="h-3.5 w-3.5" />
-                            Reset
-                        </button>
                         <button
                             type="button"
                             onClick={onClose}
@@ -1063,6 +1137,7 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
+                    <fieldset disabled={readOnly} className="min-w-0 border-0 p-0 disabled:opacity-100">
                     <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-[#F4F2FA] px-4 py-3">
                         <span className="text-sm font-semibold text-slate-800">Delivery Type</span>
                         <div className="flex flex-wrap gap-2">
@@ -1107,9 +1182,8 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                         placeholder={loading ? 'Loading projects...' : 'Select project...'}
                                         options={projectOptions}
                                         value={form.projectName}
-                                        allowCustom
                                         disabled={loading}
-                                        emptyLabel="No projects yet. Type a project name."
+                                        emptyLabel="No projects match that search."
                                         onChange={(projectName) => {
                                             setForm((current) => ({
                                                 ...current,
@@ -1122,14 +1196,16 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                         }}
                                     />
                                 </Field>
-                                <SelectField
-                                    label="WO No"
-                                    value={form.workOrderId}
-                                    onChange={chooseWorkOrder}
-                                    placeholder={workOrderChoices.length ? 'Select WO no...' : 'No work orders'}
-                                    options={workOrderChoices}
-                                    disabled={loading || workOrderChoices.length === 0}
-                                />
+                                <Field label="WO No">
+                                    <Picker
+                                        placeholder={workOrderChoices.length ? 'Select WO no...' : 'No work orders'}
+                                        options={workOrderChoices}
+                                        value={form.workOrderId}
+                                        disabled={loading || workOrderChoices.length === 0}
+                                        emptyLabel="No work orders match that search."
+                                        onChange={chooseWorkOrder}
+                                    />
+                                </Field>
                             </div>
                         ) : null}
 
@@ -1151,9 +1227,11 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                     leadingIcon={Search}
                                     options={customers.map((row) => ({ id: row.id, label: row.name }))}
                                     value={form.customerId}
-                                    onChange={chooseCustomer}
+                                    onChange={(id) => chooseCustomer(id)}
                                     disabled={loading}
                                     emptyLabel="No customers match that search."
+                                    onAdd={() => setCustomerModal(true)}
+                                    addLabel="Add new customer"
                                 />
                             </Field>
                             <Field label="Delivery Address" required>
@@ -1165,45 +1243,39 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                 />
                             </Field>
                             <Field label="Contact Person Name" required hint="(From selected customer contacts)">
-                                {contacts.length > 0 ? (
-                                    <div className="relative">
-                                        <select
-                                            value={contactId}
-                                            onChange={(event) => chooseContact(event.target.value)}
-                                            className={`${controlClass} h-11 appearance-none px-3 pr-9 ${contactId ? 'text-slate-800' : 'text-slate-400'}`}
-                                        >
-                                            <option value="">Select contact person...</option>
-                                            {contacts.map((row) => (
-                                                <option key={row.id} value={row.id} className="text-slate-800">{row.name}</option>
-                                            ))}
-                                        </select>
-                                        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                                    </div>
-                                ) : (
-                                    <input
-                                        value={form.contactPersonName}
-                                        disabled={!form.customerId}
-                                        onChange={(event) => setForm((current) => ({ ...current, contactPersonName: event.target.value }))}
-                                        placeholder="Select contact person..."
-                                        className={inputClass}
-                                    />
-                                )}
+                                <Picker
+                                    placeholder={form.customerId ? 'Select contact person...' : 'Select a customer first'}
+                                    options={contacts.map((row) => ({ id: row.id, label: row.name }))}
+                                    value={contactId}
+                                    onChange={chooseContact}
+                                    disabled={!form.customerId}
+                                    emptyLabel="No contacts match that search."
+                                    onAdd={form.customerId ? () => setContactModal(true) : undefined}
+                                    addLabel="Add new contact"
+                                />
                             </Field>
                             <Field label="Contact Number" required>
-                                <div className="relative">
-                                    <Phone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                                    <input
-                                        value={form.contactNumber}
-                                        onChange={(event) => setForm((current) => ({ ...current, contactNumber: event.target.value }))}
-                                        placeholder="Enter contact number..."
-                                        className={`${inputClass} pl-9`}
-                                    />
-                                </div>
+                                <Picker
+                                    placeholder={contactId ? 'Select contact number...' : 'Select a contact first'}
+                                    leadingIcon={Phone}
+                                    options={(contacts.find((row) => row.id === contactId)?.phones || []).map((phone) => ({ id: phone, label: phone }))}
+                                    value={form.contactNumber}
+                                    onChange={(phone) => setForm((current) => ({ ...current, contactNumber: phone }))}
+                                    disabled={!contactId}
+                                    emptyLabel="This contact has no number."
+                                />
                             </Field>
                         </div>
                     </section>
 
                     <section className="mt-4 rounded-2xl border border-[#ECE8F6] bg-[#F7F6FC] p-4">
+                        {readOnly ? (
+                            <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900">
+                                <Boxes className="h-4 w-4 text-[#7C3AED]" />
+                                Delivery Items
+                            </h3>
+                        ) : (
+                        <>
                         <div className="mb-4 flex items-center justify-between gap-3">
                             <div>
                                 <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
@@ -1231,112 +1303,21 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                         </div>
 
                         <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                            <SuggestField
-                                label="Category"
-                                required
-                                text={draft.categoryText}
-                                options={stockedCategories.map((row) => ({ value: row.id, label: row.label }))}
-                                placeholder="Select category..."
-                                onText={(text) => setDraft((current) => ({
-                                    ...current,
-                                    categoryText: text,
-                                    categoryId: namesEqual(stockedCategories.find((row) => row.id === current.categoryId)?.label, text) ? current.categoryId : '',
-                                    subcategoryId: namesEqual(stockedCategories.find((row) => row.id === current.categoryId)?.label, text) ? current.subcategoryId : '',
-                                    subcategoryText: namesEqual(stockedCategories.find((row) => row.id === current.categoryId)?.label, text) ? current.subcategoryText : '',
-                                    itemOptionId: namesEqual(stockedCategories.find((row) => row.id === current.categoryId)?.label, text) ? current.itemOptionId : '',
-                                    itemText: namesEqual(stockedCategories.find((row) => row.id === current.categoryId)?.label, text) ? current.itemText : '',
-                                }))}
-                                onPick={chooseCategory}
-                                onCommit={(text) => {
-                                    const selected = stockedCategories.find((row) => row.id === draft.categoryId);
-                                    if (selected && namesEqual(selected.label, text)) return;
-                                    const match = matchOne(stockedCategories, text);
-                                    if (match) chooseCategory(match.id);
-                                }}
-                            />
-                            <SuggestField
-                                label="Sub Category"
-                                required
-                                text={draft.subcategoryText}
-                                options={subcategoryOptions}
-                                placeholder="Select sub category..."
-                                onText={(text) => setDraft((current) => ({
-                                    ...current,
-                                    subcategoryText: text,
-                                    subcategoryId: namesEqual(stockedSubcategories.find((row) => row.id === current.subcategoryId)?.label, text) ? current.subcategoryId : '',
-                                    itemOptionId: '',
-                                    itemText: '',
-                                }))}
-                                onPick={chooseSubcategory}
-                                onCommit={(text) => {
-                                    const selected = stockedSubcategories.find((row) => row.id === draft.subcategoryId);
-                                    if (selected && namesEqual(selected.label, text)) return;
-                                    const pool = draft.categoryId
-                                        ? stockedSubcategories.filter((row) => row.categoryId === draft.categoryId || row.categoryIds.includes(draft.categoryId))
-                                        : stockedSubcategories;
-                                    const match = matchOne(pool, text);
-                                    if (match) chooseSubcategory(match.id);
-                                }}
-                            />
-                            <SuggestField
-                                label="Item"
-                                required
-                                text={draft.itemText}
-                                options={itemChoices}
-                                placeholder="Select item..."
-                                onText={(text) => setDraft((current) => ({
-                                    ...current,
-                                    itemText: text,
-                                    itemOptionId: namesEqual(stockedItemOptions.find((row) => row.id === current.itemOptionId)?.label, text) ? current.itemOptionId : '',
-                                }))}
-                                onPick={chooseItem}
-                                onCommit={(text) => {
-                                    const selected = stockedItemOptions.find((row) => row.id === draft.itemOptionId);
-                                    if (selected && namesEqual(selected.label, text)) return;
-                                    const match = matchOne(itemChoices.map((row) => ({ id: row.value, label: row.label })), text);
-                                    if (match) chooseItem(match.id);
-                                }}
-                            />
-                            <SuggestField
-                                label="Brand"
-                                required
-                                text={draft.brandText}
-                                options={stockedBrands.map((row) => ({ value: row.id, label: row.label }))}
-                                placeholder="Select brand..."
-                                onText={(text) => setDraft((current) => ({
-                                    ...current,
-                                    brandText: text,
-                                    brandId: namesEqual(stockedBrands.find((row) => row.id === current.brandId)?.label, text) ? current.brandId : '',
-                                }))}
-                                onPick={chooseBrand}
-                                onCommit={(text) => {
-                                    const selected = stockedBrands.find((row) => row.id === draft.brandId);
-                                    if (selected && namesEqual(selected.label, text)) return;
-                                    const match = matchOne(stockedBrands, text);
-                                    if (match) chooseBrand(match.id);
-                                }}
-                            />
-                            <SuggestField
-                                label="Model No"
-                                text={draft.modelNumber}
-                                options={modelOptions}
-                                placeholder="Enter model no..."
-                                onText={(text) => {
-                                    setDraft((current) => ({ ...current, modelNumber: text }));
-                                    const owner = ownedItem(text);
-                                    if (owner && namesEqual(owner.modelNumber, text)) fillFromItem(owner, text);
-                                }}
-                                onPick={(model) => {
-                                    const owner = ownedItem(model);
-                                    if (owner) fillFromItem(owner, model);
-                                    else setDraft((current) => ({ ...current, modelNumber: model }));
-                                }}
-                                onCommit={(text) => {
-                                    const owner = ownedItem(text);
-                                    if (owner && namesEqual(owner.modelNumber, text)) fillFromItem(owner, text);
-                                    else setDraft((current) => ({ ...current, modelNumber: cleanText(text) }));
-                                }}
-                            />
+                            <Field label="Category" required>
+                                <Picker placeholder="Select category..." options={categoryChoices} value={draft.categoryId} onChange={chooseCategory} emptyLabel="No categories in stock." />
+                            </Field>
+                            <Field label="Sub Category" required>
+                                <Picker placeholder="Select sub category..." options={subcategoryChoices} value={draft.subcategoryId} onChange={chooseSubcategory} emptyLabel="No sub categories in stock." />
+                            </Field>
+                            <Field label="Item" required>
+                                <Picker placeholder="Select item..." options={itemChoices} value={draft.itemOptionId} onChange={chooseItem} emptyLabel="No items in stock." />
+                            </Field>
+                            <Field label="Brand" required>
+                                <Picker placeholder="Select brand..." options={brandChoices} value={draft.brandId} onChange={chooseBrand} emptyLabel="No brands in stock." />
+                            </Field>
+                            <Field label="Model No">
+                                <Picker placeholder="Select model no..." options={modelChoices} value={draft.modelNumber} onChange={chooseModel} emptyLabel="No model numbers in stock." />
+                            </Field>
                             <div className="flex items-end justify-end gap-2">
                                 <label className="block">
                                     <span className="mb-1.5 block text-sm font-medium text-slate-700">Qty <span className="text-red-500">*</span></span>
@@ -1362,8 +1343,10 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                             </div>
                         </div>
                         {lineError ? <p className="mt-2 text-sm text-red-600">{lineError}</p> : null}
+                        </>
+                        )}
 
-                        <div className="mt-4 overflow-hidden rounded-xl border border-[#E7E2F4] bg-white">
+                        <div className={`${readOnly ? '' : 'mt-4 '}overflow-hidden rounded-xl border border-[#E7E2F4] bg-white`}>
                             <table className="min-w-full text-left text-sm">
                                 <thead className="bg-[#F3EEFF] text-slate-700">
                                     <tr>
@@ -1371,13 +1354,13 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                         <th className="px-4 py-3 font-semibold">Item</th>
                                         <th className="px-4 py-3 text-right font-semibold">In stock</th>
                                         <th className="px-4 py-3 text-right font-semibold">Qty</th>
-                                        <th className="w-24 px-4 py-3 text-right font-semibold">Action</th>
+                                        {readOnly ? null : <th className="w-24 px-4 py-3 text-right font-semibold">Action</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {form.lines.length === 0 ? (
                                         <tr>
-                                            <td colSpan={5} className="px-4 py-8 text-center text-slate-400">Add an item to this delivery.</td>
+                                            <td colSpan={readOnly ? 4 : 5} className="px-4 py-8 text-center text-slate-400">{readOnly ? 'No items on this delivery.' : 'Add an item to this delivery.'}</td>
                                         </tr>
                                     ) : form.lines.map((line, index) => {
                                         const live = inventoryItems.find((row) => row._id === line.inventoryItemId);
@@ -1387,7 +1370,10 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                             <td className="px-4 py-3 text-slate-500">{index + 1}</td>
                                             <td className="px-4 py-3">
                                                 <p className="font-medium text-slate-800">{line.itemName || line.description}</p>
-                                                {line.detail ? <p className="mt-0.5 text-xs text-slate-400">{line.detail}</p> : null}
+                                                {line.description && line.itemName && line.description !== line.itemName ? (
+                                                    <p className="mt-0.5 text-xs text-slate-400">{line.description}</p>
+                                                ) : null}
+                                                {line.modelNumber ? <p className="mt-0.5 text-xs text-slate-400">Model {line.modelNumber}</p> : null}
                                             </td>
                                             <td className="px-4 py-3 text-right tabular-nums text-slate-500">{onHand}</td>
                                             <td className="px-4 py-3">
@@ -1418,6 +1404,7 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                                     {line.unit ? <span className="text-xs text-slate-400">{line.unit}</span> : null}
                                                 </div>
                                             </td>
+                                            {readOnly ? null : (
                                             <td className="px-4 py-3 text-right">
                                                 <button
                                                     type="button"
@@ -1431,6 +1418,7 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                                     <Trash2 className="h-4 w-4" />
                                                 </button>
                                             </td>
+                                            )}
                                         </tr>
                                         );
                                     })}
@@ -1438,11 +1426,13 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                             </table>
                         </div>
                     </section>
+                    </fieldset>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#F1EEF8] px-5 py-4 sm:px-6">
                     <p className="min-h-5 text-sm text-red-600">{error}</p>
                     <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                        {readOnly ? null : (
                         <button
                             type="button"
                             onClick={() => {
@@ -1455,6 +1445,8 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                             <Printer className="h-4 w-4" />
                             Print DO
                         </button>
+                        )}
+                        {readOnly || (delivery?.id && delivery.status && delivery.status !== 'Draft') ? null : (
                         <button
                             type="button"
                             disabled={Boolean(saving)}
@@ -1464,13 +1456,15 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                             <FileText className="h-4 w-4" />
                             {saving === 'draft' ? 'Saving...' : 'Draft'}
                         </button>
+                        )}
                         <button
                             type="button"
                             onClick={onClose}
                             className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                         >
-                            Cancel
+                            {readOnly ? 'Close' : 'Cancel'}
                         </button>
+                        {readOnly ? null : (
                         <button
                             type="button"
                             disabled={Boolean(saving)}
@@ -1480,9 +1474,26 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                             <Check className="h-4 w-4" />
                             {saving === 'submit' ? 'Saving...' : confirmLabel}
                         </button>
+                        )}
                     </div>
                 </div>
             </div>
         </div>
+        {customerModal ? (
+            <AddCustomerModal
+                stacked
+                onClose={() => setCustomerModal(false)}
+                onSaved={rememberCustomer}
+            />
+        ) : null}
+        {contactModal && form.customerId ? (
+            <AddCustomerContactModal
+                stacked
+                customerId={form.customerId}
+                onClose={() => setContactModal(false)}
+                onSaved={rememberContact}
+            />
+        ) : null}
+        </>
     );
 }

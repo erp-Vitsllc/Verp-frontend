@@ -7,6 +7,10 @@ export function listInventoryBills(vendorId) {
     }).then((response) => response.data);
 }
 
+export function deleteInventoryBill(id) {
+    return axiosInstance.delete(`/Inventory/stock-entries/${id}`, { skipToast: true }).then((response) => response.data);
+}
+
 export function billsApiMessage(error, fallback) {
     return error?.response?.data?.message || error?.message || fallback;
 }
