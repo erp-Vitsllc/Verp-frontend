@@ -287,7 +287,8 @@ export default function CustomerManagementList() {
         })
             .then((data) => {
                 if (cancelled) return;
-                setRows(Array.isArray(data?.customers) ? data.customers : []);
+                const added = (Array.isArray(data?.customers) ? data.customers : []).filter((row) => row.saved !== false);
+                setRows(added);
                 setTotal(Number(data?.total) || 0);
                 setFilters({
                     products: data?.filters?.products || [],

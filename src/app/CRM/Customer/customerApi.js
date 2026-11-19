@@ -60,51 +60,8 @@ export function listZohoCustomerOptions() {
     return read(false).then((cached) => (cached.length ? cached : read(true)));
 }
 
-function customersFromZohoOptions(options, params = {}) {
-    const search = text(params.search).toLowerCase();
-    const product = text(params.product);
-    const brand = text(params.brand).toLowerCase();
-    const paymentTerms = text(params.paymentTerms).toLowerCase();
-    const mapped = (Array.isArray(options) ? options : []).map(normalizeZohoOption).filter(Boolean);
-    const filters = {
-        products: [],
-        brands: [],
-        paymentTerms: [...new Set(mapped.map((row) => row.paymentTerms).filter(Boolean))].sort((left, right) => left.localeCompare(right)),
-    };
-    const rows = mapped.filter((row) => {
-        if (paymentTerms && row.paymentTerms.toLowerCase() !== paymentTerms) return false;
-        if (brand) return false;
-        if (product) return false;
-        if (!search) return true;
-        return [row.name, row.location, row.contact, row.email, row.phone, row.paymentTerms].join(' ').toLowerCase().includes(search);
-    }).sort((left, right) => left.name.localeCompare(right.name));
-    const page = Math.max(1, Number(params.page) || 1);
-    const limit = Number(params.limit);
-    const size = Number.isFinite(limit) && limit > 0 ? limit : 0;
-    return {
-        customers: (size ? rows.slice((page - 1) * size, (page - 1) * size + size) : rows).map((row) => ({
-            ...row,
-            saved: false,
-            code: '',
-            zohoContactId: row.id,
-            address: row.location,
-            brands: [],
-            listBrands: [],
-            products: null,
-        })),
-        total: rows.length,
-        page,
-        limit: size,
-        filters,
-    };
-}
-
 export function listCustomers(params) {
-    return axiosInstance.get('/CRM/customers', { params, skipToast: true, timeout: 120000 }).then(dataOf).catch((error) => {
-        const status = error?.response?.status ?? error?.originalError?.response?.status;
-        if (status !== 404) return Promise.reject(error);
-        return listZohoCustomerOptions().then((options) => customersFromZohoOptions(options, params));
-    });
+    return axiosInstance.get('/CRM/customers', { params, skipToast: true }).then(dataOf);
 }
 
 export function nextCustomerCode() {
