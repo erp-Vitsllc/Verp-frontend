@@ -9,7 +9,6 @@ const MINT = [237, 249, 249];
 const PANEL = [245, 249, 250];
 const ZEBRA = [245, 250, 251];
 const HAIRLINE = [228, 235, 240];
-const RULE = [168, 186, 195];
 const WHITE = [255, 255, 255];
 
 const PAGE_H = 297;
@@ -94,7 +93,6 @@ function buildDocument(source) {
         lpoNo: dash(source.lpoNo),
         itemCount: String(lines.length),
         note: dash(source.note),
-        attachmentName: dash(source.attachmentName),
         lines,
         totalAmount,
         fileNo: fileToken(source.billNo || 'Draft'),
@@ -314,47 +312,17 @@ function drawTotal(pdf, y, doc) {
 
 function drawNotes(pdf, y, doc) {
     const noteLines = wrapped(pdf, doc.note, WIDTH - 16, 9, 'normal').slice(0, 6);
-    const fileLines = wrapped(pdf, doc.attachmentName, WIDTH - 16, 10, 'bold').slice(0, 2);
     const noteBlock = 4.6 + noteLines.length * 4;
-    const fileBlock = 4.6 + fileLines.length * 4.4;
-    const height = 8 + noteBlock + 6 + fileBlock + 4;
+    const height = 8 + noteBlock + 4;
     pdf.setFillColor(...PANEL);
     pdf.roundedRect(LEFT, y, WIDTH, height, 2.2, 2.2, 'F');
-    let cursor = y + 6;
+    const cursor = y + 6;
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(7);
     pdf.setTextColor(...MUTED);
     pdf.text('NOTES', LEFT + 5, cursor);
     paintLines(pdf, noteLines, LEFT + 5, cursor + 4.6, 9, 'normal', INK, 6);
-    cursor += noteBlock + 3;
-    pdf.setDrawColor(...HAIRLINE);
-    pdf.setLineWidth(0.2);
-    pdf.line(LEFT + 5, cursor, RIGHT - 5, cursor);
-    cursor += 5;
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(7);
-    pdf.setTextColor(...MUTED);
-    pdf.text('BILL ATTACHMENT', LEFT + 5, cursor);
-    paintLines(pdf, fileLines, LEFT + 5, cursor + 4.6, 10, 'bold', INK, 2);
     return y + height + 8;
-}
-
-function drawSignatures(pdf, y) {
-    const gap = 12;
-    const colW = (WIDTH - gap) / 2;
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(8);
-    pdf.setTextColor(...MUTED);
-    pdf.text('RECORDED BY', LEFT, y);
-    pdf.text('VERIFIED BY', LEFT + colW + gap, y);
-    pdf.setDrawColor(...RULE);
-    pdf.setLineWidth(0.35);
-    pdf.line(LEFT, y + 12, LEFT + colW, y + 12);
-    pdf.line(LEFT + colW + gap, y + 12, RIGHT, y + 12);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(8);
-    pdf.setTextColor(...MUTED);
-    pdf.text('VEGA / PURCHASE / BILL', RIGHT, y + 20, { align: 'right' });
 }
 
 function nextPage(state) {
@@ -427,11 +395,9 @@ export async function downloadPurchaseBillPdf(source, options = {}) {
     if (ensure(state, 16)) state.y += 2;
     state.y = drawTotal(pdf, state.y, doc);
     const noteLines = wrapped(pdf, doc.note, WIDTH - 16, 9, 'normal').slice(0, 6);
-    const noteHeight = 8 + (4.6 + noteLines.length * 4) + 6 + (4.6 + 4.4) + 4 + 8;
-    if (ensure(state, noteHeight + 24)) state.y += 2;
-    state.y = drawNotes(pdf, state.y, doc);
-    if (ensure(state, 24)) state.y += 2;
-    drawSignatures(pdf, state.y);
+    const noteHeight = 8 + (4.6 + noteLines.length * 4) + 4 + 8;
+    if (ensure(state, noteHeight)) state.y += 2;
+    drawNotes(pdf, state.y, doc);
 
     const pages = pdf.getNumberOfPages();
     if (pages > 1) {

@@ -392,6 +392,7 @@ export default function ItemDetail({ item }) {
     const onHand = Number(item.availableQuantity) || 0;
     const brought = Number(item.broughtQuantity) || 0;
     const sold = Number(item.soldQuantity) || 0;
+    const reserved = Number(item.reservationQuantity) || 0;
     const categoryPath = [item.categoryName, item.subcategoryName, item.itemName].filter(Boolean).join(' > ');
 
     const duplicate = () => {

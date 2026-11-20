@@ -9,7 +9,6 @@ import {
     Check,
     ChevronDown,
     FileText,
-    Phone,
     Plus,
     Pointer,
     Printer,
@@ -21,7 +20,6 @@ import {
     X,
 } from 'lucide-react';
 import AddCustomerModal from '../../CRM/Customer/AddCustomerModal';
-import AddCustomerContactModal from '../../CRM/Customer/AddCustomerContactModal';
 import {
     createDelivery,
     updateDelivery,
@@ -165,7 +163,26 @@ function Field({ label, required = false, hint = '', children }) {
     );
 }
 
-function SuggestField({ label, required = false, text, options, placeholder, onText, onPick, onCommit }) {
+function contactPeople(detail, fallbackCustomer) {
+    const people = asArray(detail?.contacts).map((row, index) => ({
+        id: String(row.id || `contact-${index}`),
+        name: cleanText(row.name),
+        phones: asArray(row.phones).map((phone) => cleanText(phone)).filter(Boolean),
+        isPrimary: Boolean(row.isPrimary),
+    })).filter((row) => row.name);
+    if (people.length) return people;
+    if (fallbackCustomer && (fallbackCustomer.contact || fallbackCustomer.phone)) {
+        return [{
+            id: 'primary',
+            name: cleanText(fallbackCustomer.contact) || 'Primary contact',
+            phones: fallbackCustomer.phone ? [cleanText(fallbackCustomer.phone)] : [],
+            isPrimary: true,
+        }];
+    }
+    return [];
+}
+
+function SuggestField({ label, required = false, hint = '', text, options, placeholder, onText, onPick, onCommit, disabled = false }) {
     const rootRef = useRef(null);
     const menuRef = useRef(null);
     const [open, setOpen] = useState(false);
@@ -243,21 +260,25 @@ function SuggestField({ label, required = false, text, options, placeholder, onT
 
     return (
         <label ref={rootRef} className="relative block">
-            <span className="mb-1.5 block text-sm font-medium text-slate-700">
+            <span className="mb-1 block text-sm font-semibold text-slate-900">
                 {label}
                 {required ? <span className="text-red-500"> *</span> : null}
             </span>
+            {hint ? <span className="mb-1.5 block text-xs text-slate-400">{hint}</span> : null}
             <input
                 value={text}
                 placeholder={placeholder}
                 autoComplete="off"
+                disabled={disabled}
                 aria-expanded={open}
                 aria-autocomplete="list"
                 onChange={(event) => {
                     onText(event.target.value);
                     setOpen(true);
                 }}
-                onFocus={() => setOpen(true)}
+                onFocus={() => {
+                    if (!disabled) setOpen(true);
+                }}
                 onBlur={() => {
                     setOpen(false);
                     onCommit?.(text);
@@ -492,10 +513,9 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
     const [error, setError] = useState('');
     const [lineError, setLineError] = useState('');
     const [customerModal, setCustomerModal] = useState(false);
-    const [contactModal, setContactModal] = useState(false);
     const customerRequest = useRef(0);
     const nestedOpen = useRef(false);
-    nestedOpen.current = customerModal || contactModal;
+    nestedOpen.current = customerModal;
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
     const scheduled = isScheduled(form.deliveryType);
@@ -584,6 +604,29 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         };
     }, []);
 
+    useEffect(() => {
+        const customerId = form.customerId;
+        if (!customerId) return undefined;
+        let cancelled = false;
+        getDeliveryCustomer(customerId)
+            .then((detail) => {
+                if (cancelled) return;
+                const known = customers.find((row) => row.id === customerId) || null;
+                const people = contactPeople(detail, known);
+                if (!people.length) return;
+                setContacts(people);
+                setContactId((current) => {
+                    if (current && people.some((row) => row.id === current)) return current;
+                    const named = people.find((row) => namesEqual(row.name, form.contactPersonName));
+                    return named?.id || '';
+                });
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [form.customerId, customers]);
+
     const customer = customers.find((row) => row.id === form.customerId) || null;
     const projectOptions = useMemo(() => {
         const names = [...new Set(workOrders.map((row) => row.projectName).filter(Boolean))];
@@ -668,35 +711,23 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         const nextCustomer = known || customers.find((row) => row.id === customerId) || null;
         const ticket = customerRequest.current + 1;
         customerRequest.current = ticket;
-        const fallback = nextCustomer && (nextCustomer.contact || nextCustomer.phone)
-            ? [{
-                id: 'primary',
-                name: nextCustomer.contact || 'Primary contact',
-                phones: nextCustomer.phone ? [nextCustomer.phone] : [],
-                isPrimary: true,
-            }]
-            : [];
+        const fallback = contactPeople(null, nextCustomer);
+        const first = fallback.find((row) => row.isPrimary) || fallback[0] || null;
         setContacts(fallback);
-        setContactId(fallback[0]?.id || '');
+        setContactId(first?.id || '');
         setForm((current) => ({
             ...current,
             customerId,
             deliveryAddress: nextCustomer?.address || '',
-            contactPersonName: fallback[0]?.name || '',
-            contactNumber: fallback[0]?.phones[0] || '',
+            contactPersonName: first?.name || '',
+            contactNumber: first?.phones[0] || '',
         }));
         setError('');
         if (!customerId) return;
         getDeliveryCustomer(customerId)
             .then((detail) => {
                 if (customerRequest.current !== ticket) return;
-                const people = asArray(detail?.contacts).map((row, index) => ({
-                    id: String(row.id || `contact-${index}`),
-                    name: row.name || 'Contact',
-                    phones: asArray(row.phones).map((phone) => String(phone || '')).filter(Boolean),
-                    isPrimary: Boolean(row.isPrimary),
-                })).filter((row) => row.name);
-                const nextContacts = people.length ? people : fallback;
+                const nextContacts = contactPeople(detail, nextCustomer);
                 const primary = nextContacts.find((row) => row.isPrimary) || nextContacts[0] || null;
                 setContacts(nextContacts);
                 setContactId(primary?.id || '');
@@ -715,13 +746,65 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
 
     function chooseContact(nextId) {
         const contact = contacts.find((row) => row.id === nextId) || null;
-        setContactId(nextId);
+        if (!contact) return;
+        setContactId(contact.id);
         setForm((current) => ({
             ...current,
-            contactPersonName: contact?.name || '',
-            contactNumber: contact?.phones?.[0] || current.contactNumber,
+            contactPersonName: contact.name,
+            contactNumber: contact.phones[0] || current.contactNumber,
         }));
         setError('');
+    }
+
+    function typeContactName(text) {
+        setForm((current) => ({ ...current, contactPersonName: text }));
+        const selected = contacts.find((row) => row.id === contactId);
+        if (selected && !namesEqual(selected.name, text)) setContactId('');
+    }
+
+    function commitContactName(text) {
+        const name = cleanText(text);
+        const selected = contacts.find((row) => row.id === contactId);
+        if (selected && namesEqual(selected.name, name)) {
+            setForm((current) => ({ ...current, contactPersonName: selected.name }));
+            return;
+        }
+        const matches = contacts.filter((row) => namesEqual(row.name, name));
+        if (matches.length === 1) chooseContact(matches[0].id);
+        else setForm((current) => ({ ...current, contactPersonName: name }));
+    }
+
+    function typeContactNumber(text) {
+        setForm((current) => ({ ...current, contactNumber: text }));
+    }
+
+    function chooseContactNumber(value) {
+        const marker = String(value || '').indexOf('::');
+        const id = marker === -1 ? '' : value.slice(0, marker);
+        const phone = marker === -1 ? String(value || '') : value.slice(marker + 2);
+        const contact = contacts.find((row) => row.id === id) || null;
+        if (contact) setContactId(contact.id);
+        setForm((current) => ({
+            ...current,
+            contactPersonName: contact?.name || current.contactPersonName,
+            contactNumber: phone,
+        }));
+        setError('');
+    }
+
+    function commitContactNumber(text) {
+        const number = cleanText(text);
+        const digits = number.replace(/\D/g, '');
+        const selected = contacts.find((row) => row.id === contactId);
+        const pool = selected?.phones?.length
+            ? selected.phones.map((phone) => ({ id: selected.id, phone }))
+            : contacts.flatMap((row) => row.phones.map((phone) => ({ id: row.id, phone })));
+        const matches = pool.filter((row) => row.phone.replace(/\D/g, '') === digits || namesEqual(row.phone, number));
+        if (digits.length >= 6 && matches.length === 1) {
+            chooseContactNumber(`${matches[0].id}::${matches[0].phone}`);
+            return;
+        }
+        setForm((current) => ({ ...current, contactNumber: number }));
     }
 
     function chooseWorkOrder(workOrderId) {
@@ -1039,25 +1122,6 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         chooseCustomer(id, row);
     }
 
-    function rememberContact(saved) {
-        const person = {
-            id: String(saved?.id || saved?._id || ''),
-            name: saved?.name || 'Contact',
-            phones: asArray(saved?.phones).map((phone) => String(phone || '')).filter(Boolean),
-            isPrimary: Boolean(saved?.isPrimary),
-        };
-        if (!person.id) return;
-        setContacts((current) => [...current.filter((row) => row.id !== person.id), person]);
-        setContactId(person.id);
-        setForm((current) => ({
-            ...current,
-            contactPersonName: person.name,
-            contactNumber: person.phones[0] || '',
-        }));
-        setContactModal(false);
-        setError('');
-    }
-
     return (
         <>
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/45 p-3 backdrop-blur-[2px] sm:p-6">
@@ -1192,29 +1256,37 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                     className={areaClass}
                                 />
                             </Field>
-                            <Field label="Contact Person Name" required hint="(From selected customer contacts)">
-                                <Picker
-                                    placeholder={form.customerId ? 'Select contact person...' : 'Select a customer first'}
-                                    options={contacts.map((row) => ({ id: row.id, label: row.name }))}
-                                    value={contactId}
-                                    onChange={chooseContact}
-                                    disabled={!form.customerId}
-                                    emptyLabel="No contacts match that search."
-                                    onAdd={form.customerId ? () => setContactModal(true) : undefined}
-                                    addLabel="Add new contact"
-                                />
-                            </Field>
-                            <Field label="Contact Number" required>
-                                <Picker
-                                    placeholder={contactId ? 'Select contact number...' : 'Select a contact first'}
-                                    leadingIcon={Phone}
-                                    options={(contacts.find((row) => row.id === contactId)?.phones || []).map((phone) => ({ id: phone, label: phone }))}
-                                    value={form.contactNumber}
-                                    onChange={(phone) => setForm((current) => ({ ...current, contactNumber: phone }))}
-                                    disabled={!contactId}
-                                    emptyLabel="This contact has no number."
-                                />
-                            </Field>
+                            <SuggestField
+                                label="Contact Person Name"
+                                required
+                                hint="(From selected customer contacts)"
+                                text={form.contactPersonName}
+                                options={contacts.map((row) => ({ label: row.name, value: row.id }))}
+                                placeholder={form.customerId ? 'Search contact person...' : 'Select a customer first'}
+                                disabled={!form.customerId}
+                                onText={typeContactName}
+                                onPick={chooseContact}
+                                onCommit={commitContactName}
+                            />
+                            <SuggestField
+                                label="Contact Number"
+                                required
+                                text={form.contactNumber}
+                                options={(
+                                    (contacts.find((row) => row.id === contactId)?.phones?.length
+                                        ? contacts.filter((row) => row.id === contactId)
+                                        : contacts)
+                                        .flatMap((row) => row.phones.map((phone) => ({
+                                            label: phone,
+                                            value: `${row.id}::${phone}`,
+                                        })))
+                                )}
+                                placeholder={form.customerId ? 'Search contact number...' : 'Select a customer first'}
+                                disabled={!form.customerId}
+                                onText={typeContactNumber}
+                                onPick={chooseContactNumber}
+                                onCommit={commitContactNumber}
+                            />
                         </div>
                     </section>
 
@@ -1443,14 +1515,6 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                 stacked
                 onClose={() => setCustomerModal(false)}
                 onSaved={rememberCustomer}
-            />
-        ) : null}
-        {contactModal && form.customerId ? (
-            <AddCustomerContactModal
-                stacked
-                customerId={form.customerId}
-                onClose={() => setContactModal(false)}
-                onSaved={rememberContact}
             />
         ) : null}
         </>

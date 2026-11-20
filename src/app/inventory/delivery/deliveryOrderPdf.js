@@ -9,7 +9,6 @@ const MINT = [237, 249, 249];
 const PANEL = [245, 249, 250];
 const ZEBRA = [245, 250, 251];
 const HAIRLINE = [228, 235, 240];
-const RULE = [168, 186, 195];
 const WHITE = [255, 255, 255];
 
 const PAGE_H = 297;
@@ -396,25 +395,6 @@ function drawTotals(pdf, y, doc) {
     return y + height + 8;
 }
 
-function drawSignatures(pdf, y) {
-    const gap = 12;
-    const colW = (WIDTH - gap) / 2;
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(8);
-    pdf.setTextColor(...MUTED);
-    pdf.text('DELIVERED BY', LEFT, y);
-    pdf.text('RECEIVED BY / SIGNATURE', LEFT + colW + gap, y);
-    pdf.setDrawColor(...RULE);
-    pdf.setLineWidth(0.35);
-    pdf.line(LEFT, y + 12, LEFT + colW, y + 12);
-    pdf.line(LEFT + colW + gap, y + 12, RIGHT, y + 12);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(8);
-    pdf.setTextColor(...MUTED);
-    pdf.text('Received Date: ____________________', LEFT, y + 20);
-    pdf.text('VEGA / DELIVERY ORDER', RIGHT, y + 20, { align: 'right' });
-}
-
 function nextPage(state) {
     state.pdf.addPage();
     paintVegaLetterhead(state.pdf, state.letterhead);
@@ -484,14 +464,10 @@ export async function downloadDeliveryOrderPdf(source, options = {}) {
     }
 
     state.y += 5;
-    if (ensure(state, 46)) {
-        state.y += 2;
-    }
-    state.y = drawTotals(pdf, state.y, doc);
     if (ensure(state, 24)) {
         state.y += 2;
     }
-    drawSignatures(pdf, state.y);
+    drawTotals(pdf, state.y, doc);
 
     const pages = pdf.getNumberOfPages();
     if (pages > 1) {

@@ -152,6 +152,14 @@ function itemListHref({ tab, search, categoryId, subcategoryId, brandId, status,
     });
 }
 
+const BRAND_THUMB_COLUMNS = 12;
+
+function thumbPageLimit(pageSize) {
+    if (pageSize === 'all') return 'all';
+    const rows = Number(pageSize);
+    return Number.isFinite(rows) && rows > 0 ? String(rows * BRAND_THUMB_COLUMNS) : pageSize;
+}
+
 function pageIdKey(rows, page, pageSize) {
     const range = pageWindow(rows.length, page, pageSize);
     return slicePage(rows, range.currentPage, pageSize).map((row) => String(row._id || '')).filter(Boolean).join(',');
@@ -413,7 +421,7 @@ export default function ItemMasterList() {
         [page, pageSize, tab, visibleSubcategories],
     );
     const brandImageKey = useMemo(
-        () => (tab === 'brand' && brandView === 'thumbnail' ? pageIdKey(visibleBrands, page, pageSize) : ''),
+        () => (tab === 'brand' && brandView === 'thumbnail' ? pageIdKey(visibleBrands, page, thumbPageLimit(pageSize)) : ''),
         [brandView, page, pageSize, tab, visibleBrands],
     );
     const imagesEnabled = Boolean(access.ready && access.canViewItems);
@@ -448,11 +456,13 @@ export default function ItemMasterList() {
             : tab === 'subcategory'
                 ? visibleSubcategories.length
                 : visibleBrands.length;
-        const { pageCount } = pageWindow(count, page, pageSize);
+        const pagingSize = tab === 'brand' && brandView === 'thumbnail' ? thumbPageLimit(pageSize) : pageSize;
+        const { pageCount } = pageWindow(count, page, pagingSize);
         if (page > pageCount) setPage(pageCount);
     }, [
         catalogLoading,
         loading,
+        brandView,
         page,
         pageSize,
         pages,
@@ -1199,8 +1209,9 @@ function BrandViewSwitch({ value, onChange }) {
 }
 
 function BrandThumbnailGrid({ rows, loading, empty, images, imagesLoading, page, pageSize, onPageChange, onPageSizeChange, onOpen }) {
-    const range = pageWindow(rows.length, page, pageSize);
-    const pageRows = slicePage(rows, range.currentPage, pageSize);
+    const limit = thumbPageLimit(pageSize);
+    const range = pageWindow(rows.length, page, limit);
+    const pageRows = slicePage(rows, range.currentPage, limit);
     return (
         <>
             {loading ? (
