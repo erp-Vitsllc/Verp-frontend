@@ -251,6 +251,7 @@ export function resolveNotificationIconVariant(typeOrItem) {
         case 'Left User Request':
             return 'activation-profile';
         case 'Payment Approval':
+        case 'Inventory Bill Draft':
             return 'payment-card';
         case 'Fine':
             return 'fine-book';
@@ -477,6 +478,8 @@ export function buildUnderstandableNotificationTitle(item = {}) {
         }
         case 'Work Order LPO':
             return sanitizeNotificationText(item.extra1 || '') || 'LPO was not filled';
+        case 'Inventory Bill Draft':
+            return sanitizeNotificationText(item.extra1 || item.subjectName || '') || 'Draft bill';
         default:
             return expiryTitle || type || 'Request';
     }
@@ -577,6 +580,9 @@ function buildUtilityCategoryLine(item = {}) {
     }
     if (type === 'Work Order LPO') {
         return e2 || 'LPO number, date and value were left empty.';
+    }
+    if (type === 'Inventory Bill Draft') {
+        return e2 || 'Bill you created is on draft. Submit it.';
     }
     const isUtility =
         type === 'Utility Contract Expiry' ||

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Printer } from 'lucide-react';
+import { downloadDeliveryOrderPdf } from '../../inventory/delivery/deliveryOrderPdf';
 import {
     customerApiMessage,
     listCustomerDeliveries,
@@ -159,22 +160,43 @@ export function CustomerInvoices({ customerId }) {
     );
 }
 
+async function printCustomerDelivery(row) {
+    await downloadDeliveryOrderPdf({
+        form: {
+            deliveryType: row.deliveryType || 'Manual',
+            doDate: row.doDate || '',
+            projectName: row.projectName || '',
+            contactPersonName: row.contactPersonName || '',
+            deliveryAddress: row.deliveryAddress || '',
+            contactNumber: row.contactNumber || '',
+            note: row.note || '',
+            lines: Array.isArray(row.lines) ? row.lines : [],
+        },
+        customerName: row.customerName || '',
+        workOrderNo: row.workOrderNo || '',
+        deliveryNo: row.deliveryNo || '',
+        createdAt: row.createdAt || '',
+        inventoryItems: [],
+    });
+}
+
 export function CustomerDeliveries({ customerId }) {
     const { rows, loading, error } = useRows(customerId, 'deliveries');
+    const [printError, setPrintError] = useState('');
 
     return (
-        <Shell title="Delivery" error={error}>
+        <Shell title="Delivery" error={error || printError}>
             <table className="min-w-full text-left text-sm">
                 <thead>
                     <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
-                        {['Delivery No', 'Date', 'Type', 'Project', 'Amount', 'Status'].map((heading) => (
-                            <th key={heading} className={`whitespace-nowrap px-4 py-3 font-medium ${heading === 'Amount' ? 'text-right' : ''}`}>{heading}</th>
+                        {['Delivery No', 'Date', 'Type', 'Project', 'Amount', 'Status', ''].map((heading) => (
+                            <th key={heading || 'print'} className={`whitespace-nowrap px-4 py-3 font-medium ${heading === 'Amount' ? 'text-right' : ''}`}>{heading}</th>
                         ))}
                     </tr>
                 </thead>
                 <tbody>
                     {loading || rows.length === 0 ? (
-                        <EmptyRow colSpan={6} loading={loading} loadingLabel="Loading deliveries..." empty="No deliveries for this customer." />
+                        <EmptyRow colSpan={7} loading={loading} loadingLabel="Loading deliveries..." empty="No deliveries for this customer." />
                     ) : rows.map((row) => (
                         <tr key={row.id} className="border-b border-slate-100 text-slate-700">
                             <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{row.deliveryNo || 'N/A'}</td>
@@ -186,6 +208,23 @@ export function CustomerDeliveries({ customerId }) {
                                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${deliveryStatusLabel(row.status) === 'Delivered' ? 'bg-emerald-50 text-emerald-700' : statusClass(deliveryStatusLabel(row.status))}`}>
                                     {deliveryStatusLabel(row.status)}
                                 </span>
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3.5 text-right">
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        try {
+                                            await printCustomerDelivery(row);
+                                            setPrintError('');
+                                        } catch (printFailure) {
+                                            setPrintError(printFailure?.message || 'Could not download the delivery order.');
+                                        }
+                                    }}
+                                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                >
+                                    <Printer className="h-3.5 w-3.5" />
+                                    Print DO
+                                </button>
                             </td>
                         </tr>
                     ))}

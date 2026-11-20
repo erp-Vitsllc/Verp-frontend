@@ -35,6 +35,7 @@ import {
     listDeliverySubcategories,
     listDeliveryWorkOrders,
 } from './deliveryApi';
+import { downloadDeliveryOrderPdf } from './deliveryOrderPdf';
 
 const TYPES = [
     { id: 'Project', label: 'Project', icon: Briefcase },
@@ -149,14 +150,6 @@ function matchOne(rows, text) {
     if (!name) return null;
     const matches = rows.filter((row) => namesEqual(row.label, name));
     return matches.length === 1 ? matches[0] : null;
-}
-
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
 }
 
 function Field({ label, required = false, hint = '', children }) {
@@ -481,49 +474,6 @@ function DateField({ value, onChange }) {
     );
 }
 
-function printDelivery(form, customerName, workOrderNo) {
-    const scheduled = isScheduled(form.deliveryType);
-    const rows = form.lines.map((line, index) => `
-        <tr>
-            <td>${index + 1}</td>
-            <td>${escapeHtml(line.itemName || line.description)}${line.description && line.itemName && line.description !== line.itemName ? `<div class="muted">${escapeHtml(line.description)}</div>` : ''}${line.modelNumber ? `<div class="muted">Model ${escapeHtml(line.modelNumber)}</div>` : ''}</td>
-            <td>${escapeHtml(line.quantity)}${line.unit ? ` ${escapeHtml(line.unit)}` : ''}</td>
-        </tr>
-    `).join('');
-    const popup = window.open('', '_blank', 'noopener,noreferrer,width=900,height=700');
-    if (!popup) return false;
-    popup.document.write(`<!DOCTYPE html>
-        <html><head><title>Delivery Order</title>
-        <style>
-            body { font-family: Arial, sans-serif; color: #1e1b2e; padding: 32px; }
-            h1 { margin: 0 0 4px; font-size: 22px; }
-            .muted { color: #64748b; font-size: 12px; }
-            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; margin: 20px 0; }
-            table { width: 100%; border-collapse: collapse; }
-            th { text-align: left; background: #f3eeff; padding: 8px; }
-            td { border-top: 1px solid #eee; padding: 8px; vertical-align: top; }
-        </style></head><body>
-        <h1>Delivery Order</h1>
-        <p class="muted">${escapeHtml(form.deliveryType)} · Auto / Delivery Number</p>
-        <div class="grid">
-            ${scheduled ? `<div><strong>DO Date</strong><br>${escapeHtml(formatDoDate(form.doDate))}</div>` : ''}
-            ${scheduled ? `<div><strong>Project</strong><br>${escapeHtml(form.projectName || '—')}</div>` : ''}
-            ${scheduled ? `<div><strong>WO No</strong><br>${escapeHtml(workOrderNo || '—')}</div>` : ''}
-            <div><strong>Customer</strong><br>${escapeHtml(customerName || '—')}</div>
-            <div><strong>Contact</strong><br>${escapeHtml(form.contactPersonName || '—')} ${escapeHtml(form.contactNumber || '')}</div>
-            <div><strong>Address</strong><br>${escapeHtml(form.deliveryAddress || '—')}</div>
-            ${form.note?.trim() ? `<div style="grid-column:1 / -1;white-space:pre-wrap"><strong>Note</strong><br>${escapeHtml(form.note.trim())}</div>` : ''}
-        </div>
-        <table>
-            <thead><tr><th>SI</th><th>Description</th><th>Qty</th></tr></thead>
-            <tbody>${rows || '<tr><td colspan="3">No items</td></tr>'}</tbody>
-        </table>
-        </body></html>`);
-    popup.document.close();
-    popup.focus();
-    window.setTimeout(() => popup.print(), 200);
-    return true;
-}
 
 export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer = false, delivery = null, readOnly = false }) {
     const [form, setForm] = useState(() => formFromDelivery(delivery));
@@ -1172,7 +1122,7 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                         {scheduled ? (
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                                 <Field label="DO No">
-                                    <input value="" disabled placeholder="Auto / Delivery Number" className={inputClass} />
+                                    <input value={delivery?.deliveryNo || ''} disabled placeholder="Auto / Delivery Number" className={inputClass} />
                                 </Field>
                                 <Field label="DO Date" required>
                                     <DateField value={form.doDate} onChange={(doDate) => setForm((current) => ({ ...current, doDate }))} />
@@ -1432,20 +1382,29 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#F1EEF8] px-5 py-4 sm:px-6">
                     <p className="min-h-5 text-sm text-red-600">{error}</p>
                     <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                        {readOnly ? null : (
                         <button
                             type="button"
-                            onClick={() => {
+                            onClick={async () => {
                                 const order = workOrders.find((row) => row.id === form.workOrderId);
-                                const opened = printDelivery(form, customer?.name || '', order?.no || '');
-                                if (!opened) setError('Allow pop-ups to print the delivery order.');
+                                try {
+                                    await downloadDeliveryOrderPdf({
+                                        form,
+                                        customerName: customer?.name || delivery?.customerName || '',
+                                        workOrderNo: order?.no || delivery?.workOrderNo || '',
+                                        deliveryNo: delivery?.deliveryNo || '',
+                                        createdAt: delivery?.createdAt || '',
+                                        inventoryItems,
+                                    });
+                                    setError('');
+                                } catch (printError) {
+                                    setError(printError?.message || 'Could not download the delivery order.');
+                                }
                             }}
                             className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#DDD6FE] bg-white px-4 text-sm font-semibold text-[#7C3AED] hover:bg-[#F6F3FF]"
                         >
                             <Printer className="h-4 w-4" />
                             Print DO
                         </button>
-                        )}
                         {readOnly || (delivery?.id && delivery.status && delivery.status !== 'Draft') ? null : (
                         <button
                             type="button"

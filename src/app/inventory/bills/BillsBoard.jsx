@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, ArrowUpDown, Bell, MoreVertical, Paperclip, Receipt } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
+import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
 import AddStockModal from '../item-master/AddStockModal';
 import { useInventoryAccess } from '../item-master/itemMasterAccess';
 import { billsApiMessage, deleteInventoryBill, listInventoryBills } from './billsApi';
@@ -74,7 +76,7 @@ export default function BillsBoard() {
     const [canManage, setCanManage] = useState(false);
     const [rows, setRows] = useState([]);
     const [notices, setNotices] = useState([]);
-    const [bellOpen, setBellOpen] = useState(false);
+    const [showNotifications, setShowNotifications] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [editEntryId, setEditEntryId] = useState('');
@@ -85,7 +87,6 @@ export default function BillsBoard() {
     const [deletingId, setDeletingId] = useState('');
     const [sortKey, setSortKey] = useState('');
     const [sortDir, setSortDir] = useState('asc');
-    const bellRef = useRef(null);
     const menuRef = useRef(null);
 
     const load = useCallback(() => {
@@ -110,14 +111,18 @@ export default function BillsBoard() {
     }, [load]);
 
     useEffect(() => {
-        if (!bellOpen && !menuId) return undefined;
+        if (!menuId) return undefined;
         const close = (event) => {
-            if (bellOpen && !bellRef.current?.contains(event.target)) setBellOpen(false);
-            if (menuId && !menuRef.current?.contains(event.target)) setMenuId('');
+            if (!menuRef.current?.contains(event.target)) setMenuId('');
         };
         document.addEventListener('mousedown', close);
         return () => document.removeEventListener('mousedown', close);
-    }, [bellOpen, menuId]);
+    }, [menuId]);
+
+    useEffect(() => {
+        const billId = new URLSearchParams(window.location.search).get('bill');
+        if (billId) setEditEntryId(billId);
+    }, []);
 
     const removeBill = async (bill) => {
         if (bill.deleteDisabled || deletingId) return;
@@ -152,9 +157,19 @@ export default function BillsBoard() {
         }
     };
 
-    useEffect(() => {
-        if (!notices.length) setBellOpen(false);
-    }, [notices.length]);
+    const notificationRows = useMemo(
+        () => notices.map((notice, index) => mapDashboardNotificationToRow({
+            id: notice.id,
+            requestType: 'Inventory Bill Draft',
+            type: 'Inventory Bill Draft',
+            extra1: notice.billNo || 'Draft bill',
+            extra2: notice.message,
+            subjectName: 'Bills',
+            status: 'Pending',
+            requestedDate: notice.updatedAt,
+        }, index)),
+        [notices],
+    );
 
     const sortedRows = useMemo(() => {
         const indexed = rows.map((bill, index) => ({ bill, index }));
@@ -197,44 +212,20 @@ export default function BillsBoard() {
                             Add Bill
                         </button>
                     ) : null}
-                    {notices.length ? (
-                    <div className="relative" ref={bellRef}>
-                        <button
-                            type="button"
-                            aria-label="Draft bill notifications"
-                            aria-expanded={bellOpen}
-                            onClick={() => setBellOpen((open) => !open)}
-                            className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-[#E6EDF5] bg-white text-slate-600 hover:bg-slate-50"
-                        >
-                            <Bell size={18} />
+                    <button
+                        type="button"
+                        aria-label="Draft bill notifications"
+                        aria-expanded={showNotifications}
+                        onClick={() => setShowNotifications(true)}
+                        className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-[#E6EDF5] bg-white text-slate-600 hover:bg-slate-50"
+                    >
+                        <Bell size={18} />
+                        {notices.length ? (
                             <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                                {notices.length}
+                                {notices.length > 99 ? '99+' : notices.length}
                             </span>
-                        </button>
-                        {bellOpen ? (
-                            <div className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-[#E6EDF5] bg-white shadow-xl">
-                                <p className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">Draft bills</p>
-                                <ul className="max-h-80 overflow-y-auto">
-                                    {notices.map((notice) => (
-                                        <li key={notice.id}>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setEditEntryId(notice.id);
-                                                    setBellOpen(false);
-                                                }}
-                                                className="block w-full px-4 py-3 text-left hover:bg-slate-50"
-                                            >
-                                                <p className="text-sm font-semibold text-slate-800">{notice.billNo || 'Draft bill'}</p>
-                                                <p className="mt-0.5 text-sm text-slate-600">{notice.message}</p>
-                                            </button>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
                         ) : null}
-                    </div>
-                    ) : null}
+                    </button>
                 </div>
             </div>
             {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
@@ -395,6 +386,21 @@ export default function BillsBoard() {
                     onClose={() => setViewEntryId('')}
                 />
             ) : null}
+            <NotificationInboxModal
+                isOpen={showNotifications}
+                onClose={() => setShowNotifications(false)}
+                title="Draft bills"
+                subtitle="Bills you saved as a draft."
+                items={notificationRows}
+                loading={loading && notices.length === 0}
+                emptyMessage="No draft bills."
+                getItemHref={(item) => (item?.id ? `/inventory/bills?bill=${item.id}` : '')}
+                onItemClick={(item) => {
+                    if (!item?.id) return;
+                    setEditEntryId(item.id);
+                    setShowNotifications(false);
+                }}
+            />
             {editEntryId ? (
                 <AddStockModal
                     key={editEntryId}

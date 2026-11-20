@@ -362,6 +362,14 @@ export const buildDashboardNotificationPath = (item) => {
         return '/task-manager';
     }
 
+    if (typeRaw === 'Inventory Bill Draft') {
+        const meta = parseMeta(item.extra3);
+        const path = String(meta?.path || '').trim();
+        if (path.startsWith('/inventory/')) return path;
+        const id = item.id || item.requestId;
+        return id ? `/inventory/bills?bill=${encodeURIComponent(id)}` : '/inventory/bills';
+    }
+
     if (typeRaw === 'Work Order LPO') {
         const meta = parseMeta(item.extra3);
         const path = String(meta?.path || '').trim();

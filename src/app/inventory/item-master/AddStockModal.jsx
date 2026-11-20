@@ -2,7 +2,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Boxes, Check, FileText, Pencil, Plus, RotateCcw, Store, Trash2, Upload, X } from 'lucide-react';
+import { Boxes, Check, FileText, Pencil, Plus, Printer, RotateCcw, Store, Trash2, Upload, X } from 'lucide-react';
+import { downloadPurchaseBillPdf } from './purchaseBillPdf';
 import { useToast } from '@/hooks/use-toast';
 import { useInventoryAccess } from './itemMasterAccess';
 import { listVendors } from '../vendor-management/vendorManagementApi';
@@ -665,10 +666,23 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
         };
     };
 
+    const resetItemFields = () => {
+        setCategoryId('');
+        setCategoryText('');
+        setSubcategoryId('');
+        setSubcategoryText('');
+        setBrandId('');
+        setBrandText('');
+        setItemId('');
+        setItemText('');
+        setModelNumber('');
+    };
+
     const addMaterial = () => {
         const line = resolveSelection();
         if (!line) return;
         setLines((current) => [...current, { ...line, key: requestId() }]);
+        resetItemFields();
     };
 
     const chooseVendor = (nextId) => {
@@ -700,18 +714,6 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
 
     const removeLine = (key) => {
         setLines((current) => current.filter((line) => line.key !== key));
-    };
-
-    const resetItemFields = () => {
-        setCategoryId('');
-        setCategoryText('');
-        setSubcategoryId('');
-        setSubcategoryText('');
-        setBrandId('');
-        setBrandText('');
-        setItemId('');
-        setItemText('');
-        setModelNumber('');
     };
 
     const useBill = async (file) => {
@@ -843,6 +845,34 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
 
     const grandTotal = lines.reduce((sum, line) => sum + lineTotal(line.quantity, line.unitPrice), 0);
     const actionLabel = directPost ? 'OK' : 'Submit';
+    const catalogName = (rows, id) => rows.find((row) => sameId(row._id, id))?.name || '';
+
+    const printBill = async () => {
+        try {
+            await downloadPurchaseBillPdf({
+                purchaseSource,
+                vendorName: vendorText,
+                purchaseDate,
+                billNo,
+                lpoNo,
+                note,
+                attachmentName: attachment?.name || '',
+                lines: lines.map((line) => ({
+                    category: catalogName(categories, line.categoryId),
+                    subcategory: catalogName(subcategories, line.subcategoryId),
+                    itemName: line.itemName,
+                    description: line.description,
+                    brand: catalogName(brands, line.brandId),
+                    model: line.modelNumber,
+                    quantity: line.quantity,
+                    unitPrice: line.unitPrice,
+                })),
+            });
+            if (error && error.startsWith('Could not download')) setError('');
+        } catch (printError) {
+            setError(printError?.message || 'Could not download the purchase bill.');
+        }
+    };
 
     return (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-3 sm:p-6">
@@ -1144,6 +1174,13 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                     )}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-[#EEF2F7] px-5 py-4">
+                    <button
+                        type="button"
+                        onClick={printBill}
+                        className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-4 text-sm font-semibold text-indigo-700 hover:bg-indigo-50"
+                    >
+                        <Printer size={15} /> Print Bill
+                    </button>
                     {(!locked && !purchaserAssigned) || (error && error !== PURCHASER_REQUIRED) ? (
                         <div className="mr-auto flex min-w-[220px] max-w-xl flex-col gap-1">
                             {!locked && !purchaserAssigned ? (
