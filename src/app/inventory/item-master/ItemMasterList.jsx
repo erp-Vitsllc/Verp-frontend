@@ -256,7 +256,6 @@ export default function ItemMasterList() {
     const [stockApprovals, setStockApprovals] = useState({ isPurchaseOfficer: false, entries: [] });
     const [returnToSubcategory, setReturnToSubcategory] = useState(false);
     const [itemError, setItemError] = useState('');
-    const [openDescriptions, setOpenDescriptions] = useState(() => new Set());
     const [catalogError, setCatalogError] = useState('');
     const [loading, setLoading] = useState(true);
     const [catalogLoading, setCatalogLoading] = useState(true);
@@ -770,6 +769,7 @@ export default function ItemMasterList() {
                                 >
                                     <span>
                                         {entry.billNo || 'Stock bill'}
+                                        {entry.editPending ? ' · edit' : ''}
                                         {entry.submittedByName ? ` · ${entry.submittedByName}` : ''}
                                         {` · ${entry.lineCount || 0} item${entry.lineCount === 1 ? '' : 's'}`}
                                     </span>
@@ -887,18 +887,7 @@ export default function ItemMasterList() {
                                             onOpen={row.brandId ? () => showItems({ caption: `brand ${row.brandName || ''}`.trim(), brandId: row.brandId }) : null}
                                         />
                                         <td className="whitespace-nowrap px-3 py-3">{row.modelNumber}</td>
-                                        <DescriptionCell
-                                            text={row.description}
-                                            open={openDescriptions.has(row._id)}
-                                            onToggle={() => {
-                                                setOpenDescriptions((current) => {
-                                                    const next = new Set(current);
-                                                    if (next.has(row._id)) next.delete(row._id);
-                                                    else next.add(row._id);
-                                                    return next;
-                                                });
-                                            }}
-                                        />
+                                        <DescriptionCell row={row} />
                                         <ItemLinkCell
                                             name={row.categoryName}
                                             label="category"
@@ -1099,34 +1088,19 @@ function catalogEmpty(error, allRows, scopedRows, query, errorLabel, emptyLabel,
     return emptyLabel;
 }
 
-function DescriptionCell({ text, open, onToggle }) {
-    const value = String(text || '');
-    const truncated = value.length > 20;
-    if (open) {
-        return (
-            <td className="max-w-xs px-3 py-3 font-medium text-slate-800" onClick={(event) => event.stopPropagation()}>
-                <button type="button" onClick={onToggle} className="whitespace-normal break-words text-left">
-                    {value}
-                </button>
-            </td>
-        );
-    }
+function DescriptionCell({ row }) {
+    const itemName = String(row?.itemName || '').trim();
+    const description = String(row?.description || '').trim();
+    const modelNumber = String(row?.modelNumber || '').trim();
+    const title = itemName || description;
+    const detail = description && description !== title ? description : '';
     return (
-        <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-800">
-            {truncated ? value.slice(0, 20) : value}
-            {truncated ? (
-                <button
-                    type="button"
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        onToggle();
-                    }}
-                    className="text-blue-700 hover:underline"
-                    aria-label="Show full description"
-                >
-                    ...
-                </button>
-            ) : null}
+        <td className="min-w-[240px] max-w-sm px-3 py-3 align-top text-slate-800">
+            <div className="flex flex-col gap-1">
+                {title ? <p className="text-sm font-medium leading-5">{title}</p> : null}
+                {detail ? <p className="text-xs leading-4 text-slate-400">{detail}</p> : null}
+                {modelNumber ? <p className="text-xs leading-4 text-slate-400">Model {modelNumber}</p> : null}
+            </div>
         </td>
     );
 }

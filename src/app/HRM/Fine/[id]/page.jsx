@@ -1246,23 +1246,28 @@ function FineDetailsPageContent() {
                                         const pLoans = approvedLoans.filter(l => (l.type || '').toLowerCase() === 'loan');
                                         const sAdvances = approvedLoans.filter(l => (l.type || '').toLowerCase() === 'advance');
 
+                                        const recovered = (row) => {
+                                            const amt = Number(row.amount) || 0;
+                                            const repaid = Math.max(0, Number(row.repaidAmount) || 0);
+                                            return amt > 0 ? Math.min(repaid, amt) : repaid;
+                                        };
                                         loanSummary.personalLoan = {
                                             amount: pLoans.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
                                             duration: pLoans.reduce((sum, l) => sum + (Number(l.duration) || 0), 0),
-                                            paid: pLoans.reduce((sum, l) => sum + (Number(l.paidAmount) || 0), 0),
+                                            paid: pLoans.reduce((sum, l) => sum + recovered(l), 0),
                                             count: pLoans.length
                                         };
                                         loanSummary.salaryAdvance = {
                                             amount: sAdvances.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
                                             duration: sAdvances.reduce((sum, l) => sum + (Number(l.duration) || 0), 0),
-                                            paid: sAdvances.reduce((sum, l) => sum + (Number(l.paidAmount) || 0), 0),
+                                            paid: sAdvances.reduce((sum, l) => sum + recovered(l), 0),
                                             count: sAdvances.length
                                         };
 
                                         loanInstallments = approvedLoans.reduce((sum, l) => {
                                             const amt = Number(l.amount) || 0;
                                             const dur = Number(l.duration) || 1;
-                                            const pd = Number(l.paidAmount) || 0;
+                                            const pd = recovered(l);
                                             if (amt - pd > 0.5) return sum + (amt / dur);
                                             return sum;
                                         }, 0);
@@ -1308,9 +1313,9 @@ function FineDetailsPageContent() {
                                         paidFineAmount: paidAmount,
                                         distinctTypesCount: Object.values(aggregates).filter(a => a.count > 0).length,
                                         ...loanSummary,
-                                        outstandingBalance: (totalAmount - paidAmount) +
-                                            (loanSummary.personalLoan.amount - loanSummary.personalLoan.paid) +
-                                            (loanSummary.salaryAdvance.amount - loanSummary.salaryAdvance.paid)
+                                        outstandingBalance: Math.max(0, totalAmount - paidAmount) +
+                                            Math.max(0, loanSummary.personalLoan.amount - loanSummary.personalLoan.paid) +
+                                            Math.max(0, loanSummary.salaryAdvance.amount - loanSummary.salaryAdvance.paid)
                                     });
                                 }
                             } catch (err) {

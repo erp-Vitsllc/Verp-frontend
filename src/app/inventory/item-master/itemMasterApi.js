@@ -40,6 +40,7 @@ export const updateBrand = (id, payload) => axiosInstance.put(`${base}/brands/${
 export const deleteBrand = (id) => axiosInstance.delete(`${base}/brands/${id}`).then(dataOf);
 
 export const listItems = (params) => axiosInstance.get(`${base}/items`, { params }).then(dataOf);
+export const getInventoryDashboard = (params) => axiosInstance.get(`${base}/dashboard`, { params, skipToast: true }).then(dataOf);
 export const getItem = (id) => axiosInstance.get(`${base}/items/${id}`).then(dataOf);
 export const listItemPurchaseHistory = (id) => axiosInstance.get(`${base}/items/${id}/purchase-history`).then(dataOf);
 export const listItemDeliveryHistory = (id) => axiosInstance.get(`${base}/items/${id}/delivery-history`).then(dataOf);

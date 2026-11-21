@@ -418,15 +418,13 @@ export default function DeliveryBoard() {
                                                 >
                                                     <button
                                                         type="button"
-                                                        disabled={deliveryStatusLabel(row) === 'Delivered'}
                                                         onClick={() => {
-                                                            if (deliveryStatusLabel(row) === 'Delivered') return;
                                                             setEditing(deliveryForEdit(row));
                                                             setReadOnly(false);
                                                             setOpen(true);
                                                             setMenuId('');
                                                         }}
-                                                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white"
+                                                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
                                                     >
                                                         <Pencil className="h-3.5 w-3.5" />
                                                         Edit

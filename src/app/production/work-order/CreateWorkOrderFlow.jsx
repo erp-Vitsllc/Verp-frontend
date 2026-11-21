@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     CheckCircle2,
+    ChevronDown,
     ChevronLeft,
     ChevronRight,
     ClipboardList,
@@ -15,6 +16,7 @@ import {
     Lock,
     Paperclip,
     Save,
+    Search,
     UserRound,
     X,
 } from 'lucide-react';
@@ -35,7 +37,7 @@ const STEP1_RULES = [
 const STEP2_RULES = [
     'Only one LPO choice can be on at a time.',
     'Required: LPO number, date, value and attachment stay off. No LPO is added now.',
-    'Not required: an attachment is required. The salesperson is emailed and notified that the LPO was not filled.',
+    'Not required: attachment is optional. Creating without one emails the project coordinator and asks them to upload it.',
     'LPO received: LPO number, date, value and attachment are required.',
     'One quotation and one LPO per work order.',
 ];
@@ -47,6 +49,15 @@ const LPO_OPTIONS = [
     { id: 'not_required', label: 'Not required' },
     { id: 'received', label: 'LPO received' },
 ];
+
+const QUOTE_CUSTOMER_MISMATCH = 'Customer not matching for this quote, please verify your details.';
+
+function sameCustomerName(left, right) {
+    const normalize = (value) => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    const a = normalize(left);
+    const b = normalize(right);
+    return Boolean(a) && a === b;
+}
 
 function readLocalFile(file) {
     return new Promise((resolve, reject) => {
@@ -103,17 +114,138 @@ function LockedInput({ id, value }) {
     );
 }
 
-function SelectField({ id, value, onChange, placeholder, children }) {
+function LookupSelect({ id, value, onChange, placeholder, options, emptyLabel = 'No matches.' }) {
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const [menuBox, setMenuBox] = useState(null);
+    const rootRef = useRef(null);
+    const menuRef = useRef(null);
+    const searchRef = useRef(null);
+    const selected = options.find((option) => option.id === value) || null;
+    const filtered = useMemo(() => {
+        const needle = query.trim().toLowerCase();
+        if (!needle) return options;
+        return options.filter((option) => option.label.toLowerCase().includes(needle));
+    }, [options, query]);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const onPointerDown = (event) => {
+            if (rootRef.current?.contains(event.target)) return;
+            if (menuRef.current?.contains(event.target)) return;
+            setOpen(false);
+        };
+        const place = () => {
+            const node = rootRef.current;
+            if (!node) return;
+            const rect = node.getBoundingClientRect();
+            const spaceBelow = window.innerHeight - rect.bottom;
+            const openUp = spaceBelow < 240 && rect.top > spaceBelow;
+            setMenuBox({
+                left: rect.left,
+                width: rect.width,
+                maxHeight: Math.max(180, Math.min(320, openUp ? rect.top - 12 : spaceBelow - 12)),
+                top: openUp ? undefined : rect.bottom + 4,
+                bottom: openUp ? window.innerHeight - rect.top + 4 : undefined,
+            });
+        };
+        const onScroll = (event) => {
+            if (menuRef.current?.contains(event.target)) return;
+            place();
+        };
+        place();
+        const focusTimer = window.setTimeout(() => searchRef.current?.focus(), 0);
+        document.addEventListener('mousedown', onPointerDown);
+        window.addEventListener('resize', place);
+        window.addEventListener('scroll', onScroll, true);
+        return () => {
+            window.clearTimeout(focusTimer);
+            document.removeEventListener('mousedown', onPointerDown);
+            window.removeEventListener('resize', place);
+            window.removeEventListener('scroll', onScroll, true);
+        };
+    }, [open]);
+
+    function choose(option) {
+        onChange(option.id);
+        setQuery('');
+        setOpen(false);
+    }
+
     return (
-        <select
-            id={id}
-            value={value}
-            onChange={onChange}
-            className={`h-12 w-full rounded-xl border border-[#e5edf6] bg-white px-3.5 text-[15px] leading-6 text-slate-900 outline-none ${FOCUS}`}
-        >
-            <option value="">{placeholder}</option>
-            {children}
-        </select>
+        <div ref={rootRef} className="relative">
+            <button
+                id={id}
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={open}
+                onClick={() => {
+                    setQuery('');
+                    setOpen((current) => !current);
+                }}
+                className={`flex h-12 w-full items-center gap-2 rounded-xl border border-[#e5edf6] bg-white px-3.5 text-left text-[15px] leading-6 outline-none ${FOCUS}`}
+            >
+                <span className={`min-w-0 flex-1 truncate ${selected ? 'text-slate-900' : 'text-slate-400'}`}>
+                    {selected?.label || placeholder}
+                </span>
+                <ChevronDown size={16} className={`shrink-0 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
+            </button>
+            {open && menuBox ? (
+                <div
+                    ref={menuRef}
+                    style={{
+                        position: 'fixed',
+                        left: menuBox.left,
+                        width: menuBox.width,
+                        top: menuBox.top,
+                        bottom: menuBox.bottom,
+                        maxHeight: menuBox.maxHeight,
+                        zIndex: 80,
+                    }}
+                    className="flex flex-col overflow-hidden rounded-xl border border-[#e5edf6] bg-white shadow-xl"
+                >
+                    <div className="border-b border-[#eef3f8] p-2">
+                        <div className="relative">
+                            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                                ref={searchRef}
+                                value={query}
+                                placeholder="Search..."
+                                onChange={(event) => setQuery(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Escape') {
+                                        event.preventDefault();
+                                        setOpen(false);
+                                        return;
+                                    }
+                                    if (event.key === 'Enter' && filtered.length === 1) {
+                                        event.preventDefault();
+                                        choose(filtered[0]);
+                                    }
+                                }}
+                                className="h-10 w-full rounded-lg border border-[#e5edf6] bg-white pl-9 pr-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#2f6fed]"
+                            />
+                        </div>
+                    </div>
+                    <div role="listbox" className="min-h-0 flex-1 overflow-y-auto py-1">
+                        {filtered.length === 0 ? (
+                            <p className="px-3 py-2 text-sm text-slate-500">{emptyLabel}</p>
+                        ) : filtered.map((option) => (
+                            <button
+                                key={option.id}
+                                type="button"
+                                role="option"
+                                aria-selected={option.id === value}
+                                onClick={() => choose(option)}
+                                className={`block w-full truncate px-3 py-2 text-left text-sm ${option.id === value ? 'bg-[#e8f1ff] font-medium text-[#2f6fed]' : 'text-slate-700 hover:bg-slate-50'}`}
+                            >
+                                {option.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            ) : null}
+        </div>
     );
 }
 
@@ -130,12 +262,14 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
     const [quote, setQuote] = useState(null);
     const [importing, setImporting] = useState(false);
     const [quoteMessage, setQuoteMessage] = useState('');
+    const [quoteMessageError, setQuoteMessageError] = useState(false);
     const [customerId, setCustomerId] = useState('');
     const [salespersonId, setSalespersonId] = useState('');
     const [lpoMode, setLpoMode] = useState('required');
     const [lpoNo, setLpoNo] = useState('');
     const [lpoDate, setLpoDate] = useState('');
     const [lpoValue, setLpoValue] = useState('');
+    const [lpoValueTouched, setLpoValueTouched] = useState(false);
     const [lpoFile, setLpoFile] = useState(null);
     const [confirmationDate, setConfirmationDate] = useState(() => dubaiDateKey());
     const [location, setLocation] = useState('');
@@ -210,16 +344,24 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
             : 'bg-amber-50 text-amber-600';
     const lpoLocked = lpoMode !== 'received';
     const attachmentLocked = lpoMode === 'required';
+    const quoteTotal = Number(linkedQuote?.total) || 0;
+
+    useEffect(() => {
+        if (lpoValueTouched || !(quoteTotal > 0)) return;
+        setLpoValue(quoteTotal.toFixed(2));
+    }, [quoteTotal, lpoValueTouched]);
 
     const importQuote = async () => {
         const number = quoteNumber.trim();
         if (!number) {
             setQuote(null);
+            setQuoteMessageError(false);
             setQuoteMessage('Enter the Zoho quotation number, then click Import.');
             return;
         }
         setImporting(true);
         setQuoteMessage('');
+        setQuoteMessageError(false);
         try {
             const response = await axiosInstance.get('/zoho/estimates/lookup', {
                 skipToast: true,
@@ -229,14 +371,23 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
             const row = response.data?.data;
             if (!row?.number) {
                 setQuote(null);
+                setQuoteMessageError(false);
                 setQuoteMessage('No Zoho quotation found for that number.');
+                return;
+            }
+            if (!sameCustomerName(row.customerName, customer?.name)) {
+                setQuote(null);
+                setQuoteMessageError(true);
+                setQuoteMessage(QUOTE_CUSTOMER_MISMATCH);
                 return;
             }
             setQuote(row);
             setQuoteNumber(row.number);
             setQuoteMessage('');
+            setQuoteMessageError(false);
         } catch (error) {
             setQuote(null);
+            setQuoteMessageError(false);
             setQuoteMessage(error?.response?.data?.message || 'Zoho quotation could not be imported.');
         } finally {
             setImporting(false);
@@ -271,6 +422,11 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
     };
 
     const save = async (intent) => {
+        if (quoteMessageError) {
+            setStepError(QUOTE_CUSTOMER_MISMATCH);
+            setStep(1);
+            return;
+        }
         if (!customer) {
             setStepError('Customer must be selected.');
             setStep(1);
@@ -290,13 +446,20 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                 setStepError('Attachment must be 4 MB or smaller.');
                 return;
             }
-            if (lpoMode === 'received' && (!lpoNo.trim() || !lpoDate || !(Number(lpoValue) > 0) || !lpoFile)) {
-                setStepError('LPO number, date, value and attachment are required.');
-                return;
-            }
-            if (lpoMode === 'not_required' && !lpoFile) {
-                setStepError('Attach a file when LPO is not required.');
-                return;
+            if (lpoMode === 'received') {
+                const amount = Number(lpoValue);
+                if (!lpoNo.trim() || !lpoDate || !(amount > 0) || !lpoFile) {
+                    setStepError('LPO number, date, value and attachment are required.');
+                    return;
+                }
+                if (lpoDate > dubaiDateKey()) {
+                    setStepError('LPO date cannot be after today.');
+                    return;
+                }
+                if (quoteTotal > 0 && Math.abs(amount - quoteTotal) > 0.009) {
+                    setStepError('LPO value must match the quotation total.');
+                    return;
+                }
             }
         }
         setSaving(true);
@@ -309,7 +472,9 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                 description: intent === 'draft'
                     ? `${assigned} is pending for ${salesperson?.name || 'the selected employee'}.`
                     : lpoMode === 'not_required'
-                        ? (response.data?.emailMessage || `${assigned} was sent to ${salesperson?.name || 'the salesperson'}. They were notified that the LPO was not filled.`)
+                        ? (response.data?.emailMessage || (lpoFile
+                            ? `${assigned} was sent to ${salesperson?.name || 'the salesperson'}. They were notified that the LPO was not filled.`
+                            : `Upload attachment to the work order ${assigned}`))
                         : assigned,
             });
             onSaved();
@@ -325,6 +490,10 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
     };
 
     const goNext = () => {
+        if (quoteMessageError) {
+            setStepError(QUOTE_CUSTOMER_MISMATCH);
+            return;
+        }
         if (!customer || !salesperson || !quoteNumber.trim()) {
             setStepError('Select the customer, salesperson and quotation number before the next step.');
             return;
@@ -439,20 +608,38 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                                 Customer & Sales Information
                             </h2>
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                <label htmlFor="wo-customer">
+                                <div>
                                     <FieldLabel required>Customer Name</FieldLabel>
-                                    <SelectField id="wo-customer" value={customerId} placeholder="Select Zoho customer" onChange={(event) => setCustomerId(event.target.value)}>
-                                        {customers.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-                                    </SelectField>
+                                    <LookupSelect
+                                        id="wo-customer"
+                                        value={customerId}
+                                        placeholder="Select Zoho customer"
+                                        emptyLabel="No customers match that search."
+                                        options={customers.map((row) => ({ id: row.id, label: row.name }))}
+                                        onChange={(nextId) => {
+                                            const nextCustomer = customers.find((row) => row.id === nextId);
+                                            setCustomerId(nextId);
+                                            if (quote && !sameCustomerName(quote.customerName, nextCustomer?.name)) {
+                                                setQuote(null);
+                                                setQuoteMessageError(true);
+                                                setQuoteMessage(QUOTE_CUSTOMER_MISMATCH);
+                                            }
+                                        }}
+                                    />
                                     {customerMessage ? <p className="mt-1.5 text-sm text-amber-700">{customerMessage}</p> : null}
-                                </label>
-                                <label htmlFor="wo-salesperson">
+                                </div>
+                                <div>
                                     <FieldLabel required>Salesperson Name</FieldLabel>
-                                    <SelectField id="wo-salesperson" value={salespersonId} placeholder="Select employee" onChange={(event) => setSalespersonId(event.target.value)}>
-                                        {employees.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-                                    </SelectField>
+                                    <LookupSelect
+                                        id="wo-salesperson"
+                                        value={salespersonId}
+                                        placeholder="Select employee"
+                                        emptyLabel="No employees match that search."
+                                        options={employees.map((row) => ({ id: row.id, label: row.name }))}
+                                        onChange={setSalespersonId}
+                                    />
                                     {employeeMessage ? <p className="mt-1.5 text-sm text-amber-700">{employeeMessage}</p> : null}
-                                </label>
+                                </div>
                             </div>
                         </section>
                         <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
@@ -468,7 +655,13 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                                     <input
                                         id="wo-quote"
                                         value={quoteNumber}
-                                        onChange={(event) => setQuoteNumber(event.target.value)}
+                                        onChange={(event) => {
+                                            setQuoteNumber(event.target.value);
+                                            if (quoteMessageError) {
+                                                setQuoteMessage('');
+                                                setQuoteMessageError(false);
+                                            }
+                                        }}
                                         onKeyDown={(event) => {
                                             if (event.key === 'Enter') {
                                                 event.preventDefault();
@@ -493,7 +686,11 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                                     </span>
                                 ) : null}
                             </div>
-                            {quoteMessage ? <p className="mt-2 text-sm text-amber-700">{quoteMessage}</p> : null}
+                            {quoteMessage ? (
+                                <p className={`mt-2 text-sm font-medium ${quoteMessageError ? 'text-red-600' : 'text-amber-700'}`} role={quoteMessageError ? 'alert' : undefined}>
+                                    {quoteMessage}
+                                </p>
+                            ) : null}
                             <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
                                 <label>
                                     <FieldLabel>Quotation Date</FieldLabel>
@@ -586,8 +783,8 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                                 {lpoMode === 'required'
                                     ? 'LPO number, date, value and attachment stay off. There is no need to add an LPO while Required is selected.'
                                     : lpoMode === 'not_required'
-                                        ? 'Attachment is required. Creating the work order emails the salesperson and notifies them that the LPO was not filled.'
-                                        : 'Enter the LPO number, date, value and attachment.'}
+                                        ? 'Attachment is optional. If you create the work order without one, the project coordinator is emailed and notified to upload it.'
+                                        : 'Enter the LPO number, date, value and attachment. LPO value comes from the quotation total.'}
                             </p>
                             <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                                 <label htmlFor="wo-lpo">
@@ -596,14 +793,14 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                                 </label>
                                 <label htmlFor="wo-lpo-date">
                                     <FieldLabel required={lpoMode === 'received'}>LPO Date</FieldLabel>
-                                    <input id="wo-lpo-date" type="date" value={lpoDate} disabled={lpoLocked} onChange={(event) => setLpoDate(event.target.value)} className={fieldClass} />
+                                    <input id="wo-lpo-date" type="date" max={dubaiDateKey()} value={lpoDate} disabled={lpoLocked} onChange={(event) => setLpoDate(event.target.value)} className={fieldClass} />
                                 </label>
                                 <label htmlFor="wo-lpo-value">
                                     <FieldLabel required={lpoMode === 'received'}>LPO Value</FieldLabel>
-                                    <input id="wo-lpo-value" type="number" min="0" step="0.01" value={lpoValue} disabled={lpoLocked} onChange={(event) => setLpoValue(event.target.value)} placeholder="0.00" className={fieldClass} />
+                                    <input id="wo-lpo-value" type="number" min="0" step="0.01" value={lpoValue} disabled={lpoLocked} onChange={(event) => { setLpoValueTouched(true); setLpoValue(event.target.value); }} placeholder="0.00" className={fieldClass} />
                                 </label>
                                 <div>
-                                    <FieldLabel required={lpoMode !== 'required'}>Attachment</FieldLabel>
+                                    <FieldLabel required={lpoMode === 'received'}>Attachment</FieldLabel>
                                     <label htmlFor="wo-lpo-file" className={`flex h-12 items-center gap-3 rounded-xl border border-[#e5edf6] px-2 ${attachmentLocked ? 'cursor-not-allowed bg-[#f4f7fb]' : 'cursor-pointer bg-white'} ${FOCUS}`}>
                                         <span className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-semibold ${attachmentLocked ? 'bg-slate-200 text-slate-400' : 'bg-[#e8f1ff] text-[#2f6fed]'}`}>
                                             Choose file

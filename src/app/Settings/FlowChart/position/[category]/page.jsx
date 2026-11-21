@@ -15,6 +15,7 @@ const LABELS = {
     admincontroller: 'Admin Officer',
     assetcontroller: 'Asset Controller',
     purchaseofficer: 'Purchase Officer',
+    projectcoordinator: 'Project Coordinator',
 };
 
 const normCat = (c) => (c || '').toString().toLowerCase().replace(/\s+/g, '');

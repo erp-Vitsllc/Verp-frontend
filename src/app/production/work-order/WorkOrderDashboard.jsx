@@ -6,22 +6,18 @@ import axiosInstance from '@/utils/axios';
 import WorkOrderDetails from './WorkOrderDetails';
 import { formatAed, formatWorkOrderDate, nextWorkOrderNo } from './workOrderNumber';
 import {
-    Calendar,
     CheckCircle2,
     ChevronRight,
     ClipboardList,
-    FileCheck,
     FileText,
     Gavel,
     Receipt,
     Home,
-    Hourglass,
     Layers,
     Link2,
     MoreHorizontal,
     PieChart,
     Plus,
-    Workflow,
     Zap,
 } from 'lucide-react';
 
@@ -32,14 +28,6 @@ const STAT_META = [
     { key: 'linked', label: 'Linked to Projects', icon: Link2, tint: 'bg-sky-50 text-sky-600' },
     { key: 'completed', label: 'Completed Work Orders', icon: CheckCircle2, tint: 'bg-emerald-50 text-emerald-600' },
     { key: 'pendingInvoices', label: 'Pending Invoices', icon: Receipt, tint: 'bg-orange-50 text-orange-500' },
-];
-
-const WORKFLOW_META = [
-    { status: 'Draft', label: 'Draft', icon: FileText, tint: 'bg-slate-50', iconTint: 'bg-white text-slate-500' },
-    { status: 'Awaiting LPO', label: 'Awaiting LPO', icon: Calendar, tint: 'bg-amber-50', iconTint: 'bg-white text-amber-500' },
-    { status: 'In Progress', label: 'In Progress', icon: Hourglass, tint: 'bg-blue-50', iconTint: 'bg-white text-blue-600' },
-    { status: 'Fully Invoiced', label: 'Fully Invoiced', icon: FileCheck, tint: 'bg-violet-50', iconTint: 'bg-white text-violet-600' },
-    { status: 'Completed', label: 'Completed', icon: CheckCircle2, tint: 'bg-emerald-50', iconTint: 'bg-white text-emerald-600' },
 ];
 
 const TYPE_META = [
@@ -71,6 +59,7 @@ function mapOrder(order) {
             ? {
                 active: true,
                 message: order.lpoAlert.message || '',
+                kind: order.lpoAlert.kind || '',
                 sentByName: order.lpoAlert.sentByName || '',
                 forEmployeeIds: Array.isArray(order.lpoAlert.forEmployeeIds) ? order.lpoAlert.forEmployeeIds.map(String) : [],
             }
@@ -100,7 +89,6 @@ function summarize(orders) {
     };
     return {
         counts,
-        workflow: WORKFLOW_META.map((step) => ({ ...step, count: countStatus(step.status) })),
         types: TYPE_META.map((item) => {
             const value = orders.filter((order) => order.type === item.type).length;
             const pct = total ? `${((value / total) * 100).toFixed(1)}%` : '0.0%';
@@ -248,6 +236,7 @@ export default function WorkOrderDashboard() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const linkedId = searchParams.get('workOrder') || '';
+    const focusSection = searchParams.get('section') || '';
     const [detailId, setDetailId] = useState(linkedId || null);
     const [viewerKeys, setViewerKeys] = useState([]);
     const [orders, setOrders] = useState([]);
@@ -325,6 +314,7 @@ export default function WorkOrderDashboard() {
         return (
             <WorkOrderDetails
                 id={detailId}
+                focusSection={focusSection}
                 onBack={() => {
                     setDetailId(null);
                     if (linkedId) router.replace('/production/work-order');
@@ -354,7 +344,9 @@ export default function WorkOrderDashboard() {
             ) : null}
             {lpoNotices.length > 0 ? (
                 <div className="mb-4 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950">
-                    <p className="font-semibold">LPO not filled</p>
+                    <p className="font-semibold">
+                        {lpoNotices.every((order) => order.lpoAlert.kind === 'attachment') ? 'Attachment needed' : 'LPO not filled'}
+                    </p>
                     <ul className="mt-1 space-y-2">
                         {lpoNotices.map((order) => (
                             <li key={order.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -418,45 +410,8 @@ export default function WorkOrderDashboard() {
                 })}
             </div>
 
-            <div className="mt-3 grid grid-cols-1 items-stretch gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
-                <Panel
-                    icon={Workflow}
-                    title="Workflow Status Summary"
-                    className="flex h-full flex-col"
-                    extra={(
-                        <span className="shrink-0 rounded-full bg-[#f4f7fb] px-3 py-1 text-[12px] font-medium text-slate-500">
-                            Total: {summary.counts.total} Work Orders
-                        </span>
-                    )}
-                >
-                    <div className="flex flex-1 items-center">
-                        <div className="flex w-full items-center gap-1 overflow-x-auto pb-1">
-                            {summary.workflow.map((step, index) => {
-                                const Icon = step.icon;
-                                return (
-                                    <div key={step.label} className="flex min-w-[118px] flex-1 items-center gap-1">
-                                        <div className={`flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2.5 py-2 ${step.tint}`}>
-                                            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${step.iconTint}`}>
-                                                <Icon size={16} />
-                                            </span>
-                                            <span>
-                                                <span className="block text-[11px] font-medium text-slate-500">{step.label}</span>
-                                                <span className="block text-[18px] font-bold leading-tight text-slate-800 tabular-nums">
-                                                    {step.count}
-                                                </span>
-                                            </span>
-                                        </div>
-                                        {index < summary.workflow.length - 1 ? (
-                                            <ChevronRight size={16} className="shrink-0 text-slate-300" aria-hidden="true" />
-                                        ) : null}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </Panel>
-
-                <Panel icon={Zap} title="Quick Actions" className="h-full">
+            <div className="mt-3 flex justify-end">
+                <Panel icon={Zap} title="Quick Actions" className="h-full w-full xl:w-[280px]">
                     <div className="flex flex-col gap-2.5">
                         {ACTIONS.map((item) => {
                             const Icon = item.icon;

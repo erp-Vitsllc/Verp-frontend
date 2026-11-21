@@ -410,6 +410,10 @@ export async function downloadPurchaseBillPdf(source, options = {}) {
         }
     }
     if (options.output === 'arraybuffer') return pdf.output('arraybuffer');
+    if (options.output === 'blob') {
+        const raw = pdf.output('blob');
+        return raw.type === 'application/pdf' ? raw : new Blob([raw], { type: 'application/pdf' });
+    }
     pdf.save(`Purchase-Bill-${doc.fileNo}.pdf`);
     return true;
 }

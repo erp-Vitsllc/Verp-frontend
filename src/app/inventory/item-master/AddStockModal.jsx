@@ -2,11 +2,12 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Boxes, Check, FileText, Pencil, Plus, Printer, RotateCcw, Store, Trash2, Upload, X } from 'lucide-react';
+import { Boxes, Check, Eye, FileText, Pencil, Plus, Printer, RotateCcw, Store, Trash2, Upload, X } from 'lucide-react';
 import { downloadPurchaseBillPdf } from './purchaseBillPdf';
 import { useToast } from '@/hooks/use-toast';
 import { useInventoryAccess } from './itemMasterAccess';
 import { listVendors } from '../vendor-management/vendorManagementApi';
+import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 import {
     apiMessage,
     approveStockEntry,
@@ -22,7 +23,6 @@ import {
 
 const fieldClass = 'h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-slate-800 outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-700';
 const PURCHASER_REQUIRED = 'Add purchaser on workflow. Then only can create or submit. Else Draft or Cancel.';
-const MAX_BILL_BYTES = 10 * 1024 * 1024;
 
 function sameId(left, right) {
     return String(left || '') === String(right || '');
@@ -65,6 +65,21 @@ function itemStillVisible(item, nextCategory, nextSub) {
     return true;
 }
 
+function lineAlreadyAdded(lines, candidate) {
+    const model = cleanText(candidate?.modelNumber);
+    const itemId = cleanText(candidate?.itemId);
+    const itemName = cleanText(candidate?.itemName);
+    return (lines || []).some((line) => {
+        if (itemId && sameId(line.itemId, itemId)) return true;
+        if (model && namesEqual(line.modelNumber, model)) return true;
+        if (!model && !itemId && itemName && namesEqual(line.itemName, itemName)
+            && sameId(line.categoryId, candidate.categoryId)
+            && sameId(line.subcategoryId, candidate.subcategoryId)
+            && sameId(line.brandId, candidate.brandId)) return true;
+        return false;
+    });
+}
+
 function requestId() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
     return `stock-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -85,14 +100,13 @@ function lineTotal(quantity, unitPrice) {
 
 function readBillFile(file) {
     if (!file) return Promise.resolve(null);
-    const allowed = ['application/pdf', 'image/jpeg', 'image/png'];
-    if (!allowed.includes(file.type)) return Promise.reject(new Error('Upload a PDF, JPG, or PNG file.'));
-    if (file.size > MAX_BILL_BYTES) return Promise.reject(new Error('File must be under 10 MB.'));
+    const check = validateErpPdfFile(file);
+    if (!check.ok) return Promise.reject(new Error(check.message));
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve({
             name: file.name,
-            mimeType: file.type,
+            mimeType: 'application/pdf',
             data: String(reader.result || ''),
         });
         reader.onerror = () => reject(new Error('Could not read the file.'));
@@ -289,21 +303,23 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                 if (!sourceEntryId) return;
                 const entry = await getStockEntry(sourceEntryId);
                 if (cancelled) return;
-                const vendor = vendorRows.find((row) => sameId(row.id, entry.vendorId));
+                const proposed = !viewOnly && entry.editPending && entry.pendingEdit ? entry.pendingEdit : null;
+                const shown = proposed || entry;
+                const vendor = vendorRows.find((row) => sameId(row.id, shown.vendorId));
                 setLoadedStatus(entry.status || '');
                 setEntryId(String(entry._id || ''));
                 setClientRequestId(entry.clientRequestId || requestId());
-                setPurchaseSource(entry.purchaseSource === 'manual' ? 'manual' : 'vendor');
-                setVendorId(entry.vendorId || '');
+                setPurchaseSource(shown.purchaseSource === 'manual' ? 'manual' : 'vendor');
+                setVendorId(shown.vendorId || '');
                 setVendorText(vendor?.name || '');
-                setPurchaseDate(entry.purchaseDate || '');
-                setBillNo(entry.billNo || '');
-                setLpoNo(entry.lpoNo || '');
-                setNote(entry.note || '');
-                setLines((entry.lines || []).map((line, index) => ({ ...line, key: `${entry._id}-${index}` })));
-                setAttachment(entry.attachment?.name ? entry.attachment : null);
+                setPurchaseDate(shown.purchaseDate || '');
+                setBillNo(shown.billNo || '');
+                setLpoNo(shown.lpoNo || '');
+                setNote(shown.note || '');
+                setLines((shown.lines || []).map((line, index) => ({ ...line, key: `${entry._id}-${index}` })));
+                setAttachment(shown.attachment?.name ? shown.attachment : null);
                 setApproverName(entry.approverName || context?.officerName || '');
-                setSubmittedByName(entry.submittedByName || '');
+                setSubmittedByName(proposed?.submittedByName || entry.submittedByName || '');
             })
             .catch((err) => {
                 if (!cancelled) setError(apiMessage(err, 'Could not load stock options.'));
@@ -344,9 +360,21 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
         brands.map((row) => ({ value: String(row._id), label: row.name || 'Brand' }))
     ), [brands]);
 
+    const openItems = useMemo(
+        () => items.filter((item) => !lineAlreadyAdded(lines, {
+            itemId: item._id,
+            modelNumber: item.modelNumber,
+            itemName: itemLabel(item),
+            categoryId: item.categoryId,
+            subcategoryId: item.subcategoryId,
+            brandId: item.brandId,
+        })),
+        [items, lines],
+    );
+
     const scopedItems = useMemo(
-        () => items.filter((item) => itemStillVisible(item, categoryId, subcategoryId)),
-        [items, categoryId, subcategoryId],
+        () => openItems.filter((item) => itemStillVisible(item, categoryId, subcategoryId)),
+        [openItems, categoryId, subcategoryId],
     );
 
     const itemOptions = useMemo(
@@ -681,6 +709,10 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
     const addMaterial = () => {
         const line = resolveSelection();
         if (!line) return;
+        if (lineAlreadyAdded(lines, line)) {
+            setError('This item is already in the table.');
+            return;
+        }
         setLines((current) => [...current, { ...line, key: requestId() }]);
         resetItemFields();
     };
@@ -796,7 +828,12 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                 } : null,
             });
             if (status === 'posted') {
-                if (saved.status === 'pending') {
+                if (saved.pendingApproval) {
+                    toast({
+                        title: 'Sent for approval',
+                        description: `Waiting for ${saved.approverName || 'the purchase officer'}. The current bill stays until they approve this edit.`,
+                    });
+                } else if (saved.status === 'pending') {
                     toast({
                         title: 'Submitted',
                         description: `Waiting for ${saved.approverName || 'the purchase officer'}. Stock is added when they approve.`,
@@ -808,9 +845,9 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                 onClose();
                 return;
             }
-            setEntryId(String(saved._id || entryId));
-            if (saved.clientRequestId) setClientRequestId(saved.clientRequestId);
             toast({ title: 'Draft saved', description: 'This bill is listed on Bills as Drafted. Stock was not added.' });
+            onSaved?.();
+            onClose();
         } catch (err) {
             const message = apiMessage(err, 'Could not save the stock entry.');
             setError(message);
@@ -844,33 +881,59 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
     };
 
     const grandTotal = lines.reduce((sum, line) => sum + lineTotal(line.quantity, line.unitPrice), 0);
-    const actionLabel = directPost ? 'OK' : 'Submit';
+    const actionLabel = directPost && (!editEntryId || (loadedStatus && loadedStatus !== 'draft')) ? 'OK' : 'Submit';
     const catalogName = (rows, id) => rows.find((row) => sameId(row._id, id))?.name || '';
+
+    const billPdfSource = () => ({
+        purchaseSource,
+        vendorName: vendorText,
+        purchaseDate,
+        billNo,
+        lpoNo,
+        note,
+        attachmentName: attachment?.name || '',
+        lines: lines.map((line) => ({
+            category: catalogName(categories, line.categoryId),
+            subcategory: catalogName(subcategories, line.subcategoryId),
+            itemName: line.itemName,
+            description: line.description,
+            brand: catalogName(brands, line.brandId),
+            model: line.modelNumber,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+        })),
+    });
 
     const printBill = async () => {
         try {
-            await downloadPurchaseBillPdf({
-                purchaseSource,
-                vendorName: vendorText,
-                purchaseDate,
-                billNo,
-                lpoNo,
-                note,
-                attachmentName: attachment?.name || '',
-                lines: lines.map((line) => ({
-                    category: catalogName(categories, line.categoryId),
-                    subcategory: catalogName(subcategories, line.subcategoryId),
-                    itemName: line.itemName,
-                    description: line.description,
-                    brand: catalogName(brands, line.brandId),
-                    model: line.modelNumber,
-                    quantity: line.quantity,
-                    unitPrice: line.unitPrice,
-                })),
-            });
+            await downloadPurchaseBillPdf(billPdfSource());
             if (error && error.startsWith('Could not download')) setError('');
         } catch (printError) {
             setError(printError?.message || 'Could not download the purchase bill.');
+        }
+    };
+
+    const viewBill = async () => {
+        const preview = window.open('about:blank', '_blank');
+        if (!preview) {
+            setError('Allow popups to view this bill.');
+            return;
+        }
+        try {
+            preview.document.title = 'Purchase Bill';
+        } catch {
+            /* the blank tab can ignore a title until the PDF loads */
+        }
+        try {
+            const blob = await downloadPurchaseBillPdf(billPdfSource(), { output: 'blob' });
+            const url = URL.createObjectURL(blob);
+            preview.location.href = url;
+            try { preview.opener = null; } catch { /* ignore */ }
+            window.setTimeout(() => URL.revokeObjectURL(url), 120000);
+            if (error && error.startsWith('Could not')) setError('');
+        } catch (viewError) {
+            if (!preview.closed) preview.close();
+            setError(viewError?.message || 'Could not open the purchase bill.');
         }
     };
 
@@ -1082,12 +1145,14 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                         ) : lines.map((line, index) => (
                                             <tr key={line.key} className="border-t border-[#EEF2F7]">
                                                 <td className="px-3 py-3 text-slate-500">{index + 1}</td>
-                                                <td className="px-3 py-3 text-slate-800">
-                                                    <p className="font-medium">{line.itemName || line.description}</p>
-                                                    {line.description && line.itemName && line.description !== line.itemName ? (
-                                                        <p className="mt-0.5 text-xs text-slate-400">{line.description}</p>
-                                                    ) : null}
-                                                    {line.modelNumber ? <p className="mt-0.5 text-xs text-slate-400">Model {line.modelNumber}</p> : null}
+                                                <td className="px-3 py-3 align-top text-slate-800">
+                                                    <div className="flex flex-col gap-1">
+                                                        <p className="text-sm font-medium leading-5">{line.itemName || line.description}</p>
+                                                        {line.description && line.itemName && line.description !== line.itemName ? (
+                                                            <p className="text-xs leading-4 text-slate-400">{line.description}</p>
+                                                        ) : null}
+                                                        {line.modelNumber ? <p className="text-xs leading-4 text-slate-400">Model {line.modelNumber}</p> : null}
+                                                    </div>
                                                 </td>
                                                 <td className="px-3 py-3">
                                                     <input
@@ -1151,7 +1216,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                         <button type="button" onClick={() => fileRef.current?.click()} className="mt-1 text-sm font-semibold text-indigo-600">
                                             Choose File
                                         </button>
-                                        <p className="text-xs text-slate-400">or drag and drop · PDF, JPG, PNG (max 10 MB)</p>
+                                        <p className="text-xs text-slate-400">or drag and drop · PDF only (max 5 MB)</p>
                                         {attachment?.name ? (
                                             <button type="button" onClick={() => setAttachment(null)} className="mt-2 text-xs text-slate-500 hover:text-red-600">
                                                 {attachment.name} · Remove
@@ -1160,7 +1225,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                         <input
                                             ref={fileRef}
                                             type="file"
-                                            accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                                            accept={ERP_PDF_ACCEPT}
                                             className="hidden"
                                             onChange={(event) => {
                                                 useBill(event.target.files?.[0]);
@@ -1180,6 +1245,13 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                         className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-4 text-sm font-semibold text-indigo-700 hover:bg-indigo-50"
                     >
                         <Printer size={15} /> Print Bill
+                    </button>
+                    <button
+                        type="button"
+                        onClick={viewBill}
+                        className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-4 text-sm font-semibold text-indigo-700 hover:bg-indigo-50"
+                    >
+                        <Eye size={15} /> View Bill
                     </button>
                     {(!locked && !purchaserAssigned) || (error && error !== PURCHASER_REQUIRED) ? (
                         <div className="mr-auto flex min-w-[220px] max-w-xl flex-col gap-1">

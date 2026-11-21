@@ -160,8 +160,8 @@ export function CustomerInvoices({ customerId }) {
     );
 }
 
-async function printCustomerDelivery(row) {
-    await downloadDeliveryOrderPdf({
+function customerDeliveryPdfSource(row) {
+    return {
         form: {
             deliveryType: row.deliveryType || 'Manual',
             doDate: row.doDate || '',
@@ -177,7 +177,31 @@ async function printCustomerDelivery(row) {
         deliveryNo: row.deliveryNo || '',
         createdAt: row.createdAt || '',
         inventoryItems: [],
-    });
+    };
+}
+
+async function printCustomerDelivery(row) {
+    await downloadDeliveryOrderPdf(customerDeliveryPdfSource(row));
+}
+
+async function viewCustomerDelivery(row) {
+    const preview = window.open('about:blank', '_blank');
+    if (!preview) throw new Error('Allow popups to view this delivery order.');
+    try {
+        preview.document.title = row.deliveryNo || 'Delivery Order';
+    } catch {
+        /* the blank tab can ignore a title until the PDF loads */
+    }
+    try {
+        const blob = await downloadDeliveryOrderPdf(customerDeliveryPdfSource(row), { output: 'blob' });
+        const url = URL.createObjectURL(blob);
+        preview.location.href = url;
+        try { preview.opener = null; } catch { /* ignore */ }
+        window.setTimeout(() => URL.revokeObjectURL(url), 120000);
+    } catch (error) {
+        if (!preview.closed) preview.close();
+        throw error;
+    }
 }
 
 export function CustomerDeliveries({ customerId }) {
@@ -199,7 +223,24 @@ export function CustomerDeliveries({ customerId }) {
                         <EmptyRow colSpan={7} loading={loading} loadingLabel="Loading deliveries..." empty="No deliveries for this customer." />
                     ) : rows.map((row) => (
                         <tr key={row.id} className="border-b border-slate-100 text-slate-700">
-                            <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{row.deliveryNo || 'N/A'}</td>
+                            <td className="whitespace-nowrap px-4 py-3.5 font-medium">
+                                {row.deliveryNo ? (
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            try {
+                                                await viewCustomerDelivery(row);
+                                                setPrintError('');
+                                            } catch (viewFailure) {
+                                                setPrintError(viewFailure?.message || 'Could not open the delivery order.');
+                                            }
+                                        }}
+                                        className="text-blue-600 hover:underline"
+                                    >
+                                        {row.deliveryNo}
+                                    </button>
+                                ) : 'N/A'}
+                            </td>
                             <td className="whitespace-nowrap px-4 py-3.5">{formatDate(row.doDate)}</td>
                             <td className="whitespace-nowrap px-4 py-3.5">{row.deliveryType || 'N/A'}</td>
                             <td className="max-w-[220px] truncate px-4 py-3.5">{row.projectName || 'N/A'}</td>

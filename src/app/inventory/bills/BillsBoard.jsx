@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowDown, ArrowUp, ArrowUpDown, Bell, MoreVertical, Paperclip, Receipt } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Bell, Check, MoreVertical, Paperclip, Receipt, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
 import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
 import AddStockModal from '../item-master/AddStockModal';
 import { useInventoryAccess } from '../item-master/itemMasterAccess';
+import { approveStockEntry, rejectStockEntry } from '../item-master/itemMasterApi';
 import { billsApiMessage, deleteInventoryBill, listInventoryBills } from './billsApi';
 
 function formatPurchaseDate(value) {
@@ -74,6 +75,8 @@ export default function BillsBoard() {
     const access = useInventoryAccess();
     const canAddBill = access.canCreateItem || access.canEditItem;
     const [canManage, setCanManage] = useState(false);
+    const [isPurchaseOfficer, setIsPurchaseOfficer] = useState(false);
+    const [decidingId, setDecidingId] = useState('');
     const [rows, setRows] = useState([]);
     const [notices, setNotices] = useState([]);
     const [showNotifications, setShowNotifications] = useState(false);
@@ -96,11 +99,13 @@ export default function BillsBoard() {
                 setRows(Array.isArray(data?.bills) ? data.bills : []);
                 setNotices(Array.isArray(data?.myDrafts) ? data.myDrafts : []);
                 setCanManage(Boolean(data?.isManagement));
+                setIsPurchaseOfficer(Boolean(data?.isPurchaseOfficer));
                 setError('');
             })
             .catch((loadError) => {
                 setRows([]);
                 setNotices([]);
+                setIsPurchaseOfficer(false);
                 setError(billsApiMessage(loadError, 'Could not load bills.'));
             })
             .finally(() => setLoading(false));
@@ -154,6 +159,35 @@ export default function BillsBoard() {
             });
         } finally {
             setDeletingId('');
+        }
+    };
+
+    const canEditBill = canAddBill || canManage || isPurchaseOfficer;
+    const pendingEdits = isPurchaseOfficer ? rows.filter((bill) => bill.editPending) : [];
+
+    const decideEdit = async (bill, action) => {
+        const label = bill.billNo || 'this bill';
+        if (action === 'reject' && !window.confirm(`Reject the edit to ${label}? The bill stays as it is.`)) return;
+        setDecidingId(bill.id);
+        setMenuId('');
+        try {
+            if (action === 'approve') await approveStockEntry(bill.id);
+            else await rejectStockEntry(bill.id);
+            toast({
+                title: action === 'approve' ? 'Edit approved' : 'Edit rejected',
+                description: action === 'approve'
+                    ? 'The bill was updated.'
+                    : 'The current bill was kept.',
+            });
+            await load();
+        } catch (decideError) {
+            toast({
+                title: action === 'approve' ? 'Could not approve' : 'Could not reject',
+                description: billsApiMessage(decideError, 'Could not update this bill.'),
+                variant: 'destructive',
+            });
+        } finally {
+            setDecidingId('');
         }
     };
 
@@ -229,6 +263,11 @@ export default function BillsBoard() {
                 </div>
             </div>
             {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+            {pendingEdits.length ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                    {pendingEdits.length} bill {pendingEdits.length === 1 ? 'edit is' : 'edits are'} waiting for your approval.
+                </div>
+            ) : null}
             <div className="mt-5 overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
                     <thead>
@@ -254,14 +293,17 @@ export default function BillsBoard() {
                             <tr>
                                 <td colSpan={COLUMNS.length} className="px-4 py-10 text-center text-slate-500">No bills yet.</td>
                             </tr>
-                        ) : sortedRows.map(({ bill }, index) => (
+                        ) : sortedRows.map(({ bill }, index) => {
+                            const isDraft = String(bill.status || '').toLowerCase() === 'draft';
+                            return (
                             <tr
                                 key={bill.id}
                                 onClick={() => {
-                                    setEditEntryId('');
-                                    setViewEntryId(bill.id);
+                                    if (!isDraft) return;
+                                    setViewEntryId('');
+                                    setEditEntryId(bill.id);
                                 }}
-                                className="cursor-pointer border-b border-slate-100 text-slate-700 hover:bg-slate-50"
+                                className={`border-b border-slate-100 text-slate-700 ${isDraft ? 'cursor-pointer hover:bg-slate-50' : ''}`}
                             >
                                 <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-slate-500">{index + 1}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{shown(bill.billNo)}</td>
@@ -307,6 +349,29 @@ export default function BillsBoard() {
                                     ) : 'N/A'}
                                 </td>
                                 <td className="whitespace-nowrap px-4 py-3.5" onClick={(event) => event.stopPropagation()}>
+                                    <div className="flex items-center gap-2">
+                                    {isPurchaseOfficer && bill.editPending ? (
+                                        <>
+                                            <button
+                                                type="button"
+                                                disabled={decidingId === bill.id}
+                                                onClick={() => decideEdit(bill, 'approve')}
+                                                className="inline-flex h-8 items-center gap-1 rounded-lg bg-indigo-600 px-2.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-40"
+                                            >
+                                                <Check size={14} />
+                                                Approve
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={decidingId === bill.id}
+                                                onClick={() => decideEdit(bill, 'reject')}
+                                                className="inline-flex h-8 items-center gap-1 rounded-lg border border-red-200 px-2.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40"
+                                            >
+                                                <X size={14} />
+                                                Reject
+                                            </button>
+                                        </>
+                                    ) : null}
                                     <div className="relative" ref={menuId === bill.id ? menuRef : null}>
                                         <button
                                             type="button"
@@ -335,7 +400,7 @@ export default function BillsBoard() {
                                                     transform: menuPos.openUp ? 'translate(-100%, -100%)' : 'translateX(-100%)',
                                                 }}
                                             >
-                                                {canManage ? (
+                                                {canEditBill ? (
                                                 <button
                                                     type="button"
                                                     onClick={() => {
@@ -360,9 +425,11 @@ export default function BillsBoard() {
                                             </div>
                                         ) : null}
                                     </div>
+                                    </div>
                                 </td>
                             </tr>
-                        ))}
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -405,7 +472,7 @@ export default function BillsBoard() {
                 <AddStockModal
                     key={editEntryId}
                     editEntryId={editEntryId}
-                    allowEdit={canManage}
+                    allowEdit={canEditBill}
                     onClose={() => {
                         setEditEntryId('');
                         load();

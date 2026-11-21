@@ -18,6 +18,14 @@ const FINE_ROWS = [
     { key: 'Other', label: 'Other fine' },
 ];
 
+/** A settled row cannot show more paid than its amount. */
+function paidWithinAmount(amount, paid) {
+    const value = Number(amount) || 0;
+    const settled = Math.max(0, Number(paid) || 0);
+    if (value > 0 && settled > value) return value;
+    return settled;
+}
+
 function sumCategoryBySource(matching, employeeOwnerId, sourceFilter) {
     const filtered = matching.filter((f) => {
         const src = f.sourceOfIncome || 'Salary';
@@ -121,32 +129,38 @@ export default function FineFormCard3({
             };
         });
 
+        const advanceAmount = parseFloat(advance.amount) || 0;
+        const advancePaid = paidWithinAmount(advanceAmount, advance.paid);
+        const advanceOutstanding = Math.max(0, advanceAmount - advancePaid);
         const advanceRow = {
             key: 'advance',
             label: `Advance (${advance.count || 0})`,
-            amount: parseFloat(advance.amount) || 0,
-            paid: parseFloat(advance.paid) || 0,
-            outstanding: Math.max(0, (parseFloat(advance.amount) || 0) - (parseFloat(advance.paid) || 0)),
+            amount: advanceAmount,
+            paid: advancePaid,
+            outstanding: advanceOutstanding,
             salary: {
-                amount: parseFloat(advance.amount) || 0,
-                paid: parseFloat(advance.paid) || 0,
+                amount: advanceAmount,
+                paid: advancePaid,
                 count: advance.count || 0,
-                outstanding: Math.max(0, (parseFloat(advance.amount) || 0) - (parseFloat(advance.paid) || 0)),
+                outstanding: advanceOutstanding,
             },
             eos: { amount: 0, paid: 0, count: 0, outstanding: 0 },
         };
 
+        const loanAmount = parseFloat(loan.amount) || 0;
+        const loanPaid = paidWithinAmount(loanAmount, loan.paid);
+        const loanOutstanding = Math.max(0, loanAmount - loanPaid);
         const loanRow = {
             key: 'loan',
             label: `Loan (${loan.count || 0})`,
-            amount: parseFloat(loan.amount) || 0,
-            paid: parseFloat(loan.paid) || 0,
-            outstanding: Math.max(0, (parseFloat(loan.amount) || 0) - (parseFloat(loan.paid) || 0)),
+            amount: loanAmount,
+            paid: loanPaid,
+            outstanding: loanOutstanding,
             salary: {
-                amount: parseFloat(loan.amount) || 0,
-                paid: parseFloat(loan.paid) || 0,
+                amount: loanAmount,
+                paid: loanPaid,
                 count: loan.count || 0,
-                outstanding: Math.max(0, (parseFloat(loan.amount) || 0) - (parseFloat(loan.paid) || 0)),
+                outstanding: loanOutstanding,
             },
             eos: { amount: 0, paid: 0, count: 0, outstanding: 0 },
         };

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useToast } from '@/hooks/use-toast';
 import { createPortal } from 'react-dom';
 import {
     Boxes,
@@ -8,6 +9,7 @@ import {
     Calendar,
     Check,
     ChevronDown,
+    Eye,
     FileText,
     Plus,
     Pointer,
@@ -16,9 +18,11 @@ import {
     Search,
     Trash2,
     Truck,
+    Upload,
     UserRound,
     X,
 } from 'lucide-react';
+import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 import AddCustomerModal from '../../CRM/Customer/AddCustomerModal';
 import {
     createDelivery,
@@ -108,6 +112,22 @@ function formFromDelivery(delivery) {
         note: delivery.note || '',
         lines: Array.isArray(delivery.lines) ? delivery.lines.map((line) => ({ ...line })) : [],
     };
+}
+
+function readDeliveryFile(file) {
+    if (!file) return Promise.resolve(null);
+    const check = validateErpPdfFile(file);
+    if (!check.ok) return Promise.reject(new Error(check.message));
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({
+            name: file.name,
+            mimeType: 'application/pdf',
+            data: String(reader.result || ''),
+        });
+        reader.onerror = () => reject(new Error('Could not read the file.'));
+        reader.readAsDataURL(file);
+    });
 }
 
 function emptyDraft() {
@@ -497,6 +517,7 @@ function DateField({ value, onChange }) {
 
 
 export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer = false, delivery = null, readOnly = false }) {
+    const { toast } = useToast();
     const [form, setForm] = useState(() => formFromDelivery(delivery));
     const [draft, setDraft] = useState(emptyDraft);
     const [customers, setCustomers] = useState([]);
@@ -512,6 +533,9 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
     const [saving, setSaving] = useState('');
     const [error, setError] = useState('');
     const [lineError, setLineError] = useState('');
+    const [attachment, setAttachment] = useState(() => (delivery?.attachment?.name ? delivery.attachment : null));
+    const [dragOver, setDragOver] = useState(false);
+    const fileRef = useRef(null);
     const [customerModal, setCustomerModal] = useState(false);
     const customerRequest = useRef(0);
     const nestedOpen = useRef(false);
@@ -662,8 +686,16 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         });
         return [...fromCatalog, ...extras];
     }, [itemOptions, stockedItems]);
+    function alreadyOnDelivery(row) {
+        const model = cleanText(row?.modelNumber);
+        return form.lines.some((line) => (
+            (line.inventoryItemId && row?._id && line.inventoryItemId === row._id)
+            || (model && namesEqual(line.modelNumber, model))
+        ));
+    }
     function narrowedItems(skip) {
         return stockedItems.filter((row) => {
+            if (alreadyOnDelivery(row)) return false;
             if (skip !== 'category' && draft.categoryId && row.categoryId !== draft.categoryId) return false;
             if (skip !== 'subcategory' && draft.subcategoryId && row.subcategoryId !== draft.subcategoryId) return false;
             if (skip !== 'brand' && draft.brandId && row.brandId !== draft.brandId) return false;
@@ -675,11 +707,11 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
     const categoryChoices = useMemo(() => {
         const ids = new Set(narrowedItems('category').map((row) => row.categoryId));
         return stockedCategories.filter((row) => ids.has(row.id)).map((row) => ({ id: row.id, label: row.label }));
-    }, [draft.subcategoryId, draft.brandId, draft.itemOptionId, draft.modelNumber, stockedCategories, stockedItems]);
+    }, [draft.subcategoryId, draft.brandId, draft.itemOptionId, draft.modelNumber, form.lines, stockedCategories, stockedItems]);
     const subcategoryChoices = useMemo(() => {
         const ids = new Set(narrowedItems('subcategory').map((row) => row.subcategoryId));
         return stockedSubcategories.filter((row) => ids.has(row.id)).map((row) => ({ id: row.id, label: row.label }));
-    }, [draft.categoryId, draft.brandId, draft.itemOptionId, draft.modelNumber, stockedItems, stockedSubcategories]);
+    }, [draft.categoryId, draft.brandId, draft.itemOptionId, draft.modelNumber, form.lines, stockedItems, stockedSubcategories]);
     const itemChoices = useMemo(() => {
         const rows = narrowedItems('item');
         const seen = new Map();
@@ -690,11 +722,11 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
             if (id && label && !seen.has(id)) seen.set(id, label);
         });
         return [...seen.entries()].map(([id, label]) => ({ id, label })).sort((left, right) => left.label.localeCompare(right.label));
-    }, [draft.categoryId, draft.subcategoryId, draft.brandId, draft.modelNumber, stockedItemOptions, stockedItems]);
+    }, [draft.categoryId, draft.subcategoryId, draft.brandId, draft.modelNumber, form.lines, stockedItemOptions, stockedItems]);
     const brandChoices = useMemo(() => {
         const ids = new Set(narrowedItems('brand').map((row) => row.brandId));
         return stockedBrands.filter((row) => ids.has(row.id)).map((row) => ({ id: row.id, label: row.label }));
-    }, [draft.categoryId, draft.subcategoryId, draft.itemOptionId, draft.modelNumber, stockedBrands, stockedItems]);
+    }, [draft.categoryId, draft.subcategoryId, draft.itemOptionId, draft.modelNumber, form.lines, stockedBrands, stockedItems]);
     const modelChoices = useMemo(() => {
         const values = new Map();
         narrowedItems('model').forEach((row) => {
@@ -705,7 +737,7 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         return [...values.entries()]
             .sort((left, right) => left[0].localeCompare(right[0]))
             .map(([model, quantity]) => ({ id: model, label: `${model} · ${quantity} in stock` }));
-    }, [draft.brandId, draft.categoryId, draft.itemOptionId, draft.subcategoryId, stockedItems]);
+    }, [draft.brandId, draft.categoryId, draft.itemOptionId, draft.subcategoryId, form.lines, stockedItems]);
 
     function chooseCustomer(customerId, known) {
         const nextCustomer = known || customers.find((row) => row.id === customerId) || null;
@@ -993,6 +1025,10 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
             return;
         }
         const stockItem = matches[0];
+        if (alreadyOnDelivery(stockItem)) {
+            setLineError('This item is already in the table.');
+            return;
+        }
         const quantity = Number(draft.quantity);
         if (!Number.isInteger(quantity) || quantity < 1) {
             setLineError('Enter a whole quantity of at least 1.');
@@ -1032,6 +1068,18 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         setError('');
     }
 
+    async function useAttachment(file) {
+        try {
+            const next = await readDeliveryFile(file);
+            if (next) {
+                setAttachment(next);
+                setError('');
+            }
+        } catch (fileError) {
+            setError(fileError.message || 'Could not read the file.');
+        }
+    }
+
     function payload() {
         const order = workOrders.find((row) => row.id === form.workOrderId) || null;
         return {
@@ -1046,6 +1094,13 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
             contactPersonName: form.contactPersonName.trim(),
             contactNumber: form.contactNumber.trim(),
             note: form.note.trim(),
+            attachment: attachment ? {
+                name: attachment.name,
+                mimeType: attachment.mimeType || 'application/pdf',
+                publicId: attachment.publicId || '',
+                url: attachment.url || '',
+                data: attachment.data || '',
+            } : null,
             lines: form.lines.map((line) => ({
                 ...line,
                 quantity: Number(line.quantity) || 0,
@@ -1096,6 +1151,12 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         try {
             const body = { ...payload(), action };
             const saved = delivery?.id ? await updateDelivery(delivery.id, body) : await createDelivery(body);
+            if (action === 'draft') {
+                toast({
+                    title: 'Draft saved',
+                    description: 'This delivery is listed on Delivery as Drafted. Stock was not removed.',
+                });
+            }
             onSaved(saved);
         } catch (saveError) {
             setError(deliveryApiMessage(saveError, 'Could not save this delivery order.'));
@@ -1120,6 +1181,51 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         setCustomers((current) => [...current.filter((item) => item.id !== id), row].filter((item) => item.id && item.name));
         setCustomerModal(false);
         chooseCustomer(id, row);
+    }
+
+    function deliveryPdfSource() {
+        const order = workOrders.find((row) => row.id === form.workOrderId);
+        return {
+            form,
+            customerName: customer?.name || delivery?.customerName || '',
+            workOrderNo: order?.no || delivery?.workOrderNo || '',
+            deliveryNo: delivery?.deliveryNo || '',
+            createdAt: delivery?.createdAt || '',
+            inventoryItems,
+        };
+    }
+
+    async function printDelivery() {
+        try {
+            await downloadDeliveryOrderPdf(deliveryPdfSource());
+            setError('');
+        } catch (printError) {
+            setError(printError?.message || 'Could not download the delivery order.');
+        }
+    }
+
+    async function viewDelivery() {
+        const preview = window.open('about:blank', '_blank');
+        if (!preview) {
+            setError('Allow popups to view this delivery order.');
+            return;
+        }
+        try {
+            preview.document.title = 'Delivery Order';
+        } catch {
+            /* the blank tab can ignore a title until the PDF loads */
+        }
+        try {
+            const blob = await downloadDeliveryOrderPdf(deliveryPdfSource(), { output: 'blob' });
+            const url = URL.createObjectURL(blob);
+            preview.location.href = url;
+            try { preview.opener = null; } catch { /* ignore */ }
+            window.setTimeout(() => URL.revokeObjectURL(url), 120000);
+            setError('');
+        } catch (viewError) {
+            if (!preview.closed) preview.close();
+            setError(viewError?.message || 'Could not open the delivery order.');
+        }
     }
 
     return (
@@ -1448,6 +1554,48 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                             </table>
                         </div>
                     </section>
+
+                    <div className="mt-4">
+                        <p className="mb-2 text-sm font-medium text-slate-800">Attachment <span className="font-normal text-slate-400">(Optional)</span></p>
+                        {readOnly ? (
+                            <p className="rounded-xl border border-[#E6E2F2] bg-[#F8F7FB] px-4 py-3 text-sm text-slate-600">{attachment?.name || 'No attachment'}</p>
+                        ) : (
+                            <div
+                                onDragOver={(event) => {
+                                    event.preventDefault();
+                                    setDragOver(true);
+                                }}
+                                onDragLeave={() => setDragOver(false)}
+                                onDrop={(event) => {
+                                    event.preventDefault();
+                                    setDragOver(false);
+                                    useAttachment(event.dataTransfer.files?.[0]);
+                                }}
+                                className={`flex flex-col items-center justify-center rounded-xl border border-dashed px-4 py-5 text-center ${dragOver ? 'border-[#7C3AED] bg-[#F6F3FF]' : 'border-[#E6E2F2] bg-[#F8F7FB]'}`}
+                            >
+                                <Upload className="h-4 w-4 text-[#7C3AED]" />
+                                <button type="button" onClick={() => fileRef.current?.click()} className="mt-1 text-sm font-semibold text-[#7C3AED]">
+                                    Choose File
+                                </button>
+                                <p className="text-xs text-slate-400">or drag and drop · PDF only (max 5 MB)</p>
+                                {attachment?.name ? (
+                                    <button type="button" onClick={() => setAttachment(null)} className="mt-2 text-xs text-slate-500 hover:text-red-600">
+                                        {attachment.name} · Remove
+                                    </button>
+                                ) : null}
+                                <input
+                                    ref={fileRef}
+                                    type="file"
+                                    accept={ERP_PDF_ACCEPT}
+                                    className="hidden"
+                                    onChange={(event) => {
+                                        useAttachment(event.target.files?.[0]);
+                                        event.target.value = '';
+                                    }}
+                                />
+                            </div>
+                        )}
+                    </div>
                     </fieldset>
                 </div>
 
@@ -1456,26 +1604,19 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                     <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                         <button
                             type="button"
-                            onClick={async () => {
-                                const order = workOrders.find((row) => row.id === form.workOrderId);
-                                try {
-                                    await downloadDeliveryOrderPdf({
-                                        form,
-                                        customerName: customer?.name || delivery?.customerName || '',
-                                        workOrderNo: order?.no || delivery?.workOrderNo || '',
-                                        deliveryNo: delivery?.deliveryNo || '',
-                                        createdAt: delivery?.createdAt || '',
-                                        inventoryItems,
-                                    });
-                                    setError('');
-                                } catch (printError) {
-                                    setError(printError?.message || 'Could not download the delivery order.');
-                                }
-                            }}
+                            onClick={printDelivery}
                             className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#DDD6FE] bg-white px-4 text-sm font-semibold text-[#7C3AED] hover:bg-[#F6F3FF]"
                         >
                             <Printer className="h-4 w-4" />
                             Print DO
+                        </button>
+                        <button
+                            type="button"
+                            onClick={viewDelivery}
+                            className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#DDD6FE] bg-white px-4 text-sm font-semibold text-[#7C3AED] hover:bg-[#F6F3FF]"
+                        >
+                            <Eye className="h-4 w-4" />
+                            View DO
                         </button>
                         {readOnly || (delivery?.id && delivery.status && delivery.status !== 'Draft') ? null : (
                         <button

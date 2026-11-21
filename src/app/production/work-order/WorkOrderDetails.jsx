@@ -7,6 +7,7 @@ import {
     ChevronRight,
     ClipboardList,
     FileText,
+    FolderPlus,
     Gavel,
     Home,
     Info,
@@ -17,7 +18,7 @@ import {
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { formatAed, formatWorkOrderDate } from './workOrderNumber';
+import { dubaiDateKey, formatAed, formatWorkOrderDate } from './workOrderNumber';
 
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f6fed]/40';
 
@@ -104,7 +105,7 @@ function lpoRows(order) {
     return Array.isArray(order?.lpos) ? order.lpos : [];
 }
 
-export default function WorkOrderDetails({ id, onBack }) {
+export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     const { toast } = useToast();
     const [order, setOrder] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -136,6 +137,19 @@ export default function WorkOrderDetails({ id, onBack }) {
         load();
     }, [load]);
 
+    useEffect(() => {
+        if (focusSection !== 'lpo' || !order) return undefined;
+        const timer = window.setTimeout(() => {
+            document.getElementById('lpo-details')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
+        return () => window.clearTimeout(timer);
+    }, [focusSection, order]);
+
+    useEffect(() => {
+        const total = Number(order?.value) || 0;
+        if (total > 0) setLpoValue((current) => current || total.toFixed(2));
+    }, [order]);
+
     const patch = async (body) => {
         setSaving(true);
         setFormError('');
@@ -165,8 +179,18 @@ export default function WorkOrderDetails({ id, onBack }) {
     };
 
     const addLpo = async () => {
-        if (!lpoNo.trim() || !lpoDate || !(Number(lpoValue) > 0) || !lpoFile) {
+        const amount = Number(lpoValue);
+        const total = Number(order?.value) || 0;
+        if (!lpoNo.trim() || !lpoDate || !(amount > 0) || !lpoFile) {
             setFormError('LPO number, date, value and attachment are required.');
+            return;
+        }
+        if (lpoDate > dubaiDateKey()) {
+            setFormError('LPO date cannot be after today.');
+            return;
+        }
+        if (total > 0 && Math.abs(amount - total) > 0.009) {
+            setFormError('LPO value must match the quotation total.');
             return;
         }
         let attachment = null;
@@ -192,6 +216,29 @@ export default function WorkOrderDetails({ id, onBack }) {
             setLpoFile(null);
             setFileKey((key) => key + 1);
             toast({ title: 'LPO added', description: lpoNo.trim() });
+        }
+    };
+
+    const updateAttachment = async () => {
+        if (!noticeFile) {
+            setFormError('Attachment is required.');
+            return;
+        }
+        let attachment = null;
+        try {
+            attachment = await readFile(noticeFile);
+        } catch (err) {
+            setFormError(err.message);
+            return;
+        }
+        const saved = await patch({
+            uploadPendingAttachment: true,
+            attachment,
+        });
+        if (saved) {
+            setNoticeFile(null);
+            setFileKey((key) => key + 1);
+            toast({ title: 'Work order updated', description: order?.workOrderNo || 'Attachment saved.' });
         }
     };
 
@@ -380,8 +427,10 @@ export default function WorkOrderDetails({ id, onBack }) {
                                 {mode === 'required'
                                     ? 'LPO upload is locked. There is no need to add an LPO while Required is selected.'
                                     : mode === 'not_required'
-                                        ? 'Attachment is required. Send emails the salesperson and notifies them that the LPO number, date and value were left empty.'
-                                        : 'Enter the LPO number, date, value and attachment, then add the LPO.'}
+                                        ? (order.attachmentPending
+                                            ? 'This work order is already created. The attachment is required. Update saves it on this work order.'
+                                            : 'Attachment is required. Send emails the salesperson and notifies them that the LPO number, date and value were left empty.')
+                                        : 'Enter the LPO number, date, value and attachment. LPO value comes from the quotation total.'}
                             </p>
 
                             {formError ? (
@@ -427,7 +476,38 @@ export default function WorkOrderDetails({ id, onBack }) {
                                 </div>
                             ) : null}
 
-                            {mode === 'not_required' ? (
+                            {mode === 'not_required' && order.attachmentPending ? (
+                                <div className="mt-4 rounded-xl border border-[#e6eef6] bg-[#f8fbff] p-4">
+                                    <dl className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                        <InfoItem label="Work Order Number" value={order.workOrderNo} />
+                                        <InfoItem label="Customer" value={order.customer || '—'} />
+                                        <InfoItem label="Quotation Ref" value={order.quotationRef || '—'} />
+                                        <InfoItem label="Total Value" value={formatAed(order.value)} />
+                                    </dl>
+                                    <label htmlFor="lpo-notice-file" className="block">
+                                        <FieldLabel required>Attachment</FieldLabel>
+                                        <input
+                                            id="lpo-notice-file"
+                                            key={`notice-${fileKey}`}
+                                            type="file"
+                                            accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                                            onChange={(event) => setNoticeFile(event.target.files?.[0] || null)}
+                                            className={`block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700 ${FOCUS}`}
+                                        />
+                                    </label>
+                                    <p className="mt-2 text-[12px] text-slate-500">
+                                        This work order is already created. The attachment is required before you update it.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        disabled={saving}
+                                        onClick={updateAttachment}
+                                        className={`mt-3 inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] disabled:opacity-60 ${FOCUS}`}
+                                    >
+                                        {saving ? 'Updating…' : 'Update'}
+                                    </button>
+                                </div>
+                            ) : mode === 'not_required' ? (
                                 <div className="mt-4 rounded-xl border border-[#e6eef6] bg-[#f8fbff] p-4">
                                     <label htmlFor="lpo-notice-file" className="block">
                                         <FieldLabel required>Attachment</FieldLabel>
@@ -464,7 +544,7 @@ export default function WorkOrderDetails({ id, onBack }) {
                                         </label>
                                         <label htmlFor="lpo-date">
                                             <FieldLabel required={!locked}>LPO Date</FieldLabel>
-                                            <input id="lpo-date" type="date" value={lpoDate} onChange={(event) => setLpoDate(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none disabled:bg-[#f4f7fb] ${FOCUS}`} />
+                                            <input id="lpo-date" type="date" max={dubaiDateKey()} value={lpoDate} onChange={(event) => setLpoDate(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none disabled:bg-[#f4f7fb] ${FOCUS}`} />
                                         </label>
                                         <label htmlFor="lpo-value">
                                             <FieldLabel required={!locked}>LPO Value</FieldLabel>
@@ -549,6 +629,22 @@ export default function WorkOrderDetails({ id, onBack }) {
                             >
                                 <Link2 size={16} /> Upload LPO
                             </button>
+                            {(order.type || 'Standalone') === 'Standalone' ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        className={`flex h-11 items-center justify-center gap-2 rounded-xl border border-[#e5edf6] bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 ${FOCUS}`}
+                                    >
+                                        <FolderPlus size={16} /> Convert to new project
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`flex h-11 items-center justify-center gap-2 rounded-xl border border-[#e5edf6] bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 ${FOCUS}`}
+                                    >
+                                        <FileText size={16} /> Add a variation
+                                    </button>
+                                </>
+                            ) : null}
                             <button
                                 type="button"
                                 disabled={saving}

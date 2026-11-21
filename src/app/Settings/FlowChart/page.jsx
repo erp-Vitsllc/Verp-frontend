@@ -34,7 +34,8 @@ const RESPONSIBILITY_CATEGORIES = [
     { id: 'assetcontroller', label: 'Asset Controller' },
     { id: 'management', label: 'management' },
     { id: 'admincontroller', label: 'Admin Officer' },
-    { id: 'purchaseofficer', label: 'Purchase Officer' }
+    { id: 'purchaseofficer', label: 'Purchase Officer' },
+    { id: 'projectcoordinator', label: 'Project Coordinator' }
 ];
 
 const BUSINESS_MODULES = [
@@ -1069,7 +1070,7 @@ export default function GlobalFlowChartPage() {
 
                                             {/* Second Level: Controllers */}
                                             <div className="flex flex-wrap justify-center gap-20 w-full max-w-6xl relative">
-                                                {['assigneduser', 'hr', 'accounts', 'assetcontroller', 'admincontroller', 'purchaseofficer'].map((catId) => {
+                                                {['assigneduser', 'hr', 'accounts', 'assetcontroller', 'admincontroller', 'purchaseofficer', 'projectcoordinator'].map((catId) => {
                                                     const group = responsibilities.filter(r => r.category === catId);
                                                     const catLabel = RESPONSIBILITY_CATEGORIES.find(c => c.id === catId)?.label;
 

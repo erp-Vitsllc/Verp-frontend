@@ -22,12 +22,19 @@ export const EMPTY_EMPLOYEE_FORM_SUMMARIES = {
     },
 };
 
+/** Employee recovery only. paidAmount is the company payout and must not be added again. */
+function recoveredLoanAmount(loan) {
+    const amount = Number(loan?.amount) || 0;
+    const repaid = Math.max(0, Number(loan?.repaidAmount) || 0);
+    return amount > 0 ? Math.min(repaid, amount) : repaid;
+}
+
 function summarizeLoansByType(loans, type) {
     const filtered = loans.filter((l) => (l.type || '').toLowerCase() === type.toLowerCase());
     return {
         amount: filtered.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
         duration: filtered.reduce((sum, l) => sum + (Number(l.duration) || 0), 0),
-        paid: filtered.reduce((sum, l) => sum + (Number(l.paidAmount) || 0), 0),
+        paid: filtered.reduce((sum, l) => sum + recoveredLoanAmount(l), 0),
         count: filtered.length,
     };
 }

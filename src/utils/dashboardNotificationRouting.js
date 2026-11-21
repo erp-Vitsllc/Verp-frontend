@@ -370,7 +370,7 @@ export const buildDashboardNotificationPath = (item) => {
         return id ? `/inventory/bills?bill=${encodeURIComponent(id)}` : '/inventory/bills';
     }
 
-    if (typeRaw === 'Work Order LPO') {
+    if (typeRaw === 'Work Order LPO' || typeRaw === 'Work Order LPO Attachment') {
         const meta = parseMeta(item.extra3);
         const path = String(meta?.path || '').trim();
         if (path.startsWith('/production/work-order')) return path;
