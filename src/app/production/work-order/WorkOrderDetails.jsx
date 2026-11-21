@@ -13,12 +13,18 @@ import {
     Info,
     Link2,
     Paperclip,
+    RefreshCw,
     UserRound,
+    Wallet,
     Zap,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { isSystemSuperUser } from '@/utils/permissions';
 import { dubaiDateKey, formatAed, formatWorkOrderDate } from './workOrderNumber';
+import WorkOrderBudgetPanel from './WorkOrderBudgetPanel';
+import WorkOrderQuotationModal from './WorkOrderQuotationModal';
+import WorkOrderQuotationPanel from './WorkOrderQuotationPanel';
 
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f6fed]/40';
 
@@ -27,8 +33,6 @@ const LPO_MODES = [
     { id: 'not_required', label: 'Not required' },
     { id: 'received', label: 'LPO received' },
 ];
-
-const LIFE_STATUSES = ['Not Started', 'In Progress', 'Completed'];
 
 const RULES = [
     'One quotation and one LPO per Work Order',
@@ -101,6 +105,11 @@ function downloadAttachment(name, mime, data) {
     link.click();
 }
 
+function briefChange(value) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    return text.length > 90 ? `${text.slice(0, 87)}…` : text;
+}
+
 function lpoRows(order) {
     return Array.isArray(order?.lpos) ? order.lpos : [];
 }
@@ -119,6 +128,14 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     const [noticeFile, setNoticeFile] = useState(null);
     const [fileKey, setFileKey] = useState(0);
     const [formError, setFormError] = useState('');
+    const [quoteOpen, setQuoteOpen] = useState(false);
+    const [quoteSync, setQuoteSync] = useState(null);
+    const [updatingQuote, setUpdatingQuote] = useState(false);
+    const [budgetSaving, setBudgetSaving] = useState('');
+    const [vendors, setVendors] = useState([]);
+    const [vendorMessage, setVendorMessage] = useState('');
+    const [vendorSaving, setVendorSaving] = useState(false);
+    const canResyncBudget = isSystemSuperUser();
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -136,6 +153,108 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     useEffect(() => {
         load();
     }, [load]);
+
+    const loadQuoteSync = useCallback(async () => {
+        if (!id) return;
+        try {
+            const response = await axiosInstance.get(`/WorkOrder/${id}/quotation-changes`, { skipToast: true, timeout: 30000 });
+            setQuoteSync(response.data || null);
+        } catch {
+            setQuoteSync(null);
+        }
+    }, [id]);
+
+    useEffect(() => {
+        if (!order?.quotationRef) {
+            setQuoteSync(null);
+            return;
+        }
+        loadQuoteSync();
+    }, [order?.quotationRef, loadQuoteSync]);
+
+    useEffect(() => {
+        if (tab !== 'Material') return undefined;
+        let cancelled = false;
+        axiosInstance.get('/WorkOrder/vendors', { skipToast: true }).then((response) => {
+            if (cancelled) return;
+            const rows = Array.isArray(response.data?.vendors) ? response.data.vendors : [];
+            setVendors(rows.filter((row) => row.id && row.name));
+            setVendorMessage(rows.length ? '' : 'No vendors have been added in Vendor Management.');
+        }).catch((err) => {
+            if (cancelled) return;
+            setVendors([]);
+            setVendorMessage(err?.response?.data?.message || 'Vendors could not be loaded.');
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [tab]);
+
+    const saveVendor = async (vendorId) => {
+        setVendorSaving(true);
+        try {
+            const response = await axiosInstance.patch(`/WorkOrder/${id}`, { vendorId }, { skipToast: true });
+            if (response.data?.workOrder) setOrder(response.data.workOrder);
+            toast({
+                title: vendorId ? 'Vendor saved' : 'Vendor cleared',
+                description: vendorId ? 'This vendor was added in Vendor Management.' : 'The vendor was removed from this work order.',
+            });
+        } catch (err) {
+            toast({
+                title: 'Could not save the vendor',
+                description: err?.response?.data?.message || 'Select a vendor that was added in Vendor Management.',
+                variant: 'destructive',
+            });
+        } finally {
+            setVendorSaving(false);
+        }
+    };
+
+    const saveBudget = async (action) => {
+        setBudgetSaving(action);
+        try {
+            const response = await axiosInstance.post(`/WorkOrder/${id}/budget`, { action }, { skipToast: true, timeout: 30000 });
+            if (response.data?.workOrder) setOrder(response.data.workOrder);
+            setTab('Budget');
+            toast({
+                title: action === 'convert' ? 'Converted to budget' : action === 'rebudget' ? 'Re budget saved' : 'Budget resynced',
+                description: action === 'resync'
+                    ? 'The latest budget quotation was updated.'
+                    : 'The latest quotation was added to the budget list.',
+            });
+        } catch (err) {
+            toast({
+                title: 'Could not update the budget',
+                description: err?.response?.data?.message || 'Could not save this budget quotation.',
+                variant: 'destructive',
+            });
+        } finally {
+            setBudgetSaving('');
+        }
+    };
+
+    const updateQuotation = async () => {
+        setUpdatingQuote(true);
+        try {
+            const response = await axiosInstance.post(`/WorkOrder/${id}/quotation-changes`, {}, { skipToast: true, timeout: 30000 });
+            if (response.data?.workOrder) setOrder(response.data.workOrder);
+            setQuoteSync({ canUpdate: true, changed: false, changes: [] });
+            toast({
+                title: 'Quotation updated',
+                description: response.data?.lpoAdjusted
+                    ? 'Zoho changes were saved. The LPO value now matches the quotation total.'
+                    : 'Zoho changes were saved on this work order.',
+            });
+        } catch (err) {
+            toast({
+                title: 'Could not update',
+                description: err?.response?.data?.message || 'Could not update this quotation from Zoho.',
+                variant: 'destructive',
+            });
+        } finally {
+            setUpdatingQuote(false);
+        }
+    };
 
     useEffect(() => {
         if (focusSection !== 'lpo' || !order) return undefined;
@@ -291,6 +410,15 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     const balance = Math.max(0, total - invoiced);
     const match = total > 0 ? Math.min(100, (invoiced / total) * 100) : 0;
     const locked = mode === 'required';
+    const quotationRefValue = order.quotationRef ? (
+        <button
+            type="button"
+            onClick={() => setQuoteOpen(true)}
+            className={`font-semibold text-[#2f6fed] hover:underline ${FOCUS}`}
+        >
+            {order.quotationRef}
+        </button>
+    ) : '—';
 
     return (
         <div className="relative text-slate-800">
@@ -325,22 +453,6 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                 <Summary icon={FileText} tint="bg-orange-50 text-orange-500" label="Balance" value={formatAed(balance)} />
             </div>
 
-            <div className="mb-4 flex flex-wrap gap-2">
-                {LIFE_STATUSES.map((status) => (
-                    <button
-                        key={status}
-                        type="button"
-                        disabled={saving}
-                        onClick={() => changeStatus(status)}
-                        className={order.status === status
-                            ? `rounded-full bg-[#2f6fed] px-3 py-1.5 text-[12px] font-semibold text-white ${FOCUS}`
-                            : `rounded-full border border-[#e5edf6] bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60 ${FOCUS}`}
-                    >
-                        {status}
-                    </button>
-                ))}
-            </div>
-
             {order.lpoAlert?.message ? (
                 <div className="mb-4 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950">
                     <p className="font-semibold">LPO was not filled</p>
@@ -363,14 +475,47 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                 </div>
             ) : null}
 
+            {quoteSync?.canUpdate && quoteSync.changed ? (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <p className="font-semibold">This quotation changed in Zoho</p>
+                            <p className="mt-1 text-[13px] text-amber-900">
+                                The work order still shows the quotation that was saved. Update only when you want those Zoho changes here.
+                            </p>
+                            {Array.isArray(quoteSync.changes) && quoteSync.changes.length ? (
+                                <ul className="mt-2 space-y-1 text-[13px]">
+                                    {quoteSync.changes.map((change) => (
+                                        <li key={change.label}>
+                                            <span className="font-semibold">{change.label}:</span> {briefChange(change.from)} → {briefChange(change.to)}
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : null}
+                        </div>
+                        <button
+                            type="button"
+                            disabled={updatingQuote}
+                            onClick={updateQuotation}
+                            className={`inline-flex h-10 shrink-0 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] disabled:opacity-60 ${FOCUS}`}
+                        >
+                            {updatingQuote ? 'Updating…' : 'Update changes'}
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+
             <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
                 <div className="space-y-4">
                     <div className="flex gap-1 overflow-x-auto rounded-2xl border border-[#e6eef6] bg-white p-1.5">
-                        {['Overview', 'LPO', 'Invoices', 'Activity'].map((item) => (
+                        {['Overview', 'LPO', 'Quotation', 'Invoices', 'Budget', 'Check list', 'Material', 'Delivery', 'Activity'].map((item) => (
                             <button
                                 key={item}
                                 type="button"
-                                onClick={() => setTab(item)}
+                                onClick={() => {
+                                    setTab(item);
+                                    if (item === 'Quotation' && order.quotationRef) setQuoteOpen(true);
+                                }}
                                 className={tab === item
                                     ? `rounded-xl bg-[#e8f1ff] px-4 py-2 text-sm font-semibold text-[#2f6fed] ${FOCUS}`
                                     : `rounded-xl px-4 py-2 text-sm font-medium text-slate-500 hover:bg-slate-50 ${FOCUS}`}
@@ -389,7 +534,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                 <InfoItem label="Work Order Number" value={order.workOrderNo} />
                                 <InfoItem label="Created Date" value={formatWorkOrderDate(order.createdOn)} />
                                 <InfoItem label="Salesperson" value={order.salespersonName || '—'} />
-                                <InfoItem label="Quotation Ref" value={order.quotationRef || '—'} />
+                                <InfoItem label="Quotation Ref" value={quotationRefValue} />
                                 <InfoItem label="Order Confirmation Date" value={formatWorkOrderDate(order.confirmationDate)} />
                                 <InfoItem label="Quotation Date" value={formatWorkOrderDate(order.quotationDate)} />
                                 <InfoItem label="Delivery Location" value={order.location || '—'} />
@@ -481,7 +626,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                     <dl className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                                         <InfoItem label="Work Order Number" value={order.workOrderNo} />
                                         <InfoItem label="Customer" value={order.customer || '—'} />
-                                        <InfoItem label="Quotation Ref" value={order.quotationRef || '—'} />
+                                        <InfoItem label="Quotation Ref" value={quotationRefValue} />
                                         <InfoItem label="Total Value" value={formatAed(order.value)} />
                                     </dl>
                                     <label htmlFor="lpo-notice-file" className="block">
@@ -576,6 +721,10 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                         </section>
                     ) : null}
 
+                    {tab === 'Quotation' ? (
+                        <WorkOrderQuotationPanel order={order} onOpen={() => setQuoteOpen(true)} />
+                    ) : null}
+
                     {tab === 'Overview' || tab === 'Invoices' ? (
                         <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
                             <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
@@ -596,6 +745,56 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                 <div className="h-full rounded-full bg-[#2f6fed]" style={{ width: `${match}%` }} />
                             </div>
                             <p className="mt-2 text-[12px] font-semibold text-[#2f6fed]">Invoice Match: {match.toFixed(1)}%</p>
+                        </section>
+                    ) : null}
+
+                    {tab === 'Budget' ? <WorkOrderBudgetPanel order={order} /> : null}
+
+                    {tab === 'Check list' ? (
+                        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
+                            <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
+                                <ClipboardList size={16} className="text-[#2f6fed]" /> Check list
+                            </h2>
+                            <p className="text-sm text-slate-500">No checklist items yet.</p>
+                        </section>
+                    ) : null}
+
+                    {tab === 'Material' ? (
+                        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
+                            <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
+                                <FileText size={16} className="text-[#2f6fed]" /> Material
+                            </h2>
+                            <label htmlFor="wo-vendor" className="block max-w-md">
+                                <span className="mb-1.5 block text-[12px] font-medium text-slate-500">Vendor</span>
+                                <select
+                                    id="wo-vendor"
+                                    value={order.vendorId || ''}
+                                    disabled={vendorSaving}
+                                    onChange={(event) => saveVendor(event.target.value)}
+                                    className={`h-11 w-full rounded-xl border border-[#e5edf6] bg-white px-3 text-sm text-slate-800 outline-none disabled:bg-[#f4f7fb] ${FOCUS}`}
+                                >
+                                    <option value="">Select vendor</option>
+                                    {order.vendorId && !vendors.some((row) => row.id === order.vendorId) ? (
+                                        <option value={order.vendorId}>{order.vendorName || 'Saved vendor'}</option>
+                                    ) : null}
+                                    {vendors.map((row) => (
+                                        <option key={row.id} value={row.id}>
+                                            {row.status === 'Inactive' ? `${row.name} (Inactive)` : row.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                            {vendorMessage ? <p className="mt-2 text-sm text-amber-700">{vendorMessage}</p> : null}
+                            <p className="mt-4 text-sm text-slate-500">No materials yet.</p>
+                        </section>
+                    ) : null}
+
+                    {tab === 'Delivery' ? (
+                        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
+                            <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
+                                <ClipboardList size={16} className="text-[#2f6fed]" /> Delivery
+                            </h2>
+                            <p className="text-sm text-slate-500">No deliveries yet.</p>
                         </section>
                     ) : null}
 
@@ -629,6 +828,29 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                             >
                                 <Link2 size={16} /> Upload LPO
                             </button>
+                            <button
+                                type="button"
+                                disabled={Boolean(budgetSaving) || !order.quotationRef}
+                                title={order.quotationRef ? undefined : 'A quotation is required'}
+                                onClick={() => saveBudget(order.budgeted ? 'rebudget' : 'convert')}
+                                className={`flex h-11 items-center justify-center gap-2 rounded-xl border border-[#e5edf6] bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS}`}
+                            >
+                                <Wallet size={16} />
+                                {budgetSaving === 'convert' || budgetSaving === 'rebudget'
+                                    ? 'Saving…'
+                                    : order.budgeted ? 'Re budget' : 'Convert to budget'}
+                            </button>
+                            {order.budgeted && canResyncBudget ? (
+                                <button
+                                    type="button"
+                                    disabled={Boolean(budgetSaving)}
+                                    onClick={() => saveBudget('resync')}
+                                    className={`flex h-11 items-center justify-center gap-2 rounded-xl border border-[#e5edf6] bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS}`}
+                                >
+                                    <RefreshCw size={16} />
+                                    {budgetSaving === 'resync' ? 'Resyncing…' : 'Resync'}
+                                </button>
+                            ) : null}
                             {(order.type || 'Standalone') === 'Standalone' ? (
                                 <>
                                     <button
@@ -673,6 +895,13 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                     </button>
                 </div>
             </div>
+            {quoteOpen && order.quotationRef ? (
+                <WorkOrderQuotationModal
+                    quotationRef={order.quotationRef}
+                    quotationId={order.quotationId}
+                    onClose={() => setQuoteOpen(false)}
+                />
+            ) : null}
         </div>
     );
 }

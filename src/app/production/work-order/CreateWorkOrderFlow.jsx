@@ -22,7 +22,6 @@ import {
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { mapZohoCustomerListRows } from '@/utils/zohoCustomers';
 import { dubaiDateKey, formatAed, formatWorkOrderDate, nextWorkOrderNo } from './workOrderNumber';
 
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f6fed]/40';
@@ -284,36 +283,17 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
             if (response.data?.workOrderNo) setWorkOrderNo(response.data.workOrderNo);
             if (response.data?.createdOn) setCreatedOn(response.data.createdOn);
         }).catch(() => {});
-        const loadCustomers = async () => {
-            const readRows = (response) => mapZohoCustomerListRows(response?.data?.data)
-                .filter((row) => row.id && row.name && row.name !== '—')
-                .sort((left, right) => left.name.localeCompare(right.name));
-            let response = await axiosInstance.get('/zoho/customers', {
-                skipToast: true,
-                timeout: 120000,
-                params: { sync: 'false' },
-            });
-            let rows = readRows(response);
-            if (!rows.length) {
-                response = await axiosInstance.get('/zoho/customers', {
-                    skipToast: true,
-                    timeout: 120000,
-                    params: { sync: 'true' },
-                });
-                rows = readRows(response);
+        axiosInstance.get('/WorkOrder/customers', { skipToast: true }).then((response) => {
+            const rows = Array.isArray(response.data?.customers) ? response.data.customers : [];
+            if (cancelled) return;
+            setCustomers(rows.filter((row) => row.id && row.name));
+            if (!rows.length) setCustomerMessage('No customers have been added in CRM.');
+        }).catch((error) => {
+            if (!cancelled) {
+                setCustomers([]);
+                setCustomerMessage(error?.response?.data?.message || 'CRM customers could not be loaded.');
             }
-            return rows;
-        };
-        loadCustomers()
-            .then((rows) => {
-                if (!cancelled) setCustomers(rows);
-            })
-            .catch((error) => {
-                if (!cancelled) {
-                    setCustomers([]);
-                    setCustomerMessage(error?.response?.data?.message || 'Zoho customers could not be loaded.');
-                }
-            });
+        });
         axiosInstance.get('/WorkOrder/salespeople', { skipToast: true }).then((response) => {
             const rows = Array.isArray(response.data?.salespeople) ? response.data.salespeople : [];
             if (!cancelled) {
@@ -399,6 +379,7 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
         return {
             intent,
             customer: customer?.name || '',
+            customerId: customer?.id || '',
             salespersonId: salesperson?.id || '',
             salespersonEmployeeId: salesperson?.employeeId || '',
             salespersonName: salesperson?.name || '',
@@ -613,9 +594,12 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                                     <LookupSelect
                                         id="wo-customer"
                                         value={customerId}
-                                        placeholder="Select Zoho customer"
+                                        placeholder="Select customer"
                                         emptyLabel="No customers match that search."
-                                        options={customers.map((row) => ({ id: row.id, label: row.name }))}
+                                        options={customers.map((row) => ({
+                                            id: row.id,
+                                            label: row.status === 'Inactive' ? `${row.name} (Inactive)` : row.name,
+                                        }))}
                                         onChange={(nextId) => {
                                             const nextCustomer = customers.find((row) => row.id === nextId);
                                             setCustomerId(nextId);

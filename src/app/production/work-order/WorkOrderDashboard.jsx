@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
 import WorkOrderDetails from './WorkOrderDetails';
+import WorkOrderQuotationModal from './WorkOrderQuotationModal';
 import { formatAed, formatWorkOrderDate, nextWorkOrderNo } from './workOrderNumber';
 import {
     CheckCircle2,
@@ -42,6 +43,7 @@ function mapOrder(order) {
         no: order.workOrderNo,
         customer: order.customer || '',
         quote: order.quotationRef || '—',
+        quotationId: String(order.quotationId || ''),
         lpo: order.lpoNo || '—',
         createdOn: formatWorkOrderDate(order.createdOn || order.createdAt),
         status: order.status || 'Draft',
@@ -241,6 +243,7 @@ export default function WorkOrderDashboard() {
     const [viewerKeys, setViewerKeys] = useState([]);
     const [orders, setOrders] = useState([]);
     const [pulseTable, setPulseTable] = useState(false);
+    const [quotePreview, setQuotePreview] = useState(null);
 
     const loadOrders = useCallback(async () => {
         try {
@@ -296,9 +299,11 @@ export default function WorkOrderDashboard() {
     const asOf = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
     const showAll = () => {
-        document.getElementById('recent-work-orders')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         setPulseTable(true);
-        window.setTimeout(() => setPulseTable(false), 900);
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        window.setTimeout(() => {
+            router.push('/production/work-order/list');
+        }, reduceMotion ? 0 : 180);
     };
 
     const dismissLpoNotice = async (orderId) => {
@@ -481,7 +486,19 @@ export default function WorkOrderDashboard() {
                                             </button>
                                         </td>
                                         <td className="px-2 py-3 text-[13px] text-slate-700 whitespace-nowrap">{order.customer}</td>
-                                        <td className="px-2 py-3 text-[13px] text-slate-600 whitespace-nowrap">{order.quote}</td>
+                                        <td className="px-2 py-3 whitespace-nowrap">
+                                            {order.quote && order.quote !== '—' ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setQuotePreview(order)}
+                                                    className={`text-[13px] font-semibold text-[#2f6fed] hover:underline ${FOCUS}`}
+                                                >
+                                                    {order.quote}
+                                                </button>
+                                            ) : (
+                                                <span className="text-[13px] text-slate-600">—</span>
+                                            )}
+                                        </td>
                                         <td className="px-2 py-3 text-[13px] text-slate-600 whitespace-nowrap">{order.lpo}</td>
                                         <td className="px-2 py-3 whitespace-nowrap">
                                             <Pill className={STATUS_CLASS[order.status]}>{order.status}</Pill>
@@ -567,6 +584,13 @@ export default function WorkOrderDashboard() {
                     </div>
                 </Panel>
             </div>
+            {quotePreview ? (
+                <WorkOrderQuotationModal
+                    quotationRef={quotePreview.quote}
+                    quotationId={quotePreview.quotationId}
+                    onClose={() => setQuotePreview(null)}
+                />
+            ) : null}
         </div>
     );
 }

@@ -403,3 +403,47 @@ button[data-action-guard-processing="true"],
   opacity: 0.72;
   pointer-events: none;
 }
+
+/* Work order list: opens like a popup, then squeezes back to the dashboard. */
+@keyframes wo-list-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.74) translateY(22px);
+  }
+  68% {
+    opacity: 1;
+    transform: scale(1.018) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes wo-list-squeeze-out {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.74) translateY(22px);
+  }
+}
+
+.wo-list-pop-in {
+  animation: wo-list-pop-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: top center;
+}
+
+.wo-list-squeeze-out {
+  animation: wo-list-squeeze-out 0.28s cubic-bezier(0.4, 0, 1, 1) both;
+  transform-origin: top center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wo-list-pop-in,
+  .wo-list-squeeze-out {
+    animation: none;
+  }
+}
