@@ -910,147 +910,147 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                     {loading ? <p className="text-sm text-slate-500">Loading items...</p> : (
                         <div className="space-y-4">
                             {!locked || viewOnly ? (
-                            <>
-                            <div>
-                                <p className="mb-2 text-sm font-medium text-slate-700">Purchase Source</p>
-                                <div className="inline-flex rounded-xl bg-[#F3F4F8] p-1">
-                                    <button
-                                        type="button"
-                                        disabled={viewOnly}
-                                        onClick={() => setPurchaseSource('vendor')}
-                                        className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold disabled:cursor-not-allowed ${purchaseSource === 'vendor' ? 'bg-indigo-600 text-white disabled:opacity-100' : 'text-slate-600'}`}
-                                    >
-                                        <Store size={15} /> Vendor
-                                    </button>
-                                    <button
-                                        type="button"
-                                        disabled={viewOnly}
-                                        onClick={() => setPurchaseSource('manual')}
-                                        className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold disabled:cursor-not-allowed ${purchaseSource === 'manual' ? 'bg-indigo-600 text-white disabled:opacity-100' : 'text-slate-600'}`}
-                                    >
-                                        <Pencil size={15} /> Manual
-                                    </button>
-                                </div>
-                            </div>
-                            {purchaseSource === 'vendor' ? (
-                                <div className="grid grid-cols-1 gap-3 rounded-xl bg-[#F5F7FB] p-4 sm:grid-cols-2 xl:grid-cols-4">
-                                    {viewOnly ? (
-                                        <label>
-                                            <span className="mb-1.5 block text-sm font-medium text-slate-700">Vendor Name</span>
-                                            <input value={vendorText} disabled className={fieldClass} />
-                                        </label>
-                                    ) : (
-                                        <TypeSuggest
-                                            label="Vendor Name"
-                                            required
-                                            text={vendorText}
-                                            options={vendorOptions}
-                                            placeholder="Select vendor"
-                                            onText={typeVendor}
-                                            onPick={chooseVendor}
-                                            onCommit={commitVendor}
-                                        />
-                                    )}
-                                    <label>
-                                        <span className="mb-1.5 block text-sm font-medium text-slate-700">Purchase Date <span className="text-red-500">*</span></span>
-                                        <input type="date" value={purchaseDate} disabled={viewOnly} onChange={(event) => setPurchaseDate(event.target.value)} className={fieldClass} />
-                                    </label>
-                                    <label>
-                                        <span className="mb-1.5 block text-sm font-medium text-slate-700">Bill No <span className="text-red-500">*</span></span>
-                                        <input value={billNo} disabled={viewOnly} onChange={(event) => setBillNo(event.target.value)} placeholder="Enter bill no" className={fieldClass} />
-                                    </label>
-                                    <label>
-                                        <span className="mb-1.5 block text-sm font-medium text-slate-700">LPO No</span>
-                                        <input value={lpoNo} disabled={viewOnly} onChange={(event) => setLpoNo(event.target.value)} placeholder="Enter LPO no (optional)" className={fieldClass} />
-                                    </label>
-                                    <label className="sm:col-span-2 xl:col-span-4">
-                                        <span className="mb-1.5 block text-sm font-medium text-slate-700">Note</span>
-                                        <textarea
-                                            value={note}
-                                            disabled={viewOnly}
-                                            onChange={(event) => setNote(event.target.value)}
-                                            placeholder="Enter note..."
-                                            className={`${fieldClass} h-auto min-h-[88px] py-2`}
-                                        />
-                                    </label>
-                                </div>
-                            ) : (
-                                <label className="block">
-                                    <span className="mb-1.5 block text-sm font-medium text-slate-700">Note</span>
-                                    <textarea
-                                        value={note}
-                                        disabled={viewOnly}
-                                        onChange={(event) => setNote(event.target.value)}
-                                        placeholder="Enter note..."
-                                        className={`${fieldClass} h-auto min-h-[88px] py-2`}
-                                    />
-                                </label>
-                            )}
-                            {viewOnly ? null : (
-                            <div className="rounded-xl bg-[#F5F7FB] p-4">
-                                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                                    <TypeSuggest
-                                        label="Category"
-                                        required
-                                        text={categoryText}
-                                        options={categoryOptions}
-                                        placeholder="Select category"
-                                        onText={typeCategory}
-                                        onPick={chooseCategory}
-                                        onCommit={commitCategory}
-                                    />
-                                    <TypeSuggest
-                                        label="Sub Category"
-                                        required
-                                        text={subcategoryText}
-                                        options={subcategoryOptions}
-                                        placeholder="Select sub category"
-                                        onText={typeSubcategory}
-                                        onPick={chooseSubcategory}
-                                        onCommit={commitSubcategory}
-                                    />
-                                    <TypeSuggest
-                                        label="Item"
-                                        required
-                                        text={itemText}
-                                        options={itemOptions}
-                                        placeholder="Select item"
-                                        onText={typeItem}
-                                        onPick={chooseItem}
-                                        onCommit={commitItem}
-                                    />
-                                    <TypeSuggest
-                                        label="Brand"
-                                        required
-                                        text={brandText}
-                                        options={brandOptions}
-                                        placeholder="Select brand"
-                                        onText={typeBrand}
-                                        onPick={chooseBrand}
-                                        onCommit={commitBrand}
-                                        showAll
-                                    />
-                                    <TypeSuggest
-                                        label="Model No"
-                                        text={modelNumber}
-                                        options={modelOptions}
-                                        placeholder="Enter model no"
-                                        onText={typeModel}
-                                        onPick={chooseModel}
-                                        onCommit={commitModel}
-                                    />
-                                    <div className="flex items-end justify-end gap-2">
-                                        <button type="button" onClick={resetItemFields} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600">
-                                            <RotateCcw size={16} /> Reset
-                                        </button>
-                                        <button type="button" onClick={addMaterial} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white">
-                                            <Plus size={16} /> Add
-                                        </button>
+                                <>
+                                    <div>
+                                        <p className="mb-2 text-sm font-medium text-slate-700">Purchase Source</p>
+                                        <div className="inline-flex rounded-xl bg-[#F3F4F8] p-1">
+                                            <button
+                                                type="button"
+                                                disabled={viewOnly}
+                                                onClick={() => setPurchaseSource('vendor')}
+                                                className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold disabled:cursor-not-allowed ${purchaseSource === 'vendor' ? 'bg-indigo-600 text-white disabled:opacity-100' : 'text-slate-600'}`}
+                                            >
+                                                <Store size={15} /> Vendor
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={viewOnly}
+                                                onClick={() => setPurchaseSource('manual')}
+                                                className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold disabled:cursor-not-allowed ${purchaseSource === 'manual' ? 'bg-indigo-600 text-white disabled:opacity-100' : 'text-slate-600'}`}
+                                            >
+                                                <Pencil size={15} /> Manual
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
-                            )}
-                            </>
+                                    {purchaseSource === 'vendor' ? (
+                                        <div className="grid grid-cols-1 gap-3 rounded-xl bg-[#F5F7FB] p-4 sm:grid-cols-2 xl:grid-cols-4">
+                                            {viewOnly ? (
+                                                <label>
+                                                    <span className="mb-1.5 block text-sm font-medium text-slate-700">Vendor Name</span>
+                                                    <input value={vendorText} disabled className={fieldClass} />
+                                                </label>
+                                            ) : (
+                                                <TypeSuggest
+                                                    label="Vendor Name"
+                                                    required
+                                                    text={vendorText}
+                                                    options={vendorOptions}
+                                                    placeholder="Select vendor"
+                                                    onText={typeVendor}
+                                                    onPick={chooseVendor}
+                                                    onCommit={commitVendor}
+                                                />
+                                            )}
+                                            <label>
+                                                <span className="mb-1.5 block text-sm font-medium text-slate-700">Purchase Date <span className="text-red-500">*</span></span>
+                                                <input type="date" value={purchaseDate} disabled={viewOnly} onChange={(event) => setPurchaseDate(event.target.value)} className={fieldClass} />
+                                            </label>
+                                            <label>
+                                                <span className="mb-1.5 block text-sm font-medium text-slate-700">Bill No <span className="text-red-500">*</span></span>
+                                                <input value={billNo} disabled={viewOnly} onChange={(event) => setBillNo(event.target.value)} placeholder="Enter bill no" className={fieldClass} />
+                                            </label>
+                                            <label>
+                                                <span className="mb-1.5 block text-sm font-medium text-slate-700">LPO No</span>
+                                                <input value={lpoNo} disabled={viewOnly} onChange={(event) => setLpoNo(event.target.value)} placeholder="Enter LPO no (optional)" className={fieldClass} />
+                                            </label>
+                                            <label className="sm:col-span-2 xl:col-span-4">
+                                                <span className="mb-1.5 block text-sm font-medium text-slate-700">Note</span>
+                                                <textarea
+                                                    value={note}
+                                                    disabled={viewOnly}
+                                                    onChange={(event) => setNote(event.target.value)}
+                                                    placeholder="Enter note..."
+                                                    className={`${fieldClass} h-auto min-h-[88px] py-2`}
+                                                />
+                                            </label>
+                                        </div>
+                                    ) : (
+                                        <label className="block">
+                                            <span className="mb-1.5 block text-sm font-medium text-slate-700">Note</span>
+                                            <textarea
+                                                value={note}
+                                                disabled={viewOnly}
+                                                onChange={(event) => setNote(event.target.value)}
+                                                placeholder="Enter note..."
+                                                className={`${fieldClass} h-auto min-h-[88px] py-2`}
+                                            />
+                                        </label>
+                                    )}
+                                    {viewOnly ? null : (
+                                        <div className="rounded-xl bg-[#F5F7FB] p-4">
+                                            <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                                                <TypeSuggest
+                                                    label="Category"
+                                                    required
+                                                    text={categoryText}
+                                                    options={categoryOptions}
+                                                    placeholder="Select category"
+                                                    onText={typeCategory}
+                                                    onPick={chooseCategory}
+                                                    onCommit={commitCategory}
+                                                />
+                                                <TypeSuggest
+                                                    label="Sub Category"
+                                                    required
+                                                    text={subcategoryText}
+                                                    options={subcategoryOptions}
+                                                    placeholder="Select sub category"
+                                                    onText={typeSubcategory}
+                                                    onPick={chooseSubcategory}
+                                                    onCommit={commitSubcategory}
+                                                />
+                                                <TypeSuggest
+                                                    label="Item"
+                                                    required
+                                                    text={itemText}
+                                                    options={itemOptions}
+                                                    placeholder="Select item"
+                                                    onText={typeItem}
+                                                    onPick={chooseItem}
+                                                    onCommit={commitItem}
+                                                />
+                                                <TypeSuggest
+                                                    label="Brand"
+                                                    required
+                                                    text={brandText}
+                                                    options={brandOptions}
+                                                    placeholder="Select brand"
+                                                    onText={typeBrand}
+                                                    onPick={chooseBrand}
+                                                    onCommit={commitBrand}
+                                                    showAll
+                                                />
+                                                <TypeSuggest
+                                                    label="Model No"
+                                                    text={modelNumber}
+                                                    options={modelOptions}
+                                                    placeholder="Enter model no"
+                                                    onText={typeModel}
+                                                    onPick={chooseModel}
+                                                    onCommit={commitModel}
+                                                />
+                                                <div className="flex items-end justify-end gap-2">
+                                                    <button type="button" onClick={resetItemFields} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600">
+                                                        <RotateCcw size={16} /> Reset
+                                                    </button>
+                                                    <button type="button" onClick={addMaterial} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white">
+                                                        <Plus size={16} /> Add
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             ) : null}
                             {locked && !viewOnly && purchaseSource === 'vendor' ? (
                                 <div className="grid grid-cols-1 gap-3 rounded-xl bg-[#F5F7FB] p-4 text-sm text-slate-700 sm:grid-cols-2 xl:grid-cols-4">
@@ -1134,40 +1134,40 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                 {locked ? (
                                     <p className="rounded-xl border border-[#D5DDEA] bg-[#F8FAFC] px-4 py-3 text-sm text-slate-600">{attachment?.name || 'No attachment'}</p>
                                 ) : (
-                                <div
-                                    onDragOver={(event) => {
-                                        event.preventDefault();
-                                        setDragOver(true);
-                                    }}
-                                    onDragLeave={() => setDragOver(false)}
-                                    onDrop={(event) => {
-                                        event.preventDefault();
-                                        setDragOver(false);
-                                        useBill(event.dataTransfer.files?.[0]);
-                                    }}
-                                    className={`flex flex-col items-center justify-center rounded-xl border border-dashed px-4 py-5 text-center ${dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-[#D5DDEA] bg-[#F8FAFC]'}`}
-                                >
-                                    <Upload size={18} className="text-indigo-500" />
-                                    <button type="button" onClick={() => fileRef.current?.click()} className="mt-1 text-sm font-semibold text-indigo-600">
-                                        Choose File
-                                    </button>
-                                    <p className="text-xs text-slate-400">or drag and drop · PDF, JPG, PNG (max 10 MB)</p>
-                                    {attachment?.name ? (
-                                        <button type="button" onClick={() => setAttachment(null)} className="mt-2 text-xs text-slate-500 hover:text-red-600">
-                                            {attachment.name} · Remove
-                                        </button>
-                                    ) : null}
-                                    <input
-                                        ref={fileRef}
-                                        type="file"
-                                        accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                                        className="hidden"
-                                        onChange={(event) => {
-                                            useBill(event.target.files?.[0]);
-                                            event.target.value = '';
+                                    <div
+                                        onDragOver={(event) => {
+                                            event.preventDefault();
+                                            setDragOver(true);
                                         }}
-                                    />
-                                </div>
+                                        onDragLeave={() => setDragOver(false)}
+                                        onDrop={(event) => {
+                                            event.preventDefault();
+                                            setDragOver(false);
+                                            useBill(event.dataTransfer.files?.[0]);
+                                        }}
+                                        className={`flex flex-col items-center justify-center rounded-xl border border-dashed px-4 py-5 text-center ${dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-[#D5DDEA] bg-[#F8FAFC]'}`}
+                                    >
+                                        <Upload size={18} className="text-indigo-500" />
+                                        <button type="button" onClick={() => fileRef.current?.click()} className="mt-1 text-sm font-semibold text-indigo-600">
+                                            Choose File
+                                        </button>
+                                        <p className="text-xs text-slate-400">or drag and drop · PDF, JPG, PNG (max 10 MB)</p>
+                                        {attachment?.name ? (
+                                            <button type="button" onClick={() => setAttachment(null)} className="mt-2 text-xs text-slate-500 hover:text-red-600">
+                                                {attachment.name} · Remove
+                                            </button>
+                                        ) : null}
+                                        <input
+                                            ref={fileRef}
+                                            type="file"
+                                            accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                                            className="hidden"
+                                            onChange={(event) => {
+                                                useBill(event.target.files?.[0]);
+                                                event.target.value = '';
+                                            }}
+                                        />
+                                    </div>
                                 )}
                             </div>
                         </div>
