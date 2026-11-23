@@ -17,8 +17,6 @@ import {
 const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), { ssr: false });
 
 function formFromVendor(source, code) {
-    const brands = Array.isArray(source?.brands) ? source.brands.filter(Boolean).join(', ') : '';
-    const products = source?.products == null || source?.products === '' ? '' : String(source.products);
     return {
         code: code || source?.code || source?.vendorCode || '',
         name: source?.name || '',
@@ -27,8 +25,6 @@ function formFromVendor(source, code) {
         email: source?.email || '',
         phone: normalizePhone(source?.phone),
         paymentTerms: source?.paymentTerms || '',
-        brands,
-        products,
         status: source?.status === 'Inactive' ? 'Inactive' : 'Active',
     };
 }
@@ -128,15 +124,18 @@ function VendorPicker({ choices, value, disabled, loading, onChange }) {
     );
 }
 
-function TextField({ label, value, onChange, type = 'text' }) {
+function TextField({ label, value, onChange, type = 'text', readOnly = false, placeholder = '' }) {
     return (
         <label className="block min-w-0">
             <span className={labelClass}>{label}</span>
             <input
-                className={fieldClass}
+                className={`${fieldClass}${readOnly ? ' read-only:cursor-default read-only:bg-slate-50 read-only:text-slate-700 read-only:focus:border-[#E2E8F0]' : ''}`}
                 type={type}
                 value={value}
-                onChange={(event) => onChange(event.target.value)}
+                placeholder={placeholder}
+                readOnly={readOnly}
+                aria-readonly={readOnly || undefined}
+                onChange={readOnly ? undefined : (event) => onChange(event.target.value)}
             />
         </label>
     );
@@ -154,10 +153,26 @@ export default function AddVendorModal({ onClose, onSaved, vendor = null }) {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [emailError, setEmailError] = useState(() => emailProblem(vendor?.email));
+    const editedRef = useRef(new Set());
+    const formRef = useRef(form);
+
+    function writeForm(updater) {
+        setForm((current) => {
+            const next = typeof updater === 'function' ? updater(current) : updater;
+            formRef.current = next;
+            return next;
+        });
+    }
 
     const setField = (key) => (value) => {
-        setForm((current) => ({ ...current, [key]: value }));
+        editedRef.current.add(key);
+        writeForm((current) => ({ ...current, [key]: value }));
     };
+
+    function selectVendor(id) {
+        editedRef.current = new Set();
+        setZohoContactId(id);
+    }
 
     useEffect(() => {
         let cancelled = false;
@@ -168,7 +183,7 @@ export default function AddVendorModal({ onClose, onSaved, vendor = null }) {
                 setOptions(Array.isArray(vendors) ? vendors : []);
                 setLinkedIds(Array.isArray(code?.linkedZohoIds) ? code.linkedZohoIds.map(String) : []);
                 if (!editing && code?.vendorCode) {
-                    setForm((current) => ({ ...current, code: current.code || code.vendorCode }));
+                    writeForm((current) => ({ ...current, code: code.vendorCode }));
                 }
             })
             .catch((loadError) => {
@@ -193,8 +208,18 @@ export default function AddVendorModal({ onClose, onSaved, vendor = null }) {
         previewZohoVendor(zohoContactId)
             .then((data) => {
                 if (cancelled) return;
-                setEmailError(emailProblem(data?.email));
-                setForm((current) => formFromVendor(data, current.code || data?.code || data?.vendorCode || ''));
+                if (!editedRef.current.has('email')) setEmailError(emailProblem(data?.email));
+                writeForm((current) => {
+                    const incoming = formFromVendor(
+                        data,
+                        editing ? (current.code || data?.code || data?.vendorCode || '') : current.code,
+                    );
+                    const next = { ...incoming, code: current.code || incoming.code };
+                    editedRef.current.forEach((key) => {
+                        next[key] = current[key];
+                    });
+                    return next;
+                });
             })
             .catch((loadError) => {
                 if (!cancelled) setError(vendorApiMessage(loadError, 'Could not read this Zoho vendor.'));
@@ -226,24 +251,21 @@ export default function AddVendorModal({ onClose, onSaved, vendor = null }) {
 
     async function onSubmit(event) {
         event.preventDefault();
+        const current = formRef.current;
         if (!zohoContactId) {
             setError('Select a vendor.');
             return;
         }
-        if (!form.code.trim()) {
+        if (!current.code.trim()) {
             setError('Vendor code is required.');
             return;
         }
-        if (!form.name.trim()) {
+        if (!current.name.trim()) {
             setError('Vendor name is required.');
             return;
         }
-        if (form.products.trim() !== '' && (!Number.isInteger(Number(form.products)) || Number(form.products) < 0)) {
-            setError('Products must be a whole number of zero or more.');
-            return;
-        }
-        const emailIssue = emailProblem(form.email);
-        const phoneIssue = phoneProblem(form.phone);
+        const emailIssue = emailProblem(current.email);
+        const phoneIssue = phoneProblem(current.phone);
         setEmailError(emailIssue);
         if (emailIssue || phoneIssue) {
             setError(emailIssue || phoneIssue);
@@ -253,16 +275,14 @@ export default function AddVendorModal({ onClose, onSaved, vendor = null }) {
         setError('');
         const payload = {
             zohoContactId,
-            vendorCode: form.code.trim(),
-            name: form.name.trim(),
-            location: form.location.trim(),
-            primaryContact: form.contact.trim(),
-            email: form.email.trim(),
-            phone: form.phone.trim(),
-            paymentTerms: form.paymentTerms.trim(),
-            brands: form.brands,
-            products: form.products.trim(),
-            status: form.status,
+            vendorCode: current.code.trim(),
+            name: current.name.trim(),
+            location: current.location.trim(),
+            primaryContact: current.contact.trim(),
+            email: current.email.trim(),
+            phone: current.phone.trim(),
+            paymentTerms: current.paymentTerms.trim(),
+            status: current.status,
         };
         try {
             const saved = editing ? await updateVendor(vendor.id, payload) : await createVendor(payload);
@@ -285,7 +305,7 @@ export default function AddVendorModal({ onClose, onSaved, vendor = null }) {
                             value={zohoContactId}
                             disabled={loadingOptions || saving}
                             loading={loadingOptions}
-                            onChange={setZohoContactId}
+                            onChange={selectVendor}
                         />
                     </div>
                     {!loadingOptions && choices.length === 0 ? (
@@ -293,7 +313,12 @@ export default function AddVendorModal({ onClose, onSaved, vendor = null }) {
                     ) : null}
 
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        <TextField label="Vendor code" value={form.code} onChange={setField('code')} />
+                        <TextField
+                            label="Vendor code"
+                            value={form.code}
+                            readOnly
+                            placeholder={editing ? '' : 'Assigning...'}
+                        />
                         <TextField label="Vendor name" value={form.name} onChange={setField('name')} />
                         <TextField label="Location" value={form.location} onChange={setField('location')} />
                         <TextField label="Primary contact" value={form.contact} onChange={setField('contact')} />
@@ -326,8 +351,6 @@ export default function AddVendorModal({ onClose, onSaved, vendor = null }) {
                             />
                         </div>
                         <TextField label="Payment terms" value={form.paymentTerms} onChange={setField('paymentTerms')} />
-                        <TextField label="Brands" value={form.brands} onChange={setField('brands')} />
-                        <TextField label="Products" value={form.products} onChange={setField('products')} type="number" />
                         <label className="block min-w-0">
                             <span className={labelClass}>Status</span>
                             <select className={fieldClass} value={form.status} onChange={(event) => setField('status')(event.target.value)}>

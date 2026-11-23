@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Download, MoreVertical, Plus, Search } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
-import { buildListReturnHref } from '@/utils/listReturnNavigation';
+import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
 import PageSizeSelect from '../PageSizeSelect';
 import { pageLimit, pageSizeParam, pageWindow } from '../listPageSize';
 import { useInventoryAccess } from '../item-master/itemMasterAccess';
@@ -184,37 +184,139 @@ function money(amount, currency) {
 }
 
 const NUMBER_HEADINGS = new Set(['Vendor Outstanding', 'Pending Bills', 'Open LPO']);
+const NAME_LIMIT = 15;
+const LIST_LIMIT = 2;
+const cellClass = 'px-2 py-2.5 align-top break-words [overflow-wrap:anywhere]';
 
-function MoreListCell({ values, open, onToggle, label }) {
-    const items = (values || []).map((value) => String(value || '').trim()).filter(Boolean);
-    if (!items.length) return <td className="whitespace-nowrap px-4 py-3.5">N/A</td>;
-    const preview = items.slice(0, 3).join(', ');
-    if (open) {
-        return (
-            <td className="max-w-xs px-4 py-3.5" onClick={(event) => event.stopPropagation()}>
-                <button type="button" onClick={onToggle} className="whitespace-normal break-words text-left">
-                    {items.join(', ')}
-                </button>
-            </td>
-        );
+function listItems(values) {
+    return (values || []).map((value) => String(value || '').trim()).filter(Boolean);
+}
+
+function VendorName({ name, expanded, onToggle }) {
+    const full = String(name || '').trim();
+    if (!full) return 'N/A';
+    if (full.length <= NAME_LIMIT || expanded) {
+        return <span className="break-words font-medium text-slate-800">{full}</span>;
     }
     return (
-        <td className="whitespace-nowrap px-4 py-3.5">
-            {preview}
-            {items.length > 3 ? (
+        <span className="font-medium text-slate-800">
+            {full.slice(0, NAME_LIMIT)}
+            <button
+                type="button"
+                onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onToggle();
+                }}
+                className="ml-1 font-normal text-blue-700 hover:underline"
+            >
+                more
+            </button>
+        </span>
+    );
+}
+
+function LimitedList({ values, onSeeMore, label }) {
+    const items = listItems(values);
+    if (!items.length) return 'N/A';
+    return (
+        <span className="break-words">
+            {items.slice(0, LIST_LIMIT).join(', ')}
+            {items.length > LIST_LIMIT ? (
                 <button
                     type="button"
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        onToggle();
-                    }}
-                    className="ml-1 text-blue-700 hover:underline"
-                    aria-label={`Show all ${label}`}
+                    onClick={onSeeMore}
+                    className="ml-1 whitespace-nowrap text-blue-700 hover:underline"
+                    aria-label={`See more ${label}`}
                 >
-                    more...
+                    see more
                 </button>
             ) : null}
-        </td>
+        </span>
+    );
+}
+
+function RowActions({ vendor, deleting, canEdit, canDelete, onEdit, onDelete }) {
+    const [open, setOpen] = useState(false);
+    const [pos, setPos] = useState(null);
+    const rootRef = useRef(null);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const close = (event) => {
+            if (!rootRef.current?.contains(event.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', close);
+        return () => document.removeEventListener('mousedown', close);
+    }, [open]);
+
+    return (
+        <div ref={rootRef} className="flex justify-center" data-row-nav-ignore="">
+            <button
+                type="button"
+                aria-label={`Actions for ${vendor.name || 'vendor'}`}
+                aria-haspopup="menu"
+                aria-expanded={open}
+                onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const openUp = rect.bottom + 96 > window.innerHeight;
+                    setPos({
+                        top: openUp ? rect.top - 4 : rect.bottom + 4,
+                        left: rect.right,
+                        openUp,
+                    });
+                    setOpen((current) => !current);
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+            >
+                <MoreVertical size={16} />
+            </button>
+            {open && pos ? (
+                <div
+                    role="menu"
+                    className="fixed z-50 w-32 overflow-hidden rounded-xl border border-[#E6EDF5] bg-white py-1 shadow-xl"
+                    style={{
+                        top: pos.top,
+                        left: pos.left,
+                        transform: pos.openUp ? 'translate(-100%, -100%)' : 'translateX(-100%)',
+                    }}
+                >
+                    {canEdit ? (
+                        <button
+                            type="button"
+                            role="menuitem"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setOpen(false);
+                                onEdit();
+                            }}
+                            className="block w-full px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                            Edit
+                        </button>
+                    ) : null}
+                    {canDelete ? (
+                        <button
+                            type="button"
+                            role="menuitem"
+                            disabled={deleting}
+                            onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setOpen(false);
+                                onDelete(event);
+                            }}
+                            className="block w-full px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                            {deleting ? 'Deleting...' : 'Delete'}
+                        </button>
+                    ) : null}
+                </div>
+            ) : null}
+        </div>
     );
 }
 
@@ -245,7 +347,7 @@ export default function VendorManagementList() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [deletingId, setDeletingId] = useState('');
-    const [openCells, setOpenCells] = useState(() => new Set());
+    const [expandedNames, setExpandedNames] = useState(() => new Set());
     const showActions = access.canEditVendor || access.canDeleteVendor;
     const columnCount = showActions ? 11 : 10;
 
@@ -331,13 +433,20 @@ export default function VendorManagementList() {
         ? 'No vendors match this search.'
         : 'No vendors yet.';
 
-    function toggleCell(key) {
-        setOpenCells((current) => {
+    function toggleName(id) {
+        setExpandedNames((current) => {
             const next = new Set(current);
-            if (next.has(key)) next.delete(key);
-            else next.add(key);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
             return next;
         });
+    }
+
+    function openVendorTab(event, vendorId, tab) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!vendorId) return;
+        navigateFromList(router, `/inventory/vendor-management/${vendorId}?tab=${encodeURIComponent(tab)}`, listHref);
     }
 
     function changeFilter(setter) {
@@ -393,7 +502,7 @@ export default function VendorManagementList() {
     }
 
     return (
-        <section className="rounded-2xl border border-[#E6EDF5] bg-white p-4 sm:p-6">
+        <section className="min-w-0 overflow-x-hidden rounded-2xl border border-[#E6EDF5] bg-white p-4 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <h1 className="text-2xl font-bold text-slate-900">Vendor Management</h1>
                 <div className="flex flex-wrap items-center gap-2">
@@ -439,8 +548,21 @@ export default function VendorManagementList() {
 
             {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
 
-            <div className="mt-5 overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
+            <div className="mt-5 min-w-0">
+                <table className="w-full table-fixed text-left text-xs sm:text-sm">
+                    <colgroup>
+                        <col className="w-[9%]" />
+                        <col className="w-[13%]" />
+                        <col className="w-[9%]" />
+                        <col className="w-[11%]" />
+                        <col className={showActions ? 'w-[14%]' : 'w-[15%]'} />
+                        <col className={showActions ? 'w-[14%]' : 'w-[15%]'} />
+                        <col className="w-[10%]" />
+                        <col className="w-[6%]" />
+                        <col className="w-[5%]" />
+                        <col className={showActions ? 'w-[6%]' : 'w-[7%]'} />
+                        {showActions ? <col className="w-[3%]" /> : null}
+                    </colgroup>
                     <thead>
                         <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
                             {[
@@ -456,18 +578,18 @@ export default function VendorManagementList() {
                                 'Status',
                                 ...(showActions ? ['Action'] : []),
                             ].map((heading) => (
-                                <th key={heading} className={`whitespace-nowrap px-4 py-3 font-medium ${NUMBER_HEADINGS.has(heading) ? 'text-right' : ''}`}>{heading}</th>
+                                <th key={heading} className={`px-2 py-2 font-medium leading-tight ${NUMBER_HEADINGS.has(heading) ? 'text-right' : ''} ${heading === 'Action' ? 'text-center' : ''}`}>{heading}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={columnCount} className="px-4 py-10 text-center text-slate-500">Loading vendors...</td>
+                                <td colSpan={columnCount} className="px-2 py-10 text-center text-slate-500">Loading vendors...</td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={columnCount} className="px-4 py-10 text-center text-slate-500">{emptyLabel}</td>
+                                <td colSpan={columnCount} className="px-2 py-10 text-center text-slate-500">{emptyLabel}</td>
                             </tr>
                         ) : rows.map((vendor) => (
                             <ListTableRowLink
@@ -480,57 +602,49 @@ export default function VendorManagementList() {
                             <tr
                                 className="cursor-pointer border-b border-slate-100 text-slate-700 hover:bg-slate-50"
                             >
-                                <td className="whitespace-nowrap px-4 py-3.5">{vendor.code}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{vendor.name}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5">{displayValue(vendor.location)}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5">{displayValue(vendor.contact)}</td>
-                                <MoreListCell
-                                    values={vendor.listBrands}
-                                    open={openCells.has(`${vendor.id}:brands`)}
-                                    onToggle={() => toggleCell(`${vendor.id}:brands`)}
-                                    label="brands"
-                                />
-                                <MoreListCell
-                                    values={vendor.listCategories}
-                                    open={openCells.has(`${vendor.id}:products`)}
-                                    onToggle={() => toggleCell(`${vendor.id}:products`)}
-                                    label="products"
-                                />
-                                <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums">{money(vendor.outstandingPayment, vendor.currencyCode)}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums">{Number(vendor.pendingBills) || 0}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums">{Number(vendor.openLpos) || 0}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5">
-                                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(vendor.status)}`}>
+                                <td className={cellClass}>{vendor.code}</td>
+                                <td className={cellClass}>
+                                    <VendorName
+                                        name={vendor.name}
+                                        expanded={expandedNames.has(vendor.id)}
+                                        onToggle={() => toggleName(vendor.id)}
+                                    />
+                                </td>
+                                <td className={cellClass}>{displayValue(vendor.location)}</td>
+                                <td className={cellClass}>{displayValue(vendor.contact)}</td>
+                                <td className={cellClass}>
+                                    <LimitedList
+                                        values={vendor.listBrands}
+                                        label="brands"
+                                        onSeeMore={(event) => openVendorTab(event, vendor.id, 'Brands')}
+                                    />
+                                </td>
+                                <td className={cellClass}>
+                                    <LimitedList
+                                        values={vendor.listCategories}
+                                        label="products"
+                                        onSeeMore={(event) => openVendorTab(event, vendor.id, 'Products')}
+                                    />
+                                </td>
+                                <td className={`${cellClass} text-right tabular-nums`}>{money(vendor.outstandingPayment, vendor.currencyCode)}</td>
+                                <td className={`${cellClass} text-right tabular-nums`}>{Number(vendor.pendingBills) || 0}</td>
+                                <td className={`${cellClass} text-right tabular-nums`}>{Number(vendor.openLpos) || 0}</td>
+                                <td className={cellClass}>
+                                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${statusClass(vendor.status)}`}>
                                         <span className={`h-1.5 w-1.5 rounded-full ${statusDot(vendor.status)}`} />
                                         {vendor.status}
                                     </span>
                                 </td>
                                 {showActions ? (
-                                    <td className="whitespace-nowrap px-4 py-3.5" onClick={(event) => event.stopPropagation()}>
-                                        <div className="flex items-center gap-2">
-                                            {access.canEditVendor ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setEditor({ vendor })}
-                                                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                                                    aria-label={`Edit ${vendor.name || 'vendor'}`}
-                                                >
-                                                    <Pencil size={13} /> Edit
-                                                </button>
-                                            ) : null}
-                                            {access.canDeleteVendor ? (
-                                                <button
-                                                    type="button"
-                                                    disabled={deletingId === vendor.id}
-                                                    onClick={(event) => removeVendor(event, vendor)}
-                                                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                                                    aria-label={`Delete ${vendor.name || 'vendor'}`}
-                                                >
-                                                    <Trash2 size={13} />
-                                                    {deletingId === vendor.id ? 'Deleting...' : 'Delete'}
-                                                </button>
-                                            ) : null}
-                                        </div>
+                                    <td className={`${cellClass} text-center`}>
+                                        <RowActions
+                                            vendor={vendor}
+                                            deleting={deletingId === vendor.id}
+                                            canEdit={access.canEditVendor}
+                                            canDelete={access.canDeleteVendor}
+                                            onEdit={() => setEditor({ vendor })}
+                                            onDelete={(event) => removeVendor(event, vendor)}
+                                        />
                                     </td>
                                 ) : null}
                             </tr>

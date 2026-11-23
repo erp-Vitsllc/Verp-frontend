@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Building2, Pencil, Plus, Printer, RefreshCw, Star, Trash2 } from 'lucide-react';
 import { useInventoryAccess } from '../item-master/itemMasterAccess';
 import AddContactModal from './AddContactModal';
@@ -10,6 +10,11 @@ import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
 import { deleteVendorContact, markVendorContactPrimary, syncVendorFromZoho, vendorApiMessage } from './vendorManagementApi';
 
 const TABS = ['Overview', 'Contacts', 'Products', 'Brands', 'Bills', 'Pricing', 'RFQs', 'POs', 'Documents'];
+
+function tabFromQuery(value) {
+    const text = String(value || '').trim();
+    return TABS.includes(text) ? text : 'Contacts';
+}
 
 function shown(value) {
     const text = String(value || '').trim();
@@ -62,7 +67,13 @@ function contactCategories(contacts) {
             const id = String(line.categoryId || '').trim();
             if (!name && !id) return;
             const key = id || name.toLowerCase();
-            if (!categories.has(key)) categories.set(key, { id: key, name: name || 'Category' });
+            const image = String(line.categoryImage || '').trim();
+            const current = categories.get(key);
+            if (!current) {
+                categories.set(key, { id: key, name: name || 'Category', image });
+                return;
+            }
+            if (!current.image && image) current.image = image;
         });
     });
     return [...categories.values()].sort((left, right) => left.name.localeCompare(right.name));
@@ -126,8 +137,10 @@ function contactHasBrand(contact, brandId) {
 
 export default function VendorDetail({ vendor, onReload }) {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const requestedTab = String(searchParams.get('tab') || '');
     const access = useInventoryAccess();
-    const [tab, setTab] = useState('Contacts');
+    const [tab, setTab] = useState(() => tabFromQuery(requestedTab));
     const [categoryFilter, setCategoryFilter] = useState('');
     const [brandFilter, setBrandFilter] = useState('');
     const [contactModal, setContactModal] = useState(null);
@@ -148,6 +161,10 @@ export default function VendorDetail({ vendor, onReload }) {
         && (!activeBrand || contactHasBrand(contact, brandFilter))
     ));
     const site = websiteHref(vendor.website);
+
+    useEffect(() => {
+        setTab(tabFromQuery(requestedTab));
+    }, [requestedTab, vendor?.id]);
 
     async function removeContact(contact) {
         const label = contact.name || 'this contact';
@@ -460,9 +477,13 @@ export default function VendorDetail({ vendor, onReload }) {
                                             setCategoryFilter(category.id);
                                             setTab('Contacts');
                                         }}
-                                        className="flex size-32 items-center justify-center rounded-xl border border-[#E6EDF5] bg-white p-3 text-center text-sm font-semibold leading-snug text-slate-900 shadow-sm transition hover:border-blue-300 hover:shadow-md"
+                                        className={`flex size-32 items-center justify-center overflow-hidden rounded-xl border border-[#E6EDF5] bg-white text-center text-sm font-semibold leading-snug text-slate-900 shadow-sm transition hover:border-blue-300 hover:shadow-md ${category.image ? 'p-2' : 'p-3'}`}
                                     >
-                                        <span className="line-clamp-4 break-words">{category.name}</span>
+                                        {category.image ? (
+                                            <img src={category.image} alt="" className="h-full w-full object-contain" />
+                                        ) : (
+                                            <span className="line-clamp-4 break-words">{category.name}</span>
+                                        )}
                                     </button>
                                 ))}
                             </div>
