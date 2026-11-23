@@ -35,11 +35,20 @@ const STEP1_RULES = [
 
 const STEP2_RULES = [
     'Only one LPO choice can be on at a time.',
-    'Required: LPO number, date, value and attachment stay off. No LPO is added now.',
-    'Not required: attachment is optional. Creating without one emails the project coordinator and asks them to upload it.',
+    'Required: no LPO fields. Create sends the work order to the project coordinator. Their Create click sets the status to Created.',
+    'Not required: only a supporting document and a note are shown. Create sets the status to LPO Pending and asks the salesperson to fill both.',
     'LPO received: LPO number, date, value and attachment are required.',
-    'One quotation and one LPO per work order.',
+    'The salesperson or project coordinator can change the LPO choice before they click Create. Only the fields for that choice are shown.',
 ];
+
+function flowchartRoleMessage(roles) {
+    const names = (roles || []).filter(Boolean);
+    if (!names.length) return '';
+    const list = names.length === 1
+        ? names[0]
+        : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+    return `Assign an active ${list} on the flowchart before creating a work order.`;
+}
 
 const fieldClass = `h-12 w-full rounded-xl border border-[#e5edf6] bg-white px-3.5 text-[15px] leading-6 text-slate-900 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:bg-[#f4f7fb] disabled:text-slate-400 ${FOCUS}`;
 
@@ -270,11 +279,13 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
     const [lpoValue, setLpoValue] = useState('');
     const [lpoValueTouched, setLpoValueTouched] = useState(false);
     const [lpoFile, setLpoFile] = useState(null);
+    const [supportingNote, setSupportingNote] = useState('');
     const [confirmationDate, setConfirmationDate] = useState(() => dubaiDateKey());
     const [location, setLocation] = useState('');
     const [description, setDescription] = useState('');
     const [saving, setSaving] = useState(false);
     const [stepError, setStepError] = useState('');
+    const [missingRoles, setMissingRoles] = useState([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -282,6 +293,10 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
             if (cancelled) return;
             if (response.data?.workOrderNo) setWorkOrderNo(response.data.workOrderNo);
             if (response.data?.createdOn) setCreatedOn(response.data.createdOn);
+            const missing = Array.isArray(response.data?.missingFlowchartRoles)
+                ? response.data.missingFlowchartRoles.filter(Boolean)
+                : [];
+            setMissingRoles(missing);
         }).catch(() => {});
         axiosInstance.get('/WorkOrder/customers', { skipToast: true }).then((response) => {
             const rows = Array.isArray(response.data?.customers) ? response.data.customers : [];
@@ -322,8 +337,6 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
         : lpoMode === 'not_required'
             ? 'bg-slate-100 text-slate-600'
             : 'bg-amber-50 text-amber-600';
-    const lpoLocked = lpoMode !== 'received';
-    const attachmentLocked = lpoMode === 'required';
     const quoteTotal = Number(linkedQuote?.total) || 0;
 
     useEffect(() => {
@@ -361,6 +374,20 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                 setQuoteMessage(QUOTE_CUSTOMER_MISMATCH);
                 return;
             }
+            try {
+                const check = await axiosInstance.get('/WorkOrder/quotation-used', {
+                    skipToast: true,
+                    params: { number: row.number, quotationId: row.id || '' },
+                });
+                if (check.data?.used) {
+                    setQuote(null);
+                    setQuoteMessageError(true);
+                    setQuoteMessage(check.data.message || 'Already work order created with this quote. Check again.');
+                    return;
+                }
+            } catch {
+                // Create still rejects a quotation that already has a work order.
+            }
             setQuote(row);
             setQuoteNumber(row.number);
             setQuoteMessage('');
@@ -393,7 +420,8 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
             lpoNo: lpoMode === 'received' ? lpoNo : '',
             lpoDate: lpoMode === 'received' ? lpoDate : '',
             lpoValue: lpoMode === 'received' ? lpoValue : '',
-            attachment,
+            supportingNote: lpoMode === 'not_required' ? supportingNote : '',
+            attachment: lpoMode === 'required' ? null : attachment,
             confirmationDate,
             location,
             description,
@@ -403,8 +431,12 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
     };
 
     const save = async (intent) => {
+        if (missingRoles.length) {
+            setStepError(flowchartRoleMessage(missingRoles));
+            return;
+        }
         if (quoteMessageError) {
-            setStepError(QUOTE_CUSTOMER_MISMATCH);
+            setStepError(quoteMessage || QUOTE_CUSTOMER_MISMATCH);
             setStep(1);
             return;
         }
@@ -453,16 +485,18 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                 description: intent === 'draft'
                     ? `${assigned} is pending for ${salesperson?.name || 'the selected employee'}.`
                     : lpoMode === 'not_required'
-                        ? (response.data?.emailMessage || (lpoFile
-                            ? `${assigned} was sent to ${salesperson?.name || 'the salesperson'}. They were notified that the LPO was not filled.`
-                            : `Upload attachment to the work order ${assigned}`))
-                        : assigned,
+                        ? (response.data?.emailMessage || `${assigned} is LPO Pending. ${salesperson?.name || 'The salesperson'} was asked to add the supporting document and note.`)
+                        : lpoMode === 'required'
+                            ? (response.data?.emailMessage || `${assigned} was sent to the project coordinator.`)
+                            : assigned,
             });
             onSaved();
         } catch (error) {
+            const message = error?.response?.data?.message || 'Could not save the work order';
+            setStepError(message);
             toast({
                 title: 'Could not save',
-                description: error?.response?.data?.message || 'Could not save the work order',
+                description: message,
                 variant: 'destructive',
             });
         } finally {
@@ -471,8 +505,12 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
     };
 
     const goNext = () => {
+        if (missingRoles.length) {
+            setStepError(flowchartRoleMessage(missingRoles));
+            return;
+        }
         if (quoteMessageError) {
-            setStepError(QUOTE_CUSTOMER_MISMATCH);
+            setStepError(quoteMessage || QUOTE_CUSTOMER_MISMATCH);
             return;
         }
         if (!customer || !salesperson || !quoteNumber.trim()) {
@@ -552,7 +590,12 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                 )}
             </div>
 
-            {stepError ? (
+            {missingRoles.length ? (
+                <p className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[15px] text-rose-700">
+                    {flowchartRoleMessage(missingRoles)}
+                </p>
+            ) : null}
+            {stepError && stepError !== flowchartRoleMessage(missingRoles) ? (
                 <p className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[15px] text-rose-700">{stepError}</p>
             ) : null}
 
@@ -765,44 +808,80 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                             </div>
                             <p className="mt-4 text-sm leading-6 text-slate-500">
                                 {lpoMode === 'required'
-                                    ? 'LPO number, date, value and attachment stay off. There is no need to add an LPO while Required is selected.'
+                                    ? 'No fields for Required. Create emails the project coordinator and adds a task. They click Create and the status becomes Created.'
                                     : lpoMode === 'not_required'
-                                        ? 'Attachment is optional. If you create the work order without one, the project coordinator is emailed and notified to upload it.'
+                                        ? 'Only the supporting document and note are shown. Create sets the status to LPO Pending. The salesperson must fill both, then click Create to complete the work order.'
                                         : 'Enter the LPO number, date, value and attachment. LPO value comes from the quotation total.'}
                             </p>
-                            <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
-                                <label htmlFor="wo-lpo">
-                                    <FieldLabel required={lpoMode === 'received'}>LPO Number</FieldLabel>
-                                    <input id="wo-lpo" value={lpoNo} disabled={lpoLocked} onChange={(event) => setLpoNo(event.target.value)} placeholder="LPO number" className={fieldClass} />
-                                </label>
-                                <label htmlFor="wo-lpo-date">
-                                    <FieldLabel required={lpoMode === 'received'}>LPO Date</FieldLabel>
-                                    <input id="wo-lpo-date" type="date" max={dubaiDateKey()} value={lpoDate} disabled={lpoLocked} onChange={(event) => setLpoDate(event.target.value)} className={fieldClass} />
-                                </label>
-                                <label htmlFor="wo-lpo-value">
-                                    <FieldLabel required={lpoMode === 'received'}>LPO Value</FieldLabel>
-                                    <input id="wo-lpo-value" type="number" min="0" step="0.01" value={lpoValue} disabled={lpoLocked} onChange={(event) => { setLpoValueTouched(true); setLpoValue(event.target.value); }} placeholder="0.00" className={fieldClass} />
-                                </label>
-                                <div>
-                                    <FieldLabel required={lpoMode === 'received'}>Attachment</FieldLabel>
-                                    <label htmlFor="wo-lpo-file" className={`flex h-12 items-center gap-3 rounded-xl border border-[#e5edf6] px-2 ${attachmentLocked ? 'cursor-not-allowed bg-[#f4f7fb]' : 'cursor-pointer bg-white'} ${FOCUS}`}>
-                                        <span className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-semibold ${attachmentLocked ? 'bg-slate-200 text-slate-400' : 'bg-[#e8f1ff] text-[#2f6fed]'}`}>
-                                            Choose file
-                                        </span>
-                                        <span className={`min-w-0 flex-1 truncate text-[15px] ${!attachmentLocked && lpoFile ? 'font-medium text-slate-800' : 'text-slate-400'}`}>
-                                            {!attachmentLocked && lpoFile ? lpoFile.name : 'No file chosen'}
-                                        </span>
-                                        <input
-                                            id="wo-lpo-file"
-                                            type="file"
-                                            disabled={attachmentLocked}
-                                            accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.txt,.csv"
-                                            onChange={(event) => setLpoFile(event.target.files?.[0] || null)}
-                                            className="sr-only"
+                            {lpoMode === 'not_required' ? (
+                                <div className="mt-5 grid grid-cols-1 gap-5">
+                                    <div>
+                                        <FieldLabel>Supporting document</FieldLabel>
+                                        <label htmlFor="wo-support-file" className={`flex h-12 cursor-pointer items-center gap-3 rounded-xl border border-[#e5edf6] bg-white px-2 ${FOCUS}`}>
+                                            <span className="shrink-0 rounded-lg bg-[#e8f1ff] px-3 py-1.5 text-sm font-semibold text-[#2f6fed]">
+                                                Choose file
+                                            </span>
+                                            <span className={`min-w-0 flex-1 truncate text-[15px] ${lpoFile ? 'font-medium text-slate-800' : 'text-slate-400'}`}>
+                                                {lpoFile ? lpoFile.name : 'No file chosen'}
+                                            </span>
+                                            <input
+                                                id="wo-support-file"
+                                                type="file"
+                                                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                                                onChange={(event) => setLpoFile(event.target.files?.[0] || null)}
+                                                className="sr-only"
+                                            />
+                                        </label>
+                                    </div>
+                                    <label htmlFor="wo-support-note">
+                                        <FieldLabel>Note (description)</FieldLabel>
+                                        <textarea
+                                            id="wo-support-note"
+                                            value={supportingNote}
+                                            onChange={(event) => setSupportingNote(event.target.value)}
+                                            rows={3}
+                                            placeholder="Note for the salesperson"
+                                            className={`w-full resize-y rounded-xl border border-[#e5edf6] bg-white px-3.5 py-3 text-[15px] leading-6 text-slate-900 outline-none ${FOCUS}`}
                                         />
                                     </label>
+                                    <p className="text-sm text-slate-500">
+                                        These stay optional here. The salesperson must add both before the status can become Completed.
+                                    </p>
                                 </div>
-                            </div>
+                            ) : lpoMode === 'received' ? (
+                                <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                                    <label htmlFor="wo-lpo">
+                                        <FieldLabel required>LPO Number</FieldLabel>
+                                        <input id="wo-lpo" value={lpoNo} onChange={(event) => setLpoNo(event.target.value)} placeholder="LPO number" className={fieldClass} />
+                                    </label>
+                                    <label htmlFor="wo-lpo-date">
+                                        <FieldLabel required>LPO Date</FieldLabel>
+                                        <input id="wo-lpo-date" type="date" max={dubaiDateKey()} value={lpoDate} onChange={(event) => setLpoDate(event.target.value)} className={fieldClass} />
+                                    </label>
+                                    <label htmlFor="wo-lpo-value">
+                                        <FieldLabel required>LPO Value</FieldLabel>
+                                        <input id="wo-lpo-value" type="number" min="0" step="0.01" value={lpoValue} onChange={(event) => { setLpoValueTouched(true); setLpoValue(event.target.value); }} placeholder="0.00" className={fieldClass} />
+                                    </label>
+                                    <div>
+                                        <FieldLabel required>Attachment</FieldLabel>
+                                        <label htmlFor="wo-lpo-file" className={`flex h-12 cursor-pointer items-center gap-3 rounded-xl border border-[#e5edf6] bg-white px-2 ${FOCUS}`}>
+                                            <span className="shrink-0 rounded-lg bg-[#e8f1ff] px-3 py-1.5 text-sm font-semibold text-[#2f6fed]">
+                                                Choose file
+                                            </span>
+                                            <span className={`min-w-0 flex-1 truncate text-[15px] ${lpoFile ? 'font-medium text-slate-800' : 'text-slate-400'}`}>
+                                                {lpoFile ? lpoFile.name : 'No file chosen'}
+                                            </span>
+                                            <input
+                                                id="wo-lpo-file"
+                                                type="file"
+                                                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                                                onChange={(event) => setLpoFile(event.target.files?.[0] || null)}
+                                                className="sr-only"
+                                            />
+                                        </label>
+                                    </div>
+                                </div>
+                            ) : null}
                         </section>
                     </div>
                     <RulesCard title="Business Rules" rules={STEP2_RULES} />
@@ -814,18 +893,18 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                     <ChevronLeft size={16} /> {step === 1 ? 'Back' : 'Previous Step'}
                 </button>
                 <div className="flex flex-wrap gap-2">
-                    <button type="button" disabled={saving} onClick={() => save('draft')} className={`inline-flex h-12 items-center gap-2 rounded-xl border border-[#e5edf6] bg-white px-4 text-[15px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 ${FOCUS}`}>
+                    <button type="button" disabled={saving || missingRoles.length > 0} onClick={() => save('draft')} className={`inline-flex h-12 items-center gap-2 rounded-xl border border-[#e5edf6] bg-white px-4 text-[15px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 ${FOCUS}`}>
                         <Save size={16} /> Save as Draft
                     </button>
                     <button type="button" onClick={onClose} className={`inline-flex h-12 items-center gap-2 rounded-xl border border-[#e5edf6] bg-white px-4 text-[15px] font-semibold text-slate-700 hover:bg-slate-50 ${FOCUS}`}>
                         <X size={16} /> Cancel
                     </button>
                     {step === 1 ? (
-                        <button type="button" onClick={goNext} className={`inline-flex h-12 items-center gap-2 rounded-xl bg-[#2f6fed] px-5 text-[15px] font-semibold text-white hover:bg-[#245fe0] ${FOCUS}`}>
+                        <button type="button" disabled={missingRoles.length > 0} onClick={goNext} className={`inline-flex h-12 items-center gap-2 rounded-xl bg-[#2f6fed] px-5 text-[15px] font-semibold text-white hover:bg-[#245fe0] disabled:opacity-60 ${FOCUS}`}>
                             Next Step <ChevronRight size={16} />
                         </button>
                     ) : (
-                        <button type="button" disabled={saving} onClick={() => save('create')} className={`inline-flex h-12 items-center gap-2 rounded-xl bg-[#2f6fed] px-5 text-[15px] font-semibold text-white hover:bg-[#245fe0] disabled:opacity-60 ${FOCUS}`}>
+                        <button type="button" disabled={saving || missingRoles.length > 0} onClick={() => save('create')} className={`inline-flex h-12 items-center gap-2 rounded-xl bg-[#2f6fed] px-5 text-[15px] font-semibold text-white hover:bg-[#245fe0] disabled:opacity-60 ${FOCUS}`}>
                             <CheckCircle2 size={16} /> Create Work Order
                         </button>
                     )}

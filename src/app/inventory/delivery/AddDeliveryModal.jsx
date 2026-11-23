@@ -1141,6 +1141,10 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
     }
 
     async function save(action) {
+        if (delivery?.id && (delivery.stockApplied || delivery.status === 'Confirmed')) {
+            setError('A delivered delivery cannot be edited.');
+            return;
+        }
         const problem = validate(action);
         if (problem) {
             setError(problem);
@@ -1165,7 +1169,8 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
         }
     }
 
-    const confirmLabel = 'Submit';
+    const editingLive = Boolean(delivery?.id) && delivery.status && delivery.status !== 'Draft';
+    const confirmLabel = editingLive && !purchasingOfficer ? 'Submit for approval' : 'Submit';
     const DetailsIcon = scheduled ? Truck : UserRound;
 
     function rememberCustomer(saved) {
@@ -1242,7 +1247,12 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F3EEFF] text-[#7C3AED]">
                             <Boxes className="h-5 w-5" />
                         </span>
-                        <h2 id="add-delivery-title" className="truncate text-xl font-bold text-slate-900">{readOnly ? 'Delivery' : delivery?.id ? 'Edit Delivery' : 'Add Delivery'}</h2>
+                        <div className="min-w-0">
+                            <h2 id="add-delivery-title" className="truncate text-xl font-bold text-slate-900">{readOnly ? 'Delivery' : delivery?.id ? 'Edit Delivery' : 'Add Delivery'}</h2>
+                            {readOnly && (delivery?.stockApplied || delivery?.status === 'Confirmed') ? (
+                                <p className="text-xs font-medium text-slate-500">Delivered. Editing is locked for everyone.</p>
+                            ) : null}
+                        </div>
                     </div>
                     <div className="flex items-center gap-2">
                         <button
@@ -1412,9 +1422,13 @@ export default function AddDeliveryModal({ onClose, onSaved, purchasingOfficer =
                                 </h3>
                                 <p className="mt-1 text-xs text-slate-500">
                                     Only items in stock can be added. Each item is listed on its own row.
-                                    {purchasingOfficer
-                                        ? ' Submitting reduces that quantity now.'
-                                        : ' Quantity is reduced after the purchase officer approves.'}
+                                    {editingLive
+                                        ? (purchasingOfficer
+                                            ? ' You are the purchase officer, so this edit is saved directly and the quantity is reduced now.'
+                                            : ' This edit goes to the purchase officer on the flowchart for approval.')
+                                        : (purchasingOfficer
+                                            ? ' Submitting reduces that quantity now.'
+                                            : ' Quantity is reduced after the purchase officer approves.')}
                                 </p>
                             </div>
                             <button

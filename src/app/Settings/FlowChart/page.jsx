@@ -35,7 +35,9 @@ const RESPONSIBILITY_CATEGORIES = [
     { id: 'management', label: 'management' },
     { id: 'admincontroller', label: 'Admin Officer' },
     { id: 'purchaseofficer', label: 'Purchase Officer' },
-    { id: 'projectcoordinator', label: 'Project Coordinator' }
+    { id: 'projectcoordinator', label: 'Project Coordinator' },
+    { id: 'projectmanager', label: 'Project Manager' },
+    { id: 'logisticcontroller', label: 'Logistic Controller' }
 ];
 
 const BUSINESS_MODULES = [
@@ -1070,7 +1072,7 @@ export default function GlobalFlowChartPage() {
 
                                             {/* Second Level: Controllers */}
                                             <div className="flex flex-wrap justify-center gap-20 w-full max-w-6xl relative">
-                                                {['assigneduser', 'hr', 'accounts', 'assetcontroller', 'admincontroller', 'purchaseofficer', 'projectcoordinator'].map((catId) => {
+                                                {['assigneduser', 'hr', 'accounts', 'assetcontroller', 'admincontroller', 'purchaseofficer', 'projectcoordinator', 'projectmanager', 'logisticcontroller'].map((catId) => {
                                                     const group = responsibilities.filter(r => r.category === catId);
                                                     const catLabel = RESPONSIBILITY_CATEGORIES.find(c => c.id === catId)?.label;
 
@@ -1233,7 +1235,7 @@ export default function GlobalFlowChartPage() {
                                     </div>
                                     <div>
                                         <h3 className="text-2xl font-black text-slate-900">Assign Member</h3>
-                                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">Position: <span className="text-blue-600">{selectedCategory}</span></p>
+                                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">Position: <span className="text-blue-600">{RESPONSIBILITY_CATEGORIES.find((cat) => cat.id === selectedCategory)?.label || selectedCategory}</span></p>
                                         {modalData.requireCompanyEmail && (
                                             <p className="mt-2 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2">
                                                 Only employees with a <strong>company email</strong> can be selected for this role.

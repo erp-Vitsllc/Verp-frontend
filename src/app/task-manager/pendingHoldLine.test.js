@@ -142,6 +142,31 @@ describe('pending hold line', () => {
         assert.equal(completionApprovalStatus({ ...review, displayStatus: 'Completed', status: 'Completed' }, true), null);
     });
 
+    it('names the requester after an assignee or reassignee completes a general task', () => {
+        const sentForReview = {
+            displayStatus: 'Pending Review',
+            status: 'Pending',
+            completionPending: true,
+            taskCategory: 'General Task',
+            assigneeName: 'Raseel Muhammad',
+            mainAssigneeName: 'Raseel Muhammad',
+            requesterName: 'NESMI SHAMSUDLEEN',
+            requesterBaseName: 'NESMI SHAMSUDLEEN',
+        };
+        assert.equal(completionApprovalStatus(sentForReview, false).text, 'Waiting for NESMI S');
+        assert.equal(taskWaitingText(sentForReview).text, 'Waiting for NESMI S');
+        assert.equal(completionApprovalStatus(sentForReview, true).text, 'Completed, waiting for NESMI S');
+
+        const reassigned = {
+            ...sentForReview,
+            reviewPending: true,
+            originalAssigneeName: 'Vishnu Prasad',
+            reassignedAssigneeName: 'Raseel Muhammad',
+        };
+        assert.equal(completionApprovalStatus(reassigned, false).text, 'Waiting for NESMI S');
+        assert.equal(taskWaitingText(reassigned).text, 'Waiting for NESMI S');
+    });
+
     it('stays hidden once the task is finished', () => {
         const steps = [{ key: 'reassigned', status: 'In Progress', personName: 'Raseel Muhammad', personId: 'a1' }];
         assert.equal(pendingHold({ status: 'Completed', steps }), null);

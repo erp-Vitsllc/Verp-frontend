@@ -107,9 +107,18 @@ export function pendingHold({ status, steps, assigneeName, finished = false } = 
     return { lines, approval: lines[0].approval, name: lines[0].name, text: `Pending with ${names.join(', ')}` };
 }
 
+/** Assignee or reassignee already sent a general task back. The requester has to approve it. */
+function awaitingRequesterReview(task) {
+    const shown = String(task?.displayStatus || '').trim();
+    const stored = String(task?.status || '').trim();
+    return Boolean(task?.reviewPending) || shown === 'Pending Review' || stored === 'Pending Review';
+}
+
 /**
  * Status while a completion is waiting for the requester or the assignee to accept it.
- * The requester sees a completed line. Everyone else sees only who it is waiting for.
+ * A general-task review names the requester, even when the completion flag is also set.
+ * A reassignment completion names the original assignee. The requester sees a completed line.
+ * Everyone else sees only who it is waiting for.
  */
 export function completionApprovalStatus(task, viewerIsRequester) {
     if (!task) return null;
@@ -125,7 +134,7 @@ export function completionApprovalStatus(task, viewerIsRequester) {
         || task.status === 'Cancelled'
         || task.status === 'Rejected';
     if (finished) return null;
-    const review = Boolean(task.reviewPending);
+    const review = awaitingRequesterReview(task);
     const completion = Boolean(task.completionPending);
     if (!review && !completion) return null;
     const rawName = review

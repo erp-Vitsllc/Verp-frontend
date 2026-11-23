@@ -26,9 +26,13 @@ function money(amount) {
     return new Intl.NumberFormat('en-AE', { style: 'currency', currency: 'AED', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 }
 
+function deliveryIsDelivered(row) {
+    return Boolean(row?.stockApplied) || row?.status === 'Confirmed';
+}
+
 function deliveryStatusLabel(row) {
     if (row?.status === 'Draft') return 'Draft';
-    if (row?.stockApplied || row?.status === 'Confirmed') return 'Delivered';
+    if (deliveryIsDelivered(row)) return 'Delivered';
     if (row?.status === 'Rejected') return 'Rejected';
     return 'Pending for delivery';
 }
@@ -172,7 +176,9 @@ export default function DeliveryBoard() {
         }
     }
 
-    const waiting = purchasingOfficer ? rows.filter((row) => row.status === 'Submitted' || row.editPending) : [];
+    const waiting = purchasingOfficer
+        ? rows.filter((row) => !deliveryIsDelivered(row) && (row.status === 'Submitted' || row.editPending))
+        : [];
     const myDrafts = viewerId
         ? rows.filter((row) => row.status === 'Draft' && String(row.createdBy || '') === viewerId)
         : [];
@@ -367,7 +373,7 @@ export default function DeliveryBoard() {
                                 </td>
                                 <td className="whitespace-nowrap px-4 py-3.5" onClick={(event) => event.stopPropagation()}>
                                     <div className="flex items-center gap-2">
-                                        {purchasingOfficer && (row.status === 'Submitted' || row.editPending) ? (
+                                        {purchasingOfficer && !deliveryIsDelivered(row) && (row.status === 'Submitted' || row.editPending) ? (
                                             <>
                                                 <button
                                                     type="button"
@@ -388,6 +394,16 @@ export default function DeliveryBoard() {
                                                     Reject
                                                 </button>
                                             </>
+                                        ) : purchasingOfficer && deliveryIsDelivered(row) && row.editPending ? (
+                                            <button
+                                                type="button"
+                                                disabled={decidingId === row.id}
+                                                onClick={() => decide(row, 'reject')}
+                                                className="inline-flex h-8 items-center gap-1 rounded-lg border border-red-200 px-2.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40"
+                                            >
+                                                <X className="h-3.5 w-3.5" />
+                                                Reject edit
+                                            </button>
                                         ) : null}
                                         <div className="relative" ref={menuId === row.id ? menuRef : null}>
                                             <button
@@ -409,13 +425,18 @@ export default function DeliveryBoard() {
                                             </button>
                                             {menuId === row.id && menuPos ? (
                                                 <div
-                                                    className="fixed z-50 w-36 overflow-hidden rounded-xl border border-[#E6EDF5] bg-white py-1 shadow-xl"
+                                                    className="fixed z-50 w-52 overflow-hidden rounded-xl border border-[#E6EDF5] bg-white py-1 shadow-xl"
                                                     style={{
                                                         top: menuPos.top,
                                                         left: menuPos.left,
                                                         transform: menuPos.openUp ? 'translate(-100%, -100%)' : 'translateX(-100%)',
                                                     }}
                                                 >
+                                                    {deliveryIsDelivered(row) ? (
+                                                        <p className="px-3 py-2 text-left text-xs leading-5 text-slate-400">
+                                                            Delivered. Editing is locked.
+                                                        </p>
+                                                    ) : (
                                                     <button
                                                         type="button"
                                                         onClick={() => {
@@ -429,6 +450,7 @@ export default function DeliveryBoard() {
                                                         <Pencil className="h-3.5 w-3.5" />
                                                         Edit
                                                     </button>
+                                                    )}
                                                     {canDelete ? (
                                                     <button
                                                         type="button"

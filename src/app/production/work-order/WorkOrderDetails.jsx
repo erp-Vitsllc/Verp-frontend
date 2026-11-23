@@ -119,13 +119,17 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     const [order, setOrder] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [tab, setTab] = useState('Overview');
+    const [tab, setTab] = useState(focusSection === 'lpo' ? 'LPO' : 'Overview');
     const [saving, setSaving] = useState(false);
     const [lpoNo, setLpoNo] = useState('');
     const [lpoDate, setLpoDate] = useState('');
     const [lpoValue, setLpoValue] = useState('');
     const [lpoFile, setLpoFile] = useState(null);
     const [noticeFile, setNoticeFile] = useState(null);
+    const [followMode, setFollowMode] = useState('required');
+    const [supportingNote, setSupportingNote] = useState('');
+    const [supportFile, setSupportFile] = useState(null);
+    const [canComplete, setCanComplete] = useState(false);
     const [fileKey, setFileKey] = useState(0);
     const [formError, setFormError] = useState('');
     const [quoteOpen, setQuoteOpen] = useState(false);
@@ -142,7 +146,13 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         setError('');
         try {
             const response = await axiosInstance.get(`/WorkOrder/${id}`);
-            setOrder(response.data?.workOrder || null);
+            const next = response.data?.workOrder || null;
+            setOrder(next);
+            setCanComplete(Boolean(next?.viewerCanCompleteLpo));
+            if (next?.lpoFollowUp) {
+                setFollowMode(next.lpoMode || 'required');
+                setSupportingNote(next.supportingNote || '');
+            }
         } catch (err) {
             setError(err?.response?.data?.message || 'Could not load this work order');
         } finally {
@@ -274,7 +284,11 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         setFormError('');
         try {
             const response = await axiosInstance.patch(`/WorkOrder/${id}`, body);
-            setOrder(response.data?.workOrder || null);
+            const next = response.data?.workOrder || null;
+            setOrder(next);
+            if (next && Object.prototype.hasOwnProperty.call(next, 'viewerCanCompleteLpo')) {
+                setCanComplete(Boolean(next.viewerCanCompleteLpo));
+            }
             return response.data;
         } catch (err) {
             const message = err?.response?.data?.message || 'Could not update the work order';
@@ -361,6 +375,65 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         }
     };
 
+    const completeFollowUp = async () => {
+        const body = { completeLpoFollowUp: true, lpoMode: followMode };
+        if (followMode === 'not_required') {
+            if (!supportingNote.trim()) {
+                setFormError('Note is required.');
+                return;
+            }
+            if (!supportFile && !order?.supportingDocument?.name) {
+                setFormError('Supporting document is required.');
+                return;
+            }
+            body.supportingNote = supportingNote.trim();
+            if (supportFile) {
+                try {
+                    body.attachment = await readFile(supportFile);
+                } catch (err) {
+                    setFormError(err.message);
+                    return;
+                }
+            }
+        } else if (followMode === 'received') {
+            const amount = Number(lpoValue);
+            const quoteTotal = Number(order?.value) || 0;
+            if (!lpoNo.trim() || !lpoDate || !(amount > 0) || !lpoFile) {
+                setFormError('LPO number, date, value and attachment are required.');
+                return;
+            }
+            if (lpoDate > dubaiDateKey()) {
+                setFormError('LPO date cannot be after today.');
+                return;
+            }
+            if (quoteTotal > 0 && Math.abs(amount - quoteTotal) > 0.009) {
+                setFormError('LPO value must match the quotation total.');
+                return;
+            }
+            try {
+                body.lpo = {
+                    lpoNo: lpoNo.trim(),
+                    lpoDate,
+                    lpoValue: amount,
+                    attachment: await readFile(lpoFile),
+                };
+            } catch (err) {
+                setFormError(err.message);
+                return;
+            }
+        }
+        const saved = await patch(body);
+        if (!saved) return;
+        setSupportFile(null);
+        setLpoFile(null);
+        setFileKey((key) => key + 1);
+        const nextStatus = saved.workOrder?.status || '';
+        toast({
+            title: followMode === 'not_required' ? 'Work order completed' : 'Work order created',
+            description: nextStatus || order?.workOrderNo || '',
+        });
+    };
+
     const sendNotRequired = async () => {
         if (!noticeFile) {
             setFormError('Attachment is required when LPO is not required.');
@@ -403,7 +476,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         );
     }
 
-    const mode = order.lpoMode || 'required';
+    const mode = order.lpoFollowUp ? followMode : (order.lpoMode || 'required');
     const rows = lpoRows(order);
     const invoiced = Number(order.invoicedAmount) || 0;
     const total = Number(order.value) || 0;
@@ -455,7 +528,13 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
 
             {order.lpoAlert?.message ? (
                 <div className="mb-4 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950">
-                    <p className="font-semibold">LPO was not filled</p>
+                    <p className="font-semibold">
+                        {order.lpoAlert.kind === 'salesperson'
+                            ? 'LPO Pending'
+                            : order.lpoAlert.kind === 'coordinator'
+                                ? 'Waiting for the project coordinator'
+                                : 'LPO was not filled'}
+                    </p>
                     <p className="mt-1">{order.lpoAlert.message}</p>
                     <p className="mt-1 text-[12px] text-orange-800">
                         {order.lpoAlert.emailed
@@ -557,8 +636,14 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                             type="button"
                                             role="radio"
                                             aria-checked={active}
-                                            disabled={saving}
-                                            onClick={() => changeMode(item.id)}
+                                            disabled={saving || (Boolean(order.lpoFollowUp) && !canComplete)}
+                                            onClick={() => {
+                                                if (order.lpoFollowUp) {
+                                                    if (canComplete) setFollowMode(item.id);
+                                                    return;
+                                                }
+                                                changeMode(item.id);
+                                            }}
                                             className={active
                                                 ? `h-11 rounded-lg bg-[#2f6fed] text-sm font-semibold text-white shadow-sm ${FOCUS}`
                                                 : `h-11 rounded-lg text-sm font-medium text-slate-600 hover:bg-white disabled:opacity-60 ${FOCUS}`}
@@ -569,13 +654,19 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                 })}
                             </div>
                             <p className="mt-3 text-[13px] leading-5 text-slate-500">
-                                {mode === 'required'
-                                    ? 'LPO upload is locked. There is no need to add an LPO while Required is selected.'
-                                    : mode === 'not_required'
-                                        ? (order.attachmentPending
-                                            ? 'This work order is already created. The attachment is required. Update saves it on this work order.'
-                                            : 'Attachment is required. Send emails the salesperson and notifies them that the LPO number, date and value were left empty.')
-                                        : 'Enter the LPO number, date, value and attachment. LPO value comes from the quotation total.'}
+                                {order.lpoFollowUp
+                                    ? (mode === 'required'
+                                        ? 'No fields. Click Create and the status becomes Created.'
+                                        : mode === 'not_required'
+                                            ? 'Supporting document and note are required. Click Create and the status becomes Completed.'
+                                            : 'Enter the LPO number, date, value and attachment, then click Create.')
+                                    : (mode === 'required'
+                                        ? 'LPO upload is locked. There is no need to add an LPO while Required is selected.'
+                                        : mode === 'not_required'
+                                            ? (order.attachmentPending
+                                                ? 'This work order is already created. The attachment is required. Update saves it on this work order.'
+                                                : 'Attachment is required. Send emails the salesperson and notifies them that the LPO number, date and value were left empty.')
+                                            : 'Enter the LPO number, date, value and attachment. LPO value comes from the quotation total.')}
                             </p>
 
                             {formError ? (
@@ -621,7 +712,90 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                 </div>
                             ) : null}
 
-                            {mode === 'not_required' && order.attachmentPending ? (
+                            {order.lpoFollowUp ? (
+                                canComplete ? (
+                                    <div className="mt-4 rounded-xl border border-[#e6eef6] bg-[#f8fbff] p-4">
+                                        {mode === 'not_required' ? (
+                                            <div className="grid grid-cols-1 gap-3">
+                                                <label htmlFor="lpo-support-file" className="block">
+                                                    <FieldLabel required>Supporting document</FieldLabel>
+                                                    <input
+                                                        id="lpo-support-file"
+                                                        key={`support-${fileKey}`}
+                                                        type="file"
+                                                        accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                                                        onChange={(event) => setSupportFile(event.target.files?.[0] || null)}
+                                                        className={`block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700 ${FOCUS}`}
+                                                    />
+                                                </label>
+                                                {order.supportingDocument?.name ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={!order.supportingDocument.data}
+                                                        onClick={() => downloadAttachment(order.supportingDocument.name, order.supportingDocument.mime, order.supportingDocument.data)}
+                                                        className={`inline-flex w-fit items-center gap-1 text-[13px] font-semibold text-[#2f6fed] hover:underline disabled:cursor-default disabled:no-underline ${FOCUS}`}
+                                                    >
+                                                        <Paperclip size={14} />
+                                                        {order.supportingDocument.name}
+                                                    </button>
+                                                ) : null}
+                                                <label htmlFor="lpo-support-note" className="block">
+                                                    <FieldLabel required>Note (description)</FieldLabel>
+                                                    <textarea
+                                                        id="lpo-support-note"
+                                                        value={supportingNote}
+                                                        onChange={(event) => setSupportingNote(event.target.value)}
+                                                        rows={3}
+                                                        className={`w-full resize-y rounded-xl border border-[#e5edf6] bg-white px-3 py-2 text-sm outline-none ${FOCUS}`}
+                                                    />
+                                                </label>
+                                            </div>
+                                        ) : mode === 'received' ? (
+                                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                                <label htmlFor="lpo-no">
+                                                    <FieldLabel required>LPO Number</FieldLabel>
+                                                    <input id="lpo-no" value={lpoNo} onChange={(event) => setLpoNo(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
+                                                </label>
+                                                <label htmlFor="lpo-date">
+                                                    <FieldLabel required>LPO Date</FieldLabel>
+                                                    <input id="lpo-date" type="date" max={dubaiDateKey()} value={lpoDate} onChange={(event) => setLpoDate(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
+                                                </label>
+                                                <label htmlFor="lpo-value">
+                                                    <FieldLabel required>LPO Value</FieldLabel>
+                                                    <input id="lpo-value" type="number" min="0" step="0.01" value={lpoValue} onChange={(event) => setLpoValue(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
+                                                </label>
+                                                <label htmlFor="lpo-file">
+                                                    <FieldLabel required>Attachment</FieldLabel>
+                                                    <input
+                                                        id="lpo-file"
+                                                        key={`lpo-${fileKey}`}
+                                                        type="file"
+                                                        accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                                                        onChange={(event) => setLpoFile(event.target.files?.[0] || null)}
+                                                        className={`block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-[#f4f7fb] file:px-3 file:py-2 file:text-sm file:font-semibold ${FOCUS}`}
+                                                    />
+                                                </label>
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm text-slate-500">No fields. Click Create to set the status to Created.</p>
+                                        )}
+                                        <button
+                                            type="button"
+                                            disabled={saving}
+                                            onClick={completeFollowUp}
+                                            className={`mt-4 inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] disabled:opacity-60 ${FOCUS}`}
+                                        >
+                                            {saving ? 'Saving…' : 'Create'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <p className="mt-3 text-sm text-slate-500">
+                                        {order.lpoFollowUp === 'coordinator'
+                                            ? 'Waiting for the project coordinator to click Create.'
+                                            : `Waiting for ${order.salespersonName || 'the salesperson'} to add the supporting document and note.`}
+                                    </p>
+                                )
+                            ) : mode === 'not_required' && order.attachmentPending ? (
                                 <div className="mt-4 rounded-xl border border-[#e6eef6] bg-[#f8fbff] p-4">
                                     <dl className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                                         <InfoItem label="Work Order Number" value={order.workOrderNo} />
