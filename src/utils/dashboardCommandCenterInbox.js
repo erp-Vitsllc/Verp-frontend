@@ -155,7 +155,7 @@ export function resolveDashboardModuleCategory(item = {}) {
     if (ASSET_MODULE_TYPES.has(type)) return 'Tools Asset';
     if (COMPANY_MODULE_TYPES.has(type) || type === 'Document Expiry Reminder') return 'Company';
     if (EMPLOYEE_MODULE_TYPES.has(type)) return 'Employees';
-    if (type === 'Work Order LPO' || type === 'Work Order LPO Attachment') return 'Other';
+    if (type === 'Work Order LPO' || type === 'Work Order LPO Attachment' || type === 'Work Order LPO Approval') return 'Other';
 
     if (low.includes('fine')) return 'Fine';
     if (low.includes('utility bill')) return 'Utility Bills';

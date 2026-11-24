@@ -1,8 +1,8 @@
 import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
 
 /**
- * True once Zoho garage/oil bill create succeeded (Billed).
- * Until then HR may edit Initiate Service (shop + oil).
+ * True once Initiate Service is closed: Zoho bill accepted, or the workflow
+ * is complete / rejected. Until then any signed-in user may edit it.
  */
 export function isVehicleServiceZohoBillAccepted(service, asset = null) {
     const remark = parseVehicleServiceRemark(service) || {};
@@ -16,7 +16,7 @@ export function isVehicleServiceZohoBillAccepted(service, asset = null) {
         .toLowerCase()
         .trim();
 
-    if (stage === 'billed') return true;
+    if (['billed', 'complete', 'rejected'].includes(stage)) return true;
     if (String(remark.billingStatus || '').toLowerCase() === 'billed') return true;
     if (String(remark.zohoBillId || '').trim()) return true;
 
@@ -33,23 +33,17 @@ export function isVehicleServiceZohoBillAccepted(service, asset = null) {
 
 /**
  * Who may edit Initiate Service fields:
- * - Draft / pending: existing create/initiate actors
- * - After Send, until Zoho billed: flowchart HR only
+ * any signed-in user, until the Zoho bill is accepted (or the service is complete / rejected).
  */
 export function canEditVehicleServiceInitiate({
-    assignmentPending = false,
     canCreateOrInitiate = false,
-    isFlowchartHr = false,
     service = null,
     asset = null,
 } = {}) {
-    if (assignmentPending) {
-        return Boolean(canCreateOrInitiate);
-    }
     if (isVehicleServiceZohoBillAccepted(service, asset)) {
         return false;
     }
-    return Boolean(isFlowchartHr);
+    return Boolean(canCreateOrInitiate);
 }
 
 /**

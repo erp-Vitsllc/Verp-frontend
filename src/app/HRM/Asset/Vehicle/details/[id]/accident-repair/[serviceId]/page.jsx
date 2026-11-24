@@ -262,11 +262,9 @@ function VehicleAccidentRepairDetailPageContent() {
         return asset.canRespondToServiceWorkflow === true || inheritedService.canAct;
     }, [asset, accidentRepairflowStage, inheritedService.canAct]);
 
-    /** Draft: create/initiate actors. After Send until Zoho billed: flowchart HR only. */
+    /** Until the Zoho bill is accepted, any signed-in user may edit Initiate Service. */
     const canEditAssignment = canEditVehicleServiceInitiate({
-        assignmentPending,
         canCreateOrInitiate: Boolean(canCreateOrInitiate || canManageAccidentRepair),
-        isFlowchartHr: canActAsHr,
         service,
         asset,
     });

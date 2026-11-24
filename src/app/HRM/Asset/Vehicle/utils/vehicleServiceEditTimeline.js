@@ -111,10 +111,11 @@ export function dedupeScheduleEditActivities(activities = []) {
 export function buildServiceEditTimelineEvents(activities = [], { idPrefix = 'svc-edit', slot = 'mid' } = {}) {
     const cleaned = dedupeScheduleEditActivities(activities);
     return cleaned.map((a, index) => {
-        const isHr = HR_EDIT_TYPES.has(a.type);
-        const role = isHr ? 'HR' : 'Admin';
-        const name = actorFirstName(a.byName) || role;
-        let detail = a.note || (isHr ? 'Initiate Service updated' : 'Schedule updated');
+        const isInitiateEdit = HR_EDIT_TYPES.has(a.type);
+        const labeledHr = isInitiateEdit && /done by hr/i.test(String(a.note || ''));
+        const role = isInitiateEdit ? (labeledHr ? 'HR' : '') : 'Admin';
+        const name = actorFirstName(a.byName) || role || 'User';
+        let detail = a.note || (isInitiateEdit ? 'Initiate Service updated' : 'Schedule updated');
         if (a.type === 'date_change' && (a.from || a.to)) {
             const fieldLabel = a.field === 'end' ? 'End date' : 'Start date';
             detail = `${fieldLabel}: ${formatEditDate(a.from)} → ${formatEditDate(a.to)}`;
@@ -123,7 +124,7 @@ export function buildServiceEditTimelineEvents(activities = [], { idPrefix = 'sv
             id: `${idPrefix}-${slot}-${index}-${a.at || index}`,
             kind: 'schedule-edit',
             stepNumber: null,
-            label: `Done by ${role}: ${name}`,
+            label: role ? `Done by ${role}: ${name}` : `Done by: ${name}`,
             badge: 'Done',
             badgeVariant: 'approved',
             actor: '',

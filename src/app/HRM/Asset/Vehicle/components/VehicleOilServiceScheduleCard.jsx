@@ -109,8 +109,7 @@ export default function VehicleOilServiceScheduleCard({
         if (!canSubmitSchedule || !vehicleId || !serviceId) return;
         setSaving(true);
         try {
-            // Admin Schedule uses /oil-dates (same as shop garage APIs) — not the Initiate PUT
-            // which is HR-only after Send until Zoho billed.
+            // Admin Schedule uses /oil-dates (same as shop garage APIs), separate from the Initiate save.
             await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}/oil-dates`, {
                 serviceStartDate: formData.serviceStartDate || '',
                 serviceEndDate: formData.serviceEndDate || '',

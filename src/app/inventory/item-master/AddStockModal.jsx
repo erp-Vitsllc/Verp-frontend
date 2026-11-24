@@ -65,6 +65,51 @@ function itemStillVisible(item, nextCategory, nextSub) {
     return true;
 }
 
+function preferredStockItem(rows) {
+    return rows.find((row) => !row.pendingStock) || rows[0] || null;
+}
+
+function uniqueItemsByName(rows) {
+    const groups = new Map();
+    rows.forEach((item) => {
+        const key = cleanText(itemLabel(item)).toLowerCase();
+        if (!key) return;
+        const group = groups.get(key);
+        if (group) group.push(item);
+        else groups.set(key, [item]);
+    });
+    return [...groups.values()].map((group) => preferredStockItem(group)).filter(Boolean);
+}
+
+function stockItemForName(rows, name, { categoryId = '', subcategoryId = '', brandId = '', modelNumber = '' } = {}) {
+    let matches = rows.filter((item) => namesEqual(itemLabel(item), name));
+    if (!matches.length) return null;
+    if (categoryId) {
+        matches = matches.filter((item) => sameId(item.categoryId, categoryId));
+        if (!matches.length) return null;
+    }
+    if (subcategoryId) {
+        matches = matches.filter((item) => sameId(item.subcategoryId, subcategoryId));
+        if (!matches.length) return null;
+    }
+    if (brandId) {
+        const next = matches.filter((item) => sameId(item.brandId, brandId));
+        if (!next.length) return null;
+        matches = next;
+    }
+    const model = cleanText(modelNumber);
+    if (model) {
+        const exact = matches.filter((item) => namesEqual(item.modelNumber, model));
+        if (exact.length) matches = exact;
+        else {
+            const open = matches.filter((item) => !cleanText(item.modelNumber));
+            if (!open.length) return null;
+            matches = open;
+        }
+    }
+    return preferredStockItem(matches);
+}
+
 function lineAlreadyAdded(lines, candidate) {
     const model = cleanText(candidate?.modelNumber);
     const itemId = cleanText(candidate?.itemId);
@@ -114,15 +159,19 @@ function readBillFile(file) {
     });
 }
 
-function TypeSuggest({ label, text, options, placeholder, onText, onPick, onCommit, showAll = false, required = false }) {
+function TypeSuggest({ label, text, options, placeholder, onText, onPick, onCommit, required = false }) {
     const rootRef = useRef(null);
     const menuRef = useRef(null);
     const [open, setOpen] = useState(false);
     const [menuStyle, setMenuStyle] = useState(null);
     const [active, setActive] = useState(0);
     const needle = cleanText(text).toLowerCase();
-    const shown = !showAll && needle
-        ? options.filter((option) => cleanText(option.label).toLowerCase().includes(needle))
+    const shown = needle
+        ? options.filter((option) => {
+            const labelText = cleanText(option.label).toLowerCase();
+            const extra = cleanText(option.searchText).toLowerCase();
+            return labelText.includes(needle) || (extra && extra.includes(needle));
+        })
         : options;
 
     useEffect(() => {
@@ -378,7 +427,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
     );
 
     const itemOptions = useMemo(
-        () => scopedItems.map((item) => ({
+        () => uniqueItemsByName(scopedItems).map((item) => ({
             value: String(item._id),
             label: itemLabel(item),
             searchText: item.itemName || item.description || itemLabel(item),
@@ -539,8 +588,13 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
         setItemText(name);
         const selected = items.find((row) => sameId(row._id, itemId));
         if (selected && namesEqual(itemLabel(selected), name)) return;
-        const matches = scopedItems.filter((item) => namesEqual(itemLabel(item), name));
-        if (matches.length === 1) chooseItem(String(matches[0]._id));
+        const picked = stockItemForName(scopedItems, name, {
+            categoryId,
+            subcategoryId,
+            brandId,
+            modelNumber,
+        });
+        if (picked) chooseItem(String(picked._id));
         else setItemId('');
     };
 
@@ -623,16 +677,25 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
         let useSubcategory = subMatch ? String(subMatch._id) : '';
         if (!useCategory && subMatch?.categoryId) useCategory = String(subMatch.categoryId);
         let typedModel = cleanText(modelNumber);
-        if (!selected && typedName) {
-            const matches = scopedItems.filter((item) => namesEqual(itemLabel(item), typedName));
-            if (matches.length > 1) {
-                setError('More than one item has this name. Select it from the list.');
-                return;
-            }
-            if (matches.length === 1) {
-                selected = matches[0];
-                if (!useCategory) useCategory = String(selected.categoryId || '');
-                if (!useSubcategory) useSubcategory = String(selected.subcategoryId || '');
+        if (typedName) {
+            const picked = stockItemForName(scopedItems, typedName, {
+                categoryId: useCategory,
+                subcategoryId: useSubcategory,
+                brandId: useBrand,
+                modelNumber: typedModel,
+            });
+            if (picked) {
+                selected = picked;
+                if (!useCategory) useCategory = String(picked.categoryId || '');
+                if (!useSubcategory) useSubcategory = String(picked.subcategoryId || '');
+            } else if (
+                !selected
+                || (useCategory && !sameId(selected.categoryId, useCategory))
+                || (useSubcategory && !sameId(selected.subcategoryId, useSubcategory))
+                || (useBrand && !sameId(selected.brandId, useBrand))
+                || (typedModel && cleanText(selected.modelNumber) && !namesEqual(selected.modelNumber, typedModel))
+            ) {
+                selected = null;
             }
         }
         let itemName = cleanText(selected ? (selected.itemName || selected.description) : typedName);
@@ -658,7 +721,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
             && sameId(selected.brandId, useBrand)
             && namesEqual(itemLabel(selected), itemName)
             && (!typedModel || !cleanText(selected.modelNumber) || namesEqual(selected.modelNumber, typedModel));
-        const model = typedModel || (sameTarget ? cleanText(selected.modelNumber) : '') || itemName;
+        const model = typedModel || (sameTarget ? cleanText(selected.modelNumber) : '');
         const sub = subcategories.find((row) => sameId(row._id, useSubcategory));
         if (!useCategory || !useSubcategory || !useBrand) {
             setError('Category, sub category, and brand are required.');
@@ -1091,7 +1154,6 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                                     onText={typeBrand}
                                                     onPick={chooseBrand}
                                                     onCommit={commitBrand}
-                                                    showAll
                                                 />
                                                 <TypeSuggest
                                                     label="Model No"

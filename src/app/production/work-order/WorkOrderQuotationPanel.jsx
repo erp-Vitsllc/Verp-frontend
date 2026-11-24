@@ -1,10 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import { FileText, Paperclip } from 'lucide-react';
-import { formatAed } from './workOrderNumber';
 
 const FOCUS = 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f6fed]/40';
 const COLUMNS = ['#', 'Description', 'Qty', 'Rate', 'Amount'];
+const BOQ_TABS = [
+    { id: 'proposed', label: 'Proposed BOQ' },
+    { id: 'actual', label: 'Actual BOQ' },
+    { id: 'mr', label: 'MR' },
+];
 
 function money(value) {
     const amount = Number(value);
@@ -30,56 +35,77 @@ function savedQuote(order) {
         salespersonName: order?.salespersonName || '',
         billTo: order?.customer ? [order.customer] : [],
         lines: [],
-        taxLabel: 'TAX',
         status: '',
         notes: '',
         terms: '',
         valueExclVat: order?.valueExclVat,
-        vatAmount: order?.vatAmount,
-        total: order?.value,
     };
 }
 
-export default function WorkOrderQuotationPanel({ order, onOpen }) {
-    if (!order?.quotationRef) {
-        return (
-            <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
-                <h2 className="flex items-center gap-2 text-[15px] font-semibold text-slate-800">
-                    <FileText size={16} className="text-[#2f6fed]" /> Quotation
-                </h2>
-                <p className="mt-3 text-sm text-slate-500">No quotation is saved on this work order.</p>
-            </section>
-        );
-    }
+function BoqTabs({ active, onChange }) {
+    return (
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="BOQ">
+            {BOQ_TABS.map((item) => {
+                const selected = active === item.id;
+                return (
+                    <button
+                        key={item.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected}
+                        onClick={() => onChange(item.id)}
+                        className={selected
+                            ? `inline-flex h-10 items-center gap-2 rounded-xl border border-[#2f6fed] bg-[#e8f1ff] px-4 text-[15px] font-semibold text-[#2f6fed] ${FOCUS}`
+                            : `inline-flex h-10 items-center gap-2 rounded-xl border border-[#e5edf6] bg-white px-4 text-[15px] font-semibold text-slate-700 hover:bg-[#f4f7fb] ${FOCUS}`}
+                    >
+                        {item.id === 'proposed' ? <FileText size={16} /> : null}
+                        {item.label}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
 
+export default function WorkOrderQuotationPanel({ order, onOpen }) {
+    const [boqTab, setBoqTab] = useState('proposed');
     const quote = savedQuote(order);
     const lines = Array.isArray(quote.lines) ? quote.lines : [];
     const subTotal = Number(quote.valueExclVat) || 0;
-    const vatAmount = Number(quote.vatAmount) || 0;
-    const total = Number(quote.total) || 0;
-    const taxLabel = quote.taxLabel || 'TAX';
     const status = statusLabel(quote.status);
+    const hasQuote = Boolean(order?.quotationRef);
 
     return (
         <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h2 className="flex items-center gap-2 text-[15px] font-semibold text-slate-800">
-                    <FileText size={16} className="text-[#2f6fed]" /> Quotation
-                </h2>
-                <div className="flex items-center gap-2">
-                    {status ? (
-                        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">{status}</span>
-                    ) : null}
-                    <button
-                        type="button"
-                        onClick={onOpen}
-                        className={`inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#e5edf6] bg-white px-3 text-[13px] font-semibold text-[#2f6fed] hover:bg-[#f4f7fb] ${FOCUS}`}
-                    >
-                        <Paperclip size={14} />
-                        PDF
-                    </button>
-                </div>
+                <BoqTabs active={boqTab} onChange={setBoqTab} />
+                {boqTab === 'proposed' && hasQuote ? (
+                    <div className="flex items-center gap-2">
+                        {status ? (
+                            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">{status}</span>
+                        ) : null}
+                        <button
+                            type="button"
+                            onClick={onOpen}
+                            className={`inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#e5edf6] bg-white px-3 text-[13px] font-semibold text-[#2f6fed] hover:bg-[#f4f7fb] ${FOCUS}`}
+                        >
+                            <Paperclip size={14} />
+                            PDF
+                        </button>
+                    </div>
+                ) : null}
             </div>
+            {boqTab === 'actual' ? (
+                <p className="text-sm text-slate-500">No actual BOQ lines yet.</p>
+            ) : null}
+            {boqTab === 'mr' ? (
+                <p className="text-sm text-slate-500">No material requests yet.</p>
+            ) : null}
+            {boqTab === 'proposed' && !hasQuote ? (
+                <p className="text-sm text-slate-500">No quotation is saved on this work order.</p>
+            ) : null}
+            {boqTab === 'proposed' && hasQuote ? (
+            <>
             <div className="overflow-x-auto">
                 <table className="w-full min-w-[720px] border-collapse text-left text-[13px]">
                     <thead>
@@ -117,20 +143,14 @@ export default function WorkOrderQuotationPanel({ order, onOpen }) {
                     </tbody>
                 </table>
             </div>
-            <dl className="ml-auto mt-4 w-full max-w-xs space-y-2 text-sm">
+            <dl className="ml-auto mt-4 w-full max-w-xs text-sm">
                 <div className="flex items-center justify-between gap-4">
                     <dt className="text-slate-500">Sub Total</dt>
                     <dd className="font-medium tabular-nums text-slate-800">{money(subTotal)}</dd>
                 </div>
-                <div className="flex items-center justify-between gap-4">
-                    <dt className="text-slate-500">{taxLabel}</dt>
-                    <dd className="font-medium tabular-nums text-slate-800">{money(vatAmount)}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-4 border-t border-slate-100 pt-2">
-                    <dt className="font-semibold text-slate-800">Total</dt>
-                    <dd className="font-bold tabular-nums text-slate-900">{formatAed(total)}</dd>
-                </div>
             </dl>
+            </>
+            ) : null}
         </section>
     );
 }

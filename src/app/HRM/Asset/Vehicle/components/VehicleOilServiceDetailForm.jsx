@@ -366,7 +366,7 @@ export default function VehicleOilServiceDetailForm({
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
     const initiateDone = Boolean(String(remark.oilServiceInitiatedAt || '').trim()) || !assignmentPending;
-    // Page gates HR-after-submit; Initiate stays editable until Zoho bill is accepted.
+    // Any signed-in user may edit Initiate until the Zoho bill is accepted.
     // initiateDone still gates Send / submit only.
     const canEditInitiateFields = Boolean(canEditAssignment);
     const fieldsDisabled = !canEditInitiateFields || saving;
@@ -676,7 +676,7 @@ export default function VehicleOilServiceDetailForm({
                     !initiateDone && assignmentPending
                         ? 'Complete the required fields, then click Send to submit'
                         : canEditInitiateFields
-                          ? 'HR can edit payment and initiate details until Zoho bill is accepted'
+                          ? 'Payment and initiate details can be edited until the Zoho bill is accepted'
                           : 'Submitted — view only after Zoho bill is accepted.'
                 }
                 icon={ClipboardList}

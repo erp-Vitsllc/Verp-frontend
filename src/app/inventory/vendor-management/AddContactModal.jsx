@@ -75,12 +75,56 @@ function optionName(options, id) {
     return options.find((option) => option._id === id)?.name || '';
 }
 
+function ManyValues({ label, childLabel, placeholder, values, options, disabled, onChange, onAdd, onRemove }) {
+    return (
+        <div className="min-w-0">
+            <span className={labelClass}>{label}</span>
+            <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+                {values.map((childId, childIndex) => (
+                    <div key={`${childLabel}-${childIndex}`} className="flex w-32 shrink-0 items-center gap-0.5">
+                        {values.length > 1 ? (
+                            <button
+                                type="button"
+                                onClick={() => onRemove(childIndex)}
+                                className="inline-flex h-10 w-6 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                aria-label={`Remove ${childLabel.toLowerCase()}`}
+                            >
+                                <X size={14} />
+                            </button>
+                        ) : null}
+                        <div className="min-w-0 flex-1">
+                            <SearchSelect
+                                label={childLabel}
+                                showLabel={false}
+                                value={childId}
+                                options={childOptions(options, values, childId)}
+                                placeholder={placeholder}
+                                disabled={disabled}
+                                onChange={(id) => onChange(childIndex, id)}
+                            />
+                        </div>
+                    </div>
+                ))}
+                <button
+                    type="button"
+                    onClick={onAdd}
+                    className="inline-flex h-10 shrink-0 items-center gap-1 rounded-lg border border-[#E2E8F0] px-2.5 text-sm font-medium text-slate-700"
+                    aria-label={`Add ${childLabel.toLowerCase()}`}
+                >
+                    <Plus size={14} />
+                    Add
+                </button>
+            </div>
+        </div>
+    );
+}
+
 function childOptions(options, childIds, currentId) {
     const taken = new Set(childIds.filter((id) => id && id !== currentId));
     return options.filter((option) => option._id === currentId || !taken.has(option._id));
 }
 
-function SearchSelect({ label, value, options, placeholder, disabled, onChange }) {
+function SearchSelect({ label, value, options, placeholder, disabled, onChange, showLabel = true }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [menu, setMenu] = useState(null);
@@ -122,10 +166,12 @@ function SearchSelect({ label, value, options, placeholder, disabled, onChange }
         }
         const rect = event.currentTarget.getBoundingClientRect();
         const openUp = window.innerHeight - rect.bottom < 280 && rect.top > 280;
+        const width = Math.max(rect.width, 220);
+        const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8));
         setMenu({
             top: openUp ? rect.top - 4 : rect.bottom + 4,
-            left: rect.left,
-            width: rect.width,
+            left,
+            width,
             openUp,
         });
         setOpen(true);
@@ -133,10 +179,11 @@ function SearchSelect({ label, value, options, placeholder, disabled, onChange }
 
     return (
         <div ref={rootRef} className="relative">
-            <span className={labelClass}>{label}</span>
+            {showLabel ? <span className={labelClass}>{label}</span> : null}
             <button
                 type="button"
                 disabled={disabled}
+                aria-label={label}
                 aria-haspopup="listbox"
                 aria-expanded={open}
                 onClick={toggle}
@@ -376,107 +423,83 @@ export default function AddContactModal({ vendorId, contact, onClose, onSaved })
 
                     <div className="mt-4">
                         <p className="text-sm font-medium text-slate-700">Product handling</p>
-                        <p className="mt-1 text-xs text-slate-500">Pick a brand to add categories under it, or a category to add brands under it.</p>
+                        <p className="mt-1 text-xs text-slate-500">Choose a brand first and add categories beside it, or a category first and add brands beside it.</p>
                         <div className="mt-3 space-y-3">
                             {groups.map((group, index) => {
-                                const parentOptions = group.mode === 'category' ? categories : brands;
-                                const childList = group.mode === 'brand' ? categories : brands;
-                                const parentLabel = optionName(parentOptions, group.parentId);
-                                const childLabel = group.mode === 'brand' ? 'Category' : 'Brand';
+                                const brandName = optionName(brands, group.mode === 'brand' ? group.parentId : '');
+                                const categoryName = optionName(categories, group.mode === 'category' ? group.parentId : '');
                                 return (
                                     <div key={index} className="rounded-xl border border-[#E6EDF5] p-3">
-                                        {!group.mode ? (
-                                            <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-                                                <SearchSelect
-                                                    label="Brand"
-                                                    value=""
-                                                    options={brands}
-                                                    placeholder="Select a brand"
-                                                    disabled={loading}
-                                                    onChange={(brandId) => chooseFirst(index, 'brand', brandId)}
-                                                />
-                                                <SearchSelect
-                                                    label="Category"
-                                                    value=""
-                                                    options={categories}
-                                                    placeholder="Select a category"
-                                                    disabled={loading}
-                                                    onChange={(categoryId) => chooseFirst(index, 'category', categoryId)}
-                                                />
-                                                {groups.length > 1 ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setGroups((current) => current.filter((_, groupIndex) => groupIndex !== index))}
-                                                        className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                                                        aria-label="Remove product handling"
-                                                    >
-                                                        <X size={14} />
-                                                    </button>
-                                                ) : <span className="hidden sm:block" />}
+                                        {groups.length > 1 ? (
+                                            <div className="mb-2 flex justify-end">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setGroups((current) => current.filter((_, groupIndex) => groupIndex !== index))}
+                                                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                                    aria-label="Remove product handling"
+                                                >
+                                                    <X size={14} />
+                                                </button>
                                             </div>
-                                        ) : (
-                                            <>
-                                                <div className="flex items-end gap-2">
-                                                    <div className="min-w-0 flex-1">
-                                                        <SearchSelect
-                                                            label={group.mode === 'brand' ? 'Brand' : 'Category'}
-                                                            value={group.parentId}
-                                                            options={parentOptions}
-                                                            placeholder={group.mode === 'brand' ? 'Select a brand' : 'Select a category'}
-                                                            disabled={loading}
-                                                            onChange={(id) => setParent(index, id)}
-                                                        />
-                                                    </div>
-                                                    {groups.length > 1 ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setGroups((current) => current.filter((_, groupIndex) => groupIndex !== index))}
-                                                            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                                                            aria-label="Remove product handling"
-                                                        >
-                                                            <X size={14} />
-                                                        </button>
-                                                    ) : null}
-                                                </div>
-                                                <div className="mt-3 space-y-2 border-t border-[#E6EDF5] pt-3">
-                                                    <p className="text-sm font-medium text-slate-700">
-                                                        {parentLabel || (group.mode === 'brand' ? 'Brand' : 'Category')} {group.mode === 'brand' ? 'categories' : 'brands'}
-                                                    </p>
-                                                    {group.childIds.map((childId, childIndex) => (
-                                                        <div key={`${group.mode}-${childIndex}`} className="flex items-end gap-2">
-                                                            <div className="min-w-0 flex-1">
-                                                                <SearchSelect
-                                                                    label={childLabel}
-                                                                    value={childId}
-                                                                    options={childOptions(childList, group.childIds, childId)}
-                                                                    placeholder={group.mode === 'brand' ? 'Select a category' : 'Select a brand'}
-                                                                    disabled={loading}
-                                                                    onChange={(id) => setChild(index, childIndex, id)}
-                                                                />
-                                                            </div>
-                                                            {group.childIds.length > 1 ? (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => removeChild(index, childIndex)}
-                                                                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                                                                    aria-label={`Remove ${childLabel.toLowerCase()}`}
-                                                                >
-                                                                    <X size={14} />
-                                                                </button>
-                                                            ) : null}
-                                                        </div>
-                                                    ))}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => addChild(index)}
-                                                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 text-sm font-medium text-slate-700"
-                                                    >
-                                                        <Plus size={14} />
-                                                        {group.mode === 'brand' ? 'Add category' : 'Add brand'}
-                                                    </button>
-                                                </div>
-                                            </>
-                                        )}
+                                        ) : null}
+                                        <div className="grid items-start gap-3 sm:grid-cols-2">
+                                            <div className="min-w-0">
+                                                {group.mode === 'category' ? (
+                                                    <ManyValues
+                                                        label={categoryName ? `${categoryName} brands` : 'Brands'}
+                                                        childLabel="Brand"
+                                                        placeholder="Select"
+                                                        values={group.childIds}
+                                                        options={brands}
+                                                        disabled={loading}
+                                                        onChange={(childIndex, id) => setChild(index, childIndex, id)}
+                                                        onAdd={() => addChild(index)}
+                                                        onRemove={(childIndex) => removeChild(index, childIndex)}
+                                                    />
+                                                ) : (
+                                                    <SearchSelect
+                                                        label="Brand"
+                                                        value={group.mode === 'brand' ? group.parentId : ''}
+                                                        options={brands}
+                                                        placeholder="Select a brand"
+                                                        disabled={loading}
+                                                        onChange={(brandId) => (
+                                                            group.mode === 'brand'
+                                                                ? setParent(index, brandId)
+                                                                : chooseFirst(index, 'brand', brandId)
+                                                        )}
+                                                    />
+                                                )}
+                                            </div>
+                                            <div className="min-w-0">
+                                                {group.mode === 'brand' ? (
+                                                    <ManyValues
+                                                        label={brandName ? `${brandName} categories` : 'Categories'}
+                                                        childLabel="Category"
+                                                        placeholder="Select"
+                                                        values={group.childIds}
+                                                        options={categories}
+                                                        disabled={loading}
+                                                        onChange={(childIndex, id) => setChild(index, childIndex, id)}
+                                                        onAdd={() => addChild(index)}
+                                                        onRemove={(childIndex) => removeChild(index, childIndex)}
+                                                    />
+                                                ) : (
+                                                    <SearchSelect
+                                                        label="Category"
+                                                        value={group.mode === 'category' ? group.parentId : ''}
+                                                        options={categories}
+                                                        placeholder="Select a category"
+                                                        disabled={loading}
+                                                        onChange={(categoryId) => (
+                                                            group.mode === 'category'
+                                                                ? setParent(index, categoryId)
+                                                                : chooseFirst(index, 'category', categoryId)
+                                                        )}
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
                                 );
                             })}

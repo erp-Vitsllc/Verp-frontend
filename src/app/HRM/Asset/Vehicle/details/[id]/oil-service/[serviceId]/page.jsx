@@ -253,11 +253,9 @@ function VehicleOilServiceDetailPageContent() {
     const canActAsHr = isFlowchartHr || inheritedService.canAct;
     const canActAsAccounts = isFlowchartAccounts || inheritedService.canAct;
 
-    /** Draft: create/initiate actors. After Send until Zoho billed: flowchart HR only. */
+    /** Until the Zoho bill is accepted, any signed-in user may edit Initiate Service. */
     const canEditAssignment = canEditVehicleServiceInitiate({
-        assignmentPending,
         canCreateOrInitiate,
-        isFlowchartHr: canActAsHr,
         service,
         asset,
     });

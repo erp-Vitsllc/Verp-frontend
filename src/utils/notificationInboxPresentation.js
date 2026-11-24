@@ -478,6 +478,7 @@ export function buildUnderstandableNotificationTitle(item = {}) {
         }
         case 'Work Order LPO':
         case 'Work Order LPO Attachment':
+        case 'Work Order LPO Approval':
             return sanitizeNotificationText(item.extra1 || '') || 'LPO was not filled';
         case 'Inventory Bill Draft':
             return sanitizeNotificationText(item.extra1 || item.subjectName || '') || 'Draft bill';
@@ -579,7 +580,7 @@ function buildUtilityCategoryLine(item = {}) {
     if (type === 'Asset Leave' && /is complete leave take action/i.test(e1)) {
         return e2 && e2 !== e1 ? e2 : '';
     }
-    if (type === 'Work Order LPO' || type === 'Work Order LPO Attachment') {
+    if (type === 'Work Order LPO' || type === 'Work Order LPO Attachment' || type === 'Work Order LPO Approval') {
         return e2 || 'LPO number, date and value were left empty.';
     }
     if (type === 'Inventory Bill Draft') {

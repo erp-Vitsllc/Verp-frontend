@@ -331,7 +331,7 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
         quote?.number && quote.number.trim().toLowerCase() === quoteNumber.trim().toLowerCase(),
     );
     const linkedQuote = quoteLinked ? quote : null;
-    const lpoStatus = lpoMode === 'received' ? 'LPO received' : lpoMode === 'not_required' ? 'Not required' : 'Awaiting LPO';
+    const lpoStatus = lpoMode === 'received' ? 'Received' : lpoMode === 'not_required' ? 'Not required' : 'Required';
     const lpoStatusClass = lpoMode === 'received'
         ? 'bg-blue-50 text-blue-600'
         : lpoMode === 'not_required'
@@ -816,6 +816,21 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                             {lpoMode === 'not_required' ? (
                                 <div className="mt-5 grid grid-cols-1 gap-5">
                                     <div>
+                                        <FieldLabel>WO no</FieldLabel>
+                                        <input value={workOrderNo || ''} readOnly className={`${fieldClass} cursor-default bg-[#f4f7fb]`} />
+                                    </div>
+                                    <label htmlFor="wo-support-note">
+                                        <FieldLabel>Reason</FieldLabel>
+                                        <textarea
+                                            id="wo-support-note"
+                                            value={supportingNote}
+                                            onChange={(event) => setSupportingNote(event.target.value)}
+                                            rows={3}
+                                            placeholder="Reason"
+                                            className={`w-full resize-y rounded-xl border border-[#e5edf6] bg-white px-3.5 py-3 text-[15px] leading-6 text-slate-900 outline-none ${FOCUS}`}
+                                        />
+                                    </label>
+                                    <div>
                                         <FieldLabel>Supporting document</FieldLabel>
                                         <label htmlFor="wo-support-file" className={`flex h-12 cursor-pointer items-center gap-3 rounded-xl border border-[#e5edf6] bg-white px-2 ${FOCUS}`}>
                                             <span className="shrink-0 rounded-lg bg-[#e8f1ff] px-3 py-1.5 text-sm font-semibold text-[#2f6fed]">
@@ -833,17 +848,6 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                                             />
                                         </label>
                                     </div>
-                                    <label htmlFor="wo-support-note">
-                                        <FieldLabel>Note (description)</FieldLabel>
-                                        <textarea
-                                            id="wo-support-note"
-                                            value={supportingNote}
-                                            onChange={(event) => setSupportingNote(event.target.value)}
-                                            rows={3}
-                                            placeholder="Note for the salesperson"
-                                            className={`w-full resize-y rounded-xl border border-[#e5edf6] bg-white px-3.5 py-3 text-[15px] leading-6 text-slate-900 outline-none ${FOCUS}`}
-                                        />
-                                    </label>
                                     <p className="text-sm text-slate-500">
                                         These stay optional here. The salesperson must add both before the status can become Completed.
                                     </p>

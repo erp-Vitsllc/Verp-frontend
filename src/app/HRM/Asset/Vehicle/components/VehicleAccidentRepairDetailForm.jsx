@@ -261,7 +261,7 @@ export default function VehicleAccidentRepairDetailForm({
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
-    // Page gates HR-after-submit; Initiate stays editable until Zoho bill is accepted.
+    // Any signed-in user may edit Initiate until the Zoho bill is accepted.
     const canEditInitiateFields = Boolean(canEditAssignment);
     const fieldsDisabled = !canEditInitiateFields || saving;
     const { amountDisabled, attachmentDisabled, showOverrideSave } = lockedServiceFieldAccess({
@@ -1098,7 +1098,7 @@ export default function VehicleAccidentRepairDetailForm({
                         assignmentPending
                             ? `Dated: ${headerDateLabel || '—'} · Complete all fields, then click Send`
                             : canEditInitiateFields
-                              ? `Dated: ${headerDateLabel || '—'} · HR can edit payment and initiate details until Zoho bill is accepted`
+                              ? `Dated: ${headerDateLabel || '—'} · Payment and initiate details can be edited until the Zoho bill is accepted`
                               : `Dated: ${headerDateLabel || '—'} · Submitted — view only after Zoho bill is accepted.`
                     }
                     icon={ClipboardList}
