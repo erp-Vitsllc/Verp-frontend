@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronDown, ChevronLeft, ChevronRight, Download, MoreVertical, Plus, Search } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
@@ -240,15 +241,70 @@ function RowActions({ vendor, deleting, canEdit, canDelete, onEdit, onDelete }) 
     const [open, setOpen] = useState(false);
     const [pos, setPos] = useState(null);
     const rootRef = useRef(null);
+    const menuRef = useRef(null);
 
     useEffect(() => {
         if (!open) return undefined;
         const close = (event) => {
-            if (!rootRef.current?.contains(event.target)) setOpen(false);
+            const target = event.target;
+            if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+            setOpen(false);
         };
+        const closeOnMove = () => setOpen(false);
         document.addEventListener('mousedown', close);
-        return () => document.removeEventListener('mousedown', close);
+        window.addEventListener('scroll', closeOnMove, true);
+        window.addEventListener('resize', closeOnMove);
+        return () => {
+            document.removeEventListener('mousedown', close);
+            window.removeEventListener('scroll', closeOnMove, true);
+            window.removeEventListener('resize', closeOnMove);
+        };
     }, [open]);
+
+    const menu = open && pos ? (
+        <div
+            ref={menuRef}
+            role="menu"
+            className="fixed z-[80] w-32 overflow-hidden rounded-xl border border-[#E6EDF5] bg-white py-1 shadow-xl"
+            style={{
+                top: pos.top,
+                left: pos.left,
+                transform: pos.openUp ? 'translate(-100%, -100%)' : 'translateX(-100%)',
+            }}
+        >
+            {canEdit ? (
+                <button
+                    type="button"
+                    role="menuitem"
+                    onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpen(false);
+                        onEdit();
+                    }}
+                    className="block w-full px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                    Edit
+                </button>
+            ) : null}
+            {canDelete ? (
+                <button
+                    type="button"
+                    role="menuitem"
+                    disabled={deleting}
+                    onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpen(false);
+                        onDelete(event);
+                    }}
+                    className="block w-full px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                >
+                    {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+            ) : null}
+        </div>
+    ) : null;
 
     return (
         <div ref={rootRef} className="flex justify-center" data-row-nav-ignore="">
@@ -273,49 +329,7 @@ function RowActions({ vendor, deleting, canEdit, canDelete, onEdit, onDelete }) 
             >
                 <MoreVertical size={16} />
             </button>
-            {open && pos ? (
-                <div
-                    role="menu"
-                    className="fixed z-50 w-32 overflow-hidden rounded-xl border border-[#E6EDF5] bg-white py-1 shadow-xl"
-                    style={{
-                        top: pos.top,
-                        left: pos.left,
-                        transform: pos.openUp ? 'translate(-100%, -100%)' : 'translateX(-100%)',
-                    }}
-                >
-                    {canEdit ? (
-                        <button
-                            type="button"
-                            role="menuitem"
-                            onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                setOpen(false);
-                                onEdit();
-                            }}
-                            className="block w-full px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                            Edit
-                        </button>
-                    ) : null}
-                    {canDelete ? (
-                        <button
-                            type="button"
-                            role="menuitem"
-                            disabled={deleting}
-                            onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                setOpen(false);
-                                onDelete(event);
-                            }}
-                            className="block w-full px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                        >
-                            {deleting ? 'Deleting...' : 'Delete'}
-                        </button>
-                    ) : null}
-                </div>
-            ) : null}
+            {menu ? createPortal(menu, document.body) : null}
         </div>
     );
 }

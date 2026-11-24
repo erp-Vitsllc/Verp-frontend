@@ -34,6 +34,12 @@ const LPO_MODES = [
     { id: 'received', label: 'LPO received' },
 ];
 
+const DOC_TOGGLES = [
+    { id: 'quote', label: 'Quote' },
+    { id: 'invoice', label: 'Invoice' },
+    { id: 'lpo', label: 'LPO' },
+];
+
 const RULES = [
     'One quotation and one LPO per Work Order',
     'Multiple invoices allowed',
@@ -120,10 +126,14 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [tab, setTab] = useState(focusSection === 'lpo' ? 'LPO' : 'Overview');
+    const [overviewDoc, setOverviewDoc] = useState('lpo');
     const [saving, setSaving] = useState(false);
     const [lpoNo, setLpoNo] = useState('');
     const [lpoDate, setLpoDate] = useState('');
     const [lpoValue, setLpoValue] = useState('');
+    const [invoiceNo, setInvoiceNo] = useState('');
+    const [invoiceDate, setInvoiceDate] = useState('');
+    const [invoiceAmount, setInvoiceAmount] = useState('');
     const [lpoFile, setLpoFile] = useState(null);
     const [noticeFile, setNoticeFile] = useState(null);
     const [followMode, setFollowMode] = useState('required');
@@ -352,6 +362,34 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         }
     };
 
+    const createInvoice = async () => {
+        const amount = Number(invoiceAmount);
+        const orderValue = Number(order?.value) || 0;
+        const already = (Array.isArray(order?.invoices) ? order.invoices : [])
+            .reduce((sum, row) => sum + (Number(row.value) || 0), 0);
+        if (!invoiceDate || !invoiceNo.trim() || !(amount > 0)) {
+            setFormError('Invoice date, number and value are required.');
+            return;
+        }
+        if (orderValue > 0 && already + amount - orderValue > 0.009) {
+            setFormError('Invoice total cannot exceed the work order value.');
+            return;
+        }
+        const saved = await patch({
+            invoice: {
+                invoiceNo: invoiceNo.trim(),
+                invoiceDate,
+                value: amount,
+            },
+        });
+        if (saved) {
+            setInvoiceNo('');
+            setInvoiceDate('');
+            setInvoiceAmount('');
+            toast({ title: 'Invoice created', description: invoiceNo.trim() });
+        }
+    };
+
     const updateAttachment = async () => {
         if (!noticeFile) {
             setFormError('Attachment is required.');
@@ -477,12 +515,17 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     }
 
     const mode = order.lpoFollowUp ? followMode : (order.lpoMode || 'required');
+    const lpoStatusLabel = LPO_MODES.find((item) => item.id === mode)?.label || 'Required';
+    const showLpo = tab === 'LPO' || (tab === 'Overview' && overviewDoc === 'lpo');
+    const showQuoteCard = tab === 'Overview' && overviewDoc === 'quote';
+    const showInvoice = tab === 'Invoices' || (tab === 'Overview' && overviewDoc === 'invoice');
     const rows = lpoRows(order);
-    const invoiced = Number(order.invoicedAmount) || 0;
+    const invoiceRows = Array.isArray(order.invoices) ? order.invoices : [];
+    const invoiced = invoiceRows.length
+        ? invoiceRows.reduce((sum, row) => sum + (Number(row.value) || 0), 0)
+        : (Number(order.invoicedAmount) || 0);
     const total = Number(order.value) || 0;
     const balance = Math.max(0, total - invoiced);
-    const match = total > 0 ? Math.min(100, (invoiced / total) * 100) : 0;
-    const locked = mode === 'required';
     const quotationRefValue = order.quotationRef ? (
         <button
             type="button"
@@ -622,12 +665,42 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                         </section>
                     ) : null}
 
-                    {tab === 'Overview' || tab === 'LPO' ? (
+                    {tab === 'Overview' ? (
+                        <div role="tablist" aria-label="Work order document" className="inline-flex max-w-full flex-wrap gap-1 rounded-full bg-white p-1 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] ring-1 ring-[#e6eef6]">
+                            {DOC_TOGGLES.map((item) => {
+                                const active = overviewDoc === item.id;
+                                return (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={active}
+                                        onClick={() => {
+                                            setFormError('');
+                                            setOverviewDoc(item.id);
+                                        }}
+                                        className={active
+                                            ? `inline-flex h-8 items-center gap-1.5 rounded-full bg-[#2f6fed] px-3 text-[13px] font-semibold text-white ${FOCUS}`
+                                            : `inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-slate-600 hover:bg-[#f4f7fb] ${FOCUS}`}
+                                    >
+                                        {item.label}
+                                        {item.id === 'lpo' ? (
+                                            <span className={active ? 'text-[11px] font-medium text-white/80' : 'text-[11px] font-medium text-[#2f6fed]'}>
+                                                {lpoStatusLabel}
+                                            </span>
+                                        ) : null}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : null}
+
+                    {showLpo ? (
                         <section id="lpo-details" className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
                             <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
                                 <Paperclip size={16} className="text-[#2f6fed]" /> LPO Details
                             </h2>
-                            <div role="radiogroup" aria-label="LPO option" className="grid grid-cols-1 gap-1 rounded-xl bg-[#f4f7fb] p-1 sm:grid-cols-3">
+                            <div role="radiogroup" aria-label="LPO option" className="inline-flex max-w-full flex-wrap gap-1 rounded-full bg-[#f4f7fb] p-1">
                                 {LPO_MODES.map((item) => {
                                     const active = mode === item.id;
                                     return (
@@ -645,8 +718,8 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                                 changeMode(item.id);
                                             }}
                                             className={active
-                                                ? `h-11 rounded-lg bg-[#2f6fed] text-sm font-semibold text-white shadow-sm ${FOCUS}`
-                                                : `h-11 rounded-lg text-sm font-medium text-slate-600 hover:bg-white disabled:opacity-60 ${FOCUS}`}
+                                                ? `h-8 rounded-full bg-[#2f6fed] px-3 text-[13px] font-semibold text-white ${FOCUS}`
+                                                : `h-8 rounded-full px-3 text-[13px] font-medium text-slate-600 hover:bg-white disabled:opacity-60 ${FOCUS}`}
                                         >
                                             {item.label}
                                         </button>
@@ -854,23 +927,23 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                         <p className="mt-2 text-[12px] text-amber-700">Choose a salesperson on the work order before sending.</p>
                                     ) : null}
                                 </div>
-                            ) : mode === 'received' && rows.length > 0 ? null : (
-                                <fieldset disabled={locked || saving} className={`mt-4 ${locked ? 'opacity-60' : ''}`}>
+                            ) : mode === 'received' && rows.length === 0 ? (
+                                <fieldset disabled={saving} className="mt-4">
                                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                         <label htmlFor="lpo-no">
-                                            <FieldLabel required={!locked}>LPO Number</FieldLabel>
+                                            <FieldLabel required>LPO Number</FieldLabel>
                                             <input id="lpo-no" value={lpoNo} onChange={(event) => setLpoNo(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none disabled:bg-[#f4f7fb] ${FOCUS}`} />
                                         </label>
                                         <label htmlFor="lpo-date">
-                                            <FieldLabel required={!locked}>LPO Date</FieldLabel>
+                                            <FieldLabel required>LPO Date</FieldLabel>
                                             <input id="lpo-date" type="date" max={dubaiDateKey()} value={lpoDate} onChange={(event) => setLpoDate(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none disabled:bg-[#f4f7fb] ${FOCUS}`} />
                                         </label>
                                         <label htmlFor="lpo-value">
-                                            <FieldLabel required={!locked}>LPO Value</FieldLabel>
+                                            <FieldLabel required>LPO Value</FieldLabel>
                                             <input id="lpo-value" type="number" min="0" step="0.01" value={lpoValue} onChange={(event) => setLpoValue(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none disabled:bg-[#f4f7fb] ${FOCUS}`} />
                                         </label>
                                         <label htmlFor="lpo-file">
-                                            <FieldLabel required={!locked}>Attachment</FieldLabel>
+                                            <FieldLabel required>Attachment</FieldLabel>
                                             <input
                                                 id="lpo-file"
                                                 key={`lpo-${fileKey}`}
@@ -881,17 +954,41 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                             />
                                         </label>
                                     </div>
-                                    {locked ? null : (
-                                        <button
-                                            type="button"
-                                            onClick={addLpo}
-                                            className={`mt-4 inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] disabled:cursor-not-allowed disabled:bg-slate-300 ${FOCUS}`}
-                                        >
-                                            Add LPO
-                                        </button>
-                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={addLpo}
+                                        className={`mt-4 inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] disabled:cursor-not-allowed disabled:bg-slate-300 ${FOCUS}`}
+                                    >
+                                        Add LPO
+                                    </button>
                                 </fieldset>
-                            )}
+                            ) : null}
+                        </section>
+                    ) : null}
+
+                    {showQuoteCard ? (
+                        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
+                            <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
+                                <FileText size={16} className="text-[#2f6fed]" /> Quote
+                            </h2>
+                            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div>
+                                    <dt className="mb-1.5 text-[12px] font-medium text-slate-500">Quote no</dt>
+                                    <dd className="flex h-11 items-center rounded-xl border border-[#e5edf6] bg-[#f4f7fb] px-3 text-sm font-semibold text-slate-800">
+                                        {order.quotationRef ? (
+                                            <button type="button" onClick={() => setQuoteOpen(true)} className={`text-[#2f6fed] hover:underline ${FOCUS}`}>
+                                                {order.quotationRef}
+                                            </button>
+                                        ) : '—'}
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt className="mb-1.5 text-[12px] font-medium text-slate-500">Value</dt>
+                                    <dd className="flex h-11 items-center rounded-xl border border-[#e5edf6] bg-[#f4f7fb] px-3 text-sm font-semibold text-slate-800">
+                                        {formatAed(total)}
+                                    </dd>
+                                </div>
+                            </dl>
                         </section>
                     ) : null}
 
@@ -899,26 +996,72 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                         <WorkOrderQuotationPanel order={order} onOpen={() => setQuoteOpen(true)} />
                     ) : null}
 
-                    {tab === 'Overview' || tab === 'Invoices' ? (
+                    {showInvoice ? (
                         <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
                             <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
-                                <FileText size={16} className="text-[#2f6fed]" /> Invoice Tracking
+                                <FileText size={16} className="text-[#2f6fed]" /> Invoice
                             </h2>
-                            <p className="text-sm text-slate-500">No invoice lines yet.</p>
-                            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            {formError ? (
+                                <p className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{formError}</p>
+                            ) : null}
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                <label htmlFor="invoice-date">
+                                    <FieldLabel required>Date</FieldLabel>
+                                    <input id="invoice-date" type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
+                                </label>
+                                <label htmlFor="invoice-no">
+                                    <FieldLabel required>No</FieldLabel>
+                                    <input id="invoice-no" value={invoiceNo} onChange={(event) => setInvoiceNo(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
+                                </label>
+                                <label htmlFor="invoice-value">
+                                    <FieldLabel required>Value</FieldLabel>
+                                    <input id="invoice-value" type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
+                                </label>
+                            </div>
+                            <button
+                                type="button"
+                                disabled={saving}
+                                onClick={createInvoice}
+                                className={`mt-4 inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] disabled:opacity-60 ${FOCUS}`}
+                            >
+                                {saving ? 'Saving…' : 'Create invoice'}
+                            </button>
+                            {invoiceRows.length ? (
+                                <div className="mt-4 overflow-x-auto">
+                                    <table className="w-full min-w-[420px] border-collapse text-left text-[13px]">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 text-[11px] font-medium text-slate-400">
+                                                {['Date', 'No', 'Value'].map((column) => (
+                                                    <th key={column} className="px-2 py-2 font-medium">{column}</th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {invoiceRows.map((row, index) => (
+                                                <tr key={`${row.invoiceNo}-${row.invoiceDate}-${index}`} className="border-b border-slate-100 last:border-0">
+                                                    <td className="px-2 py-3 text-slate-600">{formatWorkOrderDate(row.invoiceDate)}</td>
+                                                    <td className="px-2 py-3 font-semibold text-[#2f6fed]">{row.invoiceNo || '—'}</td>
+                                                    <td className="px-2 py-3 text-slate-700">{formatAed(row.value)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : null}
+                            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
                                 <div className="rounded-xl bg-[#f4f8fd] px-4 py-3">
-                                    <p className="text-[12px] text-slate-400">Total Invoiced</p>
+                                    <p className="text-[12px] text-slate-400">Order value</p>
+                                    <p className="mt-1 text-lg font-bold text-slate-900">{formatAed(total)}</p>
+                                </div>
+                                <div className="rounded-xl bg-[#f4f8fd] px-4 py-3">
+                                    <p className="text-[12px] text-slate-400">Invoice value</p>
                                     <p className="mt-1 text-lg font-bold text-slate-900">{formatAed(invoiced)}</p>
                                 </div>
                                 <div className="rounded-xl bg-amber-50 px-4 py-3">
-                                    <p className="text-[12px] text-amber-700/80">Pending to Invoice</p>
+                                    <p className="text-[12px] text-amber-700/80">Pending value</p>
                                     <p className="mt-1 text-lg font-bold text-slate-900">{formatAed(balance)}</p>
                                 </div>
                             </div>
-                            <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[#e8eef6]">
-                                <div className="h-full rounded-full bg-[#2f6fed]" style={{ width: `${match}%` }} />
-                            </div>
-                            <p className="mt-2 text-[12px] font-semibold text-[#2f6fed]">Invoice Match: {match.toFixed(1)}%</p>
                         </section>
                     ) : null}
 
