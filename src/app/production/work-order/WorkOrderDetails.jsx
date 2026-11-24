@@ -26,6 +26,7 @@ import WorkOrderQuotationModal from './WorkOrderQuotationModal';
 import WorkOrderQuotationPanel from './WorkOrderQuotationPanel';
 
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f6fed]/40';
+const PANEL = 'flex h-full min-w-0 flex-col rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5';
 
 const LPO_MODES = [
     { id: 'required', label: 'Required' },
@@ -104,6 +105,21 @@ function downloadAttachment(name, mime, data) {
     link.click();
 }
 
+function AttachmentLink({ name, mime, data }) {
+    if (!name) return '—';
+    return (
+        <button
+            type="button"
+            disabled={!data}
+            onClick={() => downloadAttachment(name, mime, data)}
+            className={`inline-flex max-w-full items-center gap-1 text-left text-[#2f6fed] hover:underline disabled:cursor-default disabled:text-slate-700 disabled:no-underline ${FOCUS}`}
+        >
+            <Paperclip size={14} className="shrink-0" />
+            <span className="truncate">{name}</span>
+        </button>
+    );
+}
+
 function briefChange(value) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return text.length > 90 ? `${text.slice(0, 87)}…` : text;
@@ -141,6 +157,8 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     const [vendors, setVendors] = useState([]);
     const [vendorMessage, setVendorMessage] = useState('');
     const [vendorSaving, setVendorSaving] = useState(false);
+    const [openingReceived, setOpeningReceived] = useState(false);
+    const [scrollToReceived, setScrollToReceived] = useState(false);
     const canResyncBudget = isSystemSuperUser();
 
     const load = useCallback(async () => {
@@ -277,6 +295,21 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     }, [focusSection, order]);
 
     useEffect(() => {
+        if ((order?.lpoMode || 'required') === 'required') return;
+        setOpeningReceived(false);
+    }, [order?.lpoMode]);
+
+    useEffect(() => {
+        if (!scrollToReceived || tab !== 'LPO') return undefined;
+        const timer = window.setTimeout(() => {
+            const target = document.getElementById('lpo-received') || document.getElementById('lpo-details');
+            target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            setScrollToReceived(false);
+        }, 60);
+        return () => window.clearTimeout(timer);
+    }, [scrollToReceived, tab, openingReceived, followMode]);
+
+    useEffect(() => {
         const total = Number(order?.value) || 0;
         if (total > 0) setLpoValue((current) => current || total.toFixed(2));
     }, [order]);
@@ -287,7 +320,13 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         try {
             const response = await axiosInstance.patch(`/WorkOrder/${id}`, body);
             const next = response.data?.workOrder || null;
-            setOrder(next);
+            setOrder((current) => {
+                if (!next) return current;
+                if (!next.lpoAssigneeName && current?.lpoAssigneeName) {
+                    next.lpoAssigneeName = current.lpoAssigneeName;
+                }
+                return next;
+            });
             if (next && Object.prototype.hasOwnProperty.call(next, 'viewerCanCompleteLpo')) {
                 setCanComplete(Boolean(next.viewerCanCompleteLpo));
             }
@@ -305,6 +344,20 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     const changeMode = async (next) => {
         if (!order || order.lpoMode === next || saving) return;
         await patch({ lpoMode: next });
+    };
+
+    const openUploadLpo = () => {
+        if (!order) return;
+        const savedMode = order.lpoMode || 'required';
+        if (savedMode !== 'required' || lpoRows(order).length > 0) return;
+        setFormError('');
+        if (order.lpoFollowUp) {
+            if (canComplete) setFollowMode('received');
+        } else {
+            setOpeningReceived(true);
+        }
+        setScrollToReceived(true);
+        setTab('LPO');
     };
 
     const addLpo = async () => {
@@ -343,8 +396,9 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
             setLpoDate('');
             setLpoValue('');
             setLpoFile(null);
+            setOpeningReceived(false);
             setFileKey((key) => key + 1);
-            toast({ title: 'LPO added', description: lpoNo.trim() });
+            toast({ title: 'LPO received', description: lpoNo.trim() });
         }
     };
 
@@ -453,12 +507,22 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         setFileKey((key) => key + 1);
         const nextStatus = saved.workOrder?.status || '';
         toast({
-            title: followMode === 'not_required' ? 'Work order completed' : 'Work order created',
-            description: nextStatus || order?.workOrderNo || '',
+            title: followMode === 'not_required'
+                ? 'Work order completed'
+                : followMode === 'received'
+                    ? 'LPO received'
+                    : 'Work order created',
+            description: followMode === 'received'
+                ? 'The LPO number, date, value and attachment were saved.'
+                : (nextStatus || order?.workOrderNo || ''),
         });
     };
 
     const sendNotRequired = async () => {
+        if (!supportingNote.trim()) {
+            setFormError('Description is required when LPO is not required.');
+            return;
+        }
         if (!noticeFile) {
             setFormError('Attachment is required when LPO is not required.');
             return;
@@ -473,6 +537,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         const saved = await patch({
             lpoMode: 'not_required',
             sendNotRequired: true,
+            supportingNote: supportingNote.trim(),
             attachment,
         });
         if (saved) {
@@ -500,13 +565,26 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         );
     }
 
-    const mode = order.lpoFollowUp ? followMode : (order.lpoMode || 'required');
-    const showLpo = tab === 'LPO' || tab === 'Overview';
-    const showQuoteCard = tab === 'Overview';
-    const showInvoice = tab === 'Invoices' || tab === 'Overview';
+    const savedLpoMode = order.lpoMode || 'required';
+    const coordinatorName = order.lpoAssigneeName || 'the project coordinator';
+    const mode = order.lpoFollowUp ? followMode : savedLpoMode;
+    const displayMode = !order.lpoFollowUp && openingReceived ? 'received' : mode;
+    const showLpo = tab === 'LPO';
+    const showInvoice = tab === 'Invoices';
     const stacked = tab === 'Overview';
     const invoiceError = /invoice/i.test(formError);
     const rows = lpoRows(order);
+    const canUploadLpo = savedLpoMode === 'required' && rows.length === 0;
+    const supportName = savedLpoMode === 'not_required'
+        ? (order.supportingDocument?.name || order.lpoAlert?.attachmentName || '')
+        : '';
+    const supportNote = savedLpoMode === 'not_required' ? String(order.supportingNote || '').trim() : '';
+    const supportMime = order.supportingDocument?.name
+        ? (order.supportingDocument.mime || '')
+        : (order.lpoAlert?.attachmentMime || '');
+    const supportData = order.supportingDocument?.name
+        ? (order.supportingDocument.data || '')
+        : (order.lpoAlert?.attachmentData || '');
     const invoiceRows = Array.isArray(order.invoices) ? order.invoices : [];
     const invoiced = invoiceRows.length
         ? invoiceRows.reduce((sum, row) => sum + (Number(row.value) || 0), 0)
@@ -622,10 +700,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                             <button
                                 key={item}
                                 type="button"
-                                onClick={() => {
-                                    setTab(item);
-                                    if (item === 'Quotation' && order.quotationRef) setQuoteOpen(true);
-                                }}
+                                onClick={() => setTab(item)}
                                 className={tab === item
                                     ? `rounded-xl bg-[#e8f1ff] px-4 py-2 text-sm font-semibold text-[#2f6fed] ${FOCUS}`
                                     : `rounded-xl px-4 py-2 text-sm font-medium text-slate-500 hover:bg-slate-50 ${FOCUS}`}
@@ -636,6 +711,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                     </div>
 
                     {tab === 'Overview' ? (
+                        <>
                         <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
                             <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
                                 <Info size={16} className="text-[#2f6fed]" /> Work Order Information
@@ -651,17 +727,113 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                 <InfoItem label="Work Order Description" value={order.description || '—'} />
                             </dl>
                         </section>
+                        <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
+                            <section className={PANEL}>
+                                <h2 className="mb-4 flex min-h-11 items-center gap-2 text-[15px] font-semibold text-slate-800">
+                                    <FileText size={16} className="text-[#2f6fed]" /> Quote
+                                </h2>
+                                <dl className="space-y-4">
+                                    <InfoItem label="Quote no" value={quotationRefValue} />
+                                    <InfoItem label="Quote value" value={formatAed(total)} />
+                                    <InfoItem label="Salesperson" value={order.salespersonName || '—'} />
+                                </dl>
+                            </section>
+                            <section className={PANEL}>
+                                <div className="mb-4 flex min-h-11 items-center justify-between gap-3">
+                                    <h2 className="flex items-center gap-2 text-[15px] font-semibold text-slate-800">
+                                        <FileText size={16} className="text-[#2f6fed]" /> Invoice
+                                    </h2>
+                                    <p className="text-right text-[12px] leading-4 text-slate-500">
+                                        Remaining amount
+                                        <span className="mt-0.5 block text-sm font-semibold text-slate-800">{formatAed(balance)}</span>
+                                    </p>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full border-collapse text-left text-[13px]">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 text-[11px] font-medium text-slate-400">
+                                                <th className="py-2 pr-2 font-medium">Invoice no</th>
+                                                <th className="px-2 py-2 font-medium">Value</th>
+                                                <th className="py-2 pl-2 font-medium">Date</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {invoiceRows.length ? invoiceRows.map((row, index) => (
+                                                <tr key={`${row.invoiceNo}-${row.invoiceDate}-${index}`} className="border-b border-slate-100 last:border-0">
+                                                    <td className="py-2.5 pr-2 font-semibold text-slate-800">{row.invoiceNo || '—'}</td>
+                                                    <td className="px-2 py-2.5 whitespace-nowrap text-slate-700">{formatAed(row.value)}</td>
+                                                    <td className="py-2.5 pl-2 whitespace-nowrap text-slate-600">{formatWorkOrderDate(row.invoiceDate)}</td>
+                                                </tr>
+                                            )) : (
+                                                <tr>
+                                                    <td colSpan={3} className="py-4 text-sm text-slate-500">No invoices yet.</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div className="mt-4 border-t border-slate-100 pt-3">
+                                    <p className="text-[12px] text-slate-400">Total invoiced amount</p>
+                                    <p className="mt-1 text-base font-bold text-slate-900">{formatAed(invoiced)}</p>
+                                </div>
+                            </section>
+                            <section className={PANEL}>
+                                <h2 className="mb-4 flex min-h-11 items-center gap-2 text-[15px] font-semibold text-slate-800">
+                                    <Paperclip size={16} className="text-[#2f6fed]" /> LPO
+                                </h2>
+                                <div>
+                                    {savedLpoMode === 'received' || rows.length > 0 ? (
+                                        <div className="space-y-5">
+                                            {(rows.length ? rows : [null]).map((row, index) => (
+                                                <dl key={row?._id || row?.lpoNo || `lpo-${index}`} className="space-y-4">
+                                                    <InfoItem label="LPO no" value={row?.lpoNo || '—'} />
+                                                    <InfoItem label="Date" value={row ? formatWorkOrderDate(row.lpoDate) : '—'} />
+                                                    <InfoItem label="Value" value={row ? formatAed(row.lpoValue) : '—'} />
+                                                    <InfoItem
+                                                        label="Attachment"
+                                                        value={row?.attachmentName
+                                                            ? <AttachmentLink name={row.attachmentName} mime={row.attachmentMime} data={row.attachmentData} />
+                                                            : '—'}
+                                                    />
+                                                </dl>
+                                            ))}
+                                        </div>
+                                    ) : savedLpoMode === 'not_required' ? (
+                                        supportName || supportNote ? (
+                                            <dl className="space-y-4">
+                                                <InfoItem label="Description" value={supportNote || '—'} />
+                                                <InfoItem
+                                                    label="Attachment"
+                                                    value={supportName
+                                                        ? <AttachmentLink name={supportName} mime={supportMime} data={supportData} />
+                                                        : '—'}
+                                                />
+                                            </dl>
+                                        ) : (
+                                            <p className="text-sm leading-6 text-slate-600">
+                                                Waiting for {order.salespersonName || 'the salesperson'} to fill the details.
+                                            </p>
+                                        )
+                                    ) : (
+                                        <p className="text-sm leading-6 text-slate-600">
+                                            Waiting for {coordinatorName} to fill the details.
+                                        </p>
+                                    )}
+                                </div>
+                            </section>
+                        </div>
+                        </>
                     ) : null}
 
-                    <div className={stacked ? 'grid grid-cols-1 items-start gap-4 lg:grid-cols-3' : 'contents'}>
+                    <div className="contents">
                     {showLpo ? (
-                        <section id="lpo-details" className="order-3 min-w-0 rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5 lg:col-start-3 lg:row-start-1">
+                        <section id="lpo-details" className="min-w-0 rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
                             <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
                                 <Paperclip size={16} className="text-[#2f6fed]" /> LPO Details
                             </h2>
                             <div role="radiogroup" aria-label="LPO option" className="inline-flex max-w-full flex-wrap gap-1 rounded-full bg-[#f4f7fb] p-1">
                                 {LPO_MODES.map((item) => {
-                                    const active = mode === item.id;
+                                    const active = displayMode === item.id;
                                     return (
                                         <button
                                             key={item.id}
@@ -674,6 +846,11 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                                     if (canComplete) setFollowMode(item.id);
                                                     return;
                                                 }
+                                                if (item.id === 'received') {
+                                                    setOpeningReceived(true);
+                                                    return;
+                                                }
+                                                setOpeningReceived(false);
                                                 changeMode(item.id);
                                             }}
                                             className={active
@@ -685,21 +862,23 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                     );
                                 })}
                             </div>
+                            {displayMode === 'required' ? (
+                                <p className="mt-4 text-sm leading-6 text-slate-600">
+                                    Waiting for {coordinatorName} to fill the details.
+                                </p>
+                            ) : (
                             <p className="mt-3 text-[13px] leading-5 text-slate-500">
                                 {order.lpoFollowUp
-                                    ? (mode === 'required'
-                                        ? 'No fields. Click Create and the status becomes Created.'
-                                        : mode === 'not_required'
-                                            ? 'Supporting document and note are required. Click Create and the status becomes Completed.'
-                                            : 'Enter the LPO number, date, value and attachment, then click Create.')
-                                    : (mode === 'required'
-                                        ? 'LPO upload is locked. There is no need to add an LPO while Required is selected.'
-                                        : mode === 'not_required'
-                                            ? (order.attachmentPending
-                                                ? 'This work order is already created. The attachment is required. Update saves it on this work order.'
-                                                : 'Attachment is required. Send emails the salesperson and notifies them that the LPO number, date and value were left empty.')
-                                            : 'Enter the LPO number, date, value and attachment. LPO value comes from the quotation total.')}
+                                    ? (mode === 'not_required'
+                                        ? 'Description and attachment are required. Save sets the status to Completed.'
+                                        : 'Enter the LPO number, date, value and attachment, then save. The status becomes LPO received.')
+                                    : (displayMode === 'not_required'
+                                        ? (supportName || supportNote
+                                            ? 'Description and attachment for this work order.'
+                                            : 'Add the description and attachment.')
+                                        : 'Enter the LPO number, date, value and attachment. Saving sets the status to LPO received.')}
                             </p>
+                            )}
 
                             {formError && !invoiceError ? (
                                 <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{formError}</p>
@@ -770,13 +949,13 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                 )
                             ) : null}
 
-                            {order.lpoFollowUp ? (
+                            {displayMode === 'required' ? null : order.lpoFollowUp ? (
                                 canComplete ? (
                                     <div className="mt-4 rounded-xl border border-[#e6eef6] bg-[#f8fbff] p-4">
                                         {mode === 'not_required' ? (
                                             <div className="grid grid-cols-1 gap-3">
                                                 <label htmlFor="lpo-support-file" className="block">
-                                                    <FieldLabel required>Supporting document</FieldLabel>
+                                                    <FieldLabel required>Attachment</FieldLabel>
                                                     <input
                                                         id="lpo-support-file"
                                                         key={`support-${fileKey}`}
@@ -798,7 +977,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                                     </button>
                                                 ) : null}
                                                 <label htmlFor="lpo-support-note" className="block">
-                                                    <FieldLabel required>Note (description)</FieldLabel>
+                                                    <FieldLabel required>Description</FieldLabel>
                                                     <textarea
                                                         id="lpo-support-note"
                                                         value={supportingNote}
@@ -809,7 +988,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                                 </label>
                                             </div>
                                         ) : mode === 'received' ? (
-                                            <div className={stacked ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 gap-3 sm:grid-cols-2'}>
+                                            <div id="lpo-received" className={stacked ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 gap-3 sm:grid-cols-2'}>
                                                 <label htmlFor="lpo-no">
                                                     <FieldLabel required>LPO Number</FieldLabel>
                                                     <input id="lpo-no" value={lpoNo} onChange={(event) => setLpoNo(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
@@ -834,26 +1013,44 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                                     />
                                                 </label>
                                             </div>
-                                        ) : (
-                                            <p className="text-sm text-slate-500">No fields. Click Create to set the status to Created.</p>
-                                        )}
+                                        ) : null}
                                         <button
                                             type="button"
                                             disabled={saving}
                                             onClick={completeFollowUp}
                                             className={`mt-4 inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] disabled:opacity-60 ${FOCUS}`}
                                         >
-                                            {saving ? 'Saving…' : 'Create'}
+                                            {saving ? 'Saving…' : mode === 'received' ? 'Save' : 'Create'}
                                         </button>
                                     </div>
+                                ) : displayMode === 'not_required' && (supportName || supportNote) ? (
+                                    <dl className="mt-4 space-y-4">
+                                        <InfoItem label="Description" value={supportNote || '—'} />
+                                        <InfoItem
+                                            label="Attachment"
+                                            value={supportName
+                                                ? <AttachmentLink name={supportName} mime={supportMime} data={supportData} />
+                                                : '—'}
+                                        />
+                                    </dl>
                                 ) : (
-                                    <p className="mt-3 text-sm text-slate-500">
-                                        {order.lpoFollowUp === 'coordinator'
-                                            ? 'Waiting for the project coordinator to click Create.'
-                                            : `Waiting for ${order.salespersonName || 'the salesperson'} to add the supporting document and note.`}
+                                    <p className="mt-3 text-sm leading-6 text-slate-600">
+                                        {displayMode === 'not_required'
+                                            ? `Waiting for ${order.salespersonName || 'the salesperson'} to fill the details.`
+                                            : `Waiting for ${coordinatorName} to fill the details.`}
                                     </p>
                                 )
-                            ) : mode === 'not_required' && order.attachmentPending ? (
+                            ) : displayMode === 'not_required' && (supportName || supportNote) && !order.attachmentPending ? (
+                                <dl className="mt-4 space-y-4">
+                                    <InfoItem label="Description" value={supportNote || '—'} />
+                                    <InfoItem
+                                        label="Attachment"
+                                        value={supportName
+                                            ? <AttachmentLink name={supportName} mime={supportMime} data={supportData} />
+                                            : '—'}
+                                    />
+                                </dl>
+                            ) : displayMode === 'not_required' && order.attachmentPending ? (
                                 <div className="mt-4 rounded-xl border border-[#e6eef6] bg-[#f8fbff] p-4">
                                     <dl className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                                         <InfoItem label="Work Order Number" value={order.workOrderNo} />
@@ -884,9 +1081,19 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                         {saving ? 'Updating…' : 'Update'}
                                     </button>
                                 </div>
-                            ) : mode === 'not_required' ? (
+                            ) : displayMode === 'not_required' ? (
                                 <div className="mt-4 rounded-xl border border-[#e6eef6] bg-[#f8fbff] p-4">
-                                    <label htmlFor="lpo-notice-file" className="block">
+                                    <label htmlFor="lpo-notice-note" className="block">
+                                        <FieldLabel required>Description</FieldLabel>
+                                        <textarea
+                                            id="lpo-notice-note"
+                                            value={supportingNote}
+                                            onChange={(event) => setSupportingNote(event.target.value)}
+                                            rows={3}
+                                            className={`w-full resize-y rounded-xl border border-[#e5edf6] bg-white px-3 py-2 text-sm outline-none ${FOCUS}`}
+                                        />
+                                    </label>
+                                    <label htmlFor="lpo-notice-file" className="mt-3 block">
                                         <FieldLabel required>Attachment</FieldLabel>
                                         <input
                                             id="lpo-notice-file"
@@ -912,8 +1119,8 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                         <p className="mt-2 text-[12px] text-amber-700">Choose a salesperson on the work order before sending.</p>
                                     ) : null}
                                 </div>
-                            ) : mode === 'received' && rows.length === 0 ? (
-                                <fieldset disabled={saving} className="mt-4">
+                            ) : displayMode === 'received' && rows.length === 0 ? (
+                                <fieldset id="lpo-received" disabled={saving} className="mt-4">
                                     <div className={stacked ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 gap-3 sm:grid-cols-2'}>
                                         <label htmlFor="lpo-no">
                                             <FieldLabel required>LPO Number</FieldLabel>
@@ -944,22 +1151,10 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                         onClick={addLpo}
                                         className={`mt-4 inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] disabled:cursor-not-allowed disabled:bg-slate-300 ${FOCUS}`}
                                     >
-                                        Add LPO
+                                        {saving ? 'Saving…' : 'Save'}
                                     </button>
                                 </fieldset>
                             ) : null}
-                        </section>
-                    ) : null}
-
-                    {showQuoteCard ? (
-                        <section className="order-1 min-w-0 rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5 lg:col-start-1 lg:row-start-1">
-                            <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
-                                <FileText size={16} className="text-[#2f6fed]" /> Quote
-                            </h2>
-                            <dl className="space-y-4">
-                                <InfoItem label="Quote no" value={quotationRefValue} />
-                                <InfoItem label="Value" value={formatAed(total)} />
-                            </dl>
                         </section>
                     ) : null}
 
@@ -968,7 +1163,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                     ) : null}
 
                     {showInvoice ? (
-                        <section className="order-2 min-w-0 rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5 lg:col-start-2 lg:row-start-1">
+                        <section className="min-w-0 rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
                             <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
                                 <FileText size={16} className="text-[#2f6fed]" /> Invoice
                             </h2>
@@ -1125,12 +1320,9 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                         <div className="flex flex-col gap-2">
                             <button
                                 type="button"
-                                disabled={saving || mode !== 'received' || rows.length > 0}
-                                title={mode === 'required' ? 'LPO upload is locked while Required is selected' : undefined}
-                                onClick={() => {
-                                    setTab('LPO');
-                                    document.getElementById('lpo-details')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                }}
+                                disabled={saving || !canUploadLpo}
+                                title={canUploadLpo ? 'Open LPO received and save the LPO' : 'Upload LPO is available only when LPO is required'}
+                                onClick={openUploadLpo}
                                 className={`flex h-11 items-center justify-center gap-2 rounded-xl bg-[#2f6fed] text-sm font-semibold text-white hover:bg-[#245fe0] disabled:cursor-not-allowed disabled:bg-slate-300 ${FOCUS}`}
                             >
                                 <Link2 size={16} /> Upload LPO
@@ -1214,7 +1406,7 @@ function InfoItem({ label, value }) {
     return (
         <div>
             <dt className="text-[11px] uppercase tracking-wide text-slate-400">{label}</dt>
-            <dd className="mt-1 text-sm font-medium text-slate-800">{value}</dd>
+            <dd className="mt-1 break-words text-sm font-medium text-slate-800">{value}</dd>
         </div>
     );
 }

@@ -1,7 +1,7 @@
 'use client';
 
-import { FileText } from 'lucide-react';
-import { formatAed, formatWorkOrderDate } from './workOrderNumber';
+import { FileText, Paperclip } from 'lucide-react';
+import { formatAed } from './workOrderNumber';
 
 const FOCUS = 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f6fed]/40';
 const COLUMNS = ['#', 'Description', 'Qty', 'Rate', 'Amount'];
@@ -58,9 +58,6 @@ export default function WorkOrderQuotationPanel({ order, onOpen }) {
     const vatAmount = Number(quote.vatAmount) || 0;
     const total = Number(quote.total) || 0;
     const taxLabel = quote.taxLabel || 'TAX';
-    const billTo = Array.isArray(quote.billTo) && quote.billTo.length
-        ? quote.billTo
-        : [order.customer].filter(Boolean);
     const status = statusLabel(quote.status);
 
     return (
@@ -69,40 +66,20 @@ export default function WorkOrderQuotationPanel({ order, onOpen }) {
                 <h2 className="flex items-center gap-2 text-[15px] font-semibold text-slate-800">
                     <FileText size={16} className="text-[#2f6fed]" /> Quotation
                 </h2>
-                {status ? (
-                    <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">{status}</span>
-                ) : null}
+                <div className="flex items-center gap-2">
+                    {status ? (
+                        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">{status}</span>
+                    ) : null}
+                    <button
+                        type="button"
+                        onClick={onOpen}
+                        className={`inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#e5edf6] bg-white px-3 text-[13px] font-semibold text-[#2f6fed] hover:bg-[#f4f7fb] ${FOCUS}`}
+                    >
+                        <Paperclip size={14} />
+                        PDF
+                    </button>
+                </div>
             </div>
-            <dl className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <div>
-                    <dt className="text-[11px] uppercase tracking-wide text-slate-400">Estimate #</dt>
-                    <dd className="mt-1">
-                        <button type="button" onClick={onOpen} className={`text-sm font-semibold text-[#2f6fed] hover:underline ${FOCUS}`}>
-                            {order.quotationRef}
-                        </button>
-                    </dd>
-                </div>
-                <div>
-                    <dt className="text-[11px] uppercase tracking-wide text-slate-400">Estimate Date</dt>
-                    <dd className="mt-1 text-sm font-medium text-slate-800">{formatWorkOrderDate(quote.date || order.quotationDate)}</dd>
-                </div>
-                <div>
-                    <dt className="text-[11px] uppercase tracking-wide text-slate-400">Project Name</dt>
-                    <dd className="mt-1 text-sm font-medium text-slate-800">{quote.projectName || '—'}</dd>
-                </div>
-                <div>
-                    <dt className="text-[11px] uppercase tracking-wide text-slate-400">Sales person</dt>
-                    <dd className="mt-1 text-sm font-medium text-slate-800">{quote.salespersonName || order.salespersonName || '—'}</dd>
-                </div>
-                <div className="sm:col-span-2">
-                    <dt className="text-[11px] uppercase tracking-wide text-slate-400">Bill To</dt>
-                    <dd className="mt-1 text-sm font-medium text-slate-800">
-                        {billTo.map((line, index) => (
-                            <span key={`${line}-${index}`} className="block">{line}</span>
-                        ))}
-                    </dd>
-                </div>
-            </dl>
             <div className="overflow-x-auto">
                 <table className="w-full min-w-[720px] border-collapse text-left text-[13px]">
                     <thead>
@@ -128,8 +105,7 @@ export default function WorkOrderQuotationPanel({ order, onOpen }) {
                         {lines.map((line, index) => (
                             <tr
                                 key={line.id || index}
-                                onClick={onOpen}
-                                className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50"
+                                className="border-b border-slate-100 last:border-0"
                             >
                                 <td className="px-3 py-3 align-top text-slate-500 tabular-nums">{index + 1}</td>
                                 <td className="px-3 py-3 whitespace-pre-line text-slate-700">{line.description}</td>
@@ -155,12 +131,6 @@ export default function WorkOrderQuotationPanel({ order, onOpen }) {
                     <dd className="font-bold tabular-nums text-slate-900">{formatAed(total)}</dd>
                 </div>
             </dl>
-            {quote.notes ? (
-                <p className="mt-4 whitespace-pre-line text-[13px] leading-5 text-slate-600">{quote.notes}</p>
-            ) : null}
-            {quote.terms ? (
-                <p className="mt-3 whitespace-pre-line text-[13px] leading-5 text-slate-600">{quote.terms}</p>
-            ) : null}
         </section>
     );
 }
