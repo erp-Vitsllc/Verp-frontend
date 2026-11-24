@@ -300,6 +300,7 @@ export default function WorkOrderList() {
             </div>
             {quotePreview ? (
                 <WorkOrderQuotationModal
+                    workOrderId={quotePreview.id}
                     quotationRef={quotePreview.quote}
                     quotationId={quotePreview.quotationId}
                     onClose={() => setQuotePreview(null)}

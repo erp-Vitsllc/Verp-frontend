@@ -21,17 +21,20 @@ async function readBlobMessage(data, fallback) {
     }
 }
 
-async function loadQuotationPdf({ quotationRef, quotationId }) {
+async function loadQuotationPdf({ workOrderId, quotationRef, quotationId }) {
     const params = {};
     if (quotationId) params.estimateId = quotationId;
     if (quotationRef) params.number = quotationRef;
     try {
-        const response = await axiosInstance.get('/zoho/estimates/pdf', {
-            params,
+        const response = await axiosInstance.get(
+            workOrderId ? `/WorkOrder/${workOrderId}/quotation-file` : '/zoho/estimates/pdf',
+            {
+            params: workOrderId ? undefined : params,
             responseType: 'blob',
             skipToast: true,
             timeout: 90000,
-        });
+            },
+        );
         const contentType = String(response.headers?.['content-type'] || '').toLowerCase();
         if (contentType.includes('application/json')) {
             throw new Error(await readBlobMessage(response.data, 'Could not open this quotation.'));
@@ -54,7 +57,7 @@ async function loadQuotationPdf({ quotationRef, quotationId }) {
     }
 }
 
-export default function WorkOrderQuotationModal({ quotationRef, quotationId, onClose }) {
+export default function WorkOrderQuotationModal({ workOrderId = '', quotationRef, quotationId, onClose }) {
     const [pdfUrl, setPdfUrl] = useState('');
     const [fileName, setFileName] = useState('');
     const [loading, setLoading] = useState(true);
@@ -64,7 +67,7 @@ export default function WorkOrderQuotationModal({ quotationRef, quotationId, onC
         setLoading(true);
         setError('');
         try {
-            const { blob, name } = await loadQuotationPdf({ quotationRef, quotationId });
+            const { blob, name } = await loadQuotationPdf({ workOrderId, quotationRef, quotationId });
             const url = URL.createObjectURL(blob);
             setPdfUrl((current) => {
                 if (current) URL.revokeObjectURL(current);
@@ -81,7 +84,7 @@ export default function WorkOrderQuotationModal({ quotationRef, quotationId, onC
         } finally {
             setLoading(false);
         }
-    }, [quotationId, quotationRef]);
+    }, [quotationId, quotationRef, workOrderId]);
 
     useEffect(() => {
         load();

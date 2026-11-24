@@ -589,6 +589,7 @@ export default function WorkOrderDashboard() {
             </div>
             {quotePreview ? (
                 <WorkOrderQuotationModal
+                    workOrderId={quotePreview.id}
                     quotationRef={quotePreview.quote}
                     quotationId={quotePreview.quotationId}
                     onClose={() => setQuotePreview(null)}

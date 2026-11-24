@@ -7,7 +7,6 @@ import {
     ChevronRight,
     ClipboardList,
     FileText,
-    FolderPlus,
     Gavel,
     Home,
     Info,
@@ -32,12 +31,6 @@ const LPO_MODES = [
     { id: 'required', label: 'Required' },
     { id: 'not_required', label: 'Not required' },
     { id: 'received', label: 'LPO received' },
-];
-
-const DOC_TOGGLES = [
-    { id: 'quote', label: 'Quote' },
-    { id: 'invoice', label: 'Invoice' },
-    { id: 'lpo', label: 'LPO' },
 ];
 
 const RULES = [
@@ -126,7 +119,6 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [tab, setTab] = useState(focusSection === 'lpo' ? 'LPO' : 'Overview');
-    const [overviewDoc, setOverviewDoc] = useState('lpo');
     const [saving, setSaving] = useState(false);
     const [lpoNo, setLpoNo] = useState('');
     const [lpoDate, setLpoDate] = useState('');
@@ -315,12 +307,6 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         await patch({ lpoMode: next });
     };
 
-    const changeStatus = async (status) => {
-        if (!order || order.status === status || saving) return;
-        const saved = await patch({ status });
-        if (saved) toast({ title: 'Status updated', description: status });
-    };
-
     const addLpo = async () => {
         const amount = Number(lpoValue);
         const total = Number(order?.value) || 0;
@@ -368,7 +354,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         const already = (Array.isArray(order?.invoices) ? order.invoices : [])
             .reduce((sum, row) => sum + (Number(row.value) || 0), 0);
         if (!invoiceDate || !invoiceNo.trim() || !(amount > 0)) {
-            setFormError('Invoice date, number and value are required.');
+            setFormError('Invoice date, invoice number and value are required.');
             return;
         }
         if (orderValue > 0 && already + amount - orderValue > 0.009) {
@@ -515,10 +501,11 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     }
 
     const mode = order.lpoFollowUp ? followMode : (order.lpoMode || 'required');
-    const lpoStatusLabel = LPO_MODES.find((item) => item.id === mode)?.label || 'Required';
-    const showLpo = tab === 'LPO' || (tab === 'Overview' && overviewDoc === 'lpo');
-    const showQuoteCard = tab === 'Overview' && overviewDoc === 'quote';
-    const showInvoice = tab === 'Invoices' || (tab === 'Overview' && overviewDoc === 'invoice');
+    const showLpo = tab === 'LPO' || tab === 'Overview';
+    const showQuoteCard = tab === 'Overview';
+    const showInvoice = tab === 'Invoices' || tab === 'Overview';
+    const stacked = tab === 'Overview';
+    const invoiceError = /invoice/i.test(formError);
     const rows = lpoRows(order);
     const invoiceRows = Array.isArray(order.invoices) ? order.invoices : [];
     const invoiced = invoiceRows.length
@@ -526,6 +513,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         : (Number(order.invoicedAmount) || 0);
     const total = Number(order.value) || 0;
     const balance = Math.max(0, total - invoiced);
+    const totalsMatch = total > 0 && Math.abs(total - invoiced) < 0.01;
     const quotationRefValue = order.quotationRef ? (
         <button
             type="button"
@@ -630,7 +618,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
             <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
                 <div className="space-y-4">
                     <div className="flex gap-1 overflow-x-auto rounded-2xl border border-[#e6eef6] bg-white p-1.5">
-                        {['Overview', 'LPO', 'Quotation', 'Invoices', 'Budget', 'Check list', 'Material', 'Delivery', 'Activity'].map((item) => (
+                        {['Overview', 'LPO', 'Quotation', 'Invoices', 'BOQ', 'Budget', 'Check list', 'Material', 'Delivery', 'Activity'].map((item) => (
                             <button
                                 key={item}
                                 type="button"
@@ -665,38 +653,9 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                         </section>
                     ) : null}
 
-                    {tab === 'Overview' ? (
-                        <div role="tablist" aria-label="Work order document" className="inline-flex max-w-full flex-wrap gap-1 rounded-full bg-white p-1 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] ring-1 ring-[#e6eef6]">
-                            {DOC_TOGGLES.map((item) => {
-                                const active = overviewDoc === item.id;
-                                return (
-                                    <button
-                                        key={item.id}
-                                        type="button"
-                                        role="tab"
-                                        aria-selected={active}
-                                        onClick={() => {
-                                            setFormError('');
-                                            setOverviewDoc(item.id);
-                                        }}
-                                        className={active
-                                            ? `inline-flex h-8 items-center gap-1.5 rounded-full bg-[#2f6fed] px-3 text-[13px] font-semibold text-white ${FOCUS}`
-                                            : `inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-slate-600 hover:bg-[#f4f7fb] ${FOCUS}`}
-                                    >
-                                        {item.label}
-                                        {item.id === 'lpo' ? (
-                                            <span className={active ? 'text-[11px] font-medium text-white/80' : 'text-[11px] font-medium text-[#2f6fed]'}>
-                                                {lpoStatusLabel}
-                                            </span>
-                                        ) : null}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    ) : null}
-
+                    <div className={stacked ? 'grid grid-cols-1 items-start gap-4 lg:grid-cols-3' : 'contents'}>
                     {showLpo ? (
-                        <section id="lpo-details" className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
+                        <section id="lpo-details" className="order-3 min-w-0 rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5 lg:col-start-3 lg:row-start-1">
                             <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
                                 <Paperclip size={16} className="text-[#2f6fed]" /> LPO Details
                             </h2>
@@ -742,47 +701,73 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                             : 'Enter the LPO number, date, value and attachment. LPO value comes from the quotation total.')}
                             </p>
 
-                            {formError ? (
+                            {formError && !invoiceError ? (
                                 <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{formError}</p>
                             ) : null}
 
                             {rows.length ? (
-                                <div className="mt-4 overflow-x-auto">
-                                    <table className="w-full min-w-[640px] border-collapse text-left text-[13px]">
-                                        <thead>
-                                            <tr className="border-b border-slate-100 text-[11px] font-medium text-slate-400">
-                                                {['LPO Number', 'LPO Date', 'LPO Value', 'Attachment'].map((column) => (
-                                                    <th key={column} className="px-2 py-2 font-medium">{column}</th>
-                                                ))}
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {rows.map((row) => (
-                                                <tr key={row._id || row.lpoNo} className="border-b border-slate-100 last:border-0">
-                                                    <td className="px-2 py-3 font-semibold text-[#2f6fed]">{row.lpoNo || '—'}</td>
-                                                    <td className="px-2 py-3 text-slate-600">{formatWorkOrderDate(row.lpoDate)}</td>
-                                                    <td className="px-2 py-3 text-slate-700">{formatAed(row.lpoValue)}</td>
-                                                    <td className="px-2 py-3">
-                                                        {row.attachmentName ? (
-                                                            <button
-                                                                type="button"
-                                                                disabled={!row.attachmentData}
-                                                                onClick={() => downloadAttachment(row.attachmentName, row.attachmentMime, row.attachmentData)}
-                                                                className={`inline-flex items-center gap-1 text-[#2f6fed] hover:underline disabled:cursor-default disabled:no-underline ${FOCUS}`}
-                                                            >
-                                                                <Paperclip size={14} />
-                                                                {row.attachmentName}
-                                                                {row.attachmentBytes ? ` (${formatBytes(row.attachmentBytes)})` : ''}
-                                                            </button>
-                                                        ) : (
-                                                            <span className="text-slate-400">—</span>
-                                                        )}
-                                                    </td>
+                                stacked ? (
+                                    <dl className="mt-4 space-y-4">
+                                        {rows.map((row) => (
+                                            <div key={row._id || row.lpoNo} className="space-y-4">
+                                                <InfoItem label="LPO Number" value={row.lpoNo || '—'} />
+                                                <InfoItem label="LPO Date" value={formatWorkOrderDate(row.lpoDate)} />
+                                                <InfoItem label="LPO Value" value={formatAed(row.lpoValue)} />
+                                                <InfoItem
+                                                    label="Attachment"
+                                                    value={row.attachmentName ? (
+                                                        <button
+                                                            type="button"
+                                                            disabled={!row.attachmentData}
+                                                            onClick={() => downloadAttachment(row.attachmentName, row.attachmentMime, row.attachmentData)}
+                                                            className={`inline-flex items-center gap-1 text-[#2f6fed] hover:underline disabled:cursor-default disabled:no-underline ${FOCUS}`}
+                                                        >
+                                                            <Paperclip size={14} />
+                                                            {row.attachmentName}
+                                                        </button>
+                                                    ) : '—'}
+                                                />
+                                            </div>
+                                        ))}
+                                    </dl>
+                                ) : (
+                                    <div className="mt-4 overflow-x-auto">
+                                        <table className="w-full min-w-[640px] border-collapse text-left text-[13px]">
+                                            <thead>
+                                                <tr className="border-b border-slate-100 text-[11px] font-medium text-slate-400">
+                                                    {['LPO Number', 'LPO Date', 'LPO Value', 'Attachment'].map((column) => (
+                                                        <th key={column} className="px-2 py-2 font-medium">{column}</th>
+                                                    ))}
                                                 </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
+                                            </thead>
+                                            <tbody>
+                                                {rows.map((row) => (
+                                                    <tr key={row._id || row.lpoNo} className="border-b border-slate-100 last:border-0">
+                                                        <td className="px-2 py-3 font-semibold text-[#2f6fed]">{row.lpoNo || '—'}</td>
+                                                        <td className="px-2 py-3 text-slate-600">{formatWorkOrderDate(row.lpoDate)}</td>
+                                                        <td className="px-2 py-3 text-slate-700">{formatAed(row.lpoValue)}</td>
+                                                        <td className="px-2 py-3">
+                                                            {row.attachmentName ? (
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={!row.attachmentData}
+                                                                    onClick={() => downloadAttachment(row.attachmentName, row.attachmentMime, row.attachmentData)}
+                                                                    className={`inline-flex items-center gap-1 text-[#2f6fed] hover:underline disabled:cursor-default disabled:no-underline ${FOCUS}`}
+                                                                >
+                                                                    <Paperclip size={14} />
+                                                                    {row.attachmentName}
+                                                                    {row.attachmentBytes ? ` (${formatBytes(row.attachmentBytes)})` : ''}
+                                                                </button>
+                                                            ) : (
+                                                                <span className="text-slate-400">—</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )
                             ) : null}
 
                             {order.lpoFollowUp ? (
@@ -824,7 +809,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                                 </label>
                                             </div>
                                         ) : mode === 'received' ? (
-                                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                            <div className={stacked ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 gap-3 sm:grid-cols-2'}>
                                                 <label htmlFor="lpo-no">
                                                     <FieldLabel required>LPO Number</FieldLabel>
                                                     <input id="lpo-no" value={lpoNo} onChange={(event) => setLpoNo(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
@@ -929,7 +914,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                 </div>
                             ) : mode === 'received' && rows.length === 0 ? (
                                 <fieldset disabled={saving} className="mt-4">
-                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <div className={stacked ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 gap-3 sm:grid-cols-2'}>
                                         <label htmlFor="lpo-no">
                                             <FieldLabel required>LPO Number</FieldLabel>
                                             <input id="lpo-no" value={lpoNo} onChange={(event) => setLpoNo(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none disabled:bg-[#f4f7fb] ${FOCUS}`} />
@@ -967,27 +952,13 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                     ) : null}
 
                     {showQuoteCard ? (
-                        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
+                        <section className="order-1 min-w-0 rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5 lg:col-start-1 lg:row-start-1">
                             <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
                                 <FileText size={16} className="text-[#2f6fed]" /> Quote
                             </h2>
-                            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                <div>
-                                    <dt className="mb-1.5 text-[12px] font-medium text-slate-500">Quote no</dt>
-                                    <dd className="flex h-11 items-center rounded-xl border border-[#e5edf6] bg-[#f4f7fb] px-3 text-sm font-semibold text-slate-800">
-                                        {order.quotationRef ? (
-                                            <button type="button" onClick={() => setQuoteOpen(true)} className={`text-[#2f6fed] hover:underline ${FOCUS}`}>
-                                                {order.quotationRef}
-                                            </button>
-                                        ) : '—'}
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt className="mb-1.5 text-[12px] font-medium text-slate-500">Value</dt>
-                                    <dd className="flex h-11 items-center rounded-xl border border-[#e5edf6] bg-[#f4f7fb] px-3 text-sm font-semibold text-slate-800">
-                                        {formatAed(total)}
-                                    </dd>
-                                </div>
+                            <dl className="space-y-4">
+                                <InfoItem label="Quote no" value={quotationRefValue} />
+                                <InfoItem label="Value" value={formatAed(total)} />
                             </dl>
                         </section>
                     ) : null}
@@ -997,20 +968,20 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                     ) : null}
 
                     {showInvoice ? (
-                        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
+                        <section className="order-2 min-w-0 rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5 lg:col-start-2 lg:row-start-1">
                             <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
                                 <FileText size={16} className="text-[#2f6fed]" /> Invoice
                             </h2>
-                            {formError ? (
+                            {formError && invoiceError ? (
                                 <p className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{formError}</p>
                             ) : null}
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                            <div className={stacked ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 gap-3 sm:grid-cols-3'}>
                                 <label htmlFor="invoice-date">
-                                    <FieldLabel required>Date</FieldLabel>
+                                    <FieldLabel required>Invoice date</FieldLabel>
                                     <input id="invoice-date" type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
                                 </label>
                                 <label htmlFor="invoice-no">
-                                    <FieldLabel required>No</FieldLabel>
+                                    <FieldLabel required>Invoice number</FieldLabel>
                                     <input id="invoice-no" value={invoiceNo} onChange={(event) => setInvoiceNo(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
                                 </label>
                                 <label htmlFor="invoice-value">
@@ -1024,31 +995,20 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                 onClick={createInvoice}
                                 className={`mt-4 inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] disabled:opacity-60 ${FOCUS}`}
                             >
-                                {saving ? 'Saving…' : 'Create invoice'}
+                                {saving ? 'Saving…' : 'Create'}
                             </button>
-                            {invoiceRows.length ? (
-                                <div className="mt-4 overflow-x-auto">
-                                    <table className="w-full min-w-[420px] border-collapse text-left text-[13px]">
-                                        <thead>
-                                            <tr className="border-b border-slate-100 text-[11px] font-medium text-slate-400">
-                                                {['Date', 'No', 'Value'].map((column) => (
-                                                    <th key={column} className="px-2 py-2 font-medium">{column}</th>
-                                                ))}
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {invoiceRows.map((row, index) => (
-                                                <tr key={`${row.invoiceNo}-${row.invoiceDate}-${index}`} className="border-b border-slate-100 last:border-0">
-                                                    <td className="px-2 py-3 text-slate-600">{formatWorkOrderDate(row.invoiceDate)}</td>
-                                                    <td className="px-2 py-3 font-semibold text-[#2f6fed]">{row.invoiceNo || '—'}</td>
-                                                    <td className="px-2 py-3 text-slate-700">{formatAed(row.value)}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : null}
-                            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                            <div className="mt-4 space-y-4">
+                                {invoiceRows.length ? invoiceRows.map((row, index) => (
+                                    <dl key={`${row.invoiceNo}-${row.invoiceDate}-${index}`} className="space-y-3 border-t border-slate-100 pt-4">
+                                        <InfoItem label="Invoice date" value={formatWorkOrderDate(row.invoiceDate)} />
+                                        <InfoItem label="Invoice number" value={row.invoiceNo || '—'} />
+                                        <InfoItem label="Value" value={formatAed(row.value)} />
+                                    </dl>
+                                )) : (
+                                    <p className="border-t border-slate-100 pt-4 text-sm text-slate-500">No invoices yet.</p>
+                                )}
+                            </div>
+                            <div className={stacked ? 'mt-4 grid grid-cols-1 gap-3' : 'mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3'}>
                                 <div className="rounded-xl bg-[#f4f8fd] px-4 py-3">
                                     <p className="text-[12px] text-slate-400">Order value</p>
                                     <p className="mt-1 text-lg font-bold text-slate-900">{formatAed(total)}</p>
@@ -1062,6 +1022,36 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                     <p className="mt-1 text-lg font-bold text-slate-900">{formatAed(balance)}</p>
                                 </div>
                             </div>
+                            {totalsMatch ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setTab('BOQ')}
+                                    className={`mt-4 inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] ${FOCUS}`}
+                                >
+                                    Create BOQ
+                                </button>
+                            ) : null}
+                        </section>
+                    ) : null}
+                    </div>
+
+                    {tab === 'BOQ' ? (
+                        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
+                            <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
+                                <ClipboardList size={16} className="text-[#2f6fed]" /> BOQ
+                            </h2>
+                            {totalsMatch ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setTab('BOQ')}
+                                    className={`inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] ${FOCUS}`}
+                                >
+                                    Create BOQ
+                                </button>
+                            ) : (
+                                <p className="text-sm text-slate-500">Create BOQ appears when the invoice total matches the order value.</p>
+                            )}
+                            <p className="mt-4 text-sm text-slate-500">No BOQ lines yet.</p>
                         </section>
                     ) : null}
 
@@ -1169,29 +1159,13 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                 </button>
                             ) : null}
                             {(order.type || 'Standalone') === 'Standalone' ? (
-                                <>
-                                    <button
-                                        type="button"
-                                        className={`flex h-11 items-center justify-center gap-2 rounded-xl border border-[#e5edf6] bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 ${FOCUS}`}
-                                    >
-                                        <FolderPlus size={16} /> Convert to new project
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className={`flex h-11 items-center justify-center gap-2 rounded-xl border border-[#e5edf6] bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 ${FOCUS}`}
-                                    >
-                                        <FileText size={16} /> Add a variation
-                                    </button>
-                                </>
+                                <button
+                                    type="button"
+                                    className={`flex h-11 items-center justify-center gap-2 rounded-xl border border-[#e5edf6] bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 ${FOCUS}`}
+                                >
+                                    <FileText size={16} /> Add a variation
+                                </button>
                             ) : null}
-                            <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => changeStatus('Completed')}
-                                className={`flex h-11 items-center justify-center gap-2 rounded-xl border border-[#e5edf6] bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60 ${FOCUS}`}
-                            >
-                                <CheckCircle2 size={16} /> Mark Completed
-                            </button>
                         </div>
                     </section>
                     <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)]">
@@ -1214,6 +1188,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
             </div>
             {quoteOpen && order.quotationRef ? (
                 <WorkOrderQuotationModal
+                    workOrderId={order._id}
                     quotationRef={order.quotationRef}
                     quotationId={order.quotationId}
                     onClose={() => setQuoteOpen(false)}
