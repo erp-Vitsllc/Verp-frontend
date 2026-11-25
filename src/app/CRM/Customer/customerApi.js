@@ -22,6 +22,9 @@ export function normalizeZohoOption(option) {
     const contactName = text(option.contact_name || option.customer_name);
     const name = company || contactName;
     if (!id || !name) return null;
+    const label = contactName && company && contactName.toLowerCase() !== company.toLowerCase()
+        ? `${contactName} · ${company}`
+        : name;
     const billing = option.billing_address || {};
     const location = [billing.city, billing.state, billing.country].map(text).filter(Boolean).join(', ')
         || text(option.place_of_contact).replace(/[_-]+/g, ' ');
@@ -32,6 +35,9 @@ export function normalizeZohoOption(option) {
     return {
         id,
         name,
+        label,
+        company,
+        search: [contactName, company, text(option.email), text(option.phone || option.mobile)].filter(Boolean).join(' '),
         location,
         contact: contactName && contactName !== name ? contactName : '',
         email: text(option.email),
@@ -53,11 +59,11 @@ function rowsOf(response) {
 export function listZohoCustomerOptions() {
     const read = (sync) => axiosInstance.get('/zoho/customers', {
         skipToast: true,
-        timeout: 120000,
+        timeout: sync ? 180000 : 30000,
         params: { sync: sync ? 'true' : 'false' },
     }).then(rowsOf);
 
-    return read(false).then((cached) => (cached.length ? cached : read(true)));
+    return read(true).catch(() => read(false));
 }
 
 export function listCustomers(params) {

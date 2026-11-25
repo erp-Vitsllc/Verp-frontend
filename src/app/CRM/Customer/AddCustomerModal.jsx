@@ -18,9 +18,14 @@ import {
 
 const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), { ssr: false });
 
+function compactSearch(value) {
+    return String(value || '')
+        .toLowerCase()
+        .replace(/[\u200b\ufeff\u00a0]/g, ' ')
+        .replace(/[^a-z0-9]+/g, '');
+}
+
 function formFromCustomer(source, code) {
-    const brands = Array.isArray(source?.brands) ? source.brands.filter(Boolean).join(', ') : '';
-    const products = source?.products == null || source?.products === '' ? '' : String(source.products);
     return {
         code: code || source?.code || source?.customerCode || '',
         name: source?.name || '',
@@ -29,8 +34,6 @@ function formFromCustomer(source, code) {
         email: source?.email || '',
         phone: normalizePhone(source?.phone),
         paymentTerms: source?.paymentTerms || '',
-        brands,
-        products,
         status: source?.status === 'Inactive' ? 'Inactive' : 'Active',
     };
 }
@@ -41,9 +44,9 @@ function CustomerPicker({ choices, value, disabled, loading, onChange }) {
     const rootRef = useRef(null);
     const selected = choices.find((option) => option.id === value) || null;
     const filtered = useMemo(() => {
-        const needle = query.trim().toLowerCase();
+        const needle = compactSearch(query);
         if (!needle) return choices;
-        return choices.filter((option) => option.name.toLowerCase().includes(needle));
+        return choices.filter((option) => compactSearch(option.search || option.label || option.name).includes(needle));
     }, [choices, query]);
 
     useEffect(() => {
@@ -76,7 +79,7 @@ function CustomerPicker({ choices, value, disabled, loading, onChange }) {
                 className={`${fieldClass} flex items-center justify-between gap-2 text-left`}
             >
                 <span className={`min-w-0 truncate ${selected ? 'text-slate-800' : 'text-slate-400'}`}>
-                    {loading ? 'Loading Zoho customers...' : selected?.name || 'Select a Zoho customer'}
+                    {loading ? 'Loading Zoho customers...' : selected?.label || selected?.name || 'Select a Zoho customer'}
                 </span>
                 <ChevronDown size={16} className={`shrink-0 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
             </button>
@@ -99,7 +102,7 @@ function CustomerPicker({ choices, value, disabled, loading, onChange }) {
                                         close();
                                         return;
                                     }
-                                    if (event.key === 'Enter' && filtered.length === 1) {
+                                    if (event.key === 'Enter' && filtered.length === 1 && !filtered[0].added) {
                                         event.preventDefault();
                                         choose(filtered[0]);
                                     }
@@ -116,10 +119,14 @@ function CustomerPicker({ choices, value, disabled, loading, onChange }) {
                                     type="button"
                                     role="option"
                                     aria-selected={option.id === value}
-                                    onClick={() => choose(option)}
-                                    className={`block w-full truncate px-3 py-2 text-left text-sm ${option.id === value ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800 hover:bg-slate-50'}`}
+                                    disabled={option.added}
+                                    onClick={() => {
+                                        if (!option.added) choose(option);
+                                    }}
+                                    className={`block w-full truncate px-3 py-2 text-left text-sm ${option.added ? 'cursor-default text-slate-400' : option.id === value ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800 hover:bg-slate-50'}`}
                                 >
-                                    {option.name}
+                                    {option.label || option.name}
+                                    {option.added ? ' · Already added' : ''}
                                 </button>
                             </li>
                         ))}
@@ -224,8 +231,6 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null, st
         setForm((current) => ({
             ...formFromCustomer(option, current.code),
             code: current.code,
-            brands: current.brands,
-            products: current.products,
         }));
     }
 
@@ -233,12 +238,19 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null, st
         const taken = new Set(linkedIds);
         if (savedZohoId) taken.delete(savedZohoId);
         const rows = options
-            .filter((option) => option.id && option.name && !taken.has(option.id))
-            .map((option) => ({ id: option.id, name: option.name }));
+            .filter((option) => option.id && option.name)
+            .map((option) => ({
+                id: option.id,
+                name: option.name,
+                label: option.label || option.name,
+                search: option.search || option.label || option.name,
+                added: taken.has(option.id),
+            }));
         if (savedZohoId && !rows.some((row) => row.id === savedZohoId)) {
-            rows.push({ id: savedZohoId, name: customer?.name || 'Current customer' });
+            const currentName = customer?.name || 'Current customer';
+            rows.push({ id: savedZohoId, name: currentName, label: currentName, search: currentName, added: false });
         }
-        return rows.sort((left, right) => left.name.localeCompare(right.name));
+        return rows.sort((left, right) => (left.label || left.name).localeCompare(right.label || right.name));
     }, [customer?.name, linkedIds, options, savedZohoId]);
 
     async function onSubmit(event) {
@@ -253,10 +265,6 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null, st
         }
         if (!form.name.trim()) {
             setError('Customer name is required.');
-            return;
-        }
-        if (form.products.trim() !== '' && (!Number.isInteger(Number(form.products)) || Number(form.products) < 0)) {
-            setError('Products must be a whole number of zero or more.');
             return;
         }
         const emailIssue = emailProblem(form.email);
@@ -277,8 +285,6 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null, st
             email: form.email.trim(),
             phone: form.phone.trim(),
             paymentTerms: form.paymentTerms.trim(),
-            brands: form.brands,
-            products: form.products.trim(),
             status: form.status,
         };
         try {
@@ -343,8 +349,6 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null, st
                             />
                         </div>
                         <TextField label="Payment terms" value={form.paymentTerms} onChange={setField('paymentTerms')} />
-                        <TextField label="Brands" value={form.brands} onChange={setField('brands')} />
-                        <TextField label="Products" value={form.products} onChange={setField('products')} type="number" />
                         <label className="block min-w-0">
                             <span className={labelClass}>Status</span>
                             <select className={fieldClass} value={form.status} onChange={(event) => setField('status')(event.target.value)}>
