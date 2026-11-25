@@ -60,7 +60,7 @@ const DATE_RANGES = [
     { id: 'prevYear', label: 'Prev Year' },
     { id: 'custom', label: 'Custom' },
 ];
-const TYPE_FILTERS = ['All Types', 'System Task', 'Workflow Task', 'General Task'];
+const TYPE_FILTERS = ['All Types', 'System Task', 'Workflow Task', 'General Task', 'Project Task'];
 const STATE_FILTERS = [
     { id: 'open', label: 'Open' },
     { id: 'closed', label: 'Closed' },
@@ -105,6 +105,7 @@ const TYPE_STYLE = {
     'Workflow Task': 'bg-violet-50 text-violet-700',
     'Work Flow Task': 'bg-violet-50 text-violet-700',
     'General Task': 'bg-orange-50 text-orange-700',
+    'Project Task': 'bg-indigo-50 text-indigo-700',
 };
 
 function displayTaskType(value) {
@@ -1923,7 +1924,7 @@ function TaskManagerContent() {
                         <h2 className="text-base font-semibold text-slate-800">Delete task</h2>
                         <p className="mt-2 text-sm text-slate-600">
                             Delete {deleteTask.taskNumber ? `${deleteTask.taskNumber} — ` : ''}{deleteTask.taskName}?{' '}
-                            {displayTaskType(deleteTask.taskCategory) === 'General Task'
+                            {['General Task', 'Project Task'].includes(displayTaskType(deleteTask.taskCategory))
                                 ? 'This removes the task and its notifications.'
                                 : 'This removes the task, its workflow, and its notifications. The record behind it stays.'}
                             {isSystemSuperUser()

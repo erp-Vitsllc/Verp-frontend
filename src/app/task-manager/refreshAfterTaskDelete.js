@@ -14,7 +14,7 @@ const INBOX_EVENTS = [
 ];
 
 export function deletedTaskToastDescription(category, data) {
-    const base = category === 'General Task'
+    const base = category === 'General Task' || category === 'Project Task'
         ? 'The task and its notifications were removed.'
         : 'The task, its workflow, and its notifications were removed.';
     const name = String(data?.assigneeName || '').trim();

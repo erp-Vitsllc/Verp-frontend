@@ -7,7 +7,13 @@ import { useToast } from '@/hooks/use-toast';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import LinkedText from '@/app/task-manager/linkedText';
 
-const TASK_TYPE = 'General Task';
+const TASK_TYPES = ['General Task', 'Project Task'];
+const TASK_TYPE = TASK_TYPES[0];
+
+function manualTaskType(value) {
+    const type = value === 'Work Flow Task' ? 'Workflow Task' : String(value || '').trim();
+    return TASK_TYPES.includes(type) ? type : TASK_TYPE;
+}
 const PRIORITIES = ['High', 'Medium', 'Low'];
 
 const EMPTY_FORM = {
@@ -123,7 +129,7 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
         setForm(
             initialTask
                 ? {
-                      taskType: TASK_TYPE,
+                      taskType: manualTaskType(initialTask.taskCategory || initialTask.taskType),
                       priority: initialTask.priority || 'Medium',
                       taskName: initialTask.taskName || '',
                       description: initialTask.description || '',
@@ -259,7 +265,7 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
             );
             const priority = form.priority;
             const payload = {
-                taskType: TASK_TYPE,
+                taskType: manualTaskType(form.taskType),
                 priority,
                 taskName: form.taskName.trim(),
                 description: form.description.trim(),
@@ -280,7 +286,7 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
             });
             onCreated?.(res.data?.task || {
                 actionId: initialTask?.actionId,
-                taskType: TASK_TYPE,
+                taskType: manualTaskType(form.taskType),
                 priority,
                 taskName: form.taskName,
             });
@@ -320,11 +326,13 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                         <label>
                             <FieldLabel required>Task Type</FieldLabel>
                             <select
-                                value={TASK_TYPE}
-                                disabled
-                                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none"
+                                value={manualTaskType(form.taskType)}
+                                onChange={(event) => setField('taskType', event.target.value)}
+                                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500"
                             >
-                                <option>{TASK_TYPE}</option>
+                                {TASK_TYPES.map((item) => (
+                                    <option key={item}>{item}</option>
+                                ))}
                             </select>
                         </label>
                         <label>

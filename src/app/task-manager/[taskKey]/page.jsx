@@ -629,7 +629,7 @@ function TaskDetailsPage() {
     }
 
     const notes = task.notifications || { workUpdate: true, comment: true };
-    const generalTask = task.taskCategory === 'General Task';
+    const generalTask = task.taskCategory === 'General Task' || task.taskCategory === 'Project Task';
     const sourceApplies = !generalTask && (
         task.taskCategory === 'Workflow Task'
         || task.taskCategory === 'Work Flow Task'
@@ -644,7 +644,7 @@ function TaskDetailsPage() {
     const openSource = (event, path) => handleNavigateFromTaskSectionClick(event, router, path);
     const nameLines = taskNameLines(task);
     const shownStatus = statusLabel(task.displayStatus || task.status);
-    const generalClosed = task.taskCategory === 'General Task' && (task.displayStatus === 'Closed' || task.status === 'Completed');
+    const generalClosed = generalTask && (task.displayStatus === 'Closed' || task.status === 'Completed');
     const taskFinished = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.status === 'Cancelled' || task.status === 'Rejected' || task.closeScheduled || task.completionPending || task.reviewPending;
     const updatesLocked = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.status === 'Closed';
     const pendingWith = taskWaitingText(task);
@@ -959,7 +959,7 @@ function TaskDetailsPage() {
                                 ) : (
                                     <p className="mt-2 leading-6">No description.</p>
                                 )}
-                                {task.accessPath && task.taskCategory !== 'General Task' ? (
+                                {task.accessPath && !generalTask ? (
                                     <a
                                         href={task.accessPath}
                                         onClick={(event) => handleNavigateFromTaskSectionClick(event, router, task.accessPath)}
@@ -1032,7 +1032,7 @@ function TaskDetailsPage() {
                             <div>
                                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                                     <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-800"><Mail size={16} /> Emails for this task</h3>
-                                    {task.accessPath && task.taskCategory !== 'General Task' ? (
+                                    {task.accessPath && !generalTask ? (
                                         <a href={task.accessPath} onClick={(event) => handleNavigateFromTaskSectionClick(event, router, task.accessPath)} className="text-sm font-semibold text-[#2563EB]">Open the related page</a>
                                     ) : null}
                                 </div>
@@ -1153,7 +1153,7 @@ function TaskDetailsPage() {
                         <h2 className="text-base font-semibold text-slate-800">Delete task</h2>
                         <p className="mt-2 text-sm text-slate-600">
                             Delete {number ? `${number} — ` : ''}{task.taskName}?{' '}
-                            {task.taskCategory === 'General Task'
+                            {generalTask
                                 ? 'This removes the task and its notifications.'
                                 : 'This removes the task, its workflow, and its notifications. The record behind it stays.'}
                             {isSystemSuperUser()

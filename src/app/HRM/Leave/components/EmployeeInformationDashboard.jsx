@@ -204,6 +204,7 @@ function employeeTaskTypeClass(type) {
     if (type === 'System Task') return 'bg-[#EFF6FF] text-[#2563EB]';
     if (type === 'Workflow Task') return 'bg-[#F5F3FF] text-[#7C3AED]';
     if (type === 'General Task') return 'bg-[#FFF7ED] text-[#C2410C]';
+    if (type === 'Project Task') return 'bg-[#EEF2FF] text-[#4338CA]';
     return 'bg-[#F8FAFC] text-[#64748B]';
 }
 

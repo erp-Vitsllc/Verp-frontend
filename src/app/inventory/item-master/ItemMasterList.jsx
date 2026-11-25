@@ -1093,16 +1093,16 @@ function descriptionLine(parts) {
 }
 
 function DescriptionCell({ row }) {
-    const primary = descriptionLine([row?.itemName, row?.subcategoryName]);
+    const primary = descriptionLine([row?.subcategoryName, row?.itemName]);
     const secondary = descriptionLine([row?.brandName, row?.modelNumber]);
     const fallback = !primary && !secondary ? String(row?.description || '').trim() : '';
     return (
         <td className="min-w-[240px] max-w-sm px-3 py-3 align-top">
             <div className="flex flex-col gap-0.5">
                 {primary || fallback ? (
-                    <p className="text-[15px] font-semibold leading-5 text-slate-900">{primary || fallback}</p>
+                    <p className="text-sm leading-5 text-slate-700">{primary || fallback}</p>
                 ) : null}
-                {secondary ? <p className="text-xs leading-4 text-slate-500">{secondary}</p> : null}
+                {secondary ? <p className="text-sm leading-5 text-slate-700">{secondary}</p> : null}
             </div>
         </td>
     );

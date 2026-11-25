@@ -166,7 +166,7 @@ export function taskWaitingText(task, steps) {
         || task.status === 'Completed'
         || task.status === 'Cancelled'
         || task.status === 'Rejected';
-    if (!finished && task.reviewAccepted && task.taskCategory === 'General Task') {
+    if (!finished && task.reviewAccepted && (task.taskCategory === 'General Task' || task.taskCategory === 'Project Task')) {
         const name = employeeListName(requesterEmployeeName(task));
         return {
             approval: '',
