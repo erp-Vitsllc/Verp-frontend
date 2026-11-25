@@ -77,11 +77,12 @@ const ACTUAL_HEAD = [
     { key: 'item', label: 'Item', width: '8%' },
     { key: 'brand', label: 'Brand', width: '7%' },
     { key: 'modelNo', label: 'Model no', width: '8%' },
-    { key: 'quantity', label: 'Qty', width: '5%', align: 'right' },
+    { key: 'description', label: 'Description', width: '18%' },
+    { key: 'quantity', label: 'Qty', width: '6%', align: 'right' },
     { key: 'unitPrice', label: 'Unit price', width: '7%', align: 'right' },
     { key: 'total', label: 'Total', width: '7%', align: 'right' },
     { key: 'vendorName', label: 'Vendor name', width: '8%' },
-    { key: 'paymentTerms', label: 'Payment terms', width: '7%' },
+    { key: 'paymentTerms', label: 'Payment terms', width: '6%' },
 ];
 
 const ACTUAL_CELLS = [
@@ -91,8 +92,7 @@ const ACTUAL_CELLS = [
     { key: 'item' },
     { key: 'brand' },
     { key: 'modelNo' },
-    { key: 'descriptionNew', pre: true },
-    { key: 'descriptionOld', pre: true },
+    { key: 'description', pre: true },
     { key: 'quantity', numeric: true, money: true },
     { key: 'unitPrice', numeric: true, money: true },
     { key: 'total', numeric: true, money: true, strong: true },
@@ -123,7 +123,13 @@ function emptyActualRow() {
     };
 }
 
-function actualCellText(column, line) {
+function shownDescription(row, mode) {
+    const key = mode === 'old' ? 'descriptionOld' : 'descriptionNew';
+    return String(row?.[key] || '').trim();
+}
+
+function actualCellText(column, line, descriptionMode) {
+    if (column.key === 'description') return shownDescription(line, descriptionMode);
     const value = line?.[column.key];
     if (value === '' || value == null) return '';
     if (column.money) return money(value);
@@ -152,7 +158,7 @@ function printDescription(row) {
     return String(row?.descriptionNew || '').trim();
 }
 
-async function downloadActualBoqPdf(order, tables) {
+async function downloadActualBoqPdf(order, tables, descriptionMode = 'new') {
     const { jsPDF } = await import('jspdf');
     const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
     const pageW = pdf.internal.pageSize.getWidth();
@@ -202,7 +208,8 @@ async function downloadActualBoqPdf(order, tables) {
     y += 2;
 
     tables.forEach((table, tableIndex) => {
-        if (tables.length > 1) {
+        const heading = String(table.title || '').trim() || (tables.length > 1 ? `Table ${tableIndex + 1}` : '');
+        if (heading) {
             if (y + 8 > pageH - 12) {
                 pdf.addPage();
                 y = 16;
@@ -210,13 +217,13 @@ async function downloadActualBoqPdf(order, tables) {
             pdf.setFont('helvetica', 'bold');
             pdf.setFontSize(10);
             pdf.setTextColor(15, 23, 42);
-            pdf.text(`Table ${tableIndex + 1}`, margin, y + 4);
+            pdf.text(heading, margin, y + 4);
             y += 7;
         }
         drawHeaderRow();
         (table.rows || []).forEach((row, rowIndex) => {
             const cells = [
-                printDescription(row),
+                shownDescription(row, descriptionMode),
                 printAmount(row.quantity),
                 printAmount(row.unitPrice),
                 String(row.vendorName || '').trim(),
@@ -294,6 +301,8 @@ function ActualBoqTable({ order, onSaved }) {
     const [printing, setPrinting] = useState(false);
     const [saving, setSaving] = useState(false);
     const [rejectNote, setRejectNote] = useState('');
+    const [descriptionMode, setDescriptionMode] = useState('new');
+    const [headerAsk, setHeaderAsk] = useState(null);
     const capturedAt = order?.quotationSnapshot?.capturedAt || '';
     const savedStatus = order?.actualBoq?.status || '';
     const savedStamp = order?.actualBoq?.requestedAt || order?.actualBoq?.decidedAt || '';
@@ -303,6 +312,7 @@ function ActualBoqTable({ order, onSaved }) {
         if (saved.length) {
             setTables(saved.map((table) => ({
                 id: rowKey(),
+                title: String(table?.title || ''),
                 rows: (Array.isArray(table?.rows) ? table.rows : []).map((line) => ({ ...line, key: rowKey() })),
             })));
             setLoading(false);
@@ -320,7 +330,7 @@ function ActualBoqTable({ order, onSaved }) {
                 if (cancelled) return;
                 const lines = Array.isArray(response.data?.lines) ? response.data.lines : [];
                 setTables(lines.length
-                    ? [{ id: rowKey(), rows: lines.map((line) => ({ ...line, key: rowKey() })) }]
+                    ? [{ id: rowKey(), title: '', rows: lines.map((line) => ({ ...line, key: rowKey() })) }]
                     : []);
             })
             .catch(() => {
@@ -357,9 +367,9 @@ function ActualBoqTable({ order, onSaved }) {
         };
     }, [menu]);
 
-    const openMenu = (event, tableId, rowIndex, columnKey) => {
+    const openMenu = (event, tableId, rowIndex) => {
         const rect = event.currentTarget.getBoundingClientRect();
-        const id = `${tableId}:${rowIndex}:${columnKey}`;
+        const id = `${tableId}:${rowIndex}`;
         const width = 148;
         const height = 116;
         const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
@@ -390,15 +400,23 @@ function ActualBoqTable({ order, onSaved }) {
         setMenu(null);
     };
 
-    const insertHeader = (tableId) => {
+    const askHeader = (tableId) => {
+        setMenu(null);
+        setHeaderAsk({ tableId, name: '' });
+    };
+
+    const confirmHeader = () => {
+        const name = String(headerAsk?.name || '').trim();
+        const tableId = headerAsk?.tableId;
+        if (!name || !tableId) return;
         setTables((current) => {
             const index = current.findIndex((table) => table.id === tableId);
             if (index < 0) return current;
             const next = current.slice();
-            next.splice(index + 1, 0, { id: rowKey(), rows: [emptyActualRow()] });
+            next.splice(index + 1, 0, { id: rowKey(), title: name, rows: [emptyActualRow()] });
             return next;
         });
-        setMenu(null);
+        setHeaderAsk(null);
     };
 
     const boqStatus = order?.actualBoq?.status || '';
@@ -414,6 +432,7 @@ function ActualBoqTable({ order, onSaved }) {
             const response = await axiosInstance.patch(`/WorkOrder/${order._id}`, {
                 ...(mode === 'submit' ? { submitActualBoq: true } : { saveActualBoqDraft: true }),
                 actualBoqTables: tables.map((table) => ({
+                    title: table.title || '',
                     rows: table.rows.map(({ key, ...row }) => row),
                 })),
             });
@@ -465,14 +484,14 @@ function ActualBoqTable({ order, onSaved }) {
     if (failed) return <p className="text-sm text-slate-500">Actual BOQ could not be loaded.</p>;
     if (!tables.length) return <p className="text-sm text-slate-500">No actual BOQ lines yet.</p>;
 
-    const cell = 'relative break-words px-1 py-1 align-top font-normal';
-    const head = 'break-words px-1 py-1 align-bottom font-semibold';
+    const cell = 'break-words border border-slate-200 px-1 py-1 align-top font-normal';
+    const head = 'break-words border border-slate-200 px-1 py-1 align-bottom font-semibold';
 
     const printPdf = async () => {
         if (printing || !tables.length) return;
         setPrinting(true);
         try {
-            await downloadActualBoqPdf(order, tables);
+            await downloadActualBoqPdf(order, tables, descriptionMode);
         } finally {
             setPrinting(false);
         }
@@ -495,55 +514,73 @@ function ActualBoqTable({ order, onSaved }) {
                 const summary = tableSummary(table.rows);
                 return (
                 <div key={table.id}>
+                {table.title ? <h3 className="mb-2 text-sm font-semibold text-slate-800">{table.title}</h3> : null}
                 <table className="w-full table-fixed border-collapse text-left text-[10px] leading-snug text-slate-700">
                     <colgroup>
-                        {ACTUAL_HEAD.slice(0, 6).map((column) => (
+                        {ACTUAL_HEAD.map((column) => (
                             <col key={column.key} style={{ width: column.width }} />
                         ))}
-                        <col style={{ width: '11%' }} />
-                        <col style={{ width: '11%' }} />
-                        {ACTUAL_HEAD.slice(6).map((column) => (
-                            <col key={column.key} style={{ width: column.width }} />
-                        ))}
+                        <col style={{ width: '4%' }} />
                     </colgroup>
                     <thead>
-                        <tr className="border-b border-slate-200 bg-[#f4f7fb] text-[9px] uppercase tracking-wide text-slate-500">
-                            {ACTUAL_HEAD.slice(0, 6).map((column) => (
-                                <th key={column.key} rowSpan={2} className={head}>{column.label}</th>
+                        <tr className="bg-[#f4f7fb] text-[9px] uppercase tracking-wide text-slate-500">
+                            {ACTUAL_HEAD.map((column) => (
+                                column.key === 'description' ? (
+                                    <th key={column.key} className={head}>
+                                        <div className="text-center">Description</div>
+                                        <div className="mt-1 flex justify-center gap-1 normal-case tracking-normal">
+                                            <button
+                                                type="button"
+                                                onClick={() => setDescriptionMode('new')}
+                                                className={descriptionMode === 'new'
+                                                    ? 'rounded border border-[#2f6fed] bg-[#e8f1ff] px-1.5 py-0.5 text-[9px] font-semibold text-[#2f6fed]'
+                                                    : 'rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-semibold text-slate-500'}
+                                            >
+                                                New
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDescriptionMode('old')}
+                                                className={descriptionMode === 'old'
+                                                    ? 'rounded border border-[#2f6fed] bg-[#e8f1ff] px-1.5 py-0.5 text-[9px] font-semibold text-[#2f6fed]'
+                                                    : 'rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-semibold text-slate-500'}
+                                            >
+                                                Old
+                                            </button>
+                                        </div>
+                                    </th>
+                                ) : (
+                                    <th key={column.key} className={`${head} ${column.align === 'right' ? 'text-right' : ''}`}>{column.label}</th>
+                                )
                             ))}
-                            <th colSpan={2} className={`${head} text-center`}>Description</th>
-                            {ACTUAL_HEAD.slice(6).map((column) => (
-                                <th key={column.key} rowSpan={2} className={`${head} ${column.align === 'right' ? 'text-right' : ''}`}>{column.label}</th>
-                            ))}
-                        </tr>
-                        <tr className="border-b border-slate-200 bg-[#f4f7fb] text-[9px] uppercase tracking-wide text-slate-500">
-                            <th className={`${head} text-center`}>New</th>
-                            <th className={`${head} text-center`}>Old</th>
+                            <th className={head} aria-label="Row actions" />
                         </tr>
                     </thead>
                     <tbody>
                         {table.rows.map((line, rowIndex) => (
-                            <tr key={line.key} className="border-b border-slate-100 last:border-0">
+                            <tr key={line.key}>
                                 {ACTUAL_CELLS.map((column) => (
                                     <td
                                         key={column.key}
                                         className={`${cell} ${column.numeric ? 'tabular-nums' : ''} ${column.strong ? 'font-medium text-slate-800' : ''} ${column.key === 'slNo' ? 'text-slate-500' : ''}`}
                                     >
-                                        <span className={`block pr-3 ${column.pre ? 'whitespace-pre-line' : ''} ${column.numeric ? 'text-right' : ''}`}>
-                                            {actualCellText(column, line)}
+                                        <span className={`block whitespace-pre-line ${column.numeric ? 'text-right' : ''}`}>
+                                            {actualCellText(column, line, descriptionMode)}
                                         </span>
-                                        <button
-                                            type="button"
-                                            data-boq-plus=""
-                                            aria-label="Row actions"
-                                            aria-expanded={menu?.id === `${table.id}:${rowIndex}:${column.key}`}
-                                            onClick={(event) => openMenu(event, table.id, rowIndex, column.key)}
-                                            className="absolute right-0 top-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded border border-[#2f6fed] bg-white text-[11px] font-bold leading-none text-[#2f6fed] hover:bg-[#e8f1ff]"
-                                        >
-                                            +
-                                        </button>
                                     </td>
                                 ))}
+                                <td className={`${cell} text-center`}>
+                                    <button
+                                        type="button"
+                                        data-boq-plus=""
+                                        aria-label="Row actions"
+                                        aria-expanded={menu?.id === `${table.id}:${rowIndex}`}
+                                        onClick={(event) => openMenu(event, table.id, rowIndex)}
+                                        className="inline-flex h-4 w-4 items-center justify-center rounded border border-[#2f6fed] bg-white text-[11px] font-bold leading-none text-[#2f6fed] hover:bg-[#e8f1ff]"
+                                    >
+                                        +
+                                    </button>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
@@ -628,9 +665,33 @@ function ActualBoqTable({ order, onSaved }) {
                 >
                     <button type="button" onClick={() => addRow(menu.tableId, menu.rowIndex)} className="block w-full px-3 py-1.5 text-left hover:bg-[#f4f7fb]">Add row</button>
                     <button type="button" onClick={() => copyRow(menu.tableId, menu.rowIndex)} className="block w-full px-3 py-1.5 text-left hover:bg-[#f4f7fb]">Copy row</button>
-                    <button type="button" onClick={() => insertHeader(menu.tableId)} className="block w-full px-3 py-1.5 text-left hover:bg-[#f4f7fb]">Insert header</button>
+                    <button type="button" onClick={() => askHeader(menu.tableId)} className="block w-full px-3 py-1.5 text-left hover:bg-[#f4f7fb]">Insert header</button>
                 </div>,
                 document.body,
+            ) : null}
+            {headerAsk ? (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4">
+                    <form
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            confirmHeader();
+                        }}
+                        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+                    >
+                        <h3 className="text-base font-semibold text-slate-900">Header name</h3>
+                        <input
+                            autoFocus
+                            value={headerAsk.name}
+                            onChange={(event) => setHeaderAsk((current) => ({ ...current, name: event.target.value }))}
+                            placeholder="Enter the header name"
+                            className="mt-3 h-10 w-full rounded-xl border border-[#e5edf6] px-3 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#2f6fed]/30"
+                        />
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button type="button" onClick={() => setHeaderAsk(null)} className={`inline-flex h-9 items-center rounded-xl border border-[#e5edf6] px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 ${FOCUS}`}>Cancel</button>
+                            <button type="submit" disabled={!headerAsk.name.trim()} className={`inline-flex h-9 items-center rounded-xl bg-[#2f6fed] px-3 text-sm font-semibold text-white hover:bg-[#245fe0] disabled:opacity-60 ${FOCUS}`}>OK</button>
+                        </div>
+                    </form>
+                </div>
             ) : null}
         </div>
     );

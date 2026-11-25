@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Bell, Download, LayoutGrid, List, MoreVertical, Pencil, Plus, Receipt, Search, Trash2 } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
@@ -1176,10 +1177,10 @@ function ItemActionMenu({ editLabel, deleteLabel, deleting, onEdit, onDelete, de
             >
                 <MoreVertical size={16} />
             </button>
-            {menu ? (
+            {menu && typeof document !== 'undefined' ? createPortal(
                 <div
                     data-item-actions=""
-                    className="fixed z-50 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg"
+                    className="fixed z-[80] w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg"
                     style={{ top: menu.top, left: menu.left }}
                 >
                     {onEdit ? (
@@ -1211,7 +1212,8 @@ function ItemActionMenu({ editLabel, deleteLabel, deleting, onEdit, onDelete, de
                             <Trash2 size={14} /> {deleting ? 'Deleting...' : 'Delete'}
                         </button>
                     ) : null}
-                </div>
+                </div>,
+                document.body,
             ) : null}
         </div>
     );

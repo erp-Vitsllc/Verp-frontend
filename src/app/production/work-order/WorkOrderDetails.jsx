@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+    Bell,
     CheckCircle2,
     ChevronLeft,
     ChevronRight,
@@ -311,6 +312,8 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     const [vendorSaving, setVendorSaving] = useState(false);
     const [openingReceived, setOpeningReceived] = useState(false);
     const [choice, setChoice] = useState('required');
+    const [bellOpen, setBellOpen] = useState(false);
+    const bellRef = useRef(null);
     const [rejectReason, setRejectReason] = useState('');
     const [scrollToReceived, setScrollToReceived] = useState(false);
     const canResyncBudget = isSystemSuperUser();
@@ -341,6 +344,15 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     useEffect(() => {
         load();
     }, [load]);
+
+    useEffect(() => {
+        if (!bellOpen) return undefined;
+        const close = (event) => {
+            if (!bellRef.current?.contains(event.target)) setBellOpen(false);
+        };
+        document.addEventListener('mousedown', close);
+        return () => document.removeEventListener('mousedown', close);
+    }, [bellOpen]);
 
     const loadQuoteSync = useCallback(async () => {
         if (!id) return;
@@ -855,6 +867,9 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         ? (order.supportingDocument?.name || order.lpoAlert?.attachmentName || '')
         : '';
     const supportNote = savedLpoMode === 'not_required' ? String(order.supportingNote || '').trim() : '';
+    const missingLpoFill = savedLpoMode === 'not_required'
+        ? [!supportNote ? 'Reason' : '', !supportName ? 'Supporting document' : ''].filter(Boolean)
+        : [];
     const supportMime = order.supportingDocument?.name
         ? (order.supportingDocument.mime || '')
         : (order.lpoAlert?.attachmentMime || '');
@@ -880,9 +895,9 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
 
     return (
         <div className="relative text-slate-800">
-            <header className="relative mb-4 overflow-hidden">
+            <header className="relative mb-4">
                 <Skyline />
-                <div className="relative">
+                <div className="relative pr-14">
                     <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1.5 text-[13px] font-medium text-[#3b82f6]">
                         <Home size={14} />
                         <ChevronRight size={14} className="text-[#93c5fd]" />
@@ -898,6 +913,47 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                             <h1 className="text-[24px] font-bold tracking-tight text-slate-900 sm:text-[28px]">Work Order Details</h1>
                             <p className="text-[13px] text-slate-500">Quotation, LPO, invoices and project linkage</p>
                         </div>
+                    </div>
+                    <div ref={bellRef} className="absolute right-0 top-0 z-20">
+                        <button
+                            type="button"
+                            aria-label="Work order notifications"
+                            aria-expanded={bellOpen}
+                            onClick={() => setBellOpen((open) => !open)}
+                            className={`relative flex h-10 w-10 items-center justify-center rounded-xl border border-[#E6EDF5] bg-white text-slate-600 shadow-sm hover:bg-slate-50 ${FOCUS}`}
+                        >
+                            <Bell size={18} />
+                            {missingLpoFill.length ? (
+                                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                                    1
+                                </span>
+                            ) : null}
+                        </button>
+                        {bellOpen ? (
+                            <div className="absolute right-0 mt-2 w-80 overflow-hidden rounded-xl border border-[#E6EDF5] bg-white shadow-xl">
+                                <p className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">Notifications</p>
+                                {missingLpoFill.length ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setBellOpen(false);
+                                            setTab('LPO');
+                                        }}
+                                        className={`block w-full px-4 py-3 text-left hover:bg-slate-50 ${FOCUS}`}
+                                    >
+                                        <p className="text-sm font-semibold text-slate-800">{order.workOrderNo}</p>
+                                        <p className="mt-1 text-sm text-slate-600">
+                                            Waiting for {order.salespersonName || 'the salesperson'} to fill the following
+                                        </p>
+                                        <ul className="mt-1 list-disc pl-5 text-sm text-slate-600">
+                                            {missingLpoFill.map((item) => <li key={item}>{item}</li>)}
+                                        </ul>
+                                    </button>
+                                ) : (
+                                    <p className="px-4 py-6 text-sm text-slate-500">No notifications.</p>
+                                )}
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             </header>
