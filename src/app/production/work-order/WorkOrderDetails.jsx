@@ -217,7 +217,7 @@ function historySteps(order) {
             assignee: historyAssignee(order?.salespersonName),
         },
         { id: 'mom', label: 'MOM', done: false, assignee: '' },
-        { id: 'boq', label: 'Actual BOQ', done: false, assignee: '' },
+        { id: 'boq', label: 'Actual BOQ', done: order?.actualBoq?.status === 'approved', assignee: historyAssignee(order?.actualBoq?.status === 'draft' ? order?.actualBoq?.requestedByName : (order?.actualBoq?.status ? order?.projectManagerName : '')) },
         {
             id: 'budget',
             label: 'Budget',
@@ -286,7 +286,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     const [order, setOrder] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [tab, setTab] = useState(focusSection === 'lpo' ? 'LPO' : 'Overview');
+    const [tab, setTab] = useState(focusSection === 'lpo' ? 'LPO' : (focusSection === 'actual-boq' || focusSection === 'mr') ? 'Quotation' : 'Overview');
     const [saving, setSaving] = useState(false);
     const [lpoNo, setLpoNo] = useState('');
     const [lpoDate, setLpoDate] = useState('');
@@ -1080,8 +1080,24 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                     {savedLpoMode === 'not_required' ? (
                                         <>
                                             <InfoItem label="WO no" value={order.workOrderNo || '—'} />
-                                            <InfoItem label="Reason" value={supportNote || '—'} />
-                                            <InfoItem label="Supporting document" value={<AttachmentLink name={supportName} mime={supportMime} data={supportData} />} />
+                                            {supportNote ? <InfoItem label="Reason" value={supportNote} /> : null}
+                                            {supportName ? (
+                                                <InfoItem
+                                                    label="Supporting document"
+                                                    value={<AttachmentLink name={supportName} mime={supportMime} data={supportData} />}
+                                                />
+                                            ) : null}
+                                            {!supportNote || !supportName ? (
+                                                <div>
+                                                    <p className="text-sm font-medium text-slate-800">
+                                                        Waiting for {order.salespersonName || 'the salesperson'} to fill the following
+                                                    </p>
+                                                    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-slate-600">
+                                                        {!supportNote ? <li>Reason</li> : null}
+                                                        {!supportName ? <li>Supporting document</li> : null}
+                                                    </ul>
+                                                </div>
+                                            ) : null}
                                         </>
                                     ) : (
                                         <InfoItem label="Description" value={lpoCopy.description} />
@@ -1432,7 +1448,12 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                     ) : null}
 
                     {tab === 'Quotation' ? (
-                        <WorkOrderQuotationPanel order={order} onOpen={() => setQuoteOpen(true)} />
+                        <WorkOrderQuotationPanel
+                            order={order}
+                            onOpen={() => setQuoteOpen(true)}
+                            onSaved={setOrder}
+                            initialTab={focusSection === 'mr' ? 'mr' : focusSection === 'actual-boq' ? 'actual' : 'proposed'}
+                        />
                     ) : null}
 
                     {showInvoice ? (

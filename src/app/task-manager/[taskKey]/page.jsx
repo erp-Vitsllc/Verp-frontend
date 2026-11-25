@@ -424,6 +424,27 @@ function TaskDetailsPage() {
     const submitNoteAction = async (description) => {
         const action = noteAction;
         if (!action) return;
+        if (action === 'reject-date') {
+            setBusy(true);
+            try {
+                const res = await axiosInstance.post(
+                    `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/completion-date/decision`,
+                    { decision: 'reject', description },
+                    { skipToast: true },
+                );
+                setTask(res.data?.task || null);
+                setNoteAction(null);
+                toast({
+                    title: 'Date change rejected',
+                    description: res.data?.message || 'The completion date was not changed.',
+                });
+            } catch (err) {
+                toast({ title: 'Could not reject the date', description: err?.response?.data?.message || 'Try again.' });
+            } finally {
+                setBusy(false);
+            }
+            return;
+        }
         const path = action === 'return'
             ? 'return'
             : action === 'reject'
@@ -476,6 +497,26 @@ function TaskDetailsPage() {
             const pending = pendingFromError(err, task?.accessPath);
             if (pending) setSourceBlock(pending);
             toast({ title: 'Could not update the task', description: err?.response?.data?.message || 'Try again.' });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const approveDateChange = async () => {
+        setBusy(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/completion-date/decision`,
+                { decision: 'approve' },
+                { skipToast: true },
+            );
+            setTask(res.data?.task || null);
+            toast({
+                title: 'Date change approved',
+                description: res.data?.message || 'The completion date was changed.',
+            });
+        } catch (err) {
+            toast({ title: 'Could not approve the date', description: err?.response?.data?.message || 'Try again.' });
         } finally {
             setBusy(false);
         }
@@ -709,8 +750,43 @@ function TaskDetailsPage() {
                                     <SourcePendingNotice notice={sourceNotice} onNavigate={openSource} />
                                 </div>
                             ) : null}
+                            {task.dateChangePending && task.dateChangeProposal ? (
+                                <div className="mt-3 max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                                    <p className="font-semibold">
+                                        {task.dateChangeProposal.requestedByName || 'Someone'} asked to change the completion date from {formatDay(task.dateChangeProposal.previousDate)} to {formatDay(task.dateChangeProposal.proposedDate)}.
+                                    </p>
+                                    {task.dateChangeProposal.description ? (
+                                        <p className="mt-1 whitespace-pre-wrap">{task.dateChangeProposal.description}</p>
+                                    ) : null}
+                                    <p className="mt-1 text-xs text-amber-800">
+                                        {task.dateChangeProposal.requestedByRole === 'reassignee'
+                                            ? 'Waiting for the assignee to approve, or reject with a reason.'
+                                            : 'Waiting for the requester to approve, or reject with a reason.'}
+                                    </p>
+                                </div>
+                            ) : null}
                         </div>
                         <div className="flex items-center gap-2">
+                            {task.canDecideDateChange ? (
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={approveDateChange}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
+                                >
+                                    <Check size={14} /> Approve date
+                                </button>
+                            ) : null}
+                            {task.canDecideDateChange ? (
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => setNoteAction('reject-date')}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-40"
+                                >
+                                    Reject date
+                                </button>
+                            ) : null}
                             {task.canReopen && (
                                 <button
                                     type="button"
@@ -1122,19 +1198,19 @@ function TaskDetailsPage() {
                     onClose={() => {
                         if (!busy) setDateOpen(false);
                     }}
-                    onSave={async (value) => {
+                    onSave={async (value, description) => {
                         setBusy(true);
                         try {
                             const res = await axiosInstance.post(
                                 `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/completion-date`,
-                                { completionDate: value },
+                                { completionDate: value, description },
                                 { skipToast: true },
                             );
                             if (res.data?.task) setTask(res.data.task);
                             setDateOpen(false);
                             toast({
-                                title: 'Completion date changed',
-                                description: 'The new date is now the task completion date.',
+                                title: res.data?.outcome === 'pending' ? 'Sent for approval' : 'Completion date changed',
+                                description: res.data?.message || 'The completion date was updated.',
                             });
                         } catch (err) {
                             toast({
@@ -1250,8 +1326,10 @@ function TaskDetailsPage() {
             )}
             {noteAction && (
                 <NoteModal
-                    fieldLabel={noteAction === 'reopen' || noteAction === 'reject-completion' ? 'Reason' : 'Description'}
-                    title={noteAction === 'reopen'
+                    fieldLabel={noteAction === 'reject-date' || noteAction === 'reopen' || noteAction === 'reject-completion' ? 'Reason' : 'Description'}
+                    title={noteAction === 'reject-date'
+                        ? 'Reject date change'
+                        : noteAction === 'reopen'
                         ? 'Reopen the task'
                         : noteAction === 'return'
                         ? 'Return Task'
@@ -1266,7 +1344,9 @@ function TaskDetailsPage() {
                                         : noteAction === 'complete'
                                             ? 'Complete my task'
                                             : 'Confirm Close'}
-                    hint={noteAction === 'reopen'
+                    hint={noteAction === 'reject-date'
+                        ? 'A reason is required. The completion date stays the same, and the person who asked is emailed that reason at their company address.'
+                        : noteAction === 'reopen'
                         ? 'A reason is required. The task becomes Open again. The original assignee is emailed the task number and a link to this page.'
                         : noteAction === 'reject-completion'
                         ? 'A reason is required. It is emailed to the reassigned employee, saved in Emails, and shown in Work Updates. They get Complete my task again.'
@@ -1287,7 +1367,9 @@ function TaskDetailsPage() {
                                             : sourceNotice
                                                 ? 'This task is still Pending. Open the related task and finish it. It can be completed only when that status is Completed or Closed.'
                                                 : 'Confirming closes this task for both of you. It leaves the open task list.'}
-                    submitLabel={noteAction === 'reopen'
+                    submitLabel={noteAction === 'reject-date'
+                        ? 'Reject'
+                        : noteAction === 'reopen'
                         ? 'Reopen the task'
                         : noteAction === 'reject' || noteAction === 'general-reject' || noteAction === 'reject-completion'
                         ? 'Reject'
@@ -1303,7 +1385,7 @@ function TaskDetailsPage() {
                                             ? 'Complete my task'
                                             : 'Confirm Close'}
                     busy={busy}
-                    notice={generalTask ? null : sourceNotice}
+                    notice={noteAction === 'reject-date' || generalTask ? null : sourceNotice}
                     onNavigate={openSource}
                     onClose={() => { if (!busy) setNoteAction(null); }}
                     onSubmit={submitNoteAction}
@@ -1341,6 +1423,25 @@ function Fact({ label, value, pill, icon: Icon, note }) {
 function ChangeCompletionDateModal({ task, busy, onClose, onSave }) {
     const current = dateInputValue(task.completionDate);
     const [value, setValue] = useState(current);
+    const [description, setDescription] = useState('');
+    const [error, setError] = useState('');
+    const hasReassignee = Boolean(String(task.reassignedAssigneeName || '').trim());
+    const hint = task.dateChangeRole === 'requester'
+        ? (hasReassignee
+            ? 'A description is required. The date changes now. The requester, assignee, and reassignee are emailed at their company address.'
+            : 'A description is required. The date changes now. The requester and assignee are emailed at their company address.')
+        : task.dateChangeRole === 'reassignee'
+            ? 'A description is required. The assignee is emailed at their company address to approve or reject this change. If it is approved, the requester and reassignee are emailed.'
+            : (hasReassignee
+                ? 'A description is required. The requester is emailed at their company address to approve or reject this change. If it is approved, the assignee and reassignee are emailed.'
+                : 'A description is required. The requester is emailed at their company address to approve or reject this change. If it is approved, the assignee is emailed.');
+    const submit = () => {
+        if (!description.trim()) {
+            setError('Description is required.');
+            return;
+        }
+        onSave(value, description.trim());
+    };
     return (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
             <div
@@ -1348,9 +1449,7 @@ function ChangeCompletionDateModal({ task, busy, onClose, onSave }) {
                 onClick={(event) => event.stopPropagation()}
             >
                 <h2 className="text-base font-semibold text-slate-800">Change completion date</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                    The date you enter becomes the task completion date. The first date stays as the original.
-                </p>
+                <p className="mt-1 text-sm text-slate-500">{hint}</p>
                 <label className="mt-4 block text-xs font-semibold text-slate-500">
                     Current completion date
                     <input
@@ -1376,10 +1475,30 @@ function ChangeCompletionDateModal({ task, busy, onClose, onSave }) {
                     <input
                         type="date"
                         value={value}
+                        disabled={busy}
                         onChange={(event) => setValue(event.target.value)}
                         className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-800"
                     />
                 </label>
+                <label className="mt-3 block text-xs font-semibold text-slate-500">
+                    <span className="flex items-center justify-between">
+                        <span>Description <span className="text-rose-500">*</span></span>
+                        <span className="font-normal text-slate-400">{description.length}/500</span>
+                    </span>
+                    <textarea
+                        value={description}
+                        maxLength={500}
+                        disabled={busy}
+                        rows={4}
+                        placeholder="Description is required"
+                        onChange={(event) => {
+                            setDescription(event.target.value);
+                            setError('');
+                        }}
+                        className="mt-1 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500"
+                    />
+                </label>
+                {error ? <p className="mt-2 text-sm text-rose-600">{error}</p> : null}
                 <div className="mt-4 flex justify-end gap-2">
                     <button
                         type="button"
@@ -1391,11 +1510,11 @@ function ChangeCompletionDateModal({ task, busy, onClose, onSave }) {
                     </button>
                     <button
                         type="button"
-                        disabled={busy || !value || value === current}
-                        onClick={() => onSave(value)}
+                        disabled={busy || !value || value === current || !description.trim()}
+                        onClick={submit}
                         className="h-9 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-60"
                     >
-                        {busy ? 'Saving...' : 'Save'}
+                        {busy ? 'Saving...' : (task.dateChangeRole === 'requester' ? 'Change date' : 'Send for approval')}
                     </button>
                 </div>
             </div>

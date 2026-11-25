@@ -480,6 +480,10 @@ export function buildUnderstandableNotificationTitle(item = {}) {
         case 'Work Order LPO Attachment':
         case 'Work Order LPO Approval':
             return sanitizeNotificationText(item.extra1 || '') || 'LPO was not filled';
+        case 'Work Order Actual BOQ':
+            return sanitizeNotificationText(item.extra1 || '') || 'Actual BOQ';
+        case 'Work Order MR':
+            return sanitizeNotificationText(item.extra1 || '') || 'Create the material request';
         case 'Inventory Bill Draft':
             return sanitizeNotificationText(item.extra1 || item.subjectName || '') || 'Draft bill';
         default:
@@ -582,6 +586,12 @@ function buildUtilityCategoryLine(item = {}) {
     }
     if (type === 'Work Order LPO' || type === 'Work Order LPO Attachment' || type === 'Work Order LPO Approval') {
         return e2 || 'LPO number, date and value were left empty.';
+    }
+    if (type === 'Work Order Actual BOQ') {
+        return e2 || 'Open the notification to approve or reject.';
+    }
+    if (type === 'Work Order MR') {
+        return e2 || 'Create the material request from the approved actual BOQ.';
     }
     if (type === 'Inventory Bill Draft') {
         return e2 || 'Bill you created is on draft. Submit it.';

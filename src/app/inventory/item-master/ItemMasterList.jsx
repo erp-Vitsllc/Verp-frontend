@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Bell, Download, LayoutGrid, List, Pencil, Plus, Receipt, Search, Trash2 } from 'lucide-react';
+import { Bell, Download, LayoutGrid, List, MoreVertical, Pencil, Plus, Receipt, Search, Trash2 } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
@@ -662,10 +662,10 @@ export default function ItemMasterList() {
                 brandId,
                 status: status !== DEFAULT_STOCK_STATUS ? status : '',
             });
-            const header = ['Item Code', 'Item Name', 'Brand', 'Model', 'Description', 'Category', 'Qty', 'Status'];
+            const header = ['Item Code', 'Item Name', 'Brand', 'Model', 'Description', 'Category', 'Subcategory', 'Qty', 'Status'];
             const lines = [header.map(csvCell).join(',')];
             (result.items || []).forEach((row) => {
-                const cells = [row.itemCode, row.itemName, row.brandName, row.modelNumber, row.description, row.categoryName, row.availableQuantity, row.status];
+                const cells = [row.itemCode, row.itemName, row.brandName, row.modelNumber, row.description, row.categoryName, row.subcategoryName, row.availableQuantity, row.status];
                 lines.push(cells.map(csvCell).join(','));
             });
             const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -696,8 +696,8 @@ export default function ItemMasterList() {
         brand: 'Search brand...',
     }[tab];
     const showItemActions = access.canEditItem || access.canDeleteItem;
-    const itemColumnCount = showItemActions ? 9 : 8;
-    const itemHeadings = ['Item Code', 'Item Name', 'Brand', 'Model', 'Description', 'Category', 'Qty', 'Status'];
+    const itemColumnCount = showItemActions ? 10 : 9;
+    const itemHeadings = ['Item Code', 'Item Name', 'Brand', 'Model', 'Description', 'Category', 'Subcategory', 'Qty', 'Status'];
     if (showItemActions) itemHeadings.push('Actions');
 
     return (
@@ -893,6 +893,11 @@ export default function ItemMasterList() {
                                             label="category"
                                             onOpen={row.categoryId ? () => showItems({ caption: `category ${row.categoryName || ''}`.trim(), categoryId: row.categoryId }) : null}
                                         />
+                                        <ItemLinkCell
+                                            name={row.subcategoryName}
+                                            label="subcategory"
+                                            onOpen={row.subcategoryId ? () => showItems({ caption: `subcategory ${row.subcategoryName || ''}`.trim(), subcategoryId: row.subcategoryId }) : null}
+                                        />
                                         <td className={`whitespace-nowrap px-3 py-3 font-semibold ${availableClass(row)}`}>{row.availableQuantity}</td>
                                         <td className="whitespace-nowrap px-3 py-3">
                                             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(row.status)}`}>
@@ -901,7 +906,7 @@ export default function ItemMasterList() {
                                         </td>
                                         {showItemActions ? (
                                             <td className="whitespace-nowrap px-3 py-3" onClick={(event) => event.stopPropagation()}>
-                                                <RowActions
+                                                <ItemActionMenu
                                                     deleting={deletingId === String(row._id)}
                                                     editLabel={`Edit ${row.itemCode || 'item'}`}
                                                     deleteLabel={`Delete ${row.itemCode || 'item'}`}
@@ -1123,6 +1128,92 @@ function ItemLinkCell({ name, label, onOpen }) {
                 {name || '—'}
             </button>
         </td>
+    );
+}
+
+function ItemActionMenu({ editLabel, deleteLabel, deleting, onEdit, onDelete, deleteDisabled = false, deleteTitle = '' }) {
+    const [menu, setMenu] = useState(null);
+    const locked = Boolean(deleteDisabled);
+
+    useEffect(() => {
+        if (!menu) return undefined;
+        const dismiss = () => setMenu(null);
+        const close = (event) => {
+            if (event.target?.closest?.('[data-item-actions]')) return;
+            setMenu(null);
+        };
+        const onKey = (event) => {
+            if (event.key === 'Escape') setMenu(null);
+        };
+        window.addEventListener('mousedown', close);
+        window.addEventListener('keydown', onKey);
+        window.addEventListener('scroll', dismiss, true);
+        return () => {
+            window.removeEventListener('mousedown', close);
+            window.removeEventListener('keydown', onKey);
+            window.removeEventListener('scroll', dismiss, true);
+        };
+    }, [menu]);
+
+    const openMenu = (event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        const width = 144;
+        const height = 84;
+        const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+        const below = rect.bottom + 4;
+        const top = below + height > window.innerHeight ? Math.max(8, rect.top - height - 4) : below;
+        setMenu((current) => (current ? null : { top, left }));
+    };
+
+    return (
+        <div className="flex justify-end" data-item-actions="">
+            <button
+                type="button"
+                aria-label="Actions"
+                aria-expanded={Boolean(menu)}
+                onClick={openMenu}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+            >
+                <MoreVertical size={16} />
+            </button>
+            {menu ? (
+                <div
+                    data-item-actions=""
+                    className="fixed z-50 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg"
+                    style={{ top: menu.top, left: menu.left }}
+                >
+                    {onEdit ? (
+                        <button
+                            type="button"
+                            aria-label={editLabel}
+                            onClick={() => {
+                                setMenu(null);
+                                onEdit();
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50"
+                        >
+                            <Pencil size={14} /> Edit
+                        </button>
+                    ) : null}
+                    {onDelete ? (
+                        <button
+                            type="button"
+                            aria-label={deleteLabel}
+                            disabled={deleting || locked}
+                            title={locked ? (deleteTitle || STOCK_DELETE_TITLE) : (deleting ? 'Deleting...' : 'Delete')}
+                            onClick={() => {
+                                if (deleting || locked) return;
+                                setMenu(null);
+                                onDelete();
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <Trash2 size={14} /> {deleting ? 'Deleting...' : 'Delete'}
+                        </button>
+                    ) : null}
+                </div>
+            ) : null}
+        </div>
     );
 }
 
