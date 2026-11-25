@@ -1132,7 +1132,7 @@ function ItemLinkCell({ name, label, onOpen }) {
     );
 }
 
-function ItemActionMenu({ editLabel, deleteLabel, deleting, onEdit, onDelete, deleteDisabled = false, deleteTitle = '' }) {
+function ItemActionMenu({ editLabel, deleteLabel, deleting, onEdit, onDelete, deleteDisabled = false, deleteTitle = '', align = 'end' }) {
     const [menu, setMenu] = useState(null);
     const locked = Boolean(deleteDisabled);
 
@@ -1167,7 +1167,7 @@ function ItemActionMenu({ editLabel, deleteLabel, deleting, onEdit, onDelete, de
     };
 
     return (
-        <div className="flex justify-end" data-item-actions="">
+        <div className={`flex ${align === 'start' ? 'justify-start' : 'justify-end'}`} data-item-actions="">
             <button
                 type="button"
                 aria-label="Actions"
@@ -1214,37 +1214,6 @@ function ItemActionMenu({ editLabel, deleteLabel, deleting, onEdit, onDelete, de
                     ) : null}
                 </div>,
                 document.body,
-            ) : null}
-        </div>
-    );
-}
-
-function RowActions({ editLabel, deleteLabel, deleting, onEdit, onDelete, deleteDisabled = false, deleteTitle = '', compact = false }) {
-    const editClass = compact
-        ? 'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50'
-        : 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50';
-    const deleteClass = compact
-        ? 'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50'
-        : 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50';
-    const locked = Boolean(deleteDisabled);
-    return (
-        <div className={`flex items-center ${compact ? 'gap-1' : 'gap-2'}`}>
-            {onEdit ? (
-                <button type="button" onClick={onEdit} className={editClass} aria-label={editLabel} title="Edit">
-                    <Pencil size={13} /> {compact ? null : 'Edit'}
-                </button>
-            ) : null}
-            {onDelete ? (
-                <button
-                    type="button"
-                    disabled={deleting || locked}
-                    onClick={onDelete}
-                    className={deleteClass}
-                    aria-label={deleteLabel}
-                    title={locked ? (deleteTitle || STOCK_DELETE_TITLE) : (deleting ? 'Deleting...' : 'Delete')}
-                >
-                    <Trash2 size={13} /> {compact ? null : (deleting ? 'Deleting...' : 'Delete')}
-                </button>
             ) : null}
         </div>
     );
@@ -1350,8 +1319,8 @@ function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onD
     const range = pageWindow(rows.length, page, pageSize);
     const pageRows = slicePage(rows, range.currentPage, pageSize);
     const countWidth = showImage || serial ? '13%' : '15%';
-    const nameWidth = showImage ? '20%' : (serial ? '22%' : '26%');
-    const actionWidth = showImage ? '24%' : (serial ? '31%' : '29%');
+    const nameWidth = showImage ? '36%' : (serial ? '45%' : '47%');
+    const actionWidth = '8%';
     return (
         <>
             <div className="overflow-x-auto">
@@ -1424,7 +1393,8 @@ function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onD
                                 })}
                                 {showActions ? (
                                     <td className="whitespace-nowrap border-b border-slate-100 px-4 py-3">
-                                        <RowActions
+                                        <ItemActionMenu
+                                            align="start"
                                             deleting={String(deletingId) === String(row._id)}
                                             editLabel={`Edit ${row.name || noun}`}
                                             deleteLabel={`Delete ${row.name || noun}`}

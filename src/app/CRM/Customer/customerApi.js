@@ -57,13 +57,11 @@ function rowsOf(response) {
 }
 
 export function listZohoCustomerOptions() {
-    const read = (sync) => axiosInstance.get('/zoho/customers', {
+    return axiosInstance.get('/zoho/customers', {
         skipToast: true,
-        timeout: sync ? 180000 : 30000,
-        params: { sync: sync ? 'true' : 'false' },
+        timeout: 30000,
+        params: { sync: 'false' },
     }).then(rowsOf);
-
-    return read(true).catch(() => read(false));
 }
 
 export function listCustomers(params) {

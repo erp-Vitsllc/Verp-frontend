@@ -276,6 +276,7 @@ function TaskDetailsPage() {
     const [sourceBlock, setSourceBlock] = useState(null);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [dateOpen, setDateOpen] = useState(false);
+    const [dateReviewOpen, setDateReviewOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
     const [viewer, setViewer] = useState(null);
@@ -434,6 +435,8 @@ function TaskDetailsPage() {
                 );
                 setTask(res.data?.task || null);
                 setNoteAction(null);
+                setDateReviewOpen(false);
+                setTab('updates');
                 toast({
                     title: 'Date change rejected',
                     description: res.data?.message || 'The completion date was not changed.',
@@ -511,12 +514,36 @@ function TaskDetailsPage() {
                 { skipToast: true },
             );
             setTask(res.data?.task || null);
+            setDateReviewOpen(false);
+            setTab('updates');
             toast({
                 title: 'Date change approved',
                 description: res.data?.message || 'The completion date was changed.',
             });
         } catch (err) {
             toast({ title: 'Could not approve the date', description: err?.response?.data?.message || 'Try again.' });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const rejectDateChange = async (description) => {
+        setBusy(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/completion-date/decision`,
+                { decision: 'reject', description },
+                { skipToast: true },
+            );
+            setTask(res.data?.task || null);
+            setDateReviewOpen(false);
+            setTab('updates');
+            toast({
+                title: 'Date change rejected',
+                description: res.data?.message || 'The completion date was not changed.',
+            });
+        } catch (err) {
+            toast({ title: 'Could not reject the date', description: err?.response?.data?.message || 'Try again.' });
         } finally {
             setBusy(false);
         }
@@ -753,40 +780,29 @@ function TaskDetailsPage() {
                             {task.dateChangePending && task.dateChangeProposal ? (
                                 <div className="mt-3 max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                                     <p className="font-semibold">
-                                        {task.dateChangeProposal.requestedByName || 'Someone'} asked to change the completion date from {formatDay(task.dateChangeProposal.previousDate)} to {formatDay(task.dateChangeProposal.proposedDate)}.
+                                        {task.dateChangeProposal.requestedByName || 'Someone'} asked to change the completion date.
                                     </p>
-                                    {task.dateChangeProposal.description ? (
-                                        <p className="mt-1 whitespace-pre-wrap">{task.dateChangeProposal.description}</p>
-                                    ) : null}
                                     <p className="mt-1 text-xs text-amber-800">
-                                        {task.dateChangeProposal.requestedByRole === 'reassignee'
-                                            ? 'Waiting for the assignee to approve, or reject with a reason.'
-                                            : 'Waiting for the requester to approve, or reject with a reason.'}
+                                        {task.canDecideDateChange
+                                            ? 'Open the request to see the employee, the dates, and the update, then approve or reject it.'
+                                            : task.dateChangeProposal.requestedByRole === 'reassignee'
+                                                ? 'Waiting for the assignee to approve, or reject with a reason.'
+                                                : 'Waiting for the requester to approve, or reject with a reason.'}
                                     </p>
+                                    {task.canDecideDateChange ? (
+                                        <button
+                                            type="button"
+                                            disabled={busy}
+                                            onClick={() => setDateReviewOpen(true)}
+                                            className="mt-2 inline-flex h-8 items-center rounded-lg bg-amber-600 px-3 text-xs font-semibold text-white disabled:opacity-40"
+                                        >
+                                            Review date change
+                                        </button>
+                                    ) : null}
                                 </div>
                             ) : null}
                         </div>
                         <div className="flex items-center gap-2">
-                            {task.canDecideDateChange ? (
-                                <button
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={approveDateChange}
-                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-40"
-                                >
-                                    <Check size={14} /> Approve date
-                                </button>
-                            ) : null}
-                            {task.canDecideDateChange ? (
-                                <button
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={() => setNoteAction('reject-date')}
-                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-40"
-                                >
-                                    Reject date
-                                </button>
-                            ) : null}
                             {task.canReopen && (
                                 <button
                                     type="button"
@@ -1191,6 +1207,17 @@ function TaskDetailsPage() {
                     </div>
                 </aside>
             </div>
+            {dateReviewOpen && task?.dateChangeProposal ? (
+                <DateChangeApprovalModal
+                    task={task}
+                    busy={busy}
+                    onClose={() => {
+                        if (!busy) setDateReviewOpen(false);
+                    }}
+                    onApprove={approveDateChange}
+                    onReject={rejectDateChange}
+                />
+            ) : null}
             {dateOpen && (
                 <ChangeCompletionDateModal
                     task={task}
@@ -1208,6 +1235,7 @@ function TaskDetailsPage() {
                             );
                             if (res.data?.task) setTask(res.data.task);
                             setDateOpen(false);
+                            setTab('updates');
                             toast({
                                 title: res.data?.outcome === 'pending' ? 'Sent for approval' : 'Completion date changed',
                                 description: res.data?.message || 'The completion date was updated.',
@@ -1416,6 +1444,139 @@ function Fact({ label, value, pill, icon: Icon, note }) {
                 {pill ? <span className={`max-w-full whitespace-normal rounded-full px-2 py-0.5 text-xs leading-5 ${pill}`}>{value || '—'}</span> : value || '—'}
             </p>
             {note ? <p className="mt-1 text-xs text-slate-500">{note}</p> : null}
+        </div>
+    );
+}
+
+function DateChangeApprovalModal({ task, busy, onClose, onApprove, onReject }) {
+    const proposal = task.dateChangeProposal || {};
+    const [rejecting, setRejecting] = useState(false);
+    const [reason, setReason] = useState('');
+    const [error, setError] = useState('');
+    const role = proposal.requestedByRole === 'reassignee' ? 'Reassigned employee' : 'Assignee';
+    const empId = String(proposal.requestedByEmpId || '').trim();
+    const designation = String(proposal.requestedByDesignation || '').trim();
+    const submitReject = () => {
+        if (!reason.trim()) {
+            setError('A reason is required.');
+            return;
+        }
+        onReject(reason.trim());
+    };
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
+            <section
+                className="w-full max-w-[520px] overflow-hidden rounded-xl bg-white shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+            >
+                <div className="flex items-center justify-between bg-[#2563EB] px-5 py-3.5 text-white">
+                    <h2 className="text-[16px] font-semibold">Date change approval</h2>
+                    <button type="button" aria-label="Close" disabled={busy} onClick={onClose} className="rounded-md p-1 hover:bg-white/15 disabled:opacity-60">
+                        <X size={18} />
+                    </button>
+                </div>
+                <div className="px-5 py-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Employee</p>
+                    <div className="mt-2 flex items-center gap-3">
+                        <Avatar name={proposal.requestedByName} photo={proposal.requestedByPhoto} size="h-10 w-10" />
+                        <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-900">{proposal.requestedByName || 'Employee'}</p>
+                            <p className="text-xs text-slate-500">
+                                {[empId, role, designation].filter(Boolean).join(' · ')}
+                            </p>
+                        </div>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <label className="block text-xs font-semibold text-slate-500">
+                            Current date
+                            <input
+                                type="text"
+                                readOnly
+                                value={formatDay(proposal.previousDate)}
+                                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700"
+                            />
+                        </label>
+                        <label className="block text-xs font-semibold text-slate-500">
+                            Approve date
+                            <input
+                                type="text"
+                                readOnly
+                                value={formatDay(proposal.proposedDate)}
+                                className="mt-1 h-10 w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-semibold text-emerald-800"
+                            />
+                        </label>
+                    </div>
+                    <div className="mt-3">
+                        <p className="text-xs font-semibold text-slate-500">Date change update</p>
+                        <p className="mt-1 min-h-[64px] whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                            {proposal.description || 'No update was added.'}
+                        </p>
+                    </div>
+                    {rejecting ? (
+                        <label className="mt-3 block text-xs font-semibold text-slate-500">
+                            <span className="flex items-center justify-between">
+                                <span>Reason <span className="text-rose-500">*</span></span>
+                                <span className="font-normal text-slate-400">{reason.length}/500</span>
+                            </span>
+                            <textarea
+                                value={reason}
+                                maxLength={500}
+                                disabled={busy}
+                                rows={3}
+                                placeholder="Reason is required"
+                                onChange={(event) => {
+                                    setReason(event.target.value);
+                                    setError('');
+                                }}
+                                className="mt-1 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500"
+                            />
+                        </label>
+                    ) : null}
+                    {error ? <p className="mt-2 text-sm text-rose-600">{error}</p> : null}
+                    <p className="mt-3 text-xs text-slate-500">
+                        Approve changes the completion date to the requested date. Reject keeps the current date and emails the reason to this employee.
+                    </p>
+                </div>
+                <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                    <button
+                        type="button"
+                        disabled={busy}
+                        onClick={rejecting ? () => { setRejecting(false); setError(''); } : onClose}
+                        className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                    >
+                        {rejecting ? 'Back' : 'Cancel'}
+                    </button>
+                    {rejecting ? (
+                        <button
+                            type="button"
+                            disabled={busy || !reason.trim()}
+                            onClick={submitReject}
+                            className="h-9 rounded-lg bg-rose-600 px-3 text-sm font-semibold text-white disabled:opacity-60"
+                        >
+                            {busy ? 'Saving...' : 'Reject date'}
+                        </button>
+                    ) : (
+                        <>
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => setRejecting(true)}
+                                className="h-9 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 disabled:opacity-60"
+                            >
+                                Reject date
+                            </button>
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={onApprove}
+                                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-60"
+                            >
+                                <Check size={14} /> {busy ? 'Saving...' : 'Approve date'}
+                            </button>
+                        </>
+                    )}
+                </div>
+            </section>
         </div>
     );
 }

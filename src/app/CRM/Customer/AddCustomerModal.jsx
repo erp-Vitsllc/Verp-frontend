@@ -79,7 +79,7 @@ function CustomerPicker({ choices, value, disabled, loading, onChange }) {
                 className={`${fieldClass} flex items-center justify-between gap-2 text-left`}
             >
                 <span className={`min-w-0 truncate ${selected ? 'text-slate-800' : 'text-slate-400'}`}>
-                    {loading ? 'Loading Zoho customers...' : selected?.label || selected?.name || 'Select a Zoho customer'}
+                    {loading ? 'Loading customers...' : selected?.label || selected?.name || 'Select a customer'}
                 </span>
                 <ChevronDown size={16} className={`shrink-0 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
             </button>
@@ -110,7 +110,7 @@ function CustomerPicker({ choices, value, disabled, loading, onChange }) {
                             />
                         </label>
                     </div>
-                    <ul role="listbox" aria-label="Zoho customers" className="max-h-60 overflow-y-auto py-1">
+                    <ul role="listbox" aria-label="Customers" className="max-h-60 overflow-y-auto py-1">
                         {filtered.length === 0 ? (
                             <li className="px-3 py-2 text-sm text-slate-500">No customers match that search.</li>
                         ) : filtered.map((option) => (
@@ -177,7 +177,7 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null, st
                 if (customersResult.status === 'fulfilled') {
                     setOptions((Array.isArray(customersResult.value) ? customersResult.value : []).map(normalizeZohoOption).filter(Boolean));
                 } else {
-                    setError(customerApiMessage(customersResult.reason, 'Could not load Zoho customers.'));
+                    setError(customerApiMessage(customersResult.reason, 'Could not load customers.'));
                 }
                 if (codeResult.status === 'fulfilled') {
                     const code = codeResult.value;
@@ -213,7 +213,7 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null, st
                 if (cancelled) return;
                 const status = loadError?.response?.status ?? loadError?.originalError?.response?.status;
                 if (status === 404) return;
-                setError(customerApiMessage(loadError, 'Could not read this Zoho customer.'));
+                setError(customerApiMessage(loadError, 'Could not read this customer.'));
             })
             .finally(() => {
                 if (!cancelled) setLoadingPreview(false);
@@ -312,7 +312,7 @@ export default function AddCustomerModal({ onClose, onSaved, customer = null, st
                         />
                     </div>
                     {!loadingOptions && choices.length === 0 ? (
-                        <p className="mt-2 text-sm text-slate-500">No Zoho customers are available to add.</p>
+                        <p className="mt-2 text-sm text-slate-500">No customers yet. Refresh Customers under Accounts, then open this again.</p>
                     ) : null}
 
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">

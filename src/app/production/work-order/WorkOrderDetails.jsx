@@ -621,7 +621,11 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         if (mode !== 'received') return body;
         const amount = Number(lpoValue);
         const total = Number(order?.value) || 0;
-        if (!draft && (!lpoNo.trim() || !lpoDate || !(amount > 0) || (!lpoFile && !order?.lpoApproval?.attachmentData))) {
+        const savedAttachment = Boolean(
+            order?.lpoApproval?.attachmentData
+            || (order?.lpoApproval?.mode === 'received' && order?.lpoApproval?.attachmentName),
+        );
+        if (!draft && (!lpoNo.trim() || !lpoDate || !(amount > 0) || (!lpoFile && !savedAttachment))) {
             setFormError('LPO number, date, value and attachment are required.');
             return null;
         }
@@ -1224,10 +1228,16 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                 })}
                             </div>
                             <p className="mt-3 text-[13px] leading-5 text-slate-500">
-                                Saved status: {lpoCopy.status}. Save as Draft stores this LPO without changing the status. Submit sends it after the required fields are complete.
-                                {viewerIsProjectManager
-                                    ? ' As project manager, you can update the draft, and Submit changes the status.'
-                                    : ` Submit sends it to ${order.projectManagerName || 'the project manager'}. They can update the draft, then approve. A rejection needs a reason.`}
+                                {displayMode === 'required'
+                                    ? `Saved status: ${lpoCopy.status}. ${lpoCopy.description} Upload LPO opens the received details. Save keeps this status. Submit stays available there after a save, once the number, date, value and attachment are complete.`
+                                    : (
+                                        <>
+                                            Saved status: {lpoCopy.status}. Save as Draft stores this LPO without changing the status. Submit sends it after the required fields are complete.
+                                            {viewerIsProjectManager
+                                                ? ' As project manager, you can update the draft, and Submit changes the status.'
+                                                : ` Submit sends it to ${order.projectManagerName || 'the project manager'}. They can update the draft, then approve. A rejection needs a reason.`}
+                                        </>
+                                    )}
                             </p>
                             {order.lpoLocked && !viewerIsProjectManager ? (
                                 <p className="mt-2 text-sm leading-6 text-slate-600">Only the project manager can update the LPO.</p>
@@ -1359,15 +1369,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                 )
                             ) : null}
 
-                            {displayMode === 'required' ? (
-                                canSubmitLpo ? (
-                                    <LpoDraftActions
-                                        saving={saving}
-                                        onDraft={() => saveLpoDraft('required')}
-                                        onSubmit={() => submitLpoUpdate('required')}
-                                    />
-                                ) : null
-                            ) : order.lpoFollowUp ? (
+                            {displayMode === 'required' ? null : order.lpoFollowUp ? (
                                 canSubmitLpo ? (
                                     <div className="mt-4 rounded-xl border border-[#e6eef6] bg-[#f8fbff] p-4">
                                         {mode === 'not_required' ? (
