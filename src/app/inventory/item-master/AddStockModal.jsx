@@ -117,10 +117,19 @@ function lineAlreadyAdded(lines, candidate) {
     return (lines || []).some((line) => {
         if (itemId && sameId(line.itemId, itemId)) return true;
         if (model && namesEqual(line.modelNumber, model)) return true;
+        const namesAgree = (left, right) => {
+            const a = cleanText(left);
+            const b = cleanText(right);
+            if (!a || !b) return true;
+            return namesEqual(a, b);
+        };
         if (!model && !itemId && itemName && namesEqual(line.itemName, itemName)
             && sameId(line.categoryId, candidate.categoryId)
             && sameId(line.subcategoryId, candidate.subcategoryId)
-            && sameId(line.brandId, candidate.brandId)) return true;
+            && sameId(line.brandId, candidate.brandId)
+            && namesAgree(line.categoryName, candidate.categoryName)
+            && namesAgree(line.subcategoryName, candidate.subcategoryName)
+            && namesAgree(line.brandName, candidate.brandName)) return true;
         return false;
     });
 }
@@ -715,6 +724,46 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                 typedModel = '';
             }
         }
+        const categoryName = cleanText(categoryText);
+        const subcategoryName = cleanText(subcategoryText);
+        const brandName = cleanText(brandText);
+        if (!categoryName || !subcategoryName || !brandName) {
+            setError('Category, sub category, and brand are required.');
+            return;
+        }
+        if (!useCategory) {
+            const category = categories.find((row) => namesEqual(row.name, categoryName));
+            if (category) useCategory = String(category._id);
+        }
+        if (!useBrand) {
+            const brand = brands.find((row) => namesEqual(row.name, brandName));
+            if (brand) useBrand = String(brand._id);
+        }
+        const knownSub = subcategories.find((row) => namesEqual(row.name, subcategoryName));
+        if (knownSub) {
+            const ownerId = String(knownSub.categoryId || '');
+            const owner = categories.find((row) => sameId(row._id, ownerId));
+            if (useCategory && !sameId(ownerId, useCategory)) {
+                setError('Sub category does not belong to the selected category.');
+                return;
+            }
+            if (!useCategory && owner && !namesEqual(owner.name, categoryName)) {
+                setError('Sub category does not belong to the selected category.');
+                return;
+            }
+            if (!useCategory && owner && namesEqual(owner.name, categoryName)) useCategory = ownerId;
+            if (!useSubcategory) useSubcategory = String(knownSub._id);
+        } else if (useCategory && useSubcategory) {
+            const sub = subcategories.find((row) => sameId(row._id, useSubcategory));
+            if (sub && !sameId(sub.categoryId, useCategory)) {
+                setError('Sub category does not belong to the selected category.');
+                return;
+            }
+        }
+        if (!itemName) {
+            setError('Enter an item.');
+            return;
+        }
         const sameTarget = Boolean(selected)
             && sameId(selected.categoryId, useCategory)
             && sameId(selected.subcategoryId, useSubcategory)
@@ -722,33 +771,22 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
             && namesEqual(itemLabel(selected), itemName)
             && (!typedModel || !cleanText(selected.modelNumber) || namesEqual(selected.modelNumber, typedModel));
         const model = typedModel || (sameTarget ? cleanText(selected.modelNumber) : '');
-        const sub = subcategories.find((row) => sameId(row._id, useSubcategory));
-        if (!useCategory || !useSubcategory || !useBrand) {
-            setError('Category, sub category, and brand are required.');
-            return;
-        }
-        if (!sub || !sameId(sub.categoryId, useCategory)) {
-            setError('Sub category does not belong to the selected category.');
-            return;
-        }
-        if (!itemName) {
-            setError('Enter an item.');
-            return;
-        }
         if (!sameTarget && !access.canCreateItem) {
             setError('Item create permission is required to add an item.');
             return null;
         }
-        const brandName = brandMatch?.name || rowById(brands, useBrand)?.name || '';
         const description = sameTarget && selected?.description
             ? selected.description
-            : [brandName, itemName, model, sub.name].map((part) => cleanText(part)).filter(Boolean).join(' ');
+            : [brandName, itemName, model, subcategoryName].map((part) => cleanText(part)).filter(Boolean).join(' ');
         setError('');
         return {
-            itemId: selected ? String(selected._id) : '',
+            itemId: sameTarget && selected ? String(selected._id) : '',
             categoryId: useCategory,
+            categoryName,
             subcategoryId: useSubcategory,
+            subcategoryName,
             brandId: useBrand,
+            brandName,
             modelNumber: model,
             itemName,
             description,
@@ -874,8 +912,11 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                 lines: lines.map((line) => ({
                     itemId: line.itemId,
                     categoryId: line.categoryId,
+                    categoryName: line.categoryName,
                     subcategoryId: line.subcategoryId,
+                    subcategoryName: line.subcategoryName,
                     brandId: line.brandId,
+                    brandName: line.brandName,
                     modelNumber: line.modelNumber,
                     itemName: line.itemName,
                     description: line.description,
@@ -1120,7 +1161,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                                     required
                                                     text={categoryText}
                                                     options={categoryOptions}
-                                                    placeholder="Select category"
+                                                    placeholder="Select or type category"
                                                     onText={typeCategory}
                                                     onPick={chooseCategory}
                                                     onCommit={commitCategory}
@@ -1130,7 +1171,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                                     required
                                                     text={subcategoryText}
                                                     options={subcategoryOptions}
-                                                    placeholder="Select sub category"
+                                                    placeholder="Select or type sub category"
                                                     onText={typeSubcategory}
                                                     onPick={chooseSubcategory}
                                                     onCommit={commitSubcategory}
@@ -1140,7 +1181,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                                     required
                                                     text={itemText}
                                                     options={itemOptions}
-                                                    placeholder="Select item"
+                                                    placeholder="Select or type item"
                                                     onText={typeItem}
                                                     onPick={chooseItem}
                                                     onCommit={commitItem}
@@ -1150,7 +1191,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                                     required
                                                     text={brandText}
                                                     options={brandOptions}
-                                                    placeholder="Select brand"
+                                                    placeholder="Select or type brand"
                                                     onText={typeBrand}
                                                     onPick={chooseBrand}
                                                     onCommit={commitBrand}

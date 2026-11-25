@@ -521,12 +521,6 @@ export default function ItemDetail({ item }) {
                             { label: 'Country of Origin', value: item.countryOfOrigin },
                             { label: 'Reservation Quantity', value: unitWord(reserved, item.unitOfMeasure) },
                         ]}
-                        note={(
-                            <div className="flex-1 border-t border-[#F1F5F9] px-4 py-3">
-                                <p className="text-sm font-medium text-slate-500">More Description</p>
-                                <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{item.moreDescription || '—'}</p>
-                            </div>
-                        )}
                     />
                 </div>
             ) : tab === 'Purchase History' ? (
