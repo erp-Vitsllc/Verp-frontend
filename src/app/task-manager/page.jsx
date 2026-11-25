@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
     ArrowDown,
     ArrowUp,
-    Calendar,
     ChevronDown,
     ChevronUp,
     ClipboardList,
@@ -463,6 +462,19 @@ function formatDisplayDate(value) {
     }).format(date);
 }
 
+function CompletionDateCell({ task }) {
+    const changed = Boolean(task.originalCompletionDate)
+        && dateKey(task.originalCompletionDate) !== dateKey(task.completionDate);
+    return (
+        <div>
+            <p className="text-[13px] text-slate-600">{formatDisplayDate(changed ? task.originalCompletionDate : task.completionDate) || '—'}</p>
+            {changed ? (
+                <p className="mt-0.5 text-[12px] font-medium text-blue-700">Changed {formatDisplayDate(task.completionDate)}</p>
+            ) : null}
+        </div>
+    );
+}
+
 const PRIORITY_SORT_RANK = { Low: 0, Medium: 1, High: 2 };
 
 function taskSequence(task) {
@@ -482,6 +494,21 @@ function timeValue(value) {
 function listActivityDate(task) {
     if (String(task?.reassignedAssigneeName || '').trim() && task?.reassignedAt) return task.reassignedAt;
     return task?.requestDate;
+}
+
+function dateFallsInRange(value, activeRange) {
+    const key = dateKey(value);
+    if (!key) return false;
+    if (activeRange.from && key < activeRange.from) return false;
+    if (activeRange.to && key > activeRange.to) return false;
+    return true;
+}
+
+/** A range matches the request date, the original completion date, or the changed completion date. */
+function taskMatchesDateRange(task, activeRange) {
+    if (!activeRange?.from && !activeRange?.to) return true;
+    return [listActivityDate(task), task?.originalCompletionDate, task?.completionDate]
+        .some((value) => dateFallsInRange(value, activeRange));
 }
 
 function taskSortValue(task, key, titles, viewer, board) {
@@ -758,10 +785,8 @@ function taskMatchesListFilters(task, options) {
         if (status !== 'All Status' && status !== 'Pending' && shown !== status) return false;
     }
     if (priority !== 'All Priority' && task.priority !== priority) return false;
-    const key = dateKey(listActivityDate(task));
-    if ((activeRange.from || activeRange.to) && !key) return false;
-    if (activeRange.from && key < activeRange.from) return false;
-    if (activeRange.to && key > activeRange.to) return false;
+    if (activeRange?.openOnly && !taskIsOpenState(task)) return false;
+    if (!taskMatchesDateRange(task, activeRange)) return false;
     const requesterNeedle = personKey(requesterQuery);
     if (requesterNeedle && personKey(requesterEmployeeName(task)) !== requesterNeedle) return false;
     const assigneeNeedle = personKey(assigneeQuery);
@@ -1030,7 +1055,6 @@ function TaskManagerContent() {
     const [datePreset, setDatePreset] = useState(filtersFromUrl.datePreset);
     const [fromDate, setFromDate] = useState(filtersFromUrl.fromDate);
     const [toDate, setToDate] = useState(filtersFromUrl.toDate);
-    const [customOpen, setCustomOpen] = useState(false);
     const [status, setStatus] = useState(filtersFromUrl.status);
     const [priority, setPriority] = useState(filtersFromUrl.priority);
     const [pageSizeChoice, setPageSizeChoice] = useState(filtersFromUrl.pageSizeChoice);
@@ -1045,7 +1069,6 @@ function TaskManagerContent() {
     const [reassignTask, setReassignTask] = useState(null);
     const [deleteTask, setDeleteTask] = useState(null);
     const [deleting, setDeleting] = useState(false);
-    const customRef = useRef(null);
 
     if (urlKeyRef.current !== urlKey) {
         urlKeyRef.current = urlKey;
@@ -1145,15 +1168,6 @@ function TaskManagerContent() {
     }, [load]);
 
     useEffect(() => {
-        if (!customOpen) return undefined;
-        const close = (event) => {
-            if (customRef.current && !customRef.current.contains(event.target)) setCustomOpen(false);
-        };
-        window.addEventListener('mousedown', close);
-        return () => window.removeEventListener('mousedown', close);
-    }, [customOpen]);
-
-    useEffect(() => {
         if (!openMenu) return undefined;
         const close = () => setOpenMenu(null);
         window.addEventListener('click', close);
@@ -1176,10 +1190,13 @@ function TaskManagerContent() {
         window.dispatchEvent(new CustomEvent('task-manager-assignee-count', { detail: { count } }));
     }, [tasks, viewer, loading]);
 
-    const activeRange = useMemo(
-        () => resolveDateRange(datePreset, fromDate, toDate),
-        [datePreset, fromDate, toDate],
-    );
+    const activeRange = useMemo(() => {
+        const range = resolveDateRange(datePreset, fromDate, toDate);
+        return {
+            ...range,
+            openOnly: datePreset === 'custom' && Boolean(range.to),
+        };
+    }, [datePreset, fromDate, toDate]);
 
     const listFilter = useMemo(() => ({
         titles,
@@ -1321,7 +1338,6 @@ function TaskManagerContent() {
         setDatePreset('all');
         setFromDate('');
         setToDate('');
-        setCustomOpen(false);
         setStatus('All Status');
     };
 
@@ -1336,7 +1352,6 @@ function TaskManagerContent() {
         setDatePreset('all');
         setFromDate('');
         setToDate('');
-        setCustomOpen(false);
         setStatus('All Status');
         setPriority('All Priority');
         setSortKey('listDate');
@@ -1568,67 +1583,56 @@ function TaskManagerContent() {
                                     <option key={item}>{item}</option>
                                 ))}
                             </select>
-                            <div className="relative shrink-0" ref={customRef}>
-                                <select
-                                    value={datePreset}
-                                    onChange={(event) => {
-                                        const value = event.target.value;
-                                        setDatePreset(value);
-                                        setPage(1);
-                                        if (value === 'custom') {
-                                            setCustomOpen(true);
-                                        } else {
-                                            setCustomOpen(false);
-                                        }
-                                    }}
-                                    onClick={() => {
-                                        if (datePreset === 'custom') setCustomOpen(true);
-                                    }}
-                                    aria-label="Request date"
-                                    className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
-                                >
-                                    {DATE_RANGES.map((item) => (
-                                        <option key={item.id} value={item.id}>{item.label}</option>
-                                    ))}
-                                </select>
-                                {customOpen && (
-                                    <div className="absolute right-0 top-11 z-30 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
-                                        <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-500">
-                                            <Calendar size={13} /> Custom dates
-                                        </p>
-                                        <label className="block text-[11px] font-medium text-slate-400">
-                                            From
-                                            <input
-                                                type="date"
-                                                value={fromDate}
-                                                onChange={(event) => setFromDate(event.target.value)}
-                                                aria-label="From date"
-                                                className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-[13px] text-slate-700"
-                                            />
-                                        </label>
-                                        <label className="mt-2 block text-[11px] font-medium text-slate-400">
-                                            To
-                                            <input
-                                                type="date"
-                                                value={toDate}
-                                                onChange={(event) => setToDate(event.target.value)}
-                                                aria-label="To date"
-                                                className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-[13px] text-slate-700"
-                                            />
-                                        </label>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setCustomOpen(false);
+                            <select
+                                value={datePreset}
+                                onChange={(event) => {
+                                    setDatePreset(event.target.value);
+                                    setPage(1);
+                                }}
+                                aria-label="Date range"
+                                title="Matches the request date, the original completion date, or the changed completion date"
+                                className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
+                            >
+                                {DATE_RANGES.map((item) => (
+                                    <option key={item.id} value={item.id}>{item.label}</option>
+                                ))}
+                            </select>
+                            {datePreset === 'custom' ? (
+                                <>
+                                    <label className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2">
+                                        <span className="text-[11px] font-semibold text-slate-400">Start</span>
+                                        <input
+                                            type="date"
+                                            value={fromDate}
+                                            max={toDate || undefined}
+                                            onChange={(event) => {
+                                                const next = event.target.value;
+                                                setFromDate(next);
+                                                if (next && toDate && next > toDate) setToDate(next);
                                                 setPage(1);
                                             }}
-                                            className="mt-3 h-8 w-full rounded-lg bg-[#2563EB] text-[13px] font-semibold text-white"
-                                        >
-                                            Apply
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
+                                            aria-label="Start date"
+                                            className="bg-transparent text-[13px] text-slate-700 outline-none"
+                                        />
+                                    </label>
+                                    <label className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2">
+                                        <span className="text-[11px] font-semibold text-slate-400">End</span>
+                                        <input
+                                            type="date"
+                                            value={toDate}
+                                            min={fromDate || undefined}
+                                            onChange={(event) => {
+                                                setToDate(event.target.value);
+                                                setStateFilter('open');
+                                                setPage(1);
+                                            }}
+                                            aria-label="End date"
+                                            title="Open tasks from the start date through this date. Completed and closed tasks stay hidden."
+                                            className="bg-transparent text-[13px] text-slate-700 outline-none"
+                                        />
+                                    </label>
+                                </>
+                            ) : null}
                             <select
                                 value={status}
                                 onChange={(event) => {
@@ -1740,8 +1744,8 @@ function TaskManagerContent() {
                                                     <td className="px-3 py-3.5">
                                                         <AssigneeCell task={task} />
                                                     </td>
-                                                    <td className="px-3 py-3.5 text-[13px] text-slate-600 whitespace-nowrap">
-                                                        {formatDisplayDate(task.completionDate) || '—'}
+                                                    <td className="px-3 py-3.5 whitespace-nowrap">
+                                                        <CompletionDateCell task={task} />
                                                     </td>
                                                     <td className="px-3 py-3.5">
                                                         <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${PRIORITY_STYLE[task.priority] || ''}`}>
@@ -1860,7 +1864,6 @@ function TaskManagerContent() {
                         setDatePreset('all');
                         setFromDate('');
                         setToDate('');
-                        setCustomOpen(false);
                         setStatus('Pending');
                         setPriority(created?.priority || 'All Priority');
                     }

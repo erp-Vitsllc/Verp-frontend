@@ -1088,18 +1088,21 @@ function catalogEmpty(error, allRows, scopedRows, query, errorLabel, emptyLabel,
     return emptyLabel;
 }
 
+function descriptionLine(parts) {
+    return parts.map((part) => String(part || '').trim()).filter(Boolean).join(', ');
+}
+
 function DescriptionCell({ row }) {
-    const itemName = String(row?.itemName || '').trim();
-    const description = String(row?.description || '').trim();
-    const modelNumber = String(row?.modelNumber || '').trim();
-    const title = itemName || description;
-    const detail = description && description !== title ? description : '';
+    const primary = descriptionLine([row?.itemName, row?.subcategoryName]);
+    const secondary = descriptionLine([row?.brandName, row?.modelNumber]);
+    const fallback = !primary && !secondary ? String(row?.description || '').trim() : '';
     return (
-        <td className="min-w-[240px] max-w-sm px-3 py-3 align-top text-slate-800">
-            <div className="flex flex-col gap-1">
-                {title ? <p className="text-sm font-medium leading-5">{title}</p> : null}
-                {detail ? <p className="text-xs leading-4 text-slate-400">{detail}</p> : null}
-                {modelNumber ? <p className="text-xs leading-4 text-slate-400">Model {modelNumber}</p> : null}
+        <td className="min-w-[240px] max-w-sm px-3 py-3 align-top">
+            <div className="flex flex-col gap-0.5">
+                {primary || fallback ? (
+                    <p className="text-[15px] font-semibold leading-5 text-slate-900">{primary || fallback}</p>
+                ) : null}
+                {secondary ? <p className="text-xs leading-4 text-slate-500">{secondary}</p> : null}
             </div>
         </td>
     );

@@ -110,26 +110,24 @@ function stockItemForName(rows, name, { categoryId = '', subcategoryId = '', bra
     return preferredStockItem(matches);
 }
 
+function lineMarkedByError(message, line, index) {
+    const text = String(message || '');
+    if (!text) return false;
+    const model = cleanText(line?.modelNumber);
+    const modelError = /model no/i.test(text);
+    if (modelError && !model) return false;
+    const row = text.match(/\brow\s+(\d+)\b/i);
+    if (row && Number(row[1]) === index + 1) return true;
+    if (!model) return false;
+    return [...text.matchAll(/"([^"]+)"/g)].some((match) => namesEqual(match[1], model));
+}
+
 function lineAlreadyAdded(lines, candidate) {
     const model = cleanText(candidate?.modelNumber);
     const itemId = cleanText(candidate?.itemId);
-    const itemName = cleanText(candidate?.itemName);
     return (lines || []).some((line) => {
         if (itemId && sameId(line.itemId, itemId)) return true;
         if (model && namesEqual(line.modelNumber, model)) return true;
-        const namesAgree = (left, right) => {
-            const a = cleanText(left);
-            const b = cleanText(right);
-            if (!a || !b) return true;
-            return namesEqual(a, b);
-        };
-        if (!model && !itemId && itemName && namesEqual(line.itemName, itemName)
-            && sameId(line.categoryId, candidate.categoryId)
-            && sameId(line.subcategoryId, candidate.subcategoryId)
-            && sameId(line.brandId, candidate.brandId)
-            && namesAgree(line.categoryName, candidate.categoryName)
-            && namesAgree(line.subcategoryName, candidate.subcategoryName)
-            && namesAgree(line.brandName, candidate.brandName)) return true;
         return false;
     });
 }
@@ -1245,16 +1243,20 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                             <tr>
                                                 <td colSpan={6} className="px-3 py-6 text-center text-slate-400">No items added yet.</td>
                                             </tr>
-                                        ) : lines.map((line, index) => (
+                                        ) : lines.map((line, index) => {
+                                            const marked = lineMarkedByError(error, line, index);
+                                            const itemText = marked ? 'text-red-600' : 'text-slate-800';
+                                            const detailText = marked ? 'text-red-600' : 'text-slate-400';
+                                            return (
                                             <tr key={line.key} className="border-t border-[#EEF2F7]">
-                                                <td className="px-3 py-3 text-slate-500">{index + 1}</td>
-                                                <td className="px-3 py-3 align-top text-slate-800">
+                                                <td className={`px-3 py-3 ${marked ? 'font-semibold text-red-600' : 'text-slate-500'}`}>{index + 1}</td>
+                                                <td className={`px-3 py-3 align-top ${itemText}`}>
                                                     <div className="flex flex-col gap-1">
-                                                        <p className="text-sm font-medium leading-5">{line.itemName || line.description}</p>
+                                                        <p className={`text-sm font-medium leading-5 ${itemText}`}>{line.itemName || line.description}</p>
                                                         {line.description && line.itemName && line.description !== line.itemName ? (
-                                                            <p className="text-xs leading-4 text-slate-400">{line.description}</p>
+                                                            <p className={`text-xs leading-4 ${detailText}`}>{line.description}</p>
                                                         ) : null}
-                                                        {line.modelNumber ? <p className="text-xs leading-4 text-slate-400">Model {line.modelNumber}</p> : null}
+                                                        {line.modelNumber ? <p className={`text-xs leading-4 ${detailText}`}>Model {line.modelNumber}</p> : null}
                                                     </div>
                                                 </td>
                                                 <td className="px-3 py-3">
@@ -1266,7 +1268,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                                         readOnly={locked}
                                                         disabled={viewOnly || locked}
                                                         onChange={(event) => updateLine(line.key, { quantity: event.target.value })}
-                                                        className="h-10 w-24 rounded-lg border border-[#E2E8F0] px-2 text-sm outline-none focus:border-indigo-500 read-only:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-50"
+                                                        className={`h-10 w-24 rounded-lg border px-2 text-sm outline-none focus:border-indigo-500 read-only:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-50 ${marked ? 'border-red-300 font-semibold text-red-600' : 'border-[#E2E8F0]'}`}
                                                     />
                                                 </td>
                                                 <td className="px-3 py-3">
@@ -1278,10 +1280,10 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                                         readOnly={locked}
                                                         disabled={viewOnly || locked}
                                                         onChange={(event) => updateLine(line.key, { unitPrice: event.target.value })}
-                                                        className="h-10 w-32 rounded-lg border border-[#E2E8F0] px-2 text-sm outline-none focus:border-indigo-500 read-only:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-50"
+                                                        className={`h-10 w-32 rounded-lg border px-2 text-sm outline-none focus:border-indigo-500 read-only:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-50 ${marked ? 'border-red-300 font-semibold text-red-600' : 'border-[#E2E8F0]'}`}
                                                     />
                                                 </td>
-                                                <td className="px-3 py-3 font-semibold text-slate-900">{money(lineTotal(line.quantity, line.unitPrice))}</td>
+                                                <td className={`px-3 py-3 font-semibold ${marked ? 'text-red-600' : 'text-slate-900'}`}>{money(lineTotal(line.quantity, line.unitPrice))}</td>
                                                 <td className="px-3 py-3">
                                                     {locked ? null : (
                                                         <button type="button" onClick={() => removeLine(line.key)} aria-label={`Remove row ${index + 1}`} className="text-red-500 hover:text-red-700">
@@ -1290,7 +1292,8 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                                     )}
                                                 </td>
                                             </tr>
-                                        ))}
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>

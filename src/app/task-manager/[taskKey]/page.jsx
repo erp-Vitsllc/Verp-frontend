@@ -85,6 +85,18 @@ function formatWhen(value) {
     }).format(date);
 }
 
+function dateInputValue(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Dubai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(date);
+}
+
 function formatDay(value) {
     if (!value) return '—';
     const date = new Date(value);
@@ -263,6 +275,7 @@ function TaskDetailsPage() {
     const [busy, setBusy] = useState(false);
     const [sourceBlock, setSourceBlock] = useState(null);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const [dateOpen, setDateOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
     const [viewer, setViewer] = useState(null);
@@ -668,8 +681,17 @@ function TaskDetailsPage() {
                 Task Manager
             </button>
             <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-                <section className="rounded-2xl bg-white p-5 shadow-sm">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
+                <section className="relative rounded-2xl bg-white p-5 shadow-sm">
+                    {task.canChangeCompletionDate ? (
+                        <button
+                            type="button"
+                            onClick={() => setDateOpen(true)}
+                            className="absolute right-5 top-5 inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+                        >
+                            <Calendar size={14} /> Change date
+                        </button>
+                    ) : null}
+                    <div className={`flex flex-wrap items-start justify-between gap-3 ${task.canChangeCompletionDate ? 'pr-36 sm:pr-40' : ''}`}>
                         <div>
                             <div className="flex flex-wrap items-center gap-2">
                                 <h1 className="text-lg font-bold text-slate-900">{number || 'Task'}</h1>
@@ -890,7 +912,12 @@ function TaskDetailsPage() {
                         <Fact label="Task Type" value={task.taskCategory === 'Work Flow Task' ? 'Workflow Task' : task.taskCategory} pill="bg-violet-50 text-violet-700" />
                         <Fact label="Task Priority" value={task.priority} pill={PRIORITY_STYLE[task.priority]} />
                         <Fact label="Request Date" value={formatWhen(task.requestDate)} icon={Calendar} />
-                        <Fact label="Task Completion Date" value={formatDay(task.completionDate)} icon={Calendar} />
+                        <Fact
+                            label="Task Completion Date"
+                            value={formatDay(task.completionDate)}
+                            icon={Calendar}
+                            note={task.originalCompletionDate ? `Original ${formatDay(task.originalCompletionDate)}` : ''}
+                        />
                         <Fact label="Task Status" value={statusText} pill={statusTone} />
                     </div>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
@@ -1088,6 +1115,38 @@ function TaskDetailsPage() {
                     </div>
                 </aside>
             </div>
+            {dateOpen && (
+                <ChangeCompletionDateModal
+                    task={task}
+                    busy={busy}
+                    onClose={() => {
+                        if (!busy) setDateOpen(false);
+                    }}
+                    onSave={async (value) => {
+                        setBusy(true);
+                        try {
+                            const res = await axiosInstance.post(
+                                `/Employee/task-manager/tasks/${encodeURIComponent(taskKey)}/completion-date`,
+                                { completionDate: value },
+                                { skipToast: true },
+                            );
+                            if (res.data?.task) setTask(res.data.task);
+                            setDateOpen(false);
+                            toast({
+                                title: 'Completion date changed',
+                                description: 'The new date is now the task completion date.',
+                            });
+                        } catch (err) {
+                            toast({
+                                title: 'Could not change the date',
+                                description: err?.response?.data?.message || 'Try again.',
+                            });
+                        } finally {
+                            setBusy(false);
+                        }
+                    }}
+                />
+            )}
             {deleteOpen && (
                 <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4">
                     <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
@@ -1266,7 +1325,7 @@ function Shell({ children }) {
     );
 }
 
-function Fact({ label, value, pill, icon: Icon }) {
+function Fact({ label, value, pill, icon: Icon, note }) {
     return (
         <div>
             <p className="text-xs text-slate-400">{label}</p>
@@ -1274,6 +1333,72 @@ function Fact({ label, value, pill, icon: Icon }) {
                 {Icon ? <Icon size={14} className="text-slate-400" /> : null}
                 {pill ? <span className={`max-w-full whitespace-normal rounded-full px-2 py-0.5 text-xs leading-5 ${pill}`}>{value || '—'}</span> : value || '—'}
             </p>
+            {note ? <p className="mt-1 text-xs text-slate-500">{note}</p> : null}
+        </div>
+    );
+}
+
+function ChangeCompletionDateModal({ task, busy, onClose, onSave }) {
+    const current = dateInputValue(task.completionDate);
+    const [value, setValue] = useState(current);
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
+            <div
+                className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+            >
+                <h2 className="text-base font-semibold text-slate-800">Change completion date</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                    The date you enter becomes the task completion date. The first date stays as the original.
+                </p>
+                <label className="mt-4 block text-xs font-semibold text-slate-500">
+                    Current completion date
+                    <input
+                        type="text"
+                        readOnly
+                        value={formatDay(task.completionDate)}
+                        className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700"
+                    />
+                </label>
+                {task.originalCompletionDate ? (
+                    <label className="mt-3 block text-xs font-semibold text-slate-500">
+                        Original completion date
+                        <input
+                            type="text"
+                            readOnly
+                            value={formatDay(task.originalCompletionDate)}
+                            className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700"
+                        />
+                    </label>
+                ) : null}
+                <label className="mt-3 block text-xs font-semibold text-slate-500">
+                    Changed date
+                    <input
+                        type="date"
+                        value={value}
+                        onChange={(event) => setValue(event.target.value)}
+                        className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-800"
+                    />
+                </label>
+                <div className="mt-4 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        disabled={busy}
+                        onClick={onClose}
+                        className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        disabled={busy || !value || value === current}
+                        onClick={() => onSave(value)}
+                        className="h-9 rounded-lg bg-[#2563EB] px-3 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                        {busy ? 'Saving...' : 'Save'}
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }
