@@ -409,6 +409,10 @@ export function buildUnderstandableNotificationTitle(item = {}) {
         return expiryTitle;
     }
 
+    if (type === 'Work Order MR' || /^Work Order MR \d+$/.test(type)) {
+        return sanitizeNotificationText(item.extra1 || '') || 'Material request';
+    }
+
     switch (type) {
         case 'Utility Contract Expiry':
             return 'Utility Contract Expiry — Renew or Deactivate';
@@ -482,8 +486,8 @@ export function buildUnderstandableNotificationTitle(item = {}) {
             return sanitizeNotificationText(item.extra1 || '') || 'LPO was not filled';
         case 'Work Order Actual BOQ':
             return sanitizeNotificationText(item.extra1 || '') || 'Actual BOQ';
-        case 'Work Order MR':
-            return sanitizeNotificationText(item.extra1 || '') || 'Create the material request';
+        case 'Work Order Actual BOQ Update':
+            return sanitizeNotificationText(item.extra1 || '') || 'Actual BOQ update';
         case 'Inventory Bill Draft':
             return sanitizeNotificationText(item.extra1 || item.subjectName || '') || 'Draft bill';
         default:
@@ -590,8 +594,11 @@ function buildUtilityCategoryLine(item = {}) {
     if (type === 'Work Order Actual BOQ') {
         return e2 || 'Open the notification to approve or reject.';
     }
-    if (type === 'Work Order MR') {
-        return e2 || 'Create the material request from the approved actual BOQ.';
+    if (type === 'Work Order Actual BOQ Update') {
+        return e2 || 'Open the notification to approve or reject this update.';
+    }
+    if (type === 'Work Order MR' || /^Work Order MR \d+$/.test(type)) {
+        return e2 || 'Open the notification to approve or reject the material request.';
     }
     if (type === 'Inventory Bill Draft') {
         return e2 || 'Bill you created is on draft. Submit it.';

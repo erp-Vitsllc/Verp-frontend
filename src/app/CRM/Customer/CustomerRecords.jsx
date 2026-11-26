@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ExternalLink, Printer } from 'lucide-react';
 import { downloadDeliveryOrderPdf } from '../../inventory/delivery/deliveryOrderPdf';
+import { workOrderDetailsHref } from '@/app/production/work-order/workOrderPaths';
 import {
     customerApiMessage,
     listCustomerDeliveries,
@@ -295,7 +296,7 @@ export function CustomerProjects({ customerId }) {
                         <tr key={row.id} className="border-b border-slate-100 text-slate-700">
                             <td className="max-w-[220px] truncate px-4 py-3.5 font-medium text-slate-800">{row.projectName || 'N/A'}</td>
                             <td className="whitespace-nowrap px-4 py-3.5">
-                                <Link href={`/production/work-order?workOrder=${encodeURIComponent(row.id)}`} className="font-medium text-blue-600 hover:underline">
+                                <Link href={workOrderDetailsHref(row.id)} className="font-medium text-blue-600 hover:underline">
                                     {row.workOrderNo || 'N/A'}
                                 </Link>
                             </td>

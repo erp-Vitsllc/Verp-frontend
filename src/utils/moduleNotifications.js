@@ -79,6 +79,7 @@ export const MODULE_ORDER = [
     'Tools Asset',
     'Utility Bills',
     'Payments',
+    'Inventory',
 ];
 
 const LOAN_TYPES = new Set(['Loan', 'Loan Request', 'Advance', 'Loan and Advance', 'Loan/Advance', 'Employee Advance Request', 'Employee Loan Request']);

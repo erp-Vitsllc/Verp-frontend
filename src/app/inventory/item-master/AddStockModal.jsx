@@ -10,7 +10,6 @@ import { listVendors } from '../vendor-management/vendorManagementApi';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 import {
     apiMessage,
-    approveStockEntry,
     getStockApprovalContext,
     getStockEntry,
     listBrands,
@@ -317,6 +316,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
     const [lpoNo, setLpoNo] = useState('');
     const [note, setNote] = useState('');
     const [lines, setLines] = useState([]);
+    const [editingKey, setEditingKey] = useState('');
     const [attachment, setAttachment] = useState(null);
     const [dragOver, setDragOver] = useState(false);
     const [entryId, setEntryId] = useState('');
@@ -329,8 +329,13 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
     const [approverName, setApproverName] = useState('');
     const [submittedByName, setSubmittedByName] = useState('');
     const [loadedStatus, setLoadedStatus] = useState('');
+    const [editPending, setEditPending] = useState(false);
     const sourceEntryId = reviewEntryId || editEntryId;
-    const locked = Boolean(viewOnly) || Boolean(reviewEntryId) || (Boolean(editEntryId) && loadedStatus !== '' && loadedStatus !== 'draft' && !allowEdit);
+    const officerCanDecide = directPost && !viewOnly && (loadedStatus === 'pending' || editPending);
+    const locked = Boolean(viewOnly)
+        || (!officerCanDecide && Boolean(reviewEntryId))
+        || (!officerCanDecide && Boolean(editEntryId) && loadedStatus !== '' && loadedStatus !== 'draft' && !allowEdit);
+    const resubmitOnly = !officerCanDecide && !directPost && !viewOnly && Boolean(sourceEntryId) && loadedStatus !== '' && loadedStatus !== 'draft';
     const fileRef = useRef(null);
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
@@ -356,6 +361,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                 if (cancelled) return;
                 setDirectPost(Boolean(context?.isPurchaseOfficer));
                 setPurchaserAssigned(context?.hasPurchaseOfficer !== false);
+                setApproverName(context?.officerName || '');
                 if (!sourceEntryId) return;
                 const entry = await getStockEntry(sourceEntryId);
                 if (cancelled) return;
@@ -363,6 +369,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                 const shown = proposed || entry;
                 const vendor = vendorRows.find((row) => sameId(row.id, shown.vendorId));
                 setLoadedStatus(entry.status || '');
+                setEditPending(Boolean(entry.editPending));
                 setEntryId(String(entry._id || ''));
                 setClientRequestId(entry.clientRequestId || requestId());
                 setPurchaseSource(shown.purchaseSource === 'manual' ? 'manual' : 'vendor');
@@ -794,6 +801,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
     };
 
     const resetItemFields = () => {
+        setEditingKey('');
         setCategoryId('');
         setCategoryText('');
         setSubcategoryId('');
@@ -803,6 +811,65 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
         setItemId('');
         setItemText('');
         setModelNumber('');
+    };
+
+    const startEdit = (line) => {
+        setEditingKey(line.key);
+        setCategoryId(line.categoryId || '');
+        setCategoryText(line.categoryName || '');
+        setSubcategoryId(line.subcategoryId || '');
+        setSubcategoryText(line.subcategoryName || '');
+        setBrandId(line.brandId || '');
+        setBrandText(line.brandName || '');
+        setItemId(line.itemId || '');
+        setItemText(line.itemName || '');
+        setModelNumber(line.modelNumber || '');
+        setError('');
+    };
+
+    const updateMaterial = () => {
+        const original = lines.find((row) => row.key === editingKey);
+        if (!original) {
+            setEditingKey('');
+            return;
+        }
+        const categoryName = cleanText(categoryText);
+        const subcategoryName = cleanText(subcategoryText);
+        const brandName = cleanText(brandText);
+        const itemName = cleanText(itemText);
+        const model = cleanText(modelNumber);
+        if (!categoryName || !subcategoryName || !brandName) {
+            setError('Category, sub category, and brand are required.');
+            return;
+        }
+        if (!itemName) {
+            setError('Enter an item.');
+            return;
+        }
+        const next = {
+            itemId: original.itemId || '',
+            categoryId: categoryId || original.categoryId || '',
+            categoryName,
+            subcategoryId: subcategoryId || original.subcategoryId || '',
+            subcategoryName,
+            brandId: brandId || original.brandId || '',
+            brandName,
+            modelNumber: model,
+            itemName,
+            description: [brandName, itemName, model, subcategoryName].map((part) => cleanText(part)).filter(Boolean).join(' '),
+            keepItem: Boolean(original.itemId),
+        };
+        if (lineAlreadyAdded(lines.filter((row) => row.key !== original.key), next)) {
+            setError('This item is already in the table.');
+            return;
+        }
+        setError('');
+        setLines((current) => current.map((row) => (
+            row.key === original.key
+                ? { ...row, ...next, quantity: row.quantity, unitPrice: row.unitPrice }
+                : row
+        )));
+        resetItemFields();
     };
 
     const addMaterial = () => {
@@ -845,6 +912,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
 
     const removeLine = (key) => {
         setLines((current) => current.filter((line) => line.key !== key));
+        if (editingKey === key) resetItemFields();
     };
 
     const useBill = async (file) => {
@@ -916,6 +984,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                     brandId: line.brandId,
                     brandName: line.brandName,
                     modelNumber: line.modelNumber,
+                    keepItem: Boolean(line.keepItem),
                     itemName: line.itemName,
                     description: line.description,
                     quantity: line.quantity,
@@ -930,16 +999,27 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                 } : null,
             });
             if (status === 'posted') {
+                const approvingPending = loadedStatus === 'pending';
+                const approvingEdit = editPending;
                 if (saved.pendingApproval) {
                     toast({
                         title: 'Sent for approval',
-                        description: `Waiting for ${saved.approverName || 'the purchase officer'}. The current bill stays until they approve this edit.`,
+                        description: `Waiting for ${saved.approverName || approverName || 'the purchase officer'}. The current bill stays until they approve this edit.`,
                     });
                 } else if (saved.status === 'pending') {
                     toast({
                         title: 'Submitted',
-                        description: `Waiting for ${saved.approverName || 'the purchase officer'}. Stock is added when they approve.`,
+                        description: `Waiting for ${saved.approverName || approverName || 'the purchase officer'}. They get an email, a task, and a bill notification. Stock is added when they approve.`,
                     });
+                } else if (approvingPending || approvingEdit) {
+                    toast({
+                        title: 'Bill approved',
+                        description: approvingPending
+                            ? 'The bill was added and inventory was updated.'
+                            : 'The bill was updated.',
+                    });
+                } else if (editEntryId && loadedStatus === 'posted') {
+                    toast({ title: 'Bill updated', description: 'The bill was saved and inventory was updated.' });
                 } else {
                     toast({ title: 'Stock added', description: 'The bill was created and inventory was updated.' });
                 }
@@ -960,17 +1040,16 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
     };
 
     const decide = async (action) => {
-        if (!reviewEntryId) return;
+        const id = entryId || sourceEntryId;
+        if (!id || action !== 'reject') return;
         setSaving(true);
         setError('');
         try {
-            if (action === 'accept') {
-                await approveStockEntry(reviewEntryId);
-                toast({ title: 'Stock accepted', description: 'Inventory was updated.' });
-            } else {
-                await rejectStockEntry(reviewEntryId);
-                toast({ title: 'Stock rejected', description: 'The waiting stock was removed.' });
-            }
+            await rejectStockEntry(id);
+            toast({
+                title: 'Bill rejected',
+                description: editPending ? 'The current bill was kept.' : 'The bill was not added.',
+            });
             onSaved?.();
             onClose();
         } catch (err) {
@@ -1063,13 +1142,20 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
                     {error ? <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
-                    {reviewEntryId ? (
+                    {officerCanDecide ? (
+                        <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                            This bill is waiting for your approval.
+                            {submittedByName ? ` Submitted by ${submittedByName}.` : ''}
+                            {' '}You can edit it, then approve or reject.
+                        </p>
+                    ) : null}
+                    {!officerCanDecide && !viewOnly && (loadedStatus === 'pending' || editPending) ? (
                         <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
                             Waiting for {approverName || 'the purchase officer'}.
                             {submittedByName ? ` Submitted by ${submittedByName}.` : ''}
                         </p>
                     ) : null}
-                    {editEntryId && locked && !viewOnly ? (
+                    {editEntryId && locked && !viewOnly && loadedStatus === 'posted' && !editPending ? (
                         <p className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">This bill is approved.</p>
                     ) : null}
                     {loading ? <p className="text-sm text-slate-500">Loading items...</p> : (
@@ -1197,18 +1283,18 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                                 <TypeSuggest
                                                     label="Model No"
                                                     text={modelNumber}
-                                                    options={modelOptions}
+                                                    options={editingKey ? [] : modelOptions}
                                                     placeholder="Enter model no"
-                                                    onText={typeModel}
-                                                    onPick={chooseModel}
-                                                    onCommit={commitModel}
+                                                    onText={editingKey ? setModelNumber : typeModel}
+                                                    onPick={editingKey ? (value) => setModelNumber(cleanText(value)) : chooseModel}
+                                                    onCommit={editingKey ? (value) => setModelNumber(cleanText(value)) : commitModel}
                                                 />
                                                 <div className="flex items-end justify-end gap-2">
                                                     <button type="button" onClick={resetItemFields} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600">
                                                         <RotateCcw size={16} /> Reset
                                                     </button>
-                                                    <button type="button" onClick={addMaterial} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white">
-                                                        <Plus size={16} /> Add
+                                                    <button type="button" onClick={editingKey ? updateMaterial : addMaterial} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white">
+                                                        {editingKey ? <Check size={16} /> : <Plus size={16} />} {editingKey ? 'Update' : 'Add'}
                                                     </button>
                                                 </div>
                                             </div>
@@ -1248,7 +1334,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                             const itemText = marked ? 'text-red-600' : 'text-slate-800';
                                             const detailText = marked ? 'text-red-600' : 'text-slate-400';
                                             return (
-                                            <tr key={line.key} className="border-t border-[#EEF2F7]">
+                                            <tr key={line.key} className={`border-t border-[#EEF2F7] ${editingKey === line.key ? 'bg-indigo-50' : ''}`}>
                                                 <td className={`px-3 py-3 ${marked ? 'font-semibold text-red-600' : 'text-slate-500'}`}>{index + 1}</td>
                                                 <td className={`px-3 py-3 align-top ${itemText}`}>
                                                     <div className="flex flex-col gap-1">
@@ -1286,9 +1372,14 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                                 <td className={`px-3 py-3 font-semibold ${marked ? 'text-red-600' : 'text-slate-900'}`}>{money(lineTotal(line.quantity, line.unitPrice))}</td>
                                                 <td className="px-3 py-3">
                                                     {locked ? null : (
-                                                        <button type="button" onClick={() => removeLine(line.key)} aria-label={`Remove row ${index + 1}`} className="text-red-500 hover:text-red-700">
-                                                            <Trash2 size={16} />
-                                                        </button>
+                                                        <div className="flex items-center gap-3">
+                                                            <button type="button" onClick={() => startEdit(line)} aria-label={`Edit row ${index + 1}`} className="text-indigo-500 hover:text-indigo-700">
+                                                                <Pencil size={16} />
+                                                            </button>
+                                                            <button type="button" onClick={() => removeLine(line.key)} aria-label={`Remove row ${index + 1}`} className="text-red-500 hover:text-red-700">
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </div>
                                                     )}
                                                 </td>
                                             </tr>
@@ -1368,27 +1459,31 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                 <p className="text-sm text-red-600">{error}</p>
                             ) : null}
                         </div>
+                    ) : !viewOnly && !locked && !directPost && purchaserAssigned ? (
+                        <p className="mr-auto max-w-md text-sm text-slate-500">
+                            Submit sends this bill to {approverName || 'the purchase officer'} for approval.
+                        </p>
                     ) : null}
                     {viewOnly ? (
                         <button type="button" onClick={onClose} className="h-10 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-700">Close</button>
                     ) : null}
                     {viewOnly ? null : <button type="button" onClick={onClose} className="h-10 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-600">Cancel</button>}
-                    {viewOnly ? null : locked ? (
-                        reviewEntryId && directPost ? (
-                            <>
-                                <button type="button" onClick={() => decide('reject')} disabled={saving || loading} className="h-10 rounded-lg border border-red-200 px-4 text-sm font-semibold text-red-600 disabled:opacity-60">
-                                    {saving ? 'Saving...' : 'Reject'}
-                                </button>
-                                <button type="button" onClick={() => decide('accept')} disabled={saving || loading} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">
-                                    <Check size={15} /> {saving ? 'Saving...' : 'Accept'}
-                                </button>
-                            </>
-                        ) : null
-                    ) : (
+                    {viewOnly || loading ? null : officerCanDecide ? (
                         <>
-                            <button type="button" onClick={() => submit('draft')} disabled={saving || loading} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-indigo-200 px-4 text-sm font-semibold text-indigo-700 disabled:opacity-60">
-                                <FileText size={15} /> Draft
+                            <button type="button" onClick={() => decide('reject')} disabled={saving || loading} className="h-10 rounded-lg border border-red-200 px-4 text-sm font-semibold text-red-600 disabled:opacity-60">
+                                {saving ? 'Saving...' : 'Reject'}
                             </button>
+                            <button type="button" onClick={() => submit('posted')} disabled={saving || loading} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">
+                                <Check size={15} /> {saving ? 'Saving...' : 'Approve'}
+                            </button>
+                        </>
+                    ) : locked ? null : (
+                        <>
+                            {resubmitOnly ? null : (
+                                <button type="button" onClick={() => submit('draft')} disabled={saving || loading} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-indigo-200 px-4 text-sm font-semibold text-indigo-700 disabled:opacity-60">
+                                    <FileText size={15} /> Draft
+                                </button>
+                            )}
                             <button type="button" onClick={() => submit('posted')} disabled={saving || loading || !purchaserAssigned} title={!purchaserAssigned ? PURCHASER_REQUIRED : undefined} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                                 <Check size={15} /> {saving ? 'Saving...' : actionLabel}
                             </button>

@@ -1,14 +1,16 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
     ArrowDown,
     ArrowUp,
     ChevronDown,
+    ChevronRight,
     ChevronUp,
     ClipboardList,
+    Briefcase,
     Flag,
     Hourglass,
     Layers,
@@ -27,6 +29,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { formatCommandCenterNotificationMessage } from '@/utils/dashboardCommandCenterInbox';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
+import { clusterWorkOrderTasks, listedTaskNumber, paginateWorkOrderBlocks, taskNumberCaption, tasksInBlocks } from '@/app/task-manager/workOrderTaskLabel';
 import { completionApprovalStatus, taskWaitingText } from '@/app/task-manager/pendingHoldLine';
 import { finishedWorkRoles, openTaskTabs, pinnedAssignee, taskHasReassignee, taskWaitingOnRequester, viewerRequestedTask } from '@/app/task-manager/taskInbox';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
@@ -147,6 +150,32 @@ function taskIsOpenState(task) {
     return !taskIsClosedState(task);
 }
 
+function isProjectTask(task) {
+    return displayTaskType(task?.taskCategory) === 'Project Task';
+}
+
+/** Pending work, a bill or completion waiting on someone, or finished project work. */
+function projectTaskBucket(task) {
+    if (!isProjectTask(task)) return '';
+    if (taskIsClosedState(task)) return 'completed';
+    if (task?.reviewPending || task?.completionPending || listStatus(task) === 'Pending Review') return 'approval';
+    const note = `${task?.extra2 || ''} ${task?.description || ''} ${task?.taskName || ''}`.toLowerCase();
+    if (/for your approval|waiting for your approval|submitted this bill/.test(note)) return 'approval';
+    if (String(task?.requestType || '') === 'Inventory Bill Draft' && !/draft/.test(note)) return 'approval';
+    const requestType = String(task?.requestType || '');
+    if (requestType === 'Work Order LPO Approval') return 'approval';
+    if (requestType === 'Work Order Actual BOQ' && !/\bdraft\b/.test(note)) return 'approval';
+    if (requestType === 'Work Order Actual BOQ Update' && !/\bdraft\b/.test(note)) return 'approval';
+    if (/^Work Order MR(?: \d+)?$/.test(requestType) && /for your approval/.test(note)) return 'approval';
+    return 'pending';
+}
+
+const PROJECT_BUCKETS = [
+    { id: 'pending', label: 'Pending', wrap: 'bg-amber-50 text-amber-800', ring: 'ring-amber-400' },
+    { id: 'approval', label: 'Waiting for approval', wrap: 'bg-indigo-50 text-indigo-800', ring: 'ring-indigo-400' },
+    { id: 'completed', label: 'Completed', wrap: 'bg-emerald-50 text-emerald-800', ring: 'ring-emerald-400' },
+];
+
 function paramValue(params, key, fallback = '') {
     const value = params.get(key);
     if (value == null || value === 'null' || value === 'undefined') return fallback;
@@ -186,6 +215,7 @@ function readTaskListFilters(params) {
         toDate: paramValue(params, 'to'),
         status: statusValue(paramValue(params, 'status', 'Pending')),
         priority: oneOf(paramValue(params, 'priority', 'All Priority'), PRIORITIES, 'All Priority'),
+        projectBucket: oneOf(paramValue(params, 'project', ''), ['', 'pending', 'approval', 'completed'], ''),
         page: Number.isFinite(page) && page > 0 ? page : 1,
         pageSizeChoice: oneOf(size, PAGE_SIZE_OPTIONS.map((item) => item.id), '10'),
     };
@@ -807,6 +837,8 @@ function taskMatchesListFilters(task, options) {
     if (!needle) return true;
     const title = (titles.get(task.actionId) || task.taskName || '').toLowerCase();
     return [
+        listedTaskNumber(task),
+        task.workOrderNo,
         task.taskNumber,
         title,
         task.taskName,
@@ -858,6 +890,40 @@ const PRIORITY_CARDS = [
     { id: 'Medium', wrap: 'bg-amber-50 text-amber-700', ring: 'ring-amber-400' },
     { id: 'Low', wrap: 'bg-emerald-50 text-emerald-700', ring: 'ring-emerald-400' },
 ];
+
+function ProjectSummaryCard({ counts, active, activeBucket, onOpen, onSelect }) {
+    const total = PROJECT_BUCKETS.reduce((sum, item) => sum + (counts[item.id] || 0), 0);
+    return (
+        <div className={`flex h-full w-full flex-col rounded-2xl bg-[#EEF2FF] px-4 py-4 ring-2 ${active ? 'ring-indigo-500' : 'ring-transparent'}`}>
+            <button type="button" onClick={onOpen} className="flex items-center gap-3 text-left">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#4F46E5] text-white">
+                    <Briefcase size={20} />
+                </span>
+                <div className="min-w-0">
+                    <p className="text-[13px] font-medium leading-snug text-slate-500">Project Task</p>
+                    <p className="mt-0.5 text-[28px] font-bold leading-none tabular-nums text-[#4338CA]">{total}</p>
+                </div>
+            </button>
+            <div className="mt-3 grid grid-cols-3 gap-1.5">
+                {PROJECT_BUCKETS.map((item) => {
+                    const selected = activeBucket === item.id;
+                    return (
+                        <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => onSelect(item.id)}
+                            aria-pressed={selected}
+                            className={`rounded-lg px-1 py-1.5 text-center ring-2 ${item.wrap} ${selected ? item.ring : 'ring-transparent'}`}
+                        >
+                            <p className="text-[10px] font-semibold leading-tight">{item.label}</p>
+                            <p className="mt-1 text-[15px] font-bold leading-none tabular-nums">{counts[item.id] || 0}</p>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
 
 function PrioritySummaryCard({ counts, activePriority, onSelect }) {
     const total = PRIORITY_CARDS.reduce((sum, item) => sum + (counts[item.id] || 0), 0);
@@ -1045,6 +1111,7 @@ function TaskManagerContent() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [tasks, setTasks] = useState([]);
+    const [seesAllProjectTasks, setSeesAllProjectTasks] = useState(false);
     const [viewer, setViewer] = useState(null);
     const [board, setBoard] = useState(filtersFromUrl.board);
     const [stateFilter, setStateFilter] = useState(filtersFromUrl.stateFilter);
@@ -1058,8 +1125,10 @@ function TaskManagerContent() {
     const [toDate, setToDate] = useState(filtersFromUrl.toDate);
     const [status, setStatus] = useState(filtersFromUrl.status);
     const [priority, setPriority] = useState(filtersFromUrl.priority);
+    const [projectBucket, setProjectBucket] = useState(filtersFromUrl.projectBucket);
     const [pageSizeChoice, setPageSizeChoice] = useState(filtersFromUrl.pageSizeChoice);
     const [page, setPage] = useState(filtersFromUrl.page);
+    const [closedGroups, setClosedGroups] = useState({});
     const [sortKey, setSortKey] = useState('listDate');
     const [sortDirection, setSortDirection] = useState('desc');
     const [selected, setSelected] = useState(() => new Set());
@@ -1085,6 +1154,7 @@ function TaskManagerContent() {
         setToDate(filtersFromUrl.toDate);
         setStatus(filtersFromUrl.status);
         setPriority(filtersFromUrl.priority);
+        setProjectBucket(filtersFromUrl.projectBucket);
         setPageSizeChoice(filtersFromUrl.pageSizeChoice);
         setPage(filtersFromUrl.page);
     }
@@ -1092,7 +1162,7 @@ function TaskManagerContent() {
     const listReturnParams = useMemo(() => ({
         ...(board !== 'mine' ? { board } : {}),
         ...(board === 'completed' || stateFilter !== 'open' ? { state: stateFilter } : {}),
-        ...(scope !== 'My Task' ? { scope } : {}),
+        ...(typeFilter === 'Project Task' || scope !== (board === 'all' ? 'All Task' : 'My Task') ? { scope } : {}),
         ...(typeFilter !== 'All Types' ? { type: typeFilter } : {}),
         ...(query ? { q: query } : {}),
         employee: '',
@@ -1103,6 +1173,7 @@ function TaskManagerContent() {
         ...(toDate ? { to: toDate } : {}),
         ...(status !== 'Pending' ? { status } : {}),
         ...(priority !== 'All Priority' ? { priority } : {}),
+        ...(projectBucket ? { project: projectBucket } : {}),
         ...(page > 1 ? { page } : {}),
         ...(pageSizeChoice !== '10' ? { size: pageSizeChoice } : {}),
     }), [
@@ -1118,6 +1189,7 @@ function TaskManagerContent() {
         toDate,
         status,
         priority,
+        projectBucket,
         page,
         pageSizeChoice,
     ]);
@@ -1139,6 +1211,7 @@ function TaskManagerContent() {
             setToDate(next.toDate);
             setStatus(next.status);
             setPriority(next.priority);
+            setProjectBucket(next.projectBucket);
             setPageSizeChoice(next.pageSizeChoice);
             setPage(next.page);
         };
@@ -1155,6 +1228,7 @@ function TaskManagerContent() {
         try {
             const res = await axiosInstance.get('/Employee/task-manager/notifications', { skipToast: true });
             setTasks(Array.isArray(res.data?.tasks) ? res.data.tasks : []);
+            setSeesAllProjectTasks(Boolean(res.data?.seesAllProjectTasks));
         } catch (err) {
             setError(err?.response?.data?.message || 'Could not load notifications.');
         } finally {
@@ -1167,6 +1241,13 @@ function TaskManagerContent() {
         setViewer(readViewer());
         load();
     }, [load]);
+
+    useEffect(() => {
+        if (loading) return;
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('type') !== 'Project Task' || params.has('scope')) return;
+        setScope(seesAllProjectTasks ? 'All Task' : 'My Task');
+    }, [loading, seesAllProjectTasks]);
 
     useEffect(() => {
         if (!openMenu) return undefined;
@@ -1244,6 +1325,9 @@ function TaskManagerContent() {
         const mine = tasks.filter((task) => taskInBoard(task, 'mine', viewer));
         const requests = tasks.filter((task) => taskInBoard(task, 'requests', viewer));
         const review = tasks.filter((task) => taskInBoard(task, 'review', viewer));
+        const projectTasks = tasks.filter((task) => (
+            isProjectTask(task) && (seesAllProjectTasks || taskIsMine(task, viewer))
+        ));
         return {
             mine: mine.length,
             requests: requests.length,
@@ -1256,8 +1340,11 @@ function TaskManagerContent() {
             requestsChange: boardChange(requests, requestMonth),
             reviewChange: boardChange(review, requestMonth),
             allChange: boardChange(tasks, requestMonth),
+            projectPending: projectTasks.filter((task) => projectTaskBucket(task) === 'pending').length,
+            projectApproval: projectTasks.filter((task) => projectTaskBucket(task) === 'approval').length,
+            projectCompleted: projectTasks.filter((task) => projectTaskBucket(task) === 'completed').length,
         };
-    }, [tasks, viewer]);
+    }, [tasks, viewer, seesAllProjectTasks]);
 
     const filtered = useMemo(() => {
         const searchAndType = {
@@ -1273,10 +1360,13 @@ function TaskManagerContent() {
             priority,
             includeStatus: false,
         };
+        const inProjectBucket = (task) => !projectBucket || projectTaskBucket(task) === projectBucket;
         if (board !== 'all') {
             return tasks
                 .filter((task) => (
-                    taskOnBoard(task, board, viewer, stateFilter) && taskMatchesListFilters(task, searchAndType)
+                    taskOnBoard(task, board, viewer, stateFilter)
+                    && taskMatchesListFilters(task, searchAndType)
+                    && inProjectBucket(task)
                 ))
                 .map((task) => rowForViewer(task, viewer));
         }
@@ -1287,19 +1377,29 @@ function TaskManagerContent() {
             .filter((task) => (
                 taskOnBoard(task, board, viewer, stateFilter)
                 && taskMatchesListFilters(task, { ...listFilter, status: statusForList, includeStatus: true })
+                && inProjectBucket(task)
             ))
             .map((task) => rowForViewer(task, viewer));
-    }, [tasks, board, viewer, listFilter, titles, typeFilter, query, stateFilter, status, priority]);
+    }, [tasks, board, viewer, listFilter, titles, typeFilter, query, stateFilter, status, priority, projectBucket]);
     const sorted = useMemo(
         () => sortTaskRows(filtered, sortKey, sortDirection, titles, viewer, board),
         [filtered, sortKey, sortDirection, titles, board, viewer],
     );
 
+    const workOrderBlocks = useMemo(() => clusterWorkOrderTasks(sorted), [sorted]);
     const pageSize = pageSizeChoice === 'all' ? Math.max(sorted.length, 1) : Number(pageSizeChoice);
-    const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
+    const blockPages = useMemo(
+        () => paginateWorkOrderBlocks(workOrderBlocks, pageSize),
+        [workOrderBlocks, pageSize],
+    );
+    const pageCount = Math.max(1, blockPages.length);
     const safePage = Math.min(page, pageCount);
-    const start = sorted.length === 0 ? 0 : (safePage - 1) * pageSize;
-    const pageRows = sorted.slice(start, start + pageSize);
+    const pageBlocks = blockPages[safePage - 1] || [];
+    const pageRows = tasksInBlocks(pageBlocks);
+    const tasksBeforePage = blockPages
+        .slice(0, safePage - 1)
+        .reduce((sum, blocks) => sum + tasksInBlocks(blocks).length, 0);
+    const start = sorted.length === 0 ? 0 : tasksBeforePage;
 
     const listReturnHref = buildListReturnHref('/task-manager', listReturnParams);
 
@@ -1313,11 +1413,31 @@ function TaskManagerContent() {
         if (page > pageCount) setPage(pageCount);
     }, [loading, page, pageCount]);
 
+    const showProjectTasks = (bucket = '') => {
+        setBoard('all');
+        setScope(seesAllProjectTasks ? 'All Task' : 'My Task');
+        setStateFilter(bucket === 'completed' ? 'closed' : bucket ? 'open' : 'all');
+        setTypeFilter('Project Task');
+        setProjectBucket(bucket);
+        setPriority('All Priority');
+        setQuery('');
+        setRequesterQuery('');
+        setAssigneeQuery('');
+        setDatePreset('all');
+        setFromDate('');
+        setToDate('');
+        setStatus('All Status');
+        setSortKey('listDate');
+        setSortDirection('desc');
+        setPage(1);
+    };
+
     const showMyPriority = (level) => {
         setBoard('mine');
         setStateFilter('open');
         setPriority(level);
         setTypeFilter('All Types');
+        setProjectBucket('');
         setQuery('');
         setSortKey('listDate');
         setSortDirection('desc');
@@ -1332,6 +1452,7 @@ function TaskManagerContent() {
         if (next === 'completed') setStateFilter('closed');
         else if (next === 'all') setStateFilter('all');
         else if (next !== 'review') setStateFilter('open');
+        setProjectBucket('');
         if (next !== 'all') return;
         setScope('All Task');
         setRequesterQuery('');
@@ -1355,6 +1476,7 @@ function TaskManagerContent() {
         setToDate('');
         setStatus('All Status');
         setPriority('All Priority');
+        setProjectBucket('');
         setSortKey('listDate');
         setSortDirection('desc');
         setPage(1);
@@ -1384,6 +1506,123 @@ function TaskManagerContent() {
         });
     };
 
+    const toggleGroup = (workOrderNo) => {
+        setClosedGroups((current) => ({ ...current, [workOrderNo]: !current[workOrderNo] }));
+    };
+
+    const toggleGroupSelection = (members) => {
+        setSelected((prev) => {
+            const next = new Set(prev);
+            const allOn = members.every((row) => next.has(row.actionId));
+            members.forEach((row) => {
+                if (allOn) next.delete(row.actionId);
+                else next.add(row.actionId);
+            });
+            return next;
+        });
+    };
+
+    const renderTaskRow = (task, nested = false) => {
+        const title = titles.get(task.actionId) || task.taskName || 'Notification';
+        return (
+            <ListTableRowLink
+                key={task.actionId}
+                href={taskDetailsHref(task)}
+                router={router}
+                listReturnHref={listReturnHref}
+            >
+                <tr className={`cursor-pointer border-b border-slate-50 hover:bg-slate-50/70 ${nested ? 'border-l-4 border-l-indigo-300 bg-slate-50/70' : ''}`}>
+                    <td className="px-4 py-3.5">
+                        <input
+                            type="checkbox"
+                            checked={selected.has(task.actionId)}
+                            onChange={() => toggleOne(task.actionId)}
+                            aria-label={`Select ${task.taskNumber}`}
+                        />
+                    </td>
+                    <td className={`px-3 py-3.5 ${nested ? 'pl-8' : ''}`}>
+                        <p className="text-[13px] font-semibold text-slate-700">{listedTaskNumber(task) || '—'}</p>
+                        {taskNumberCaption(task) ? (
+                            <p className="mt-0.5 max-w-[240px] text-[11px] font-normal lowercase leading-4 text-slate-500">
+                                {taskNumberCaption(task)}
+                            </p>
+                        ) : null}
+                    </td>
+                    <td className="min-w-[200px] max-w-[280px] px-3 py-3.5">
+                        <TaskNameList task={task} title={title} />
+                    </td>
+                    {typeFilter === 'Project Task' ? null : (
+                        <td className="px-3 py-3.5">
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${TYPE_STYLE[displayTaskType(task.taskCategory)] || TYPE_STYLE[task.taskCategory] || 'bg-slate-100 text-slate-600'}`}>
+                                {displayTaskType(task.taskCategory)}
+                            </span>
+                        </td>
+                    )}
+                    <td
+                        className="px-3 py-3.5 text-[13px] text-slate-600 whitespace-nowrap"
+                        title={dateColumnLabel(board)}
+                    >
+                        {formatDisplayDate(rowDate(task, board, viewer)) || '—'}
+                    </td>
+                    <td className="px-3 py-3.5">
+                        <PersonCell name={task.requesterName} photo={task.requesterPhoto} />
+                    </td>
+                    <td className="px-3 py-3.5">
+                        <AssigneeCell task={task} />
+                    </td>
+                    <td className="px-3 py-3.5 whitespace-nowrap">
+                        <CompletionDateCell task={task} />
+                    </td>
+                    <td className="px-3 py-3.5">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${PRIORITY_STYLE[task.priority] || ''}`}>
+                            {task.priority}
+                        </span>
+                    </td>
+                    <td className="px-3 py-3.5">
+                        <StatusCell task={task} viewer={viewer} />
+                    </td>
+                    <td className="px-3 py-3.5 text-right">
+                        <div className="inline-flex items-center justify-end gap-1">
+                            {task.canDelete || task.deleteBlockedByAssignee ? (
+                                <button
+                                    type="button"
+                                    disabled={!task.canDelete}
+                                    title={task.deleteBlockedByAssignee ? 'This task has an assignee. Delete is disabled.' : 'Delete this task'}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        event.preventDefault();
+                                        if (!task.canDelete) return;
+                                        setOpenMenu(null);
+                                        setDeleteTask(task);
+                                    }}
+                                    className="inline-flex h-8 items-center rounded-lg border border-rose-200 px-2.5 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                                >
+                                    Delete
+                                </button>
+                            ) : null}
+                            <button
+                                type="button"
+                                aria-label={`Actions for ${task.taskNumber}`}
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    const rect = event.currentTarget.getBoundingClientRect();
+                                    setOpenMenu((current) => (
+                                        current?.id === task.actionId
+                                            ? null
+                                            : { id: task.actionId, top: rect.bottom + 4, left: rect.right - 168 }
+                                    ));
+                                }}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                            >
+                                <MoreHorizontal size={16} />
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            </ListTableRowLink>
+        );
+    };
+
     return (
         <div className="flex min-h-screen w-full max-w-full overflow-x-hidden bg-[#F4F7FB]">
             <Sidebar />
@@ -1407,7 +1646,7 @@ function TaskManagerContent() {
                         </button>
                     </div>
 
-                    <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                    <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                         <StatCard
                             label="My Task"
                             value={boardSummary.mine}
@@ -1456,8 +1695,22 @@ function TaskManagerContent() {
                             wrap="bg-[#EAF3FF]"
                             bubble="bg-[#2563EB] text-white"
                             figure="text-[#1D4ED8]"
-                            active={board === 'all'}
-                            onClick={() => selectBoard('all')}
+                            active={board === 'all' && typeFilter !== 'Project Task'}
+                            onClick={() => {
+                                selectBoard('all');
+                                setTypeFilter('All Types');
+                            }}
+                        />
+                        <ProjectSummaryCard
+                            counts={{
+                                pending: boardSummary.projectPending,
+                                approval: boardSummary.projectApproval,
+                                completed: boardSummary.projectCompleted,
+                            }}
+                            active={typeFilter === 'Project Task'}
+                            activeBucket={typeFilter === 'Project Task' ? projectBucket : ''}
+                            onOpen={() => showProjectTasks('')}
+                            onSelect={showProjectTasks}
                         />
                         <PrioritySummaryCard
                             counts={{ High: boardSummary.high, Medium: boardSummary.medium, Low: boardSummary.low }}
@@ -1517,10 +1770,13 @@ function TaskManagerContent() {
                                     ))}
                                 </select>
                             ) : null}
+                            {typeFilter === 'Project Task' ? null : (
                             <select
                                 value={typeFilter}
                                 onChange={(event) => {
-                                    setTypeFilter(event.target.value);
+                                    const next = event.target.value;
+                                    setTypeFilter(next);
+                                    if (next !== 'Project Task') setProjectBucket('');
                                     setPage(1);
                                 }}
                                 aria-label="Task type"
@@ -1530,6 +1786,7 @@ function TaskManagerContent() {
                                     <option key={item}>{item}</option>
                                 ))}
                             </select>
+                            )}
                             <select
                                 value={priority}
                                 onChange={(event) => {
@@ -1678,7 +1935,9 @@ function TaskManagerContent() {
                                         </th>
                                         <SortableTh label="Task No" columnKey="taskNumber" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
                                         <SortableTh label="Task Name" columnKey="name" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
-                                        <SortableTh label="Task Type" columnKey="type" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        {typeFilter === 'Project Task' ? null : (
+                                            <SortableTh label="Task Type" columnKey="type" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
+                                        )}
                                         <SortableTh label={dateColumnLabel(board)} columnKey="listDate" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
                                         <SortableTh label="Requester" columnKey="requester" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
                                         <SortableTh label="Assignee" columnKey="assignee" sortKey={sortKey} sortDirection={sortDirection} onSort={sortBy} className="px-3 py-3" />
@@ -1691,110 +1950,51 @@ function TaskManagerContent() {
                                 <tbody>
                                     {loading && (
                                         <tr>
-                                            <td colSpan={11} className="px-4 py-16 text-center text-sm text-slate-500">
+                                            <td colSpan={typeFilter === 'Project Task' ? 10 : 11} className="px-4 py-16 text-center text-sm text-slate-500">
                                                 Loading notifications...
                                             </td>
                                         </tr>
                                     )}
                                     {!loading && pageRows.length === 0 && (
                                         <tr>
-                                            <td colSpan={11} className="px-4 py-16 text-center text-sm text-slate-500">
+                                            <td colSpan={typeFilter === 'Project Task' ? 10 : 11} className="px-4 py-16 text-center text-sm text-slate-500">
                                                 No notifications match these filters.
                                             </td>
                                         </tr>
                                     )}
                                     {!loading &&
-                                        pageRows.map((task) => {
-                                            const title = titles.get(task.actionId) || task.taskName || 'Notification';
+                                        pageBlocks.map((block) => {
+                                            if (block.type !== 'group') return renderTaskRow(block.task);
+                                            const open = closedGroups[block.workOrderNo] !== true;
+                                            const groupSelected = block.tasks.every((row) => selected.has(row.actionId));
                                             return (
-                                                <ListTableRowLink
-                                                    key={task.actionId}
-                                                    href={taskDetailsHref(task)}
-                                                    router={router}
-                                                    listReturnHref={listReturnHref}
-                                                >
-                                                <tr className="cursor-pointer border-b border-slate-50 hover:bg-slate-50/70">
-                                                    <td className="px-4 py-3.5">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={selected.has(task.actionId)}
-                                                            onChange={() => toggleOne(task.actionId)}
-                                                            aria-label={`Select ${task.taskNumber}`}
-                                                        />
-                                                    </td>
-                                                    <td className="px-3 py-3.5 text-[13px] font-semibold text-slate-700">
-                                                        {task.taskNumber}
-                                                    </td>
-                                                    <td className="min-w-[200px] max-w-[280px] px-3 py-3.5">
-                                                        <TaskNameList task={task} title={title} />
-                                                    </td>
-                                                    <td className="px-3 py-3.5">
-                                                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${TYPE_STYLE[displayTaskType(task.taskCategory)] || TYPE_STYLE[task.taskCategory] || 'bg-slate-100 text-slate-600'}`}>
-                                                            {displayTaskType(task.taskCategory)}
-                                                        </span>
-                                                    </td>
-                                                    <td
-                                                        className="px-3 py-3.5 text-[13px] text-slate-600 whitespace-nowrap"
-                                                        title={dateColumnLabel(board)}
-                                                    >
-                                                        {formatDisplayDate(rowDate(task, board, viewer)) || '—'}
-                                                    </td>
-                                                    <td className="px-3 py-3.5">
-                                                        <PersonCell name={task.requesterName} photo={task.requesterPhoto} />
-                                                    </td>
-                                                    <td className="px-3 py-3.5">
-                                                        <AssigneeCell task={task} />
-                                                    </td>
-                                                    <td className="px-3 py-3.5 whitespace-nowrap">
-                                                        <CompletionDateCell task={task} />
-                                                    </td>
-                                                    <td className="px-3 py-3.5">
-                                                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${PRIORITY_STYLE[task.priority] || ''}`}>
-                                                            {task.priority}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-3 py-3.5">
-                                                        <StatusCell task={task} viewer={viewer} />
-                                                    </td>
-                                                    <td className="px-3 py-3.5 text-right">
-                                                        <div className="inline-flex items-center justify-end gap-1">
-                                                        {task.canDelete || task.deleteBlockedByAssignee ? (
+                                                <Fragment key={`wo-${block.workOrderNo}`}>
+                                                    <tr className="border-b border-slate-200 bg-slate-100">
+                                                        <td className="px-4 py-3">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={groupSelected}
+                                                                onChange={() => toggleGroupSelection(block.tasks)}
+                                                                aria-label={`Select tasks for ${block.workOrderNo}`}
+                                                            />
+                                                        </td>
+                                                        <td className="px-3 py-3" colSpan={typeFilter === 'Project Task' ? 9 : 10}>
                                                             <button
                                                                 type="button"
-                                                                disabled={!task.canDelete}
-                                                                title={task.deleteBlockedByAssignee ? 'This task has an assignee. Delete is disabled.' : 'Delete this task'}
-                                                                onClick={(event) => {
-                                                                    event.stopPropagation();
-                                                                    event.preventDefault();
-                                                                    if (!task.canDelete) return;
-                                                                    setOpenMenu(null);
-                                                                    setDeleteTask(task);
-                                                                }}
-                                                                className="inline-flex h-8 items-center rounded-lg border border-rose-200 px-2.5 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                                                                onClick={() => toggleGroup(block.workOrderNo)}
+                                                                className="flex w-full items-center gap-2 text-left"
+                                                                aria-expanded={open}
                                                             >
-                                                                Delete
+                                                                {open ? <ChevronDown size={16} className="text-slate-500" /> : <ChevronRight size={16} className="text-slate-500" />}
+                                                                <span className="text-[13px] font-bold tracking-wide text-slate-800">{block.workOrderNo}</span>
+                                                                <span className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
+                                                                    {block.tasks.length} tasks
+                                                                </span>
                                                             </button>
-                                                        ) : null}
-                                                        <button
-                                                            type="button"
-                                                            aria-label={`Actions for ${task.taskNumber}`}
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                const rect = event.currentTarget.getBoundingClientRect();
-                                                                setOpenMenu((current) => (
-                                                                    current?.id === task.actionId
-                                                                        ? null
-                                                                        : { id: task.actionId, top: rect.bottom + 4, left: rect.right - 168 }
-                                                                ));
-                                                            }}
-                                                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
-                                                        >
-                                                            <MoreHorizontal size={16} />
-                                                        </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                                </ListTableRowLink>
+                                                        </td>
+                                                    </tr>
+                                                    {open ? block.tasks.map((task) => renderTaskRow(task, true)) : null}
+                                                </Fragment>
                                             );
                                         })}
                                 </tbody>
@@ -1804,7 +2004,7 @@ function TaskManagerContent() {
                         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-[13px] text-slate-500">
                             <div className="flex flex-wrap items-center gap-3">
                                 <p>
-                                    Showing {sorted.length === 0 ? 0 : start + 1} to {Math.min(start + pageSize, sorted.length)} of {sorted.length} tasks
+                                    Showing {sorted.length === 0 ? 0 : start + 1} to {Math.min(start + pageRows.length, sorted.length)} of {sorted.length} tasks
                                 </p>
                                 <select
                                     value={pageSizeChoice}

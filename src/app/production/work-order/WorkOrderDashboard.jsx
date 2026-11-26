@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
-import WorkOrderDetails from './WorkOrderDetails';
 import WorkOrderQuotationModal from './WorkOrderQuotationModal';
 import { formatAed, formatWorkOrderDate, nextWorkOrderNo } from './workOrderNumber';
+import { workOrderDetailsHref, workOrderHrefFromLegacy } from './workOrderPaths';
+import { handleNavigateFromListClick, replaceRouteWithoutStackPush } from '@/utils/listReturnNavigation';
 import {
     CheckCircle2,
     ChevronRight,
@@ -242,7 +244,6 @@ export default function WorkOrderDashboard() {
     const searchParams = useSearchParams();
     const linkedId = searchParams.get('workOrder') || '';
     const focusSection = searchParams.get('section') || '';
-    const [detailId, setDetailId] = useState(linkedId || null);
     const [viewerKeys, setViewerKeys] = useState([]);
     const [orders, setOrders] = useState([]);
     const [pulseTable, setPulseTable] = useState(false);
@@ -263,8 +264,9 @@ export default function WorkOrderDashboard() {
     }, [loadOrders]);
 
     useEffect(() => {
-        if (linkedId) setDetailId(linkedId);
-    }, [linkedId]);
+        if (!linkedId) return;
+        replaceRouteWithoutStackPush(router, workOrderHrefFromLegacy(linkedId, focusSection));
+    }, [linkedId, focusSection, router]);
 
     useEffect(() => {
         try {
@@ -318,19 +320,11 @@ export default function WorkOrderDashboard() {
         }
     };
 
-    if (detailId) {
-        return (
-            <WorkOrderDetails
-                id={detailId}
-                focusSection={focusSection}
-                onBack={() => {
-                    setDetailId(null);
-                    if (linkedId) router.replace('/production/work-order');
-                    loadOrders();
-                }}
-            />
-        );
-    }
+    const openOrder = (event, orderId) => {
+        handleNavigateFromListClick(event, router, workOrderDetailsHref(orderId));
+    };
+
+    if (linkedId) return null;
 
     return (
         <div className="relative text-slate-800">
@@ -340,9 +334,9 @@ export default function WorkOrderDashboard() {
                     <ul className="mt-1 space-y-1">
                         {draftNotices.map((order) => (
                             <li key={order.id}>
-                                <button type="button" onClick={() => setDetailId(order.id)} className={`font-semibold text-amber-950 hover:underline ${FOCUS}`}>
+                                <Link href={workOrderDetailsHref(order.id)} onClick={(event) => openOrder(event, order.id)} className={`font-semibold text-amber-950 hover:underline ${FOCUS}`}>
                                     {order.no}
-                                </button>
+                                </Link>
                                 {' '}for {order.customer}
                                 {order.salespersonName ? ` is pending with ${order.salespersonName}` : ''}
                             </li>
@@ -358,9 +352,9 @@ export default function WorkOrderDashboard() {
                     <ul className="mt-1 space-y-2">
                         {lpoNotices.map((order) => (
                             <li key={order.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                <button type="button" onClick={() => setDetailId(order.id)} className={`font-semibold hover:underline ${FOCUS}`}>
+                                <Link href={workOrderDetailsHref(order.id)} onClick={(event) => openOrder(event, order.id)} className={`font-semibold hover:underline ${FOCUS}`}>
                                     {order.no}
-                                </button>
+                                </Link>
                                 <span>{order.lpoAlert.message}</span>
                                 <button type="button" onClick={() => dismissLpoNotice(order.id)} className={`text-[12px] font-semibold text-orange-800 hover:underline ${FOCUS}`}>
                                     Dismiss
@@ -480,13 +474,13 @@ export default function WorkOrderDashboard() {
                                 {recentOrders.map((order) => (
                                     <tr key={order.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/80">
                                         <td className="px-2 py-3 whitespace-nowrap">
-                                            <button
-                                                type="button"
-                                                onClick={() => setDetailId(order.id)}
+                                            <Link
+                                                href={workOrderDetailsHref(order.id)}
+                                                onClick={(event) => openOrder(event, order.id)}
                                                 className={`text-[13px] font-semibold text-[#2f6fed] hover:underline ${FOCUS}`}
                                             >
                                                 {order.no}
-                                            </button>
+                                            </Link>
                                         </td>
                                         <td className="px-2 py-3 text-[13px] text-slate-700 whitespace-nowrap">{order.customer}</td>
                                         <td className="px-2 py-3 whitespace-nowrap">
@@ -513,14 +507,14 @@ export default function WorkOrderDashboard() {
                                             {order.value}
                                         </td>
                                         <td className="px-2 py-3">
-                                            <button
-                                                type="button"
+                                            <Link
+                                                href={workOrderDetailsHref(order.id)}
                                                 aria-label={`Open ${order.no}`}
-                                                onClick={() => setDetailId(order.id)}
-                                                className={`rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 ${FOCUS}`}
+                                                onClick={(event) => openOrder(event, order.id)}
+                                                className={`inline-flex rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 ${FOCUS}`}
                                             >
                                                 <MoreHorizontal size={16} />
-                                            </button>
+                                            </Link>
                                         </td>
                                     </tr>
                                 ))}

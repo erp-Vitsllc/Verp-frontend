@@ -27,12 +27,9 @@ export default function ErpNavigationTracker() {
         const resolved = getBrowserPathWithSearch() || fromNext;
         noteTaskSectionLocation(resolved);
 
-        if (consumeNavigationPushSuppression()) {
-            prevHrefRef.current = resolved;
-            return;
-        }
-
-        if (consumeSkipTrackerPushOnce()) {
+        const suppressPush = consumeNavigationPushSuppression();
+        const skipPush = consumeSkipTrackerPushOnce();
+        if (suppressPush || skipPush) {
             prevHrefRef.current = resolved;
             return;
         }

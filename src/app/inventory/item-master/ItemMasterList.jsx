@@ -140,16 +140,45 @@ function stockStatusParam(params) {
     return DEFAULT_STOCK_STATUS;
 }
 
-function itemListHref({ tab, search, categoryId, subcategoryId, brandId, status, page, pageSize }) {
+function itemListHref({ tab, search, categoryId, subcategoryId, itemOptionId, brandId, status, page, pageSize }) {
     return buildListReturnHref('/inventory/item-master', {
         tab: tab && tab !== 'items' ? tab : '',
         search,
         category: categoryId,
         subcategory: subcategoryId,
+        item: itemOptionId,
         brand: brandId,
         status: status !== DEFAULT_STOCK_STATUS ? status : '',
         page: page > 1 ? page : '',
         size: pageSize && pageSize !== '10' ? pageSize : '',
+    });
+}
+
+function sortedByName(rows) {
+    return rows.slice().sort((left, right) => String(left?.name || '').localeCompare(String(right?.name || '')));
+}
+
+function itemFilterChoices(itemOptions, subcategories, categoryId, subcategoryId) {
+    const subcategoryName = new Map(subcategories.map((row) => [String(row._id), row.name || '']));
+    const allowedSubIds = categoryId
+        ? new Set(subcategories.filter((row) => String(row.categoryId || '') === String(categoryId)).map((row) => String(row._id)))
+        : null;
+    const visible = itemOptions.filter((row) => {
+        const subId = String(row.subcategoryId || '');
+        if (subcategoryId) return subId === String(subcategoryId);
+        if (allowedSubIds) return allowedSubIds.has(subId);
+        return true;
+    });
+    const nameCounts = new Map();
+    visible.forEach((row) => {
+        const name = String(row.name || '');
+        nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+    });
+    return sortedByName(visible).map((row) => {
+        const name = row.name || 'Item';
+        const subName = subcategoryName.get(String(row.subcategoryId || ''));
+        const label = (nameCounts.get(String(row.name || '')) || 0) > 1 && subName ? `${name} (${subName})` : name;
+        return { id: String(row._id), label };
     });
 }
 
@@ -239,15 +268,18 @@ export default function ItemMasterList() {
     const [tab, setTab] = useState(() => tabParam(searchParams));
     const [categories, setCategories] = useState([]);
     const [subcategories, setSubcategories] = useState([]);
+    const [itemOptions, setItemOptions] = useState([]);
     const [brands, setBrands] = useState([]);
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(() => pageParam(searchParams));
     const [pageSize, setPageSize] = useState(() => pageSizeParam(searchParams));
     const [search, setSearch] = useState(() => textParam(searchParams, 'search'));
+    const [appliedSearch, setAppliedSearch] = useState(() => textParam(searchParams, 'search').trim());
     const [catalogSearch, setCatalogSearch] = useState('');
     const [categoryId, setCategoryId] = useState(() => textParam(searchParams, 'category'));
     const [subcategoryId, setSubcategoryId] = useState(() => textParam(searchParams, 'subcategory'));
+    const [itemOptionId, setItemOptionId] = useState(() => textParam(searchParams, 'item'));
     const [brandId, setBrandId] = useState(() => textParam(searchParams, 'brand'));
     const [status, setStatus] = useState(() => stockStatusParam(searchParams));
     const [linkedList, setLinkedList] = useState(null);
@@ -271,17 +303,19 @@ export default function ItemMasterList() {
         search: search.trim(),
         categoryId,
         subcategoryId,
+        itemOptionId,
         brandId,
         status: status !== DEFAULT_STOCK_STATUS ? status : '',
         page,
         pageSize,
-    }), [brandId, categoryId, page, pageSize, search, status, subcategoryId, tab]);
+    }), [brandId, categoryId, itemOptionId, page, pageSize, search, status, subcategoryId, tab]);
 
     usePersistListReturnState({
         tab: tab !== 'items' ? tab : '',
         search: search.trim(),
         category: categoryId,
         subcategory: subcategoryId,
+        item: itemOptionId,
         brand: brandId,
         status: status !== DEFAULT_STOCK_STATUS ? status : '',
         page: page > 1 ? page : '',
@@ -291,15 +325,28 @@ export default function ItemMasterList() {
     useEffect(() => {
         if (appliedSearchKey.current === searchKey) return;
         appliedSearchKey.current = searchKey;
+        const nextSearch = textParam(searchParams, 'search');
         setTab(tabParam(searchParams));
-        setSearch(textParam(searchParams, 'search'));
+        setSearch(nextSearch);
+        setAppliedSearch(nextSearch.trim());
         setCategoryId(textParam(searchParams, 'category'));
         setSubcategoryId(textParam(searchParams, 'subcategory'));
+        setItemOptionId(textParam(searchParams, 'item'));
         setBrandId(textParam(searchParams, 'brand'));
         setStatus(stockStatusParam(searchParams));
         setPage(pageParam(searchParams));
         setPageSize(pageSizeParam(searchParams));
     }, [searchKey, searchParams]);
+
+    useEffect(() => {
+        const next = search.trim();
+        if (next === appliedSearch) return undefined;
+        const timer = setTimeout(() => {
+            setAppliedSearch(next);
+            setPage(1);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [appliedSearch, search]);
 
     useEffect(() => {
         const reviewId = searchParams.get('stockEntry') || '';
@@ -336,11 +383,12 @@ export default function ItemMasterList() {
             return Promise.resolve();
         }
         if (!quiet) setCatalogLoading(true);
-        return Promise.all([listCategories(), listSubcategories(), listBrands()])
-            .then(([categoryRows, subcategoryRows, brandRows]) => {
+        return Promise.all([listCategories(), listSubcategories(), listItemOptions(), listBrands()])
+            .then(([categoryRows, subcategoryRows, optionRows, brandRows]) => {
                 if (requestId !== catalogRequest.current) return;
                 setCategories(asRows(categoryRows));
                 setSubcategories(asRows(subcategoryRows));
+                setItemOptions(asRows(optionRows));
                 setBrands(asRows(brandRows));
                 setCatalogError('');
             })
@@ -381,9 +429,10 @@ export default function ItemMasterList() {
         listItems({
             page,
             limit: pageLimit(pageSize),
-            search,
+            search: appliedSearch,
             categoryId,
             subcategoryId,
+            itemOptionId,
             brandId,
             status: status !== DEFAULT_STOCK_STATUS ? status : '',
         })
@@ -402,7 +451,7 @@ export default function ItemMasterList() {
         return () => {
             cancelled = true;
         };
-    }, [access.ready, access.canViewItems, page, pageSize, search, categoryId, subcategoryId, brandId, status, reloadToken]);
+    }, [access.ready, access.canViewItems, page, pageSize, appliedSearch, categoryId, subcategoryId, itemOptionId, brandId, status, reloadToken]);
 
     const { pageCount: pages, currentPage, from, to } = pageWindow(total, page, pageSize);
     const catalogQuery = catalogSearch.trim().toLowerCase();
@@ -475,6 +524,7 @@ export default function ItemMasterList() {
     const clearItemLink = () => {
         setCategoryId('');
         setSubcategoryId('');
+        setItemOptionId('');
         setBrandId('');
         setPage(1);
     };
@@ -514,13 +564,24 @@ export default function ItemMasterList() {
 
     const showItems = ({ caption, categoryId: nextCategoryId = '', subcategoryId: nextSubcategoryId = '', brandId: nextBrandId = '' }) => {
         setSearch('');
+        setAppliedSearch('');
         setStatus('');
         setPage(1);
         setCategoryId(nextCategoryId);
         setSubcategoryId(nextSubcategoryId);
+        setItemOptionId('');
         setBrandId(nextBrandId);
         setLinkedList({ list: 'items', caption, categoryId: '', allow: [] });
         setTab('items');
+    };
+
+    const itemStillInCategory = (optionId, categoryValue) => {
+        if (!optionId) return true;
+        if (!categoryValue) return true;
+        const option = itemOptions.find((row) => String(row._id) === String(optionId));
+        if (!option) return itemOptions.length === 0;
+        const sub = subcategories.find((row) => String(row._id) === String(option.subcategoryId || ''));
+        return Boolean(sub) && String(sub.categoryId || '') === String(categoryValue);
     };
 
     const chooseCategory = (value) => {
@@ -531,6 +592,25 @@ export default function ItemMasterList() {
             const match = subcategories.find((row) => String(row._id) === String(current));
             return match && String(match.categoryId || '') === String(value) ? current : '';
         });
+        setItemOptionId((current) => (itemStillInCategory(current, value) ? current : ''));
+        setLinkedList((current) => (current?.list === 'items' ? null : current));
+    };
+
+    const chooseSubcategory = (value) => {
+        setPage(1);
+        setSubcategoryId(value);
+        setItemOptionId((current) => {
+            if (!value || !current) return current;
+            const option = itemOptions.find((row) => String(row._id) === String(current));
+            if (!option) return itemOptions.length === 0 ? current : '';
+            return String(option.subcategoryId || '') === String(value) ? current : '';
+        });
+        setLinkedList((current) => (current?.list === 'items' ? null : current));
+    };
+
+    const chooseItem = (value) => {
+        setPage(1);
+        setItemOptionId(value);
         setLinkedList((current) => (current?.list === 'items' ? null : current));
     };
 
@@ -657,9 +737,10 @@ export default function ItemMasterList() {
             const result = await listItems({
                 page: 1,
                 limit: 0,
-                search,
+                search: appliedSearch,
                 categoryId,
                 subcategoryId,
+                itemOptionId,
                 brandId,
                 status: status !== DEFAULT_STOCK_STATUS ? status : '',
             });
@@ -691,11 +772,17 @@ export default function ItemMasterList() {
     }
 
     const searchPlaceholder = {
-        items: 'Search item, model, brand, category, SKU...',
+        items: 'Search code, name, brand, model, category, qty, status...',
         category: 'Search category...',
         subcategory: 'Search subcategory...',
         brand: 'Search brand...',
     }[tab];
+    const subcategoryChoices = sortedByName(
+        categoryId
+            ? subcategories.filter((row) => String(row.categoryId || '') === String(categoryId))
+            : subcategories,
+    );
+    const itemChoices = itemFilterChoices(itemOptions, subcategories, categoryId, subcategoryId);
     const showItemActions = access.canEditItem || access.canDeleteItem;
     const itemColumnCount = showItemActions ? 10 : 9;
     const itemHeadings = ['Item Code', 'Item Name', 'Brand', 'Model', 'Description', 'Category', 'Subcategory', 'Qty', 'Status'];
@@ -797,30 +884,42 @@ export default function ItemMasterList() {
                 ))}
             </div>
 
-            <div className="mb-4 flex flex-wrap items-end gap-3">
-                <div className={`relative ${tab === 'items' ? 'w-52 shrink-0' : 'min-w-0 flex-1'}`}>
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                        className={`${fieldClass} pl-9`}
-                        placeholder={searchPlaceholder}
-                        value={tab === 'items' ? search : catalogSearch}
-                        onChange={(event) => {
-                            const value = event.target.value;
-                            if (tab === 'items') {
+            <div className="mb-4 flex flex-col gap-3">
+                <div className="flex flex-wrap items-end gap-3">
+                    <div className={`relative ${tab === 'items' ? 'w-full max-w-md' : 'min-w-0 flex-1'}`}>
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                            className={`${fieldClass} pl-9`}
+                            placeholder={searchPlaceholder}
+                            value={tab === 'items' ? search : catalogSearch}
+                            onChange={(event) => {
+                                const value = event.target.value;
+                                if (tab === 'items') {
+                                    setSearch(value);
+                                    return;
+                                }
                                 setPage(1);
-                                setSearch(value);
-                                return;
-                            }
-                            setPage(1);
-                            setCatalogSearch(value);
-                        }}
-                    />
+                                setCatalogSearch(value);
+                            }}
+                        />
+                    </div>
+                    {tab === 'brand' ? (
+                        <BrandViewSwitch value={brandView} onChange={setBrandView} />
+                    ) : null}
                 </div>
                 {tab === 'items' ? (
-                    <div className="grid min-w-0 flex-1 grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
                         <Filter label="Category" value={categoryId} onChange={chooseCategory}>
                             <option value="">All</option>
                             {categories.map((row) => <option key={row._id} value={row._id}>{row.name}</option>)}
+                        </Filter>
+                        <Filter label="Subcategory" value={subcategoryId} onChange={chooseSubcategory}>
+                            <option value="">All</option>
+                            {subcategoryChoices.map((row) => <option key={row._id} value={row._id}>{row.name}</option>)}
+                        </Filter>
+                        <Filter label="Item" value={itemOptionId} onChange={chooseItem}>
+                            <option value="">All</option>
+                            {itemChoices.map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}
                         </Filter>
                         <Filter label="Brand" value={brandId} onChange={chooseBrand}>
                             <option value="">All</option>
@@ -834,9 +933,6 @@ export default function ItemMasterList() {
                             <option value="">All</option>
                         </Filter>
                     </div>
-                ) : null}
-                {tab === 'brand' ? (
-                    <BrandViewSwitch value={brandView} onChange={setBrandView} />
                 ) : null}
             </div>
 
@@ -869,7 +965,7 @@ export default function ItemMasterList() {
                                 {loading ? (
                                     <tr><td colSpan={itemColumnCount} className="px-3 py-8 text-center text-sm text-slate-400">Loading items...</td></tr>
                                 ) : rows.length === 0 ? (
-                                    <tr><td colSpan={itemColumnCount} className="px-3 py-8 text-center text-sm text-slate-400">{search || categoryId || subcategoryId || brandId || status !== DEFAULT_STOCK_STATUS ? 'No items match this filter.' : 'No items yet.'}</td></tr>
+                                    <tr><td colSpan={itemColumnCount} className="px-3 py-8 text-center text-sm text-slate-400">{search || categoryId || subcategoryId || itemOptionId || brandId || status !== DEFAULT_STOCK_STATUS ? 'No items match this filter.' : 'No items yet.'}</td></tr>
                                 ) : rows.map((row) => (
                                     <ListTableRowLink
                                         key={row._id}

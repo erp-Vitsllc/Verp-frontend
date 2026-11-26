@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import {
     Bell,
     CheckCircle2,
@@ -22,8 +23,16 @@ import {
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { useRegisterErpBackHandler } from '@/contexts/ErpBackHandlerContext';
+import { useListReturnBack } from '@/hooks/useListReturnBack';
 import { isSystemSuperUser } from '@/utils/permissions';
+import {
+    getBrowserPathWithSearch,
+    hrefsEquivalent,
+    replaceNavigationUrl,
+} from '@/utils/listReturnNavigation';
 import { dubaiDateKey, formatAed, formatWorkOrderDate } from './workOrderNumber';
+import { QUOTATION_VIEWS, WORK_ORDER_TAB_SLUGS, workOrderDetailsHref, workOrderTabSlug } from './workOrderPaths';
 import WorkOrderBudgetPanel from './WorkOrderBudgetPanel';
 import WorkOrderQuotationModal from './WorkOrderQuotationModal';
 import WorkOrderQuotationPanel from './WorkOrderQuotationPanel';
@@ -282,12 +291,67 @@ function workOrderDocuments(order) {
     return [...rows].sort((left, right) => String(right.replacedAt || '').localeCompare(String(left.replacedAt || '')));
 }
 
-export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
+function approvedMaterialRequest(order) {
+    const batches = Array.isArray(order?.materialRequest?.batches) ? order.materialRequest.batches : [];
+    if (batches.some((batch) => batch?.status === 'approved')) return true;
+    return !batches.length && Boolean(order?.materialRequest?.built) && order?.materialRequest?.status === 'approved';
+}
+
+function MaterialBudgetProcessing() {
+    const fields = [
+        ['Order value', 'On processing'],
+        ['Material value', 'On processing'],
+        ['Other cost', 'On processing'],
+        ['Total cost', 'On processing'],
+        ['Profit', 'On processing'],
+        ['GP', 'On processing'],
+        ['Net profit', 'On processing'],
+    ];
+    return (
+        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-[15px] font-semibold text-slate-800">Material budget</h2>
+                <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">On processing</span>
+            </div>
+            <p className="mt-2 text-sm text-slate-500">
+                Management approval is on processing. The email, project task, and bell notification will be added with it.
+            </p>
+            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                {fields.map(([label, value]) => (
+                    <div key={label}>
+                        <dt className="text-[11px] uppercase tracking-wide text-slate-400">{label}</dt>
+                        <dd className="mt-1 font-semibold text-slate-800">{value}</dd>
+                    </div>
+                ))}
+            </dl>
+            <p className="mt-3 text-xs text-slate-500">GP is profit × 100 / order value.</p>
+            <button type="button" disabled className="mt-4 inline-flex h-11 cursor-not-allowed items-center rounded-xl bg-[#7C3AED] px-4 text-sm font-semibold text-white opacity-60">
+                Submit for approval
+            </button>
+        </section>
+    );
+}
+
+export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
     const { toast } = useToast();
+    const router = useRouter();
+    const pathname = usePathname();
+    const tab = WORK_ORDER_TAB_SLUGS[tabSlug] || 'Overview';
+    const quotationView = QUOTATION_VIEWS.includes(viewSlug) ? viewSlug : 'proposed';
+    const leaveDetails = useCallback(() => router.push('/production/work-order'), [router]);
+    const handleBack = useListReturnBack(leaveDetails);
+    useRegisterErpBackHandler(handleBack);
+    const selectTab = useCallback((label, view = '') => {
+        const slug = workOrderTabSlug(label);
+        const nextView = slug === 'quotation' ? (view || 'proposed') : '';
+        const href = workOrderDetailsHref(id, slug, nextView);
+        const fromHref = getBrowserPathWithSearch() || pathname;
+        if (hrefsEquivalent(fromHref, href)) return;
+        router.push(href, { scroll: false });
+    }, [id, pathname, router]);
     const [order, setOrder] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [tab, setTab] = useState(focusSection === 'lpo' ? 'LPO' : (focusSection === 'actual-boq' || focusSection === 'mr') ? 'Quotation' : 'Overview');
     const [saving, setSaving] = useState(false);
     const [lpoNo, setLpoNo] = useState('');
     const [lpoDate, setLpoDate] = useState('');
@@ -316,7 +380,17 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     const bellRef = useRef(null);
     const [rejectReason, setRejectReason] = useState('');
     const [scrollToReceived, setScrollToReceived] = useState(false);
+    const openedOnLpo = useRef(tab === 'LPO');
     const canResyncBudget = isSystemSuperUser();
+
+    useEffect(() => {
+        if (!id) return;
+        const slug = WORK_ORDER_TAB_SLUGS[tabSlug] ? tabSlug : 'overview';
+        const canonical = workOrderDetailsHref(id, slug, slug === 'quotation' ? viewSlug : '');
+        if (hrefsEquivalent(pathname, canonical)) return;
+        replaceNavigationUrl(canonical);
+        router.replace(canonical, { scroll: false });
+    }, [id, pathname, router, tabSlug, viewSlug]);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -415,7 +489,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         try {
             const response = await axiosInstance.post(`/WorkOrder/${id}/budget`, { action }, { skipToast: true, timeout: 30000 });
             if (response.data?.workOrder) setOrder(response.data.workOrder);
-            setTab('Budget');
+            selectTab('Budget');
             toast({
                 title: action === 'convert' ? 'Converted to budget' : action === 'rebudget' ? 'Re budget saved' : 'Budget resynced',
                 description: action === 'resync'
@@ -457,12 +531,13 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
     };
 
     useEffect(() => {
-        if (focusSection !== 'lpo' || !order) return undefined;
+        if (!openedOnLpo.current || !order) return undefined;
+        openedOnLpo.current = false;
         const timer = window.setTimeout(() => {
             document.getElementById('lpo-details')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 80);
         return () => window.clearTimeout(timer);
-    }, [focusSection, order]);
+    }, [order]);
 
     useEffect(() => {
         if ((order?.lpoMode || 'required') === 'required') return;
@@ -522,7 +597,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         setFollowMode('received');
         setOpeningReceived(true);
         setScrollToReceived(true);
-        setTab('LPO');
+        selectTab('LPO');
     };
 
     const addLpo = async () => {
@@ -844,7 +919,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
         return (
             <div className="rounded-2xl border border-[#e6eef6] bg-white p-6">
                 <p className="text-sm text-slate-600">{error || 'Work order was not found.'}</p>
-                <button type="button" onClick={onBack} className={`mt-4 inline-flex h-10 items-center gap-2 rounded-xl border border-[#e5edf6] px-4 text-sm font-semibold text-slate-600 ${FOCUS}`}>
+                <button type="button" onClick={handleBack} className={`mt-4 inline-flex h-10 items-center gap-2 rounded-xl border border-[#e5edf6] px-4 text-sm font-semibold text-slate-600 ${FOCUS}`}>
                     <ChevronLeft size={16} /> Back
                 </button>
             </div>
@@ -905,7 +980,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                     <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1.5 text-[13px] font-medium text-[#3b82f6]">
                         <Home size={14} />
                         <ChevronRight size={14} className="text-[#93c5fd]" />
-                        <button type="button" onClick={onBack} className={`hover:underline ${FOCUS}`}>Work Orders</button>
+                        <button type="button" onClick={leaveDetails} className={`hover:underline ${FOCUS}`}>Work Orders</button>
                         <span className="text-[#93c5fd]">/</span>
                         <span>{order.workOrderNo}</span>
                     </nav>
@@ -941,7 +1016,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                                         type="button"
                                         onClick={() => {
                                             setBellOpen(false);
-                                            setTab('LPO');
+                                            selectTab('LPO');
                                         }}
                                         className={`block w-full px-4 py-3 text-left hover:bg-slate-50 ${FOCUS}`}
                                     >
@@ -1054,7 +1129,9 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                             <button
                                 key={item}
                                 type="button"
-                                onClick={() => setTab(item)}
+                                onClick={() => {
+                                    if (item !== tab) selectTab(item);
+                                }}
                                 className={tab === item
                                     ? `rounded-xl bg-[#e8f1ff] px-4 py-2 text-sm font-semibold text-[#2f6fed] ${FOCUS}`
                                     : `rounded-xl px-4 py-2 text-sm font-medium text-slate-500 hover:bg-slate-50 ${FOCUS}`}
@@ -1510,7 +1587,9 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                             order={order}
                             onOpen={() => setQuoteOpen(true)}
                             onSaved={setOrder}
-                            initialTab={focusSection === 'mr' ? 'mr' : focusSection === 'actual-boq' ? 'actual' : 'proposed'}
+                            onOpenBudget={() => selectTab('Budget')}
+                            view={quotationView}
+                            onViewChange={(next) => selectTab('Quotation', next)}
                         />
                     ) : null}
 
@@ -1572,7 +1651,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                             {totalsMatch ? (
                                 <button
                                     type="button"
-                                    onClick={() => setTab('BOQ')}
+                                    onClick={() => selectTab('BOQ')}
                                     className={`mt-4 inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] ${FOCUS}`}
                                 >
                                     Create BOQ
@@ -1590,7 +1669,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                             {totalsMatch ? (
                                 <button
                                     type="button"
-                                    onClick={() => setTab('BOQ')}
+                                    onClick={() => selectTab('BOQ')}
                                     className={`inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] ${FOCUS}`}
                                 >
                                     Create BOQ
@@ -1602,7 +1681,12 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                         </section>
                     ) : null}
 
-                    {tab === 'Budget' ? <WorkOrderBudgetPanel order={order} /> : null}
+                    {tab === 'Budget' ? (
+                        <div className="space-y-4">
+                            {approvedMaterialRequest(order) ? <MaterialBudgetProcessing /> : null}
+                            <WorkOrderBudgetPanel order={order} />
+                        </div>
+                    ) : null}
 
                     {tab === 'Check list' ? (
                         <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
@@ -1801,7 +1885,7 @@ export default function WorkOrderDetails({ id, onBack, focusSection = '' }) {
                             ))}
                         </ul>
                     </section>
-                    <button type="button" onClick={onBack} className={`inline-flex h-11 items-center gap-2 rounded-xl border border-[#e5edf6] bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50 ${FOCUS}`}>
+                    <button type="button" onClick={leaveDetails} className={`inline-flex h-11 items-center gap-2 rounded-xl border border-[#e5edf6] bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50 ${FOCUS}`}>
                         <ChevronLeft size={16} /> Back to dashboard
                     </button>
                 </div>

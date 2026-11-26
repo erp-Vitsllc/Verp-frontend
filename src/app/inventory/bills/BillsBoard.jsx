@@ -26,7 +26,7 @@ function shown(value) {
 
 function statusClass(status) {
     const value = String(status || '').toLowerCase();
-    if (value === 'draft') return 'bg-amber-50 text-amber-700';
+    if (value === 'draft' || value === 'pending') return 'bg-amber-50 text-amber-700';
     if (value === 'approved') return 'bg-emerald-50 text-emerald-700';
     return 'bg-slate-100 text-slate-600';
 }
@@ -134,9 +134,11 @@ export default function BillsBoard() {
         const label = bill.billNo || 'this bill';
         const warning = bill.status === 'Draft'
             ? `Delete draft bill ${label}?`
-            : bill.stockApplied
-                ? `Delete approved bill ${label}? Stock added by this bill will be removed, and management will be notified.`
-                : `Delete bill ${label}? Management will be notified.`;
+            : bill.awaitingApproval && !bill.stockApplied
+                ? `Delete ${label}? This bill is still waiting for approval.`
+                : bill.stockApplied
+                    ? `Delete approved bill ${label}? Stock added by this bill will be removed, and management will be notified.`
+                    : `Delete bill ${label}? Management will be notified.`;
         if (!window.confirm(warning)) return;
         setDeletingId(bill.id);
         setMenuId('');
@@ -163,21 +165,24 @@ export default function BillsBoard() {
     };
 
     const canEditBill = canAddBill || canManage || isPurchaseOfficer;
-    const pendingEdits = isPurchaseOfficer ? rows.filter((bill) => bill.editPending) : [];
+    const waitingBills = isPurchaseOfficer ? rows.filter((bill) => bill.awaitingApproval) : [];
 
     const decideEdit = async (bill, action) => {
         const label = bill.billNo || 'this bill';
-        if (action === 'reject' && !window.confirm(`Reject the edit to ${label}? The bill stays as it is.`)) return;
+        const editing = Boolean(bill.editPending);
+        if (action === 'reject' && !window.confirm(editing
+            ? `Reject the edit to ${label}? The bill stays as it is.`
+            : `Reject ${label}? This bill will not be added.`)) return;
         setDecidingId(bill.id);
         setMenuId('');
         try {
             if (action === 'approve') await approveStockEntry(bill.id);
             else await rejectStockEntry(bill.id);
             toast({
-                title: action === 'approve' ? 'Edit approved' : 'Edit rejected',
+                title: action === 'approve' ? 'Bill approved' : 'Bill rejected',
                 description: action === 'approve'
-                    ? 'The bill was updated.'
-                    : 'The current bill was kept.',
+                    ? (editing ? 'The bill was updated.' : 'The bill was added.')
+                    : (editing ? 'The current bill was kept.' : 'The bill was not added.'),
             });
             await load();
         } catch (decideError) {
@@ -191,18 +196,41 @@ export default function BillsBoard() {
         }
     };
 
+    const bellItems = useMemo(() => {
+        const drafts = notices.map((notice) => ({
+            id: notice.id,
+            billNo: notice.billNo,
+            message: notice.message,
+            updatedAt: notice.updatedAt,
+        }));
+        const approvals = waitingBills.map((bill) => ({
+            id: bill.id,
+            billNo: bill.billNo,
+            message: bill.editPending
+                ? `${bill.editSubmittedBy || 'Someone'} edited this bill and it is waiting for your approval.`
+                : `${bill.submittedByName || 'Someone'} submitted this bill and it is waiting for your approval.`,
+            updatedAt: bill.updatedAt,
+        }));
+        const seen = new Set();
+        return [...approvals, ...drafts].filter((item) => {
+            if (!item.id || seen.has(item.id)) return false;
+            seen.add(item.id);
+            return true;
+        });
+    }, [notices, waitingBills]);
+
     const notificationRows = useMemo(
-        () => notices.map((notice, index) => mapDashboardNotificationToRow({
+        () => bellItems.map((notice, index) => mapDashboardNotificationToRow({
             id: notice.id,
             requestType: 'Inventory Bill Draft',
             type: 'Inventory Bill Draft',
-            extra1: notice.billNo || 'Draft bill',
+            extra1: notice.billNo || 'Bill',
             extra2: notice.message,
             subjectName: 'Bills',
             status: 'Pending',
             requestedDate: notice.updatedAt,
         }, index)),
-        [notices],
+        [bellItems],
     );
 
     const sortedRows = useMemo(() => {
@@ -248,24 +276,24 @@ export default function BillsBoard() {
                     ) : null}
                     <button
                         type="button"
-                        aria-label="Draft bill notifications"
+                        aria-label="Bill notifications"
                         aria-expanded={showNotifications}
                         onClick={() => setShowNotifications(true)}
                         className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-[#E6EDF5] bg-white text-slate-600 hover:bg-slate-50"
                     >
                         <Bell size={18} />
-                        {notices.length ? (
+                        {bellItems.length ? (
                             <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                                {notices.length > 99 ? '99+' : notices.length}
+                                {bellItems.length > 99 ? '99+' : bellItems.length}
                             </span>
                         ) : null}
                     </button>
                 </div>
             </div>
             {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
-            {pendingEdits.length ? (
+            {waitingBills.length ? (
                 <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                    {pendingEdits.length} bill {pendingEdits.length === 1 ? 'edit is' : 'edits are'} waiting for your approval.
+                    {waitingBills.length} {waitingBills.length === 1 ? 'bill is' : 'bills are'} waiting for your approval.
                 </div>
             ) : null}
             <div className="mt-5 overflow-x-auto">
@@ -295,15 +323,17 @@ export default function BillsBoard() {
                             </tr>
                         ) : sortedRows.map(({ bill }, index) => {
                             const isDraft = String(bill.status || '').toLowerCase() === 'draft';
+                            const openForDecision = isPurchaseOfficer && bill.awaitingApproval;
                             return (
                             <tr
                                 key={bill.id}
                                 onClick={() => {
-                                    if (!isDraft) return;
+                                    if (!isDraft && !openForDecision) return;
                                     setViewEntryId('');
+                                    setAddOpen(false);
                                     setEditEntryId(bill.id);
                                 }}
-                                className={`border-b border-slate-100 text-slate-700 ${isDraft ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+                                className={`border-b border-slate-100 text-slate-700 ${isDraft || openForDecision ? 'cursor-pointer hover:bg-slate-50' : ''}`}
                             >
                                 <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-slate-500">{index + 1}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{shown(bill.billNo)}</td>
@@ -350,7 +380,7 @@ export default function BillsBoard() {
                                 </td>
                                 <td className="whitespace-nowrap px-4 py-3.5" onClick={(event) => event.stopPropagation()}>
                                     <div className="flex items-center gap-2">
-                                    {isPurchaseOfficer && bill.editPending ? (
+                                    {isPurchaseOfficer && bill.awaitingApproval ? (
                                         <>
                                             <button
                                                 type="button"
@@ -456,14 +486,18 @@ export default function BillsBoard() {
             <NotificationInboxModal
                 isOpen={showNotifications}
                 onClose={() => setShowNotifications(false)}
-                title="Draft bills"
-                subtitle="Bills you saved as a draft."
+                title="Bill notifications"
+                subtitle={isPurchaseOfficer
+                    ? 'Bills waiting for your approval, and drafts you saved.'
+                    : 'Bills you saved as a draft.'}
                 items={notificationRows}
-                loading={loading && notices.length === 0}
-                emptyMessage="No draft bills."
+                loading={loading && bellItems.length === 0}
+                emptyMessage="No bill notifications."
                 getItemHref={(item) => (item?.id ? `/inventory/bills?bill=${item.id}` : '')}
                 onItemClick={(item) => {
                     if (!item?.id) return;
+                    setViewEntryId('');
+                    setAddOpen(false);
                     setEditEntryId(item.id);
                     setShowNotifications(false);
                 }}

@@ -28,6 +28,7 @@ import { useRegisterErpBackHandler } from '@/contexts/ErpBackHandlerContext';
 import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation';
 import LinkedText from '@/app/task-manager/linkedText';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
+import { listedTaskNumber, taskNumberCaption } from '@/app/task-manager/workOrderTaskLabel';
 import { completionApprovalStatus, taskWaitingText } from '@/app/task-manager/pendingHoldLine';
 import { pinnedAssignee, taskWaitingOnRequester, viewerRequestedTask } from '@/app/task-manager/taskInbox';
 import { deletedTaskToastDescription, refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
@@ -697,7 +698,8 @@ function TaskDetailsPage() {
     }
 
     const notes = task.notifications || { workUpdate: true, comment: true };
-    const generalTask = task.taskCategory === 'General Task' || task.taskCategory === 'Project Task';
+    const workOrderTask = Boolean(String(task.workOrderNo || '').trim()) || /^Work Order\b/i.test(String(task.requestType || ''));
+    const generalTask = !workOrderTask && (task.taskCategory === 'General Task' || task.taskCategory === 'Project Task');
     const sourceApplies = !generalTask && (
         task.taskCategory === 'Workflow Task'
         || task.taskCategory === 'Work Flow Task'
@@ -737,6 +739,8 @@ function TaskDetailsPage() {
     const updates = Array.isArray(task.updates) ? task.updates : [];
     const comments = Array.isArray(task.comments) ? task.comments : [];
     const number = task.taskNumber || taskNumber || '';
+    const shownNumber = listedTaskNumber({ ...task, taskNumber: number }) || number;
+    const numberCaption = taskNumberCaption(task);
     const sentEmails = Array.isArray(task.emails) ? task.emails : [];
     const updateMails = sentEmails.length ? [] : [
         ...updates.filter((item) => item.emailSent).map((item) => ({ ...item, channel: 'Task updated' })),
@@ -762,7 +766,10 @@ function TaskDetailsPage() {
                     <div className={`flex flex-wrap items-start justify-between gap-3 ${task.canChangeCompletionDate ? 'pr-36 sm:pr-40' : ''}`}>
                         <div>
                             <div className="flex flex-wrap items-center gap-2">
-                                <h1 className="text-lg font-bold text-slate-900">{number || 'Task'}</h1>
+                                <h1 className="text-lg font-bold text-slate-900">{shownNumber || 'Task'}</h1>
+                                {numberCaption ? (
+                                    <p className="mt-0.5 text-[11px] font-normal lowercase leading-4 text-slate-500">{numberCaption}</p>
+                                ) : null}
                                 <span className={`max-w-full whitespace-normal rounded-full px-2 py-0.5 text-xs font-semibold leading-5 ${statusTone}`}>
                                     {statusText}
                                 </span>
@@ -1256,7 +1263,7 @@ function TaskDetailsPage() {
                     <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
                         <h2 className="text-base font-semibold text-slate-800">Delete task</h2>
                         <p className="mt-2 text-sm text-slate-600">
-                            Delete {number ? `${number} — ` : ''}{task.taskName}?{' '}
+                            Delete {shownNumber ? `${shownNumber} — ` : ''}{task.taskName}?{' '}
                             {generalTask
                                 ? 'This removes the task and its notifications.'
                                 : 'This removes the task, its workflow, and its notifications. The record behind it stays.'}

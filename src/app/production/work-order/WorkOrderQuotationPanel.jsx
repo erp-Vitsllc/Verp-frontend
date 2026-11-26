@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FileText, GripVertical, Paperclip, Printer } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
@@ -12,6 +12,7 @@ const BOQ_TABS = [
     { id: 'proposed', label: 'Proposed BOQ' },
     { id: 'actual', label: 'Actual BOQ' },
     { id: 'mr', label: 'MR' },
+    { id: 'vendor-lpo', label: 'Vendor LPO' },
 ];
 
 function money(value) {
@@ -77,6 +78,7 @@ const ACTUAL_HEAD = [
     { key: 'brand', label: 'Brand', width: '8%' },
     { key: 'modelNo', label: 'Model no', width: '9%' },
     { key: 'description', label: 'Description', width: '12%' },
+    { key: 'availableStock', label: 'Available stock', width: '7%', align: 'right' },
     { key: 'quantity', label: 'Qty', width: '6%', align: 'right' },
     { key: 'unitPrice', label: 'Unit price', width: '7%', align: 'right' },
     { key: 'total', label: 'Total', width: '7%', align: 'right' },
@@ -84,6 +86,33 @@ const ACTUAL_HEAD = [
     { key: 'paymentTerms', label: 'Payment terms', width: '6%' },
 ];
 const ACTUAL_SPAN = ACTUAL_HEAD.length + 1;
+const COLUMN_SIZE = {
+    drag: { min: 36, max: 72, floor: 44 },
+    category: { min: 110, max: 420, floor: 140 },
+    subcategory: { min: 120, max: 420, floor: 150 },
+    item: { min: 110, max: 420, floor: 140 },
+    brand: { min: 100, max: 360, floor: 120 },
+    modelNo: { min: 120, max: 360, floor: 140 },
+    description: { min: 200, max: 640, floor: 240 },
+    availableStock: { min: 88, max: 160, floor: 110 },
+    quantity: { min: 72, max: 160, floor: 84 },
+    unitPrice: { min: 88, max: 180, floor: 100 },
+    total: { min: 88, max: 180, floor: 100 },
+    vendorName: { min: 140, max: 460, floor: 170 },
+    paymentTerms: { min: 120, max: 360, floor: 140 },
+    actions: { min: 44, max: 80, floor: 52 },
+};
+
+function fittedWidth(key, texts) {
+    const limit = COLUMN_SIZE[key] || { min: 80, max: 320, floor: 100 };
+    let width = limit.floor;
+    texts.forEach((text) => {
+        String(text || '').split('\n').forEach((line) => {
+            width = Math.max(width, Math.ceil(line.length * 7.2 + 28));
+        });
+    });
+    return Math.min(limit.max, Math.max(limit.min, width));
+}
 const CATALOG_FIELDS = [
     ['category', 'categoryName', 'categoryId'],
     ['subcategory', 'subcategoryName', 'subcategoryId'],
@@ -196,23 +225,17 @@ function applyCatalogItem(line, item) {
         modelNo: item.modelNumber || '',
         descriptionNew: catalogDescription(item) || line.descriptionNew || '',
     };
-    const priceBlank = next.unitPrice === '' || next.unitPrice == null;
-    if (priceBlank && Number(item.lastStockPrice) > 0) next.unitPrice = item.lastStockPrice;
-    const totalBlank = next.total === '' || next.total == null;
-    const qty = Number(next.quantity);
-    const price = Number(next.unitPrice);
-    if (
-        totalBlank
-        && next.quantity !== ''
-        && next.quantity != null
-        && next.unitPrice !== ''
-        && next.unitPrice != null
-        && Number.isFinite(qty)
-        && Number.isFinite(price)
-    ) {
-        next.total = Math.round(qty * price * 100) / 100;
-    }
-    return next;
+    return syncLineTotal(next);
+}
+
+function syncLineTotal(line) {
+    const qtyText = String(line?.quantity ?? '').trim();
+    const priceText = String(line?.unitPrice ?? '').trim();
+    if (!qtyText || !priceText) return { ...line, total: '' };
+    const qty = Number(qtyText);
+    const price = Number(priceText);
+    if (!Number.isFinite(qty) || !Number.isFinite(price)) return { ...line, total: '' };
+    return { ...line, total: Math.round(qty * price * 100) / 100 };
 }
 
 function pickCatalogValue(line, field, value, items) {
@@ -235,6 +258,7 @@ function pickCatalogValue(line, field, value, items) {
     });
     if (ids.size === 1) next[idKey] = [...ids][0];
     let pool = items.filter((item) => fieldMatches(item, next, field, prop, idKey));
+    if (!pool.length) return next;
     CATALOG_FIELDS.forEach(([key, nameProp, keyId]) => {
         if (key === field) return;
         const current = String(next[key] || '').trim();
@@ -250,28 +274,49 @@ function pickCatalogValue(line, field, value, items) {
         else next[keyId] = '';
     });
     if (pool.length === 1) return applyCatalogItem(next, pool[0]);
+    if (field === 'subcategory' || field === 'item') {
+        const owners = catalogOwners(next, field, items);
+        if (field === 'item') applyUniqueCatalogField(next, owners, 'subcategory', 'subcategoryId', 'subcategoryName');
+        applyUniqueCatalogField(next, owners, 'category', 'categoryId', 'categoryName');
+    }
     return next;
+}
+
+function catalogOwners(line, field, items) {
+    const meta = CATALOG_FIELDS.find(([key]) => key === field);
+    if (!meta) return [];
+    const [, prop, idKey] = meta;
+    const id = String(line?.[idKey] || '');
+    const name = String(line?.[field] || '').trim();
+    if (!id && !name) return [];
+    return items.filter((item) => (
+        id ? String(item[idKey] || '') === id : sameName(item[prop], name)
+    ));
+}
+
+function applyUniqueCatalogField(line, owners, field, idKey, nameKey) {
+    const values = new Map();
+    owners.forEach((item) => {
+        const id = String(item[idKey] || '');
+        const name = String(item[nameKey] || '').trim();
+        if (!id && !name) return;
+        values.set(id || name.toLowerCase(), { id, name });
+    });
+    if (values.size !== 1) return;
+    const chosen = [...values.values()][0];
+    line[idKey] = chosen.id;
+    line[field] = chosen.name;
 }
 
 function editAmount(line, field, raw) {
     const cleaned = String(raw ?? '').replace(/,/g, '');
     if (cleaned !== '' && !/^\d*\.?\d*$/.test(cleaned)) return line;
-    const next = { ...line, [field]: cleaned };
-    if (field === 'quantity' || field === 'unitPrice') {
-        const qtyText = field === 'quantity' ? cleaned : String(line.quantity ?? '');
-        const priceText = field === 'unitPrice' ? cleaned : String(line.unitPrice ?? '');
-        if (qtyText === '' || priceText === '') next.total = '';
-        else {
-            const qty = Number(qtyText);
-            const price = Number(priceText);
-            if (Number.isFinite(qty) && Number.isFinite(price)) next.total = Math.round(qty * price * 100) / 100;
-        }
-    }
-    return next;
+    if (field === 'total') return line;
+    return syncLineTotal({ ...line, [field]: cleaned });
 }
 
 function lineFromSaved(line) {
-    return {
+    return syncLineTotal({
         ...emptyActualRow(),
         slNo: line?.slNo ?? '',
         itemId: line?.itemId || '',
@@ -288,10 +333,9 @@ function lineFromSaved(line) {
         descriptionOld: line?.descriptionOld || '',
         quantity: line?.quantity ?? '',
         unitPrice: line?.unitPrice ?? '',
-        total: line?.total ?? '',
         vendorName: line?.vendorName || '',
-        paymentTerms: line?.paymentTerms || '',
-    };
+        paymentTerms: paymentTermOption(line?.paymentTerms) || line?.paymentTerms || '',
+    });
 }
 
 function rowsFromTables(tables) {
@@ -330,7 +374,38 @@ function catalogItem(row) {
         moreDescription: row?.moreDescription || '',
         lastStockPrice: Number(row?.lastStockPrice) || 0,
         pendingStock: Boolean(row?.pendingStock),
+        availableStock: Number(row?.availableQuantity) || 0,
     };
+}
+
+function availableStockFor(line, catalog) {
+    const itemId = String(line?.itemId || '');
+    if (itemId) {
+        const match = (catalog || []).find((item) => item.id === itemId);
+        if (match) return match.availableStock;
+        return String(line?.item || line?.category || '').trim() ? 0 : '';
+    }
+    const itemName = String(line?.item || '').trim();
+    if (!itemName) return '';
+    let owners = (catalog || []).filter((item) => sameName(item.itemName, itemName));
+    const subId = String(line?.subcategoryId || '');
+    const subName = String(line?.subcategory || '').trim();
+    if (subId) owners = owners.filter((item) => String(item.subcategoryId || '') === subId);
+    else if (subName) owners = owners.filter((item) => sameName(item.subcategoryName, subName));
+    const brandId = String(line?.brandId || '');
+    const brandName = String(line?.brand || '').trim();
+    if (brandId) owners = owners.filter((item) => String(item.brandId || '') === brandId);
+    else if (brandName) owners = owners.filter((item) => sameName(item.brandName, brandName));
+    const model = String(line?.modelNo || '').trim();
+    if (model) owners = owners.filter((item) => sameName(item.modelNumber, model));
+    if (!owners.length) return itemName ? 0 : '';
+    return owners.reduce((sum, item) => sum + (Number(item.availableStock) || 0), 0);
+}
+
+function stockText(line, catalog) {
+    const stock = availableStockFor(line, catalog);
+    if (stock === '' || stock == null) return '';
+    return Number(stock) === 0 ? 'Out of Stock' : String(stock);
 }
 
 function loadBoqCatalog() {
@@ -347,6 +422,44 @@ function loadBoqCatalog() {
         })));
 }
 
+const REQUIRED_LINE_COLUMNS = [
+    ['category', 'Category'],
+    ['subcategory', 'Subcategory'],
+    ['item', 'Item'],
+    ['brand', 'Brand'],
+    ['modelNo', 'Model no'],
+    ['descriptionNew', 'Description (New)'],
+    ['descriptionOld', 'Description (Old)'],
+    ['quantity', 'Qty'],
+    ['unitPrice', 'Unit price'],
+    ['total', 'Total'],
+    ['vendorName', 'Vendor name'],
+    ['paymentTerms', 'Payment terms'],
+];
+
+function blankBoqMessage(rows, catalog) {
+    const list = Array.isArray(rows) ? rows : [];
+    const lines = list.filter((row) => row?.kind !== 'header');
+    if (!lines.length) return 'Add at least one row and fill every column.';
+    const missing = [];
+    list.forEach((row, index) => {
+        const rowNo = index + 1;
+        if (row?.kind === 'header') {
+            if (!String(row.title || '').trim()) missing.push(`Row ${rowNo}: header`);
+            return;
+        }
+        REQUIRED_LINE_COLUMNS.forEach(([key, label]) => {
+            if (String(row?.[key] ?? '').trim() === '') missing.push(`Row ${rowNo}: ${label}`);
+        });
+        const stock = availableStockFor(row, catalog);
+        if (stock === '' || stock == null) missing.push(`Row ${rowNo}: Available stock`);
+    });
+    if (!missing.length) return '';
+    const shown = missing.slice(0, 6);
+    const extra = missing.length - shown.length;
+    return `Every row and column must be filled. ${shown.join('; ')}${extra ? `; and ${extra} more` : ''}.`;
+}
+
 function rowPayload(row) {
     if (row.kind === 'header') {
         const title = String(row.title || '').trim();
@@ -354,6 +467,28 @@ function rowPayload(row) {
     }
     const { key, ...rest } = row;
     return { ...rest, kind: 'line' };
+}
+
+const PAYMENT_TERM_OPTIONS = ['Cash', 'Due on receipt', '30 days', '60 days', '45 days', '90 days'];
+
+/** A vendor term such as "Net 60" becomes one of the Actual BOQ choices. */
+function paymentTermOption(value) {
+    const key = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!key) return '';
+    const exact = PAYMENT_TERM_OPTIONS.find((item) => item.toLowerCase() === key);
+    if (exact) return exact;
+    if (/\bcash\b/.test(key)) return 'Cash';
+    if (/due on receipt|due upon receipt/.test(key)) return 'Due on receipt';
+    const days = key.match(/(\d+)\s*days?\b/) || key.match(/\bnet\s*(\d+)\b/);
+    if (!days) return '';
+    return PAYMENT_TERM_OPTIONS.find((item) => item.toLowerCase() === `${days[1]} days`) || '';
+}
+
+function paymentTermChoices(current) {
+    const saved = String(current || '').trim();
+    const known = paymentTermOption(saved);
+    if (!saved || known) return PAYMENT_TERM_OPTIONS;
+    return [...PAYMENT_TERM_OPTIONS, saved];
 }
 
 function paymentKind(terms) {
@@ -501,7 +636,7 @@ async function downloadActualBoqPdf(order, tables, descriptionMode = 'new') {
         pdf.setFontSize(9);
         pdf.setTextColor(51, 65, 85);
         pdf.text(
-            `Cash: ${money(summary.cash)}    Credit: ${money(summary.credit)}    Vendor count: ${summary.vendorCount}`,
+            `Cash: ${money(summary.cash)}    Credit: ${money(summary.credit)}    Vendor count: ${summary.vendorCount}    Total: ${money(summary.amount)}`,
             margin,
             y,
         );
@@ -516,30 +651,68 @@ function tableSummary(rows) {
     const vendors = new Set();
     let cash = 0;
     let credit = 0;
+    let amount = 0;
     (Array.isArray(rows) ? rows : []).forEach((row) => {
         if (row?.kind === 'header') return;
-        const amount = Number(row?.total);
-        const total = Number.isFinite(amount) ? amount : 0;
+        const raw = String(row?.total ?? '').trim();
+        const lineTotal = raw === '' ? 0 : Number(raw);
+        const total = Number.isFinite(lineTotal) ? lineTotal : 0;
+        amount += total;
         const kind = paymentKind(row?.paymentTerms);
         if (kind === 'cash') cash += total;
         if (kind === 'credit') credit += total;
         const vendor = String(row?.vendorName || '').trim().toLowerCase();
         if (vendor) vendors.add(vendor);
     });
-    return { cash, credit, vendorCount: vendors.size };
+    return { cash, credit, vendorCount: vendors.size, amount };
 }
 
-function CellSuggest({ value, options, onPick, readOnly = false }) {
+function useFitTextArea(value, fill, layoutKey) {
+    const ref = useRef(null);
+    useLayoutEffect(() => {
+        const node = ref.current;
+        if (!node) return;
+        if (fill) {
+            node.style.height = '100%';
+            return;
+        }
+        node.style.height = '0px';
+        node.style.height = `${Math.max(28, node.scrollHeight)}px`;
+    }, [value, fill, layoutKey]);
+    return ref;
+}
+
+function ResizeHandle({ axis, title, onResize, onReset }) {
+    const vertical = axis === 'col';
+    return (
+        <span
+            role="separator"
+            aria-orientation={vertical ? 'vertical' : 'horizontal'}
+            title={title}
+            onMouseDown={onResize}
+            onDoubleClick={onReset}
+            className={vertical
+                ? 'absolute -right-1 top-0 z-20 h-full w-2 cursor-col-resize bg-slate-300/0 hover:bg-[#2f6fed]'
+                : 'absolute -bottom-1 left-0 z-20 h-1.5 w-full cursor-row-resize bg-slate-300/0 hover:bg-[#2f6fed]'}
+        />
+    );
+}
+
+function CellSuggest({ value, options, onPick, readOnly = false, fill = false, layoutKey = 0, allowNew = false }) {
     const rootRef = useRef(null);
     const menuRef = useRef(null);
     const [open, setOpen] = useState(false);
     const [text, setText] = useState(value || '');
+    const areaRef = useFitTextArea(text, fill, layoutKey);
     const [menuStyle, setMenuStyle] = useState(null);
     const [active, setActive] = useState(0);
     const needle = String(text || '').trim().toLowerCase();
     const shown = needle
         ? options.filter((option) => option.toLowerCase().includes(needle))
         : options;
+    const typedValue = String(text || '').trim();
+    const hasExact = options.some((option) => option.toLowerCase() === typedValue.toLowerCase());
+    const canAdd = allowNew && Boolean(typedValue) && !hasExact;
 
     useEffect(() => {
         setText(value || '');
@@ -556,7 +729,7 @@ function CellSuggest({ value, options, onPick, readOnly = false }) {
             if (!rect) return;
             const width = Math.max(rect.width, 200);
             const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
-            const estimated = Math.min(224, Math.max(shown.length, 1) * 32 + 8);
+            const estimated = Math.min(224, (Math.max(shown.length, 1) + (canAdd ? 1 : 0)) * 32 + 8);
             const below = rect.bottom + 4;
             const top = below + estimated > window.innerHeight - 8
                 ? Math.max(8, rect.top - estimated - 4)
@@ -570,7 +743,7 @@ function CellSuggest({ value, options, onPick, readOnly = false }) {
             window.removeEventListener('resize', place);
             window.removeEventListener('scroll', place, true);
         };
-    }, [open, text, shown.length]);
+    }, [open, text, shown.length, canAdd]);
 
     useEffect(() => {
         if (!open) return undefined;
@@ -601,6 +774,11 @@ function CellSuggest({ value, options, onPick, readOnly = false }) {
             pick(exact[0]);
             return;
         }
+        if (allowNew) {
+            if (typed !== String(value || '').trim()) onPick(typed);
+            else setText(value || '');
+            return;
+        }
         setText(value || '');
     };
 
@@ -611,6 +789,17 @@ function CellSuggest({ value, options, onPick, readOnly = false }) {
             className="max-h-56 overflow-y-auto rounded-lg border border-[#E6EDF5] bg-white py-1 shadow-lg"
             onMouseDown={(event) => event.preventDefault()}
         >
+            {canAdd ? (
+                <li>
+                    <button
+                        type="button"
+                        onClick={() => pick(typedValue)}
+                        className="w-full px-3 py-2 text-left text-[12px] font-semibold text-[#2f6fed] hover:bg-[#e8f1ff]"
+                    >
+                        Add &quot;{typedValue}&quot;
+                    </button>
+                </li>
+            ) : null}
             {shown.length ? shown.map((option, index) => (
                 <li key={option}>
                     <button
@@ -622,7 +811,7 @@ function CellSuggest({ value, options, onPick, readOnly = false }) {
                         {option}
                     </button>
                 </li>
-            )) : (
+            )) : canAdd ? null : (
                 <li className="px-3 py-2 text-[12px] text-slate-400">No matches</li>
             )}
         </ul>,
@@ -630,11 +819,13 @@ function CellSuggest({ value, options, onPick, readOnly = false }) {
     ) : null;
 
     return (
-        <div ref={rootRef} className="relative min-w-0">
-            <input
+        <div ref={rootRef} className={`relative min-w-0 ${fill ? 'h-full' : ''}`}>
+            <textarea
+                ref={areaRef}
                 value={text}
                 readOnly={readOnly}
-                placeholder={readOnly ? '' : 'Select'}
+                rows={1}
+                placeholder={readOnly ? '' : (allowNew ? 'Select or type' : 'Select')}
                 autoComplete="off"
                 onChange={(event) => {
                     if (readOnly) return;
@@ -649,11 +840,18 @@ function CellSuggest({ value, options, onPick, readOnly = false }) {
                     if (!readOnly) revert();
                 }}
                 onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.preventDefault();
                     if (readOnly) return;
                     if (event.key === 'Escape') {
                         event.stopPropagation();
                         setOpen(false);
                         setText(value || '');
+                        return;
+                    }
+                    if (event.key === 'Enter' && allowNew && !shown.length) {
+                        event.preventDefault();
+                        setOpen(false);
+                        if (typedValue && typedValue !== String(value || '').trim()) onPick(typedValue);
                         return;
                     }
                     if (!open || !shown.length) return;
@@ -663,15 +861,29 @@ function CellSuggest({ value, options, onPick, readOnly = false }) {
                     } else if (event.key === 'ArrowUp') {
                         event.preventDefault();
                         setActive((current) => (current - 1 + shown.length) % shown.length);
-                    } else if (event.key === 'Enter') {
-                        event.preventDefault();
+                    } else if (event.key === 'Enter' && shown.length) {
                         pick(shown[Math.min(active, shown.length - 1)]);
                     }
                 }}
-                className={`w-full truncate bg-transparent px-0.5 py-1 text-left text-[12px] leading-snug text-slate-800 outline-none placeholder:text-slate-400 ${readOnly ? 'cursor-default' : ''}`}
+                className={`w-full resize-none bg-transparent px-0.5 py-1 text-left text-[12px] leading-snug text-slate-800 outline-none placeholder:text-slate-400 ${fill ? 'h-full overflow-auto' : 'overflow-hidden'} ${readOnly ? 'cursor-default' : ''}`}
             />
             {menu}
         </div>
+    );
+}
+
+function GrowText({ value, onChange, readOnly = false, fill = false, layoutKey = 0, label, align = 'left', strong = false }) {
+    const ref = useFitTextArea(value, fill, layoutKey);
+    return (
+        <textarea
+            ref={ref}
+            value={value ?? ''}
+            readOnly={readOnly}
+            rows={1}
+            aria-label={label}
+            onChange={(event) => onChange?.(event.target.value)}
+            className={`w-full resize-none bg-transparent px-0.5 py-1 text-[12px] leading-snug outline-none ${align === 'right' ? 'text-right tabular-nums' : 'text-left'} ${strong ? 'font-semibold text-slate-800' : 'text-slate-700'} ${fill ? 'h-full overflow-auto' : 'overflow-hidden'} ${readOnly ? 'cursor-default' : ''}`}
+        />
     );
 }
 
@@ -680,6 +892,11 @@ function ActualBoqTable({ order, onSaved }) {
     const dragFrom = useRef(null);
     const dropAtRef = useRef(null);
     const [rows, setRows] = useState([]);
+    const [updateRows, setUpdateRows] = useState([]);
+    const [updateOpen, setUpdateOpen] = useState(false);
+    const [updateMeta, setUpdateMeta] = useState({ status: '', title: 'Updates', reason: '' });
+    const [approvedUpdates, setApprovedUpdates] = useState([]);
+    const [updateRejectNote, setUpdateRejectNote] = useState('');
     const [catalog, setCatalog] = useState([]);
     const [vendors, setVendors] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -691,11 +908,67 @@ function ActualBoqTable({ order, onSaved }) {
     const [descriptionMode, setDescriptionMode] = useState('new');
     const [headerAsk, setHeaderAsk] = useState(null);
     const [dropAt, setDropAt] = useState(null);
+    const [dropScope, setDropScope] = useState('');
+    const [colWidths, setColWidths] = useState({});
+    const [rowHeights, setRowHeights] = useState({});
+    const resizeRef = useRef(null);
+    const fitted = useMemo(() => {
+        const map = {};
+        const textsOf = (key) => {
+            if (key === 'drag' || key === 'actions') return [''];
+            const body = rows
+                .filter((row) => row.kind !== 'header')
+                .map((row) => (
+                    key === 'description'
+                        ? shownDescription(row, descriptionMode)
+                        : key === 'availableStock'
+                            ? stockText(row, catalog)
+                            : row[key]
+                ));
+            const head = ACTUAL_HEAD.find((column) => column.key === key);
+            return head ? [head.label, ...body] : body;
+        };
+        Object.keys(COLUMN_SIZE).forEach((key) => {
+            map[key] = colWidths[key] || fittedWidth(key, textsOf(key));
+        });
+        return map;
+    }, [rows, descriptionMode, colWidths, catalog]);
+
+    useEffect(() => {
+        const move = (event) => {
+            const session = resizeRef.current;
+            if (!session) return;
+            const delta = session.kind === 'col' ? event.clientX - session.startX : event.clientY - session.startY;
+            const size = Math.max(session.min, Math.min(session.max, Math.round(session.startSize + delta)));
+            if (session.kind === 'col') setColWidths((current) => ({ ...current, [session.key]: size }));
+            else setRowHeights((current) => ({ ...current, [session.key]: size }));
+        };
+        const stop = () => {
+            if (!resizeRef.current) return;
+            resizeRef.current = null;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+        window.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', stop);
+        return () => {
+            window.removeEventListener('mousemove', move);
+            window.removeEventListener('mouseup', stop);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+    }, []);
     const capturedAt = order?.quotationSnapshot?.capturedAt || '';
     const savedStatus = order?.actualBoq?.status || '';
     const savedStamp = order?.actualBoq?.requestedAt || order?.actualBoq?.decidedAt || '';
+    const updateStamp = (Array.isArray(order?.actualBoq?.updates) ? order.actualBoq.updates : []).map((item) => [
+        item?.status || '',
+        item?.title || '',
+        item?.requestedAt || '',
+        item?.decidedAt || '',
+        item?.reason || '',
+    ].join('~')).join('|');
     const vendorNames = useMemo(() => optionList(vendors.map((vendor) => vendor.name), ''), [vendors]);
-    const termNames = useMemo(() => optionList(vendors.map((vendor) => vendor.paymentTerms), ''), [vendors]);
 
     useEffect(() => {
         let cancelled = false;
@@ -714,7 +987,7 @@ function ActualBoqTable({ order, onSaved }) {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [savedStatus]);
 
     useEffect(() => {
         const saved = Array.isArray(order?.actualBoq?.tables) ? order.actualBoq.tables : [];
@@ -748,6 +1021,39 @@ function ActualBoqTable({ order, onSaved }) {
     }, [order?._id, capturedAt, savedStatus, savedStamp]);
 
     useEffect(() => {
+        const updates = Array.isArray(order?.actualBoq?.updates) ? order.actualBoq.updates : [];
+        const frozen = [];
+        let open = null;
+        updates.forEach((item, index) => {
+            if (item?.status === 'approved') {
+                frozen.push({
+                    key: `${index}-${item?.title || 'Updates'}`,
+                    title: item?.title || 'Updates',
+                    rows: rowsFromTables(item?.tables),
+                });
+                return;
+            }
+            open = item;
+        });
+        setApprovedUpdates(frozen);
+        if (!open) {
+            setUpdateOpen(false);
+            setUpdateRows([]);
+            setUpdateMeta({ status: '', title: 'Updates', reason: '', saved: false });
+            return;
+        }
+        setUpdateOpen(true);
+        setUpdateMeta({
+            status: open.status || 'draft',
+            title: open.title || 'Updates',
+            reason: open.reason || '',
+            saved: Boolean(open.requestedAt),
+        });
+        setUpdateRows(rowsFromTables(open.tables));
+        setMenu(null);
+    }, [order?._id, updateStamp]);
+
+    useEffect(() => {
         if (!menu) return undefined;
         const close = (event) => {
             const target = event.target;
@@ -770,19 +1076,24 @@ function ActualBoqTable({ order, onSaved }) {
         };
     }, [menu]);
 
-    const openMenu = (event, rowIndex) => {
+    const applyRows = (scope, recipe) => {
+        const setter = scope === 'update' ? setUpdateRows : setRows;
+        setter((current) => recipe(current));
+    };
+
+    const openMenu = (event, rowIndex, scope) => {
         const rect = event.currentTarget.getBoundingClientRect();
-        const id = `row:${rowIndex}`;
+        const id = `row:${scope}:${rowIndex}`;
         const width = 156;
         const height = 152;
         const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
         const below = rect.bottom + 4;
         const top = below + height > window.innerHeight ? Math.max(8, rect.top - height - 4) : below;
-        setMenu((current) => (current?.id === id ? null : { id, rowIndex, top, left }));
+        setMenu((current) => (current?.id === id ? null : { id, rowIndex, scope, top, left }));
     };
 
-    const insertRow = (rowIndex, row) => {
-        setRows((current) => {
+    const insertRow = (scope, rowIndex, row) => {
+        applyRows(scope, (current) => {
             const next = current.slice();
             next.splice(rowIndex + 1, 0, row);
             return next;
@@ -790,10 +1101,10 @@ function ActualBoqTable({ order, onSaved }) {
         setMenu(null);
     };
 
-    const addRow = (rowIndex) => insertRow(rowIndex, emptyActualRow());
+    const addRow = (scope, rowIndex) => insertRow(scope, rowIndex, emptyActualRow());
 
-    const cloneRow = (rowIndex) => {
-        setRows((current) => {
+    const cloneRow = (scope, rowIndex) => {
+        applyRows(scope, (current) => {
             const source = current[rowIndex];
             if (!source) return current;
             const next = current.slice();
@@ -803,8 +1114,8 @@ function ActualBoqTable({ order, onSaved }) {
         setMenu(null);
     };
 
-    const deleteRow = (rowIndex) => {
-        setRows((current) => {
+    const deleteRow = (scope, rowIndex) => {
+        applyRows(scope, (current) => {
             const next = current.filter((_, index) => index !== rowIndex);
             if (!next.some((row) => row.kind !== 'header')) next.push(emptyActualRow());
             return next.length ? next : [emptyActualRow()];
@@ -812,16 +1123,17 @@ function ActualBoqTable({ order, onSaved }) {
         setMenu(null);
     };
 
-    const askHeader = (rowIndex) => {
+    const askHeader = (scope, rowIndex) => {
         setMenu(null);
-        setHeaderAsk({ rowIndex, name: '' });
+        setHeaderAsk({ scope, rowIndex, name: '' });
     };
 
     const confirmHeader = () => {
         const name = String(headerAsk?.name || '').trim();
         const rowIndex = headerAsk?.rowIndex;
+        const scope = headerAsk?.scope || 'main';
         if (!name || rowIndex == null) return;
-        setRows((current) => {
+        applyRows(scope, (current) => {
             if (rowIndex < 0 || rowIndex >= current.length) return current;
             const next = current.slice();
             next.splice(rowIndex + 1, 0, { key: rowKey(), kind: 'header', title: name });
@@ -830,12 +1142,12 @@ function ActualBoqTable({ order, onSaved }) {
         setHeaderAsk(null);
     };
 
-    const patchRow = (rowIndex, next) => {
-        setRows((current) => current.map((row, index) => (index === rowIndex ? next : row)));
+    const patchRow = (scope, rowIndex, next) => {
+        applyRows(scope, (current) => current.map((row, index) => (index === rowIndex ? next : row)));
     };
 
-    const moveRow = (from, to) => {
-        setRows((current) => {
+    const moveRow = (scope, from, to) => {
+        applyRows(scope, (current) => {
             if (from == null || to == null || from < 0 || from >= current.length) return current;
             if (from === to || from + 1 === to) return current;
             const next = current.slice();
@@ -846,33 +1158,37 @@ function ActualBoqTable({ order, onSaved }) {
         });
     };
 
-    const onDragStart = (event, rowIndex) => {
-        dragFrom.current = rowIndex;
+    const onDragStart = (event, rowIndex, scope) => {
+        dragFrom.current = { scope, index: rowIndex };
         dropAtRef.current = null;
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', String(rowIndex));
     };
 
-    const onDragOver = (event, rowIndex) => {
-        if (dragFrom.current == null) return;
+    const onDragOver = (event, rowIndex, scope) => {
+        if (!dragFrom.current || dragFrom.current.scope !== scope) return;
         event.preventDefault();
         const rect = event.currentTarget.getBoundingClientRect();
         const next = event.clientY > rect.top + rect.height / 2 ? rowIndex + 1 : rowIndex;
         dropAtRef.current = next;
+        setDropScope(scope);
         setDropAt(next);
     };
 
     const onDrop = (event) => {
         event.preventDefault();
-        moveRow(dragFrom.current, dropAtRef.current);
+        const from = dragFrom.current;
+        if (from) moveRow(from.scope, from.index, dropAtRef.current);
         dragFrom.current = null;
         dropAtRef.current = null;
+        setDropScope('');
         setDropAt(null);
     };
 
     const onDragEnd = () => {
         dragFrom.current = null;
         dropAtRef.current = null;
+        setDropScope('');
         setDropAt(null);
     };
 
@@ -881,9 +1197,18 @@ function ActualBoqTable({ order, onSaved }) {
     const approved = boqStatus === 'approved';
     const canDecide = pending && Boolean(order?.viewerIsProjectManager);
     const canSave = !pending && !approved;
+    const canEditUpdate = approved && updateOpen && updateMeta.status !== 'pending';
+    const canDecideUpdate = approved && updateMeta.status === 'pending' && Boolean(order?.viewerIsPurchaseOfficer);
 
     const saveBoq = async (mode) => {
         if (saving || !canSave) return;
+        if (mode === 'submit') {
+            const gaps = blankBoqMessage(rows, catalog);
+            if (gaps) {
+                toast({ title: 'Cannot submit', description: gaps });
+                return;
+            }
+        }
         setSaving(true);
         try {
             const response = await axiosInstance.patch(`/WorkOrder/${order._id}`, {
@@ -913,6 +1238,13 @@ function ActualBoqTable({ order, onSaved }) {
     const decideBoq = async (decision) => {
         if (saving || !canDecide) return;
         if (decision === 'reject' && !rejectNote.trim()) return;
+        if (decision === 'approve') {
+            const gaps = blankBoqMessage(rows, catalog);
+            if (gaps) {
+                toast({ title: 'Cannot approve', description: gaps });
+                return;
+            }
+        }
         setSaving(true);
         try {
             const response = await axiosInstance.patch(`/WorkOrder/${order._id}`, {
@@ -937,12 +1269,127 @@ function ActualBoqTable({ order, onSaved }) {
         }
     };
 
+    const startUpdate = () => {
+        const count = approvedUpdates.length;
+        setUpdateMeta({
+            status: 'draft',
+            title: count === 0 ? 'Updates' : `Updates ${count + 1}`,
+            reason: '',
+            saved: false,
+        });
+        setUpdateRows([emptyActualRow()]);
+        setUpdateOpen(true);
+        setUpdateRejectNote('');
+    };
+
+    const saveUpdate = async (mode) => {
+        if (saving || !canEditUpdate) return;
+        if (mode === 'submit') {
+            const gaps = blankBoqMessage(updateRows, catalog);
+            if (gaps) {
+                toast({ title: 'Cannot submit', description: gaps });
+                return;
+            }
+        }
+        setSaving(true);
+        try {
+            const response = await axiosInstance.patch(`/WorkOrder/${order._id}`, {
+                ...(mode === 'submit' ? { submitActualBoqUpdate: true } : { saveActualBoqUpdateDraft: true }),
+                actualBoqUpdateTables: [{
+                    title: '',
+                    rows: updateRows.map(rowPayload).filter(Boolean),
+                }],
+            });
+            if (response.data?.workOrder) onSaved?.(response.data.workOrder);
+            toast({
+                title: mode === 'submit' ? `${updateMeta.title || 'Updates'} submitted` : `${updateMeta.title || 'Updates'} draft saved`,
+                description: response.data?.emailMessage || (mode === 'submit'
+                    ? `Waiting for ${order?.purchaseOfficerName || 'the purchase officer'} to approve.`
+                    : 'The task and notification are assigned to you.'),
+            });
+        } catch (error) {
+            toast({
+                title: mode === 'submit' ? 'Could not submit' : 'Could not save the draft',
+                description: error?.response?.data?.message || 'Try again.',
+            });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const decideUpdate = async (decision) => {
+        if (saving || !canDecideUpdate) return;
+        if (decision === 'reject' && !updateRejectNote.trim()) return;
+        if (decision === 'approve') {
+            const gaps = blankBoqMessage(updateRows, catalog);
+            if (gaps) {
+                toast({ title: 'Cannot approve', description: gaps });
+                return;
+            }
+        }
+        setSaving(true);
+        try {
+            const response = await axiosInstance.patch(`/WorkOrder/${order._id}`, {
+                decideActualBoqUpdate: decision,
+                rejectReason: updateRejectNote.trim(),
+            });
+            setUpdateRejectNote('');
+            if (response.data?.workOrder) onSaved?.(response.data.workOrder);
+            toast({
+                title: decision === 'approve' ? `${updateMeta.title || 'Updates'} approved` : `${updateMeta.title || 'Updates'} rejected`,
+                description: response.data?.emailMessage || (decision === 'approve'
+                    ? 'This update is approved. The next add starts a new table.'
+                    : 'The rejection description was saved.'),
+            });
+        } catch (error) {
+            toast({
+                title: decision === 'approve' ? 'Could not approve' : 'Could not reject',
+                description: error?.response?.data?.message || 'Try again.',
+            });
+        } finally {
+            setSaving(false);
+        }
+    };
+
     if (loading) return <p className="text-sm text-slate-500">Loading actual BOQ…</p>;
     if (failed) return <p className="text-sm text-slate-500">Actual BOQ could not be loaded.</p>;
     if (!rows.length) return <p className="text-sm text-slate-500">No actual BOQ lines yet.</p>;
 
-    const cell = 'break-words border border-slate-200 px-1 py-1 align-top font-normal';
-    const head = 'break-words border border-slate-200 px-1 py-1 align-bottom font-semibold';
+    const cell = 'relative break-words border border-slate-200 px-1 py-1 align-top font-normal';
+    const head = 'relative break-words border border-slate-200 px-1 py-1 align-bottom font-semibold';
+    const tableWidth = Object.values(fitted).reduce((sum, width) => sum + width, 0);
+
+    const beginResize = (kind, key, event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const limit = kind === 'col' ? (COLUMN_SIZE[key] || { min: 72, max: 640 }) : { min: 32, max: 720 };
+        const measured = kind === 'col'
+            ? fitted[key]
+            : (rowHeights[key] || event.currentTarget.parentElement?.getBoundingClientRect().height || 36);
+        resizeRef.current = {
+            kind,
+            key,
+            startX: event.clientX,
+            startY: event.clientY,
+            startSize: measured,
+            min: limit.min,
+            max: limit.max,
+        };
+        document.body.style.cursor = kind === 'col' ? 'col-resize' : 'row-resize';
+        document.body.style.userSelect = 'none';
+    };
+
+    const resetSize = (kind, key, event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const clear = (current) => {
+            const next = { ...current };
+            delete next[key];
+            return next;
+        };
+        if (kind === 'col') setColWidths(clear);
+        else setRowHeights(clear);
+    };
 
     const printPdf = async () => {
         if (printing || !rows.length) return;
@@ -968,25 +1415,46 @@ function ActualBoqTable({ order, onSaved }) {
                 </button>
             </div>
             {(() => {
-                const summary = tableSummary(rows);
+                const renderSheet = (sheetRows, locked, scope, title) => {
+                const summary = tableSummary(sheetRows);
                 const descriptionKey = descriptionMode === 'old' ? 'descriptionOld' : 'descriptionNew';
-                const locked = !canSave;
+                const totalIndex = ACTUAL_HEAD.findIndex((column) => column.key === 'total');
                 return (
                 <div>
-                <table className="w-full table-fixed border-collapse text-left text-[12px] leading-snug text-slate-700">
+                {title ? <h3 className="mb-2 text-sm font-semibold text-slate-900">{title}</h3> : null}
+                {!locked ? (
+                    <p className="mb-2 text-[12px] leading-5 text-slate-500">
+                        Pick an existing category, subcategory, item, or brand, or type a new one. It is added on this BOQ now. After approval it is stored with the other items, and its stock is Out of Stock.
+                    </p>
+                ) : null}
+                <div className="max-w-full overflow-auto">
+                <table className="table-fixed border-collapse text-left text-[12px] leading-snug text-slate-700" style={{ width: tableWidth }}>
                     <colgroup>
-                        <col style={{ width: '4%' }} />
+                        <col style={{ width: fitted.drag }} />
                         {ACTUAL_HEAD.map((column) => (
-                            <col key={column.key} style={{ width: column.width }} />
+                            <col key={column.key} style={{ width: fitted[column.key] }} />
                         ))}
-                        <col style={{ width: '4%' }} />
+                        <col style={{ width: fitted.actions }} />
                     </colgroup>
                     <thead>
                         <tr className="bg-[#f4f7fb] text-[10px] uppercase tracking-wide text-slate-500">
-                            <th className={head} aria-label="Drag row" />
+                            <th className={head} aria-label="Drag row" style={{ width: fitted.drag }}>
+                                <ResizeHandle
+                                    axis="col"
+                                    title="Drag to change width. Double-click to fit the text."
+                                    onResize={(event) => beginResize('col', 'drag', event)}
+                                    onReset={(event) => resetSize('col', 'drag', event)}
+                                />
+                            </th>
                             {ACTUAL_HEAD.map((column) => (
                                 column.key === 'description' ? (
-                                    <th key={column.key} className={head}>
+                                    <th key={column.key} className={head} style={{ width: fitted[column.key] }}>
+                                        <ResizeHandle
+                                            axis="col"
+                                            title="Drag to change width. Double-click to fit the text."
+                                            onResize={(event) => beginResize('col', column.key, event)}
+                                            onReset={(event) => resetSize('col', column.key, event)}
+                                        />
                                         <div className="text-center">Description</div>
                                         <div className="mt-1 flex justify-center gap-1 normal-case tracking-normal">
                                             <button
@@ -1010,17 +1478,43 @@ function ActualBoqTable({ order, onSaved }) {
                                         </div>
                                     </th>
                                 ) : (
-                                    <th key={column.key} className={`${head} ${column.align === 'right' ? 'text-right' : ''}`}>{column.label}</th>
+                                    <th key={column.key} className={`${head} ${column.align === 'right' ? 'text-right' : ''}`} style={{ width: fitted[column.key] }}>
+                                        <ResizeHandle
+                                            axis="col"
+                                            title="Drag to change width. Double-click to fit the text."
+                                            onResize={(event) => beginResize('col', column.key, event)}
+                                            onReset={(event) => resetSize('col', column.key, event)}
+                                        />
+                                        {column.label}
+                                    </th>
                                 )
                             ))}
-                            <th className={head} aria-label="Row actions" />
+                            <th className={head} aria-label="Row actions" style={{ width: fitted.actions }}>
+                                <ResizeHandle
+                                    axis="col"
+                                    title="Drag to change width. Double-click to fit the text."
+                                    onResize={(event) => beginResize('col', 'actions', event)}
+                                    onReset={(event) => resetSize('col', 'actions', event)}
+                                />
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
-                        {rows.map((line, rowIndex) => {
-                            const marker = dropAt === rowIndex
+                        {sheetRows.map((line, rowIndex) => {
+                            const rowHeight = rowHeights[line.key];
+                            const fill = Boolean(rowHeight);
+                            const rowStyle = rowHeight ? { height: rowHeight } : undefined;
+                            const rowEdge = (
+                                <ResizeHandle
+                                    axis="row"
+                                    title="Drag to change height. Double-click to fit the text."
+                                    onResize={(event) => beginResize('row', line.key, event)}
+                                    onReset={(event) => resetSize('row', line.key, event)}
+                                />
+                            );
+                            const marker = dropScope === scope && dropAt === rowIndex
                                 ? 'shadow-[inset_0_2px_0_0_#2f6fed]'
-                                : dropAt === rowIndex + 1 && rowIndex === rows.length - 1
+                                : dropScope === scope && dropAt === rowIndex + 1 && rowIndex === sheetRows.length - 1
                                     ? 'shadow-[inset_0_-2px_0_0_#2f6fed]'
                                     : '';
                             const dragHandle = (
@@ -1033,7 +1527,7 @@ function ActualBoqTable({ order, onSaved }) {
                                             event.preventDefault();
                                             return;
                                         }
-                                        onDragStart(event, rowIndex);
+                                        onDragStart(event, rowIndex, scope);
                                     }}
                                     onDragEnd={onDragEnd}
                                     className={`mx-auto flex h-7 w-6 items-center justify-center rounded text-slate-500 ${locked ? 'cursor-default opacity-40' : 'cursor-grab hover:bg-slate-100 hover:text-slate-700 active:cursor-grabbing'}`}
@@ -1046,8 +1540,8 @@ function ActualBoqTable({ order, onSaved }) {
                                     type="button"
                                     data-boq-plus=""
                                     aria-label="Row actions"
-                                    aria-expanded={menu?.id === `row:${rowIndex}`}
-                                    onClick={(event) => openMenu(event, rowIndex)}
+                                    aria-expanded={menu?.id === `row:${scope}:${rowIndex}`}
+                                    onClick={(event) => openMenu(event, rowIndex, scope)}
                                     className="inline-flex h-5 w-5 items-center justify-center rounded border border-[#2f6fed] bg-white text-[12px] font-bold leading-none text-[#2f6fed] hover:bg-[#e8f1ff]"
                                 >
                                     +
@@ -1058,18 +1552,20 @@ function ActualBoqTable({ order, onSaved }) {
                                     <tr
                                         key={line.key}
                                         className={`bg-[#f8fafc] ${marker}`}
-                                        onDragOver={(event) => onDragOver(event, rowIndex)}
+                                        style={rowStyle}
+                                        onDragOver={(event) => onDragOver(event, rowIndex, scope)}
                                         onDrop={onDrop}
                                     >
-                                        <td className={`${cell} px-0.5 text-center`}>{dragHandle}</td>
-                                        <td colSpan={ACTUAL_SPAN} className={`${cell} px-2 py-2`}>
+                                        <td className={`${cell} px-0.5 text-center`} style={rowStyle}>{dragHandle}{rowEdge}</td>
+                                        <td colSpan={ACTUAL_SPAN} className={`${cell} px-2 py-2`} style={rowStyle}>
+                                            {rowEdge}
                                             <div className="flex items-center gap-2">
                                                 {locked ? (
                                                     <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800">{line.title}</span>
                                                 ) : (
                                                     <input
                                                         value={line.title || ''}
-                                                        onChange={(event) => patchRow(rowIndex, { ...line, title: event.target.value })}
+                                                        onChange={(event) => patchRow(scope, rowIndex, { ...line, title: event.target.value })}
                                                         className="min-w-0 flex-1 bg-transparent text-[13px] font-semibold text-slate-800 outline-none"
                                                         aria-label="Header name"
                                                     />
@@ -1085,72 +1581,114 @@ function ActualBoqTable({ order, onSaved }) {
                                 <tr
                                     key={line.key}
                                     className={marker}
-                                    onDragOver={(event) => onDragOver(event, rowIndex)}
+                                    style={rowStyle}
+                                    onDragOver={(event) => onDragOver(event, rowIndex, scope)}
                                     onDrop={onDrop}
                                 >
-                                    <td className={`${cell} px-0.5 text-center`}>{dragHandle}</td>
+                                    <td className={`${cell} px-0.5 text-center`} style={rowStyle}>{dragHandle}{rowEdge}</td>
                                     {CATALOG_FIELDS.map(([field]) => (
-                                        <td key={field} className={cell}>
+                                        <td key={field} className={cell} style={rowStyle}>
+                                            {rowEdge}
                                             <CellSuggest
                                                 value={line[field] || ''}
                                                 options={catalogChoices(catalog, line, field)}
                                                 readOnly={locked}
-                                                onPick={(value) => patchRow(rowIndex, pickCatalogValue(line, field, value, catalog))}
+                                                allowNew
+                                                fill={fill}
+                                                layoutKey={fitted[field]}
+                                                onPick={(value) => patchRow(scope, rowIndex, pickCatalogValue(line, field, value, catalog))}
                                             />
                                         </td>
                                     ))}
-                                    <td className={cell}>
-                                        <textarea
+                                    <td className={cell} style={rowStyle}>
+                                        {rowEdge}
+                                        <GrowText
                                             value={description}
                                             readOnly={locked}
-                                            rows={Math.min(5, Math.max(2, String(description).split('\n').length || 1))}
-                                            onChange={(event) => patchRow(rowIndex, { ...line, [descriptionKey]: event.target.value })}
-                                            className="w-full resize-none bg-transparent px-0.5 py-1 text-[12px] leading-snug text-slate-700 outline-none"
-                                            aria-label="Description"
+                                            fill={fill}
+                                            layoutKey={`${fitted.description}:${descriptionMode}`}
+                                            label="Description"
+                                            onChange={(value) => patchRow(scope, rowIndex, { ...line, [descriptionKey]: value })}
                                         />
                                     </td>
-                                    {['quantity', 'unitPrice', 'total'].map((field) => (
-                                        <td key={field} className={cell}>
-                                            <input
+                                    <td className={cell} style={rowStyle}>
+                                        {rowEdge}
+                                        <p className={`px-0.5 py-1 text-right text-[12px] font-medium tabular-nums ${stockText(line, catalog) === 'Out of Stock' ? 'text-red-600' : 'text-slate-700'}`}>
+                                            {stockText(line, catalog)}
+                                        </p>
+                                    </td>
+                                    {['quantity', 'unitPrice'].map((field) => (
+                                        <td key={field} className={cell} style={rowStyle}>
+                                            {rowEdge}
+                                            <GrowText
                                                 value={line[field] ?? ''}
                                                 readOnly={locked}
-                                                inputMode="decimal"
-                                                onChange={(event) => patchRow(rowIndex, editAmount(line, field, event.target.value))}
-                                                className={`w-full bg-transparent px-0.5 py-1 text-right text-[12px] tabular-nums text-slate-800 outline-none ${field === 'total' ? 'font-semibold' : ''} ${locked ? 'cursor-default' : ''}`}
-                                                aria-label={field === 'unitPrice' ? 'Unit price' : field === 'quantity' ? 'Quantity' : 'Total'}
+                                                fill={fill}
+                                                layoutKey={fitted[field]}
+                                                align="right"
+                                                label={field === 'unitPrice' ? 'Unit price' : 'Quantity'}
+                                                onChange={(value) => patchRow(scope, rowIndex, editAmount(line, field, value))}
                                             />
                                         </td>
                                     ))}
-                                    <td className={cell}>
+                                    <td className={cell} style={rowStyle}>
+                                        {rowEdge}
+                                        <GrowText
+                                            value={line.total ?? ''}
+                                            readOnly
+                                            fill={fill}
+                                            layoutKey={fitted.total}
+                                            align="right"
+                                            strong
+                                            label="Total"
+                                        />
+                                    </td>
+                                    <td className={cell} style={rowStyle}>
+                                        {rowEdge}
                                         <CellSuggest
                                             value={line.vendorName || ''}
                                             options={optionList(vendorNames, line.vendorName)}
                                             readOnly={locked}
+                                            fill={fill}
+                                            layoutKey={fitted.vendorName}
                                             onPick={(value) => {
                                                 const vendor = vendors.find((row) => sameName(row.name, value));
-                                                patchRow(rowIndex, {
+                                                patchRow(scope, rowIndex, {
                                                     ...line,
                                                     vendorName: value,
-                                                    paymentTerms: vendor && String(vendor.paymentTerms || '').trim()
-                                                        ? vendor.paymentTerms
-                                                        : line.paymentTerms,
+                                                    paymentTerms: paymentTermOption(vendor?.paymentTerms) || line.paymentTerms,
                                                 });
                                             }}
                                         />
                                     </td>
-                                    <td className={cell}>
-                                        <CellSuggest
-                                            value={line.paymentTerms || ''}
-                                            options={optionList(termNames, line.paymentTerms)}
-                                            readOnly={locked}
-                                            onPick={(value) => patchRow(rowIndex, { ...line, paymentTerms: value })}
-                                        />
+                                    <td className={cell} style={rowStyle}>
+                                        {rowEdge}
+                                        <select
+                                            value={paymentTermOption(line.paymentTerms) || line.paymentTerms || ''}
+                                            disabled={locked}
+                                            aria-label="Payment terms"
+                                            onChange={(event) => patchRow(scope, rowIndex, { ...line, paymentTerms: event.target.value })}
+                                            className="w-full cursor-pointer bg-transparent px-0.5 py-1 text-[12px] text-slate-800 outline-none disabled:cursor-default"
+                                        >
+                                            <option value="">{locked ? '' : 'Select'}</option>
+                                            {paymentTermChoices(line.paymentTerms).map((option) => (
+                                                <option key={option} value={option}>{option}</option>
+                                            ))}
+                                        </select>
                                     </td>
-                                    <td className={`${cell} text-center`}>{plusButton}</td>
+                                    <td className={`${cell} text-center`} style={rowStyle}>{rowEdge}{plusButton}</td>
                                 </tr>
                             );
                         })}
                     </tbody>
+                    <tfoot>
+                        <tr className="bg-[#f8fafc] text-[12px] font-semibold text-slate-800">
+                            <td className={cell} />
+                            <td className={`${cell} px-1 py-1.5 text-right text-[10px] uppercase tracking-wide text-slate-500`} colSpan={totalIndex}>Total</td>
+                            <td className={`${cell} px-1 py-1.5 text-right tabular-nums`}>{money(summary.amount)}</td>
+                            <td className={cell} colSpan={ACTUAL_HEAD.length - totalIndex} />
+                        </tr>
+                    </tfoot>
                 </table>
                 <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-slate-600">
                     <span>Cash: <span className="font-medium tabular-nums text-slate-800">{money(summary.cash)}</span></span>
@@ -1158,12 +1696,102 @@ function ActualBoqTable({ order, onSaved }) {
                     <span>Vendor count: <span className="font-medium tabular-nums text-slate-800">{summary.vendorCount}</span></span>
                 </p>
                 </div>
+                </div>
+                );
+                };
+                return (
+                    <>
+
+                    {renderSheet(rows, !canSave, 'main')}
+                    {approved ? (
+                        <div className="flex flex-col gap-5">
+                            <p className="text-sm font-semibold text-emerald-700">Approved actual BOQ</p>
+                            {approvedUpdates.map((batch) => (
+                                <div key={batch.key}>
+                                    {renderSheet(batch.rows, true, `saved:${batch.key}`, batch.title)}
+                                    <p className="text-sm font-semibold text-emerald-700">Approved</p>
+                                </div>
+                            ))}
+                            {updateOpen ? (
+                                <div className="flex flex-col gap-3">
+                                    {renderSheet(updateRows, !canEditUpdate, 'update', updateMeta.title || 'Updates')}
+                                    {updateMeta.saved && updateMeta.status === 'draft' ? (
+                                        <p className="text-sm text-slate-600">Draft saved. The task and notification are assigned to you.</p>
+                                    ) : null}
+                                    {updateMeta.status === 'pending' && !canDecideUpdate ? (
+                                        <p className="text-sm text-amber-800">Waiting for {order?.purchaseOfficerName || 'the purchase officer'}.</p>
+                                    ) : null}
+                                    {updateMeta.status === 'rejected' && updateMeta.reason ? (
+                                        <p className="text-sm text-rose-700">Rejected: {updateMeta.reason}</p>
+                                    ) : null}
+                                    {canDecideUpdate ? (
+                                        <div className="flex flex-col gap-2">
+                                            <p className="text-sm text-slate-600">Approve this update, or reject it with a description.</p>
+                                            <textarea
+                                                value={updateRejectNote}
+                                                onChange={(event) => setUpdateRejectNote(event.target.value)}
+                                                rows={2}
+                                                placeholder="Description is required to reject"
+                                                className="w-full rounded-xl border border-[#e5edf6] px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-[#2f6fed]/30"
+                                            />
+                                            <div className="flex flex-wrap gap-2">
+                                                <button
+                                                    type="button"
+                                                    disabled={saving}
+                                                    onClick={() => decideUpdate('approve')}
+                                                    className={`inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] disabled:opacity-60 ${FOCUS}`}
+                                                >
+                                                    {saving ? 'Saving…' : 'Approve'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={saving || !updateRejectNote.trim()}
+                                                    onClick={() => decideUpdate('reject')}
+                                                    className={`inline-flex h-11 items-center rounded-xl border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 ${FOCUS}`}
+                                                >
+                                                    Reject
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : null}
+                                    {canEditUpdate ? (
+                                        <div className="flex flex-wrap gap-2">
+                                            <button
+                                                type="button"
+                                                disabled={saving}
+                                                onClick={() => saveUpdate('draft')}
+                                                className={`inline-flex h-11 items-center rounded-xl border border-[#e5edf6] bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 ${FOCUS}`}
+                                            >
+                                                {saving ? 'Saving…' : 'Draft'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={saving}
+                                                onClick={() => saveUpdate('submit')}
+                                                className={`inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] disabled:opacity-60 ${FOCUS}`}
+                                            >
+                                                {saving ? 'Saving…' : 'Submit'}
+                                            </button>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            ) : (
+                                <div>
+                                    <button
+                                        type="button"
+                                        onClick={startUpdate}
+                                        className={`inline-flex h-11 items-center rounded-xl bg-[#2f6fed] px-4 text-sm font-semibold text-white hover:bg-[#245fe0] ${FOCUS}`}
+                                    >
+                                        Add
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    ) : null}
+                    </>
                 );
             })()}
             <div className="flex flex-col gap-3">
-                {approved ? (
-                    <p className="text-sm font-semibold text-emerald-700">Approved actual BOQ</p>
-                ) : null}
                 {boqStatus === 'draft' ? (
                     <p className="text-sm text-slate-600">Draft saved. The task and notification are assigned to you.</p>
                 ) : null}
@@ -1230,10 +1858,10 @@ function ActualBoqTable({ order, onSaved }) {
                     className="fixed z-[70] w-[156px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-left text-[12px] text-slate-700 shadow-lg"
                     style={{ top: menu.top, left: menu.left }}
                 >
-                    <button type="button" onClick={() => addRow(menu.rowIndex)} className="block w-full px-3 py-1.5 text-left hover:bg-[#f4f7fb]">Add row</button>
-                    <button type="button" onClick={() => cloneRow(menu.rowIndex)} className="block w-full px-3 py-1.5 text-left hover:bg-[#f4f7fb]">Clone row</button>
-                    <button type="button" onClick={() => askHeader(menu.rowIndex)} className="block w-full px-3 py-1.5 text-left hover:bg-[#f4f7fb]">Insert header</button>
-                    <button type="button" onClick={() => deleteRow(menu.rowIndex)} className="block w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50">Delete</button>
+                    <button type="button" onClick={() => addRow(menu.scope || 'main', menu.rowIndex)} className="block w-full px-3 py-1.5 text-left hover:bg-[#f4f7fb]">Add row</button>
+                    <button type="button" onClick={() => cloneRow(menu.scope || 'main', menu.rowIndex)} className="block w-full px-3 py-1.5 text-left hover:bg-[#f4f7fb]">Clone row</button>
+                    <button type="button" onClick={() => askHeader(menu.scope || 'main', menu.rowIndex)} className="block w-full px-3 py-1.5 text-left hover:bg-[#f4f7fb]">Insert header</button>
+                    <button type="button" onClick={() => deleteRow(menu.scope || 'main', menu.rowIndex)} className="block w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50">Delete</button>
                 </div>,
                 document.body,
             ) : null}
@@ -1265,60 +1893,521 @@ function ActualBoqTable({ order, onSaved }) {
     );
 }
 
-function MaterialRequest({ order }) {
-    const request = order?.materialRequest;
-    const tables = Array.isArray(request?.tables) ? request.tables : [];
-    const rows = tables.flatMap((table) => {
-        const inner = Array.isArray(table?.rows) ? table.rows : [];
-        const next = [];
-        if (!inner.some((row) => row?.kind === 'header') && String(table?.title || '').trim()) {
-            next.push({ kind: 'header', title: table.title });
-        }
-        inner.forEach((row) => next.push(row));
-        return next;
+function mrDescription(row) {
+    const written = String(row?.description || '').trim();
+    if (written && row?.descriptionOld == null && row?.descriptionNew == null) return written;
+    return String(row?.descriptionOld || '').trim() || String(row?.descriptionNew || '').trim() || written;
+}
+
+function mrQtyNumber(value) {
+    const text = String(value ?? '').trim();
+    if (!text) return 0;
+    const amount = Number(text);
+    if (!Number.isFinite(amount)) return 0;
+    return Math.round(amount * 1000) / 1000;
+}
+
+function mrGroupKey(sourceKey) {
+    const parts = String(sourceKey || '').split(':');
+    if (parts[0] === 'update') return `update:${parts[1]}`;
+    return parts[0] || '';
+}
+
+function mrLine(row) {
+    return syncLineTotal({
+        sourceKey: row?.sourceKey || '',
+        description: mrDescription(row),
+        quantity: row?.quantity ?? '',
+        boqQuantity: row?.boqQuantity ?? row?.quantity ?? '',
+        unitPrice: row?.unitPrice ?? '',
+        requiredDate: String(row?.requiredDate || '').slice(0, 10),
+        leadTime: row?.leadTime || '',
+        vendorName: row?.vendorName || '',
+        paymentTerms: paymentTermOption(row?.paymentTerms) || row?.paymentTerms || '',
     });
-    const lines = rows.filter((row) => row?.kind !== 'header');
-    if (request?.status !== 'open' || !lines.length) {
-        return <p className="text-sm text-slate-500">No material requests yet.</p>;
+}
+
+function mrGroupRows(tables, keyPrefix) {
+    const rows = [];
+    (Array.isArray(tables) ? tables : []).forEach((table, tableIndex) => {
+        (Array.isArray(table?.rows) ? table.rows : []).forEach((row, rowIndex) => {
+            if (row?.kind === 'header') return;
+            rows.push(mrLine({ ...row, sourceKey: `${keyPrefix}:${tableIndex}:${rowIndex}` }));
+        });
+    });
+    return rows;
+}
+
+function approvedMrGroups(order) {
+    const groups = [];
+    if (order?.actualBoq?.status === 'approved') {
+        const rows = mrGroupRows(order.actualBoq?.tables, 'boq');
+        if (rows.length) groups.push({ sourceKey: 'boq', rows });
     }
+    (Array.isArray(order?.actualBoq?.updates) ? order.actualBoq.updates : []).forEach((update, updateIndex) => {
+        if (update?.status !== 'approved') return;
+        const sourceKey = `update:${updateIndex}`;
+        const rows = mrGroupRows(update?.tables, sourceKey);
+        if (rows.length) groups.push({ sourceKey, rows });
+    });
+    return groups;
+}
+
+function withBoqQuantity(order, rows) {
+    const quantities = boqQtyByKey(order);
+    return rows.map((row) => mrLine({
+        ...row,
+        boqQuantity: quantities.has(row?.sourceKey) ? quantities.get(row.sourceKey) : (row?.boqQuantity ?? row?.quantity),
+    }));
+}
+
+function mrDocumentNo(order, index) {
+    const number = String(order?.workOrderNo || '').trim() || 'WO';
+    return `MR-${number}-${String(index + 1).padStart(3, '0')}`;
+}
+
+function mrBatches(order) {
+    const stored = order?.materialRequest?.batches;
+    if (Array.isArray(stored) && stored.length) {
+        return stored.map((batch, index) => ({
+            sourceKey: batch?.sourceKey || 'boq',
+            title: mrDocumentNo(order, index),
+            status: batch?.status || 'open',
+            approvalStage: batch?.approvalStage || '',
+            reason: batch?.reason || '',
+            rows: withBoqQuantity(order, Array.isArray(batch?.rows) ? batch.rows : []),
+        }));
+    }
+    if (!order?.materialRequest?.built) return [];
+    const rows = [];
+    (Array.isArray(order.materialRequest.tables) ? order.materialRequest.tables : []).forEach((table) => {
+        (Array.isArray(table?.rows) ? table.rows : []).forEach((row) => {
+            if (row?.kind === 'header') return;
+            rows.push(row);
+        });
+    });
+    return [{
+        sourceKey: 'boq',
+        title: mrDocumentNo(order, 0),
+        status: order.materialRequest.status || 'open',
+        approvalStage: order.materialRequest.approvalStage || '',
+        reason: order.materialRequest.reason || '',
+        rows: withBoqQuantity(order, rows),
+    }];
+}
+
+function actualBoqQtyAllZero(order) {
+    const tables = [
+        ...(Array.isArray(order?.actualBoq?.tables) ? order.actualBoq.tables : []),
+        ...(Array.isArray(order?.actualBoq?.updates) ? order.actualBoq.updates : []).flatMap((update) => (
+            Array.isArray(update?.tables) ? update.tables : []
+        )),
+    ];
+    return !tables.some((table) => (Array.isArray(table?.rows) ? table.rows : []).some((row) => (
+        row?.kind !== 'header' && mrQtyNumber(row?.quantity) > 0
+    )));
+}
+
+function boqQtyByKey(order) {
+    const quantities = new Map();
+    approvedMrGroups(order).forEach((group) => {
+        group.rows.forEach((row) => quantities.set(row.sourceKey, mrQtyNumber(row.quantity)));
+    });
+    return quantities;
+}
+
+function consumedMrQty(batches, exceptSourceKey) {
+    const totals = new Map();
+    batches.forEach((batch) => {
+        if (batch?.status === 'rejected') return;
+        if (exceptSourceKey && batch.sourceKey === exceptSourceKey) return;
+        (batch.rows || []).forEach((row) => {
+            if (!row?.sourceKey) return;
+            totals.set(row.sourceKey, mrQtyNumber(totals.get(row.sourceKey)) + mrQtyNumber(row.quantity));
+        });
+    });
+    return totals;
+}
+
+function nextMrRows(order, batches) {
+    const opened = new Set(batches.map((batch) => batch.sourceKey));
+    const nextGroup = approvedMrGroups(order).find((group) => (
+        !opened.has(group.sourceKey) && group.rows.some((row) => mrQtyNumber(row.quantity) > 0)
+    ));
+    const consumed = consumedMrQty(batches);
+    const quantities = boqQtyByKey(order);
+    const rows = [];
+    approvedMrGroups(order).forEach((group) => {
+        group.rows.forEach((row) => {
+            const boqQuantity = quantities.get(row.sourceKey) || 0;
+            const balance = boqQuantity - mrQtyNumber(consumed.get(row.sourceKey));
+            if (balance <= 0) return;
+            if (group.sourceKey !== nextGroup?.sourceKey && !opened.has(group.sourceKey)) return;
+            rows.push(mrLine({ ...row, quantity: balance, boqQuantity }));
+        });
+    });
+    return rows;
+}
+
+function nextMrCreate(order) {
+    if (order?.actualBoq?.status !== 'approved') return null;
+    const batches = mrBatches(order);
+    if (batches.length) {
+        const last = batches[batches.length - 1];
+        if (last.status !== 'pending' && last.status !== 'approved') return null;
+    }
+    const number = mrDocumentNo(order, batches.length);
+    const label = `Create ${number}`;
+    const zero = actualBoqQtyAllZero(order);
+    const rows = nextMrRows(order, batches);
+    if (zero || !rows.length) {
+        return {
+            label,
+            number,
+            disabled: true,
+            reason: zero
+                ? 'Create MR is unavailable because every actual BOQ quantity is 0.'
+                : 'There is no remaining approved quantity for another material request.',
+        };
+    }
+    return { label, number, disabled: false, reason: '' };
+}
+
+function mrPendingRows(order, batches, edits) {
+    const live = batches.map((batch) => ({
+        ...batch,
+        rows: edits[batch.sourceKey] || batch.rows,
+    }));
+    const consumed = consumedMrQty(live);
+    const opened = new Set();
+    batches.forEach((batch) => {
+        opened.add(batch.sourceKey);
+        (batch.rows || []).forEach((row) => opened.add(mrGroupKey(row.sourceKey)));
+        (edits[batch.sourceKey] || []).forEach((row) => opened.add(mrGroupKey(row.sourceKey)));
+    });
+    const onScreen = new Set();
+    live.forEach((batch) => {
+        if (batch.status === 'rejected') return;
+        (batch.rows || []).forEach((row) => { if (row.sourceKey) onScreen.add(row.sourceKey); });
+    });
+    const quantities = boqQtyByKey(order);
+    const pending = [];
+    quantities.forEach((boqQuantity, sourceKey) => {
+        const balance = boqQuantity - mrQtyNumber(consumed.get(sourceKey));
+        if (balance <= 0 || onScreen.has(sourceKey) || !opened.has(mrGroupKey(sourceKey))) return;
+        const line = approvedMrGroups(order).flatMap((group) => group.rows).find((row) => row.sourceKey === sourceKey);
+        pending.push({ sourceKey, description: line?.description || 'Item', balance });
+    });
+    return pending;
+}
+
+function MaterialRequest({ order, onSaved, onOpenBudget }) {
+    const { toast } = useToast();
+    const [edits, setEdits] = useState({});
+    const [rejectNotes, setRejectNotes] = useState({});
+    const [saving, setSaving] = useState(false);
+    const batches = useMemo(() => mrBatches(order), [order]);
+    const createNext = nextMrCreate(order);
+    const pendingRows = mrPendingRows(order, batches, edits);
+    const stamp = useMemo(() => JSON.stringify(batches.map((batch) => ({
+        sourceKey: batch.sourceKey,
+        status: batch.status,
+        stage: batch.approvalStage,
+        reason: batch.reason,
+        rows: batch.rows,
+    }))), [batches]);
+
+    useEffect(() => {
+        const next = {};
+        JSON.parse(stamp).forEach((batch) => { next[batch.sourceKey] = batch.rows; });
+        setEdits(next);
+        setRejectNotes({});
+    }, [stamp]);
+
+    const patchRow = (sourceKey, index, patch) => {
+        setEdits((current) => {
+            const rows = [...(current[sourceKey] || [])];
+            rows[index] = syncLineTotal({ ...rows[index], ...patch });
+            return { ...current, [sourceKey]: rows };
+        });
+    };
+    const removeRow = (sourceKey, index) => {
+        setEdits((current) => {
+            const rows = [...(current[sourceKey] || [])];
+            rows.splice(index, 1);
+            return { ...current, [sourceKey]: rows };
+        });
+    };
+    const balanceFor = (batchKey, row) => {
+        const usedElsewhere = batches.reduce((sum, batch) => {
+            if (batch.sourceKey === batchKey || batch.status === 'rejected') return sum;
+            return sum + (edits[batch.sourceKey] || batch.rows).reduce((lineSum, line) => (
+                line.sourceKey === row.sourceKey ? lineSum + mrQtyNumber(line.quantity) : lineSum
+            ), 0);
+        }, 0);
+        const available = Math.max(0, mrQtyNumber(row.boqQuantity) - usedElsewhere);
+        return { available, pending: Math.max(0, available - mrQtyNumber(row.quantity)) };
+    };
+
+    const payloadRows = (sourceKey) => (edits[sourceKey] || []).map((row) => ({
+        sourceKey: row.sourceKey,
+        description: row.description,
+        quantity: row.quantity,
+        unitPrice: row.unitPrice,
+        requiredDate: row.requiredDate,
+        leadTime: row.leadTime,
+        vendorName: row.vendorName,
+        paymentTerms: row.paymentTerms,
+    }));
+
+    const saveOrder = async (body, successTitle) => {
+        setSaving(true);
+        try {
+            const response = await updateWorkOrder(order._id, body);
+            onSaved?.(response.workOrder);
+            toast({ title: successTitle, description: response.emailMessage || '' });
+        } catch (err) {
+            toast({ title: 'Could not save', description: err.message, variant: 'destructive' });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const create = () => saveOrder({ createMaterialRequest: true }, `${createNext?.number || 'Material request'} created`);
+    const saveDraft = (sourceKey) => saveOrder(
+        { saveMaterialRequestDraft: true, mrSourceKey: sourceKey, materialRequestRows: payloadRows(sourceKey) },
+        'Draft saved',
+    );
+    const submit = (sourceKey) => saveOrder(
+        { submitMaterialRequest: true, mrSourceKey: sourceKey, materialRequestRows: payloadRows(sourceKey) },
+        'Submitted for approval',
+    );
+    const decide = (sourceKey, decision) => {
+        if (decision === 'reject' && !String(rejectNotes[sourceKey] || '').trim()) {
+            toast({ title: 'Description required', description: 'Add a description before rejecting.', variant: 'destructive' });
+            return;
+        }
+        saveOrder({
+            decideMaterialRequest: decision,
+            mrSourceKey: sourceKey,
+            rejectReason: decision === 'reject' ? rejectNotes[sourceKey] : '',
+            materialRequestRows: payloadRows(sourceKey),
+        }, decision === 'approve' ? 'Approved' : 'Rejected');
+    };
+
     return (
-        <div>
-            <p className="mb-3 text-sm text-slate-600">
-                Material request for the approved actual BOQ
-                {request.purchaserName ? `. Assigned to ${request.purchaserName}` : ''}.
-            </p>
-            <table className="w-full table-fixed border-collapse text-left text-[11px] leading-snug text-slate-700">
-                <thead>
-                    <tr className="border-b border-slate-200 bg-[#f4f7fb] text-[10px] uppercase tracking-wide text-slate-500">
-                        <th className="w-[46%] px-2 py-2 font-semibold">Description</th>
-                        <th className="w-[14%] px-2 py-2 text-right font-semibold">Quantity</th>
-                        <th className="w-[16%] px-2 py-2 text-right font-semibold">Price</th>
-                        <th className="w-[24%] px-2 py-2 font-semibold">Vendor</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows.map((row, index) => (
-                        row?.kind === 'header' ? (
-                            <tr key={`header-${index}`} className="border-b border-slate-100 bg-slate-50">
-                                <td colSpan={4} className="px-2 py-2 text-[12px] font-semibold text-slate-800">{row.title}</td>
-                            </tr>
-                        ) : (
-                        <tr key={`${row.modelNo || 'line'}-${index}`} className="border-b border-slate-100 last:border-0">
-                            <td className="whitespace-pre-line break-words px-2 py-2">{printDescription(row)}</td>
-                            <td className="px-2 py-2 text-right tabular-nums">{printAmount(row.quantity)}</td>
-                            <td className="px-2 py-2 text-right tabular-nums">{printAmount(row.unitPrice)}</td>
-                            <td className="break-words px-2 py-2">{row.vendorName || ''}</td>
-                        </tr>
-                        )
-                    ))}
-                </tbody>
-            </table>
+        <div className="space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h3 className="text-base font-semibold text-slate-950">Material request</h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                        Create one material request for each approved BOQ. A removed row or a lower quantity stays pending and is included on the next material request.
+                    </p>
+                </div>
+                {createNext ? (
+                    <button
+                        type="button"
+                        disabled={saving || createNext.disabled}
+                        title={createNext.reason || undefined}
+                        onClick={create}
+                        className={`inline-flex h-11 items-center rounded-xl bg-[#7C3AED] px-4 text-sm font-semibold text-white hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS}`}
+                    >
+                        {createNext.label}
+                    </button>
+                ) : null}
+            </div>
+            {createNext?.disabled && createNext.reason ? (
+                <p className="text-sm text-slate-500">{createNext.reason}</p>
+            ) : null}
+            {pendingRows.length ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <h4 className="text-sm font-semibold text-amber-900">Pending balance</h4>
+                    <p className="mt-1 text-xs text-amber-800">The next material request includes these quantities.</p>
+                    <ul className="mt-2 space-y-1 text-sm text-amber-900">
+                        {pendingRows.map((row) => (
+                            <li key={row.sourceKey}>{row.description}: {row.balance}</li>
+                        ))}
+                    </ul>
+                </div>
+            ) : null}
+            {batches.length ? batches.map((batch) => {
+                const rows = edits[batch.sourceKey] || batch.rows;
+                const canPrepare = ['open', 'draft', 'rejected'].includes(batch.status);
+                const canDecide = batch.status === 'pending' && (
+                    batch.approvalStage === 'manager' ? Boolean(order.viewerCanApproveMrManager) : Boolean(order.viewerIsPurchaseOfficer)
+                );
+                const canEdit = canPrepare || canDecide;
+                const submitLabel = order.viewerSubmitsMaterialRequestToManager ? 'Submit' : 'Submit for approval';
+                const statusLabel = batch.status === 'pending'
+                    ? (batch.approvalStage === 'manager' ? 'Waiting for the project manager' : 'Waiting for the purchase officer')
+                    : batch.status === 'approved' ? 'Approved' : batch.status === 'rejected' ? 'Rejected' : batch.status === 'draft' ? 'Draft' : 'Open';
+                return (
+                    <div key={batch.sourceKey} className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h4 className="text-sm font-semibold text-slate-900">{batch.title}</h4>
+                            <span className="text-xs font-medium text-slate-500">{statusLabel}</span>
+                        </div>
+                        {batch.status === 'rejected' && batch.reason ? (
+                            <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{batch.reason}</p>
+                        ) : null}
+                        <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                            <table className="w-full min-w-[1180px] border-collapse text-sm">
+                                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    <tr>
+                                        {['Description', 'Qty', 'Unit price', 'Total price', 'Required date', 'Lead time', 'Vendor', 'Payment terms'].map((label) => (
+                                            <th key={label} className="border-b border-slate-200 px-3 py-3">{label}</th>
+                                        ))}
+                                        {canEdit ? <th className="border-b border-slate-200 px-3 py-3">Remove</th> : null}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {rows.map((row, index) => (
+                                        <tr key={row.sourceKey || index} className="border-b border-slate-100 align-top">
+                                            <td className="px-3 py-2">
+                                                <input value={row.description} disabled={!canEdit} onChange={(event) => patchRow(batch.sourceKey, index, { description: event.target.value })} className={`h-10 w-full min-w-[220px] rounded-lg border border-slate-200 px-2 ${FOCUS}`} />
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <input
+                                                    value={row.quantity}
+                                                    disabled={!canEdit}
+                                                    onChange={(event) => {
+                                                        const { available } = balanceFor(batch.sourceKey, row);
+                                                        const typed = event.target.value;
+                                                        const amount = Number(typed);
+                                                        let quantity = typed;
+                                                        if (typed !== '' && Number.isFinite(amount)) {
+                                                            if (amount < 0) quantity = '0';
+                                                            else if (amount > available) quantity = String(available);
+                                                        }
+                                                        patchRow(batch.sourceKey, index, { quantity });
+                                                    }}
+                                                    className={`h-10 w-24 rounded-lg border border-slate-200 px-2 ${FOCUS}`}
+                                                />
+                                                {balanceFor(batch.sourceKey, row).pending > 0 ? (
+                                                    <p className="mt-1 text-xs font-medium text-amber-700">Pending {balanceFor(batch.sourceKey, row).pending}</p>
+                                                ) : null}
+                                            </td>
+                                            <td className="px-3 py-2"><input value={row.unitPrice} disabled={!canEdit} onChange={(event) => patchRow(batch.sourceKey, index, { unitPrice: event.target.value })} className={`h-10 w-28 rounded-lg border border-slate-200 px-2 ${FOCUS}`} /></td>
+                                            <td className="px-3 py-2 text-slate-700">{money(row.total)}</td>
+                                            <td className="px-3 py-2"><input type="date" value={row.requiredDate} disabled={!canEdit} onChange={(event) => patchRow(batch.sourceKey, index, { requiredDate: event.target.value })} className={`h-10 rounded-lg border border-slate-200 px-2 ${FOCUS}`} /></td>
+                                            <td className="px-3 py-2"><input value={row.leadTime} disabled={!canEdit} placeholder="Days" onChange={(event) => patchRow(batch.sourceKey, index, { leadTime: event.target.value })} className={`h-10 w-28 rounded-lg border border-slate-200 px-2 ${FOCUS}`} /></td>
+                                            <td className="px-3 py-2"><input value={row.vendorName} disabled={!canEdit} onChange={(event) => patchRow(batch.sourceKey, index, { vendorName: event.target.value })} className={`h-10 w-44 rounded-lg border border-slate-200 px-2 ${FOCUS}`} /></td>
+                                            <td className="px-3 py-2">
+                                                <select value={paymentTermOption(row.paymentTerms) || row.paymentTerms || ''} disabled={!canEdit} onChange={(event) => patchRow(batch.sourceKey, index, { paymentTerms: event.target.value })} className={`h-10 w-40 rounded-lg border border-slate-200 px-2 ${FOCUS}`}>
+                                                    <option value="">Select</option>
+                                                    {paymentTermChoices(row.paymentTerms).map((option) => (
+                                                        <option key={option} value={option}>{option}</option>
+                                                    ))}
+                                                </select>
+                                            </td>
+                                            {canEdit ? (
+                                                <td className="px-3 py-2">
+                                                    <button type="button" onClick={() => removeRow(batch.sourceKey, index)} className={`h-10 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-700 hover:bg-rose-50 ${FOCUS}`}>Remove</button>
+                                                </td>
+                                            ) : null}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        {canPrepare ? (
+                            <div className="flex flex-wrap gap-2">
+                                <button type="button" disabled={saving} onClick={() => saveDraft(batch.sourceKey)} className={`inline-flex h-11 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 ${FOCUS}`}>Draft</button>
+                                <button type="button" disabled={saving} onClick={() => submit(batch.sourceKey)} className={`inline-flex h-11 items-center rounded-xl bg-[#7C3AED] px-4 text-sm font-semibold text-white hover:bg-[#6D28D9] disabled:opacity-60 ${FOCUS}`}>{submitLabel}</button>
+                            </div>
+                        ) : null}
+                        {batch.status === 'approved' && onOpenBudget ? (
+                            <button type="button" onClick={onOpenBudget} className={`inline-flex h-11 items-center rounded-xl bg-[#7C3AED] px-4 text-sm font-semibold text-white hover:bg-[#6D28D9] ${FOCUS}`}>Submit for budget</button>
+                        ) : null}
+                        {canDecide ? (
+                            <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                <textarea
+                                    value={rejectNotes[batch.sourceKey] || ''}
+                                    onChange={(event) => setRejectNotes((current) => ({ ...current, [batch.sourceKey]: event.target.value }))}
+                                    rows={2}
+                                    placeholder="Description, required when rejecting"
+                                    className={`w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm ${FOCUS}`}
+                                />
+                                <div className="flex flex-wrap gap-2">
+                                    <button type="button" disabled={saving} onClick={() => decide(batch.sourceKey, 'approve')} className={`inline-flex h-11 items-center rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 ${FOCUS}`}>Approve</button>
+                                    <button type="button" disabled={saving || !String(rejectNotes[batch.sourceKey] || '').trim()} onClick={() => decide(batch.sourceKey, 'reject')} className={`inline-flex h-11 items-center rounded-xl border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 ${FOCUS}`}>Reject</button>
+                                </div>
+                            </div>
+                        ) : null}
+                    </div>
+                );
+            }) : (
+                <p className="text-sm text-slate-500">
+                    {order?.actualBoq?.status === 'approved'
+                        ? 'Use Create MR to build the first request from the approved actual BOQ.'
+                        : 'The actual BOQ has to be approved before a material request can be created.'}
+                </p>
+            )}
         </div>
     );
 }
 
-export default function WorkOrderQuotationPanel({ order, onOpen, onSaved, initialTab = 'proposed' }) {
-    const [boqTab, setBoqTab] = useState(initialTab);
+function VendorLpo({ order }) {
+    const groups = useMemo(() => {
+        const rows = mrBatches(order)
+            .filter((batch) => batch.status === 'approved')
+            .flatMap((batch) => batch.rows.map((row) => ({ ...row, mrTitle: batch.title })));
+        const byVendor = new Map();
+        rows.forEach((row) => {
+            const vendor = String(row.vendorName || '').trim() || 'No vendor';
+            if (!byVendor.has(vendor)) byVendor.set(vendor, []);
+            byVendor.get(vendor).push(row);
+        });
+        return [...byVendor.entries()];
+    }, [order]);
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <h3 className="text-base font-semibold text-slate-950">Vendor LPO</h3>
+                <p className="mt-1 text-sm text-slate-500">Lines from the approved material requests, grouped by vendor.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-sm font-semibold text-slate-800">Generate LPO</p>
+                <p className="mt-1 text-sm text-slate-500">On processing. This opens after management approves the budget.</p>
+            </div>
+            {groups.length ? groups.map(([vendor, rows]) => (
+                <div key={vendor} className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+                    <h4 className="text-sm font-semibold text-slate-900">{vendor}</h4>
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                        <table className="w-full min-w-[980px] border-collapse text-sm">
+                            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                <tr>
+                                    {['MR', 'Description', 'Qty', 'Unit price', 'Total price', 'Required date', 'Lead time', 'Payment terms'].map((label) => (
+                                        <th key={label} className="border-b border-slate-200 px-3 py-3">{label}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows.map((row, index) => (
+                                    <tr key={`${row.sourceKey || index}`} className="border-b border-slate-100">
+                                        <td className="px-3 py-3 text-slate-700">{row.mrTitle}</td>
+                                        <td className="px-3 py-3 text-slate-800">{row.description || '—'}</td>
+                                        <td className="px-3 py-3 tabular-nums text-slate-700">{row.quantity === '' || row.quantity == null ? '—' : row.quantity}</td>
+                                        <td className="px-3 py-3 tabular-nums text-slate-700">{row.unitPrice === '' || row.unitPrice == null ? '—' : money(row.unitPrice)}</td>
+                                        <td className="px-3 py-3 tabular-nums text-slate-700">{money(row.total)}</td>
+                                        <td className="px-3 py-3 text-slate-700">{row.requiredDate || '—'}</td>
+                                        <td className="px-3 py-3 text-slate-700">{row.leadTime || '—'}</td>
+                                        <td className="px-3 py-3 text-slate-700">{row.paymentTerms || '—'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )) : (
+                <p className="text-sm text-slate-500">A vendor LPO appears here after a material request is approved.</p>
+            )}
+        </div>
+    );
+}
+
+export default function WorkOrderQuotationPanel({ order, onOpen, onSaved, onOpenBudget, view = 'proposed', onViewChange }) {
     const quote = savedQuote(order);
     const lines = Array.isArray(quote.lines) ? quote.lines : [];
     const subTotal = Number(quote.valueExclVat) || 0;
@@ -1328,8 +2417,8 @@ export default function WorkOrderQuotationPanel({ order, onOpen, onSaved, initia
     return (
         <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <BoqTabs active={boqTab} onChange={setBoqTab} />
-                {boqTab === 'proposed' && hasQuote ? (
+                <BoqTabs active={view} onChange={(next) => onViewChange?.(next)} />
+                {view === 'proposed' && hasQuote ? (
                     <div className="flex items-center gap-2">
                         {status ? (
                             <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">{status}</span>
@@ -1345,12 +2434,13 @@ export default function WorkOrderQuotationPanel({ order, onOpen, onSaved, initia
                     </div>
                 ) : null}
             </div>
-            {boqTab === 'actual' ? <ActualBoqTable order={order} onSaved={onSaved} /> : null}
-            {boqTab === 'mr' ? <MaterialRequest order={order} /> : null}
-            {boqTab === 'proposed' && !hasQuote ? (
+            {view === 'actual' ? <ActualBoqTable order={order} onSaved={onSaved} /> : null}
+            {view === 'mr' ? <MaterialRequest order={order} onSaved={onSaved} onOpenBudget={onOpenBudget} /> : null}
+            {view === 'vendor-lpo' ? <VendorLpo order={order} /> : null}
+            {view === 'proposed' && !hasQuote ? (
                 <p className="text-sm text-slate-500">No quotation is saved on this work order.</p>
             ) : null}
-            {boqTab === 'proposed' && hasQuote ? (
+            {view === 'proposed' && hasQuote ? (
             <>
             <div className="overflow-x-auto">
                 <table className="w-full min-w-[720px] border-collapse text-left text-[13px]">

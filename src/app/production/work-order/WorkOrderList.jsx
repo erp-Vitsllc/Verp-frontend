@@ -5,8 +5,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
 import { formatAed } from './workOrderNumber';
-import WorkOrderDetails from './WorkOrderDetails';
+import { workOrderDetailsHref } from './workOrderPaths';
 import WorkOrderQuotationModal from './WorkOrderQuotationModal';
+import { handleNavigateFromListClick } from '@/utils/listReturnNavigation';
 import { ClipboardList, MoreHorizontal } from 'lucide-react';
 
 const COLUMNS = ['Work Order No', 'Customer', 'Quotation Ref', 'LPO No', 'Status', 'Type', 'Value (AED)', 'Action'];
@@ -82,7 +83,6 @@ export default function WorkOrderList() {
     const [error, setError] = useState('');
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState('10');
-    const [detailId, setDetailId] = useState(null);
     const [leaving, setLeaving] = useState(false);
     const [quotePreview, setQuotePreview] = useState(null);
 
@@ -118,17 +118,9 @@ export default function WorkOrderList() {
         window.setTimeout(() => router.push('/production/work-order'), 280);
     };
 
-    if (detailId) {
-        return (
-            <WorkOrderDetails
-                id={detailId}
-                onBack={() => {
-                    setDetailId(null);
-                    loadOrders();
-                }}
-            />
-        );
-    }
+    const openOrder = (event, orderId) => {
+        handleNavigateFromListClick(event, router, workOrderDetailsHref(orderId));
+    };
 
     const range = pageWindow(orders.length, page, pageSize);
     const visibleOrders = slicePage(orders, range.currentPage, pageSize);
@@ -190,13 +182,13 @@ export default function WorkOrderList() {
                         {!loading ? visibleOrders.map((order) => (
                             <tr key={order.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/80">
                                 <td className="px-2 py-3 whitespace-nowrap">
-                                    <button
-                                        type="button"
-                                        onClick={() => setDetailId(order.id)}
+                                    <Link
+                                        href={workOrderDetailsHref(order.id)}
+                                        onClick={(event) => openOrder(event, order.id)}
                                         className={`text-[13px] font-semibold text-[#2f6fed] hover:underline ${FOCUS}`}
                                     >
                                         {order.no}
-                                    </button>
+                                    </Link>
                                 </td>
                                 <td className="px-2 py-3 text-[13px] text-slate-700 whitespace-nowrap">{order.customer}</td>
                                 <td className="px-2 py-3 whitespace-nowrap">
@@ -223,14 +215,14 @@ export default function WorkOrderList() {
                                     {order.value}
                                 </td>
                                 <td className="px-2 py-3">
-                                    <button
-                                        type="button"
+                                    <Link
+                                        href={workOrderDetailsHref(order.id)}
                                         aria-label={`Open ${order.no}`}
-                                        onClick={() => setDetailId(order.id)}
-                                        className={`rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 ${FOCUS}`}
+                                        onClick={(event) => openOrder(event, order.id)}
+                                        className={`inline-flex rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 ${FOCUS}`}
                                     >
                                         <MoreHorizontal size={16} />
-                                    </button>
+                                    </Link>
                                 </td>
                             </tr>
                         )) : null}

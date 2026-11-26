@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ChevronDown, ChevronLeft, ChevronRight, Download, MoreVertical, Plus, Search } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Download, MoreVertical, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
@@ -35,7 +35,10 @@ function vendorListHref({ search, product, brand, paymentTerms, page, pageSize }
     });
 }
 
-const fieldClass = 'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500';
+const fieldClass = 'h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-slate-800 outline-none focus:border-blue-500';
+const primaryButtonClass = 'inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700';
+const quietButtonClass = 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40';
+const moreLinkClass = 'ml-1 whitespace-nowrap font-medium text-blue-600 hover:text-blue-700 hover:underline';
 
 function FilterSelect({ label, value, options, onChange }) {
     const [open, setOpen] = useState(false);
@@ -87,7 +90,7 @@ function FilterSelect({ label, value, options, onChange }) {
 
     return (
         <div ref={rootRef} className="relative min-w-0">
-            <span className="mb-1.5 block whitespace-nowrap text-sm font-medium text-slate-700">{label}</span>
+            <span className="mb-1 block whitespace-nowrap text-xs font-medium text-slate-500">{label}</span>
             <button
                 type="button"
                 aria-haspopup="listbox"
@@ -187,7 +190,7 @@ function money(amount, currency) {
 const NUMBER_HEADINGS = new Set(['Vendor Outstanding', 'Pending Bills', 'Open LPO']);
 const NAME_LIMIT = 15;
 const LIST_LIMIT = 2;
-const cellClass = 'px-2 py-2.5 align-top break-words [overflow-wrap:anywhere]';
+const cellClass = 'whitespace-nowrap px-3 py-3 align-middle';
 
 function listItems(values) {
     return (values || []).map((value) => String(value || '').trim()).filter(Boolean);
@@ -197,11 +200,11 @@ function VendorName({ name, expanded, onToggle }) {
     const full = String(name || '').trim();
     if (!full) return 'N/A';
     if (full.length <= NAME_LIMIT || expanded) {
-        return <span className="break-words font-medium text-slate-800">{full}</span>;
+        return <span className="font-medium text-slate-800">{full}</span>;
     }
     return (
         <span className="font-medium text-slate-800">
-            {full.slice(0, NAME_LIMIT)}
+            {full.slice(0, NAME_LIMIT).trimEnd()}
             <button
                 type="button"
                 onClick={(event) => {
@@ -209,7 +212,7 @@ function VendorName({ name, expanded, onToggle }) {
                     event.stopPropagation();
                     onToggle();
                 }}
-                className="ml-1 font-normal text-blue-700 hover:underline"
+                className={moreLinkClass}
             >
                 more
             </button>
@@ -221,13 +224,13 @@ function LimitedList({ values, onSeeMore, label }) {
     const items = listItems(values);
     if (!items.length) return 'N/A';
     return (
-        <span className="break-words">
+        <span>
             {items.slice(0, LIST_LIMIT).join(', ')}
             {items.length > LIST_LIMIT ? (
                 <button
                     type="button"
                     onClick={onSeeMore}
-                    className="ml-1 whitespace-nowrap text-blue-700 hover:underline"
+                    className={moreLinkClass}
                     aria-label={`See more ${label}`}
                 >
                     see more
@@ -265,7 +268,7 @@ function RowActions({ vendor, deleting, canEdit, canDelete, onEdit, onDelete }) 
         <div
             ref={menuRef}
             role="menu"
-            className="fixed z-[80] w-32 overflow-hidden rounded-xl border border-[#E6EDF5] bg-white py-1 shadow-xl"
+            className="fixed z-[80] w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg"
             style={{
                 top: pos.top,
                 left: pos.left,
@@ -282,8 +285,9 @@ function RowActions({ vendor, deleting, canEdit, canDelete, onEdit, onDelete }) 
                         setOpen(false);
                         onEdit();
                     }}
-                    className="block w-full px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50"
                 >
+                    <Pencil size={14} />
                     Edit
                 </button>
             ) : null}
@@ -298,8 +302,9 @@ function RowActions({ vendor, deleting, canEdit, canDelete, onEdit, onDelete }) 
                         setOpen(false);
                         onDelete(event);
                     }}
-                    className="block w-full px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50 disabled:opacity-50"
                 >
+                    <Trash2 size={14} />
                     {deleting ? 'Deleting...' : 'Delete'}
                 </button>
             ) : null}
@@ -307,7 +312,7 @@ function RowActions({ vendor, deleting, canEdit, canDelete, onEdit, onDelete }) 
     ) : null;
 
     return (
-        <div ref={rootRef} className="flex justify-center" data-row-nav-ignore="">
+        <div ref={rootRef} className="flex justify-end" data-row-nav-ignore="">
             <button
                 type="button"
                 aria-label={`Actions for ${vendor.name || 'vendor'}`}
@@ -325,7 +330,7 @@ function RowActions({ vendor, deleting, canEdit, canDelete, onEdit, onDelete }) 
                     });
                     setOpen((current) => !current);
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
             >
                 <MoreVertical size={16} />
             </button>
@@ -516,17 +521,17 @@ export default function VendorManagementList() {
     }
 
     return (
-        <section className="min-w-0 overflow-x-hidden rounded-2xl border border-[#E6EDF5] bg-white p-4 sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+        <section className="min-w-0 overflow-hidden rounded-2xl border border-[#E6EDF5] bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h1 className="text-2xl font-bold text-slate-900">Vendor Management</h1>
                 <div className="flex flex-wrap items-center gap-2">
                     {access.ready && !access.canCreateVendor ? null : (
                         <button
                             type="button"
                             onClick={() => setEditor({ vendor: null })}
-                            className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700"
+                            className={primaryButtonClass}
                         >
-                            <Plus className="h-4 w-4" />
+                            <Plus size={15} />
                             Add Vendor
                         </button>
                     )}
@@ -534,15 +539,15 @@ export default function VendorManagementList() {
                         type="button"
                         onClick={exportRows}
                         disabled={rows.length === 0}
-                        className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                        className={quietButtonClass}
                     >
-                        <Download className="h-4 w-4" />
+                        <Download size={15} />
                         Export
                     </button>
                 </div>
             </div>
 
-            <div className="relative z-30 mt-5 grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="relative z-30 grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <label className="relative block min-w-0">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <input
@@ -562,23 +567,10 @@ export default function VendorManagementList() {
 
             {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
 
-            <div className="mt-5 min-w-0">
-                <table className="w-full table-fixed text-left text-xs sm:text-sm">
-                    <colgroup>
-                        <col className="w-[9%]" />
-                        <col className="w-[13%]" />
-                        <col className="w-[9%]" />
-                        <col className="w-[11%]" />
-                        <col className={showActions ? 'w-[14%]' : 'w-[15%]'} />
-                        <col className={showActions ? 'w-[14%]' : 'w-[15%]'} />
-                        <col className="w-[10%]" />
-                        <col className="w-[6%]" />
-                        <col className="w-[5%]" />
-                        <col className={showActions ? 'w-[6%]' : 'w-[7%]'} />
-                        {showActions ? <col className="w-[3%]" /> : null}
-                    </colgroup>
+            <div className="mt-4 min-w-0 overflow-x-auto">
+                <table className="w-full min-w-[1080px] text-left text-sm">
                     <thead>
-                        <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
+                        <tr className="bg-[#F8FAFC] text-[11px] uppercase tracking-wide text-slate-400">
                             {[
                                 'Vendor Code',
                                 'Vendor Name',
@@ -590,20 +582,20 @@ export default function VendorManagementList() {
                                 'Pending Bills',
                                 'Open LPO',
                                 'Status',
-                                ...(showActions ? ['Action'] : []),
+                                ...(showActions ? ['Actions'] : []),
                             ].map((heading) => (
-                                <th key={heading} className={`px-2 py-2 font-medium leading-tight ${NUMBER_HEADINGS.has(heading) ? 'text-right' : ''} ${heading === 'Action' ? 'text-center' : ''}`}>{heading}</th>
+                                <th key={heading} className={`whitespace-nowrap px-3 py-3 font-medium ${NUMBER_HEADINGS.has(heading) || heading === 'Actions' ? 'text-right' : ''}`}>{heading}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={columnCount} className="px-2 py-10 text-center text-slate-500">Loading vendors...</td>
+                                <td colSpan={columnCount} className="px-3 py-8 text-center text-sm text-slate-400">Loading vendors...</td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={columnCount} className="px-2 py-10 text-center text-slate-500">{emptyLabel}</td>
+                                <td colSpan={columnCount} className="px-3 py-8 text-center text-sm text-slate-400">{emptyLabel}</td>
                             </tr>
                         ) : rows.map((vendor) => (
                             <ListTableRowLink
@@ -614,9 +606,9 @@ export default function VendorManagementList() {
                                 enabled={Boolean(vendor.id)}
                             >
                             <tr
-                                className="cursor-pointer border-b border-slate-100 text-slate-700 hover:bg-slate-50"
+                                className="cursor-pointer border-t border-slate-100 text-sm text-slate-700 hover:bg-slate-50"
                             >
-                                <td className={cellClass}>{vendor.code}</td>
+                                <td className={`${cellClass} font-medium text-slate-500`}>{vendor.code}</td>
                                 <td className={cellClass}>
                                     <VendorName
                                         name={vendor.name}
@@ -644,13 +636,13 @@ export default function VendorManagementList() {
                                 <td className={`${cellClass} text-right tabular-nums`}>{Number(vendor.pendingBills) || 0}</td>
                                 <td className={`${cellClass} text-right tabular-nums`}>{Number(vendor.openLpos) || 0}</td>
                                 <td className={cellClass}>
-                                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${statusClass(vendor.status)}`}>
+                                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(vendor.status)}`}>
                                         <span className={`h-1.5 w-1.5 rounded-full ${statusDot(vendor.status)}`} />
                                         {vendor.status}
                                     </span>
                                 </td>
                                 {showActions ? (
-                                    <td className={`${cellClass} text-center`}>
+                                    <td className={`${cellClass} text-right`} onClick={(event) => event.stopPropagation()}>
                                         <RowActions
                                             vendor={vendor}
                                             deleting={deletingId === vendor.id}
@@ -675,17 +667,17 @@ export default function VendorManagementList() {
                     <div className="flex items-center gap-1">
                         <button
                             type="button"
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-40"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 disabled:opacity-40"
                             disabled={currentPage <= 1 || loading}
                             onClick={() => setPage(currentPage - 1)}
                             aria-label="Previous page"
                         >
                             <ChevronLeft className="h-4 w-4" />
                         </button>
-                        <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-lg bg-blue-600 px-3 font-semibold text-white">{currentPage}</span>
+                        <span className="inline-flex h-8 min-w-8 items-center justify-center rounded-lg bg-blue-600 px-2 font-semibold text-white">{currentPage}</span>
                         <button
                             type="button"
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-40"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 disabled:opacity-40"
                             disabled={currentPage >= pageCount || loading}
                             onClick={() => setPage(currentPage + 1)}
                             aria-label="Next page"

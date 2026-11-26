@@ -112,8 +112,6 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
     const fileRef = useRef(null);
     const pickerRef = useRef(null);
     const justPickedRef = useRef(false);
-    const onCloseRef = useRef(onClose);
-    onCloseRef.current = onClose;
     const [form, setForm] = useState(EMPTY_FORM);
     const [files, setFiles] = useState([]);
     const [employees, setEmployees] = useState([]);
@@ -143,11 +141,6 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
         setSubmitting(false);
         setPickerOpen(false);
         setEmployeeQuery('');
-        const onKey = (event) => {
-            if (event.key === 'Escape') onCloseRef.current();
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
     }, [open, initialTask]);
 
     useEffect(() => {
@@ -299,12 +292,7 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
     };
 
     return (
-        <div
-            className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4"
-            onClick={(event) => {
-                if (event.target === event.currentTarget && !submitting) onClose();
-            }}
-        >
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4">
             <form
                 onSubmit={handleSubmit}
                 className="flex max-h-[92vh] w-full max-w-[680px] flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
