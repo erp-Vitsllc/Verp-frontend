@@ -38,7 +38,7 @@ function vendorListHref({ search, product, brand, paymentTerms, page, pageSize }
 const fieldClass = 'h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-slate-800 outline-none focus:border-blue-500';
 const primaryButtonClass = 'inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700';
 const quietButtonClass = 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40';
-const moreLinkClass = 'shrink-0 font-medium text-blue-600 hover:text-blue-700 hover:underline';
+const moreLinkClass = 'shrink-0 text-xs font-normal text-blue-600 hover:text-blue-700 hover:underline';
 
 function FilterSelect({ label, value, options, onChange }) {
     const [open, setOpen] = useState(false);
@@ -191,6 +191,7 @@ const NUMBER_HEADINGS = new Set(['Vendor Outstanding', 'Pending Bills', 'Open LP
 const NAME_LIMIT = 15;
 const LIST_LIMIT = 2;
 const clipCell = 'max-w-0 overflow-hidden px-2 py-2 align-middle';
+const cellText = 'text-xs font-normal text-slate-700';
 const numCell = 'whitespace-nowrap px-2 py-2 text-right align-middle tabular-nums';
 
 function listItems(values) {
@@ -201,11 +202,11 @@ function VendorName({ name, expanded, onToggle }) {
     const full = String(name || '').trim();
     if (!full) return 'N/A';
     if (full.length <= NAME_LIMIT || expanded) {
-        return <span className={`block font-medium text-slate-800 ${expanded ? 'whitespace-normal break-words' : 'truncate'}`} title={full}>{full}</span>;
+        return <span className={`block ${cellText} ${expanded ? 'whitespace-normal break-words' : 'truncate'}`} title={full}>{full}</span>;
     }
     return (
         <span className="flex min-w-0 items-center gap-1">
-            <span className="min-w-0 truncate font-medium text-slate-800" title={full}>{full.slice(0, NAME_LIMIT).trimEnd()}</span>
+            <span className={`min-w-0 overflow-hidden whitespace-nowrap ${cellText}`} title={full}>{full.slice(0, NAME_LIMIT).trimEnd()}</span>
             <button
                 type="button"
                 onClick={(event) => {
@@ -214,8 +215,9 @@ function VendorName({ name, expanded, onToggle }) {
                     onToggle();
                 }}
                 className={moreLinkClass}
+                aria-label="See full vendor name"
             >
-                more
+                ...
             </button>
         </span>
     );
@@ -227,11 +229,11 @@ function LimitedList({ values, onSeeMore, label }) {
     const shown = items.slice(0, LIST_LIMIT).join(', ');
     const title = items.join(', ');
     if (items.length <= LIST_LIMIT) {
-        return <span className="block truncate" title={title}>{shown}</span>;
+        return <span className={`block truncate ${cellText}`} title={title}>{shown}</span>;
     }
     return (
         <span className="flex min-w-0 items-center gap-1">
-            <span className="min-w-0 truncate" title={title}>{shown}</span>
+            <span className={`min-w-0 overflow-hidden whitespace-nowrap ${cellText}`} title={title}>{shown}</span>
             <button
                 type="button"
                 onClick={onSeeMore}
@@ -618,8 +620,8 @@ export default function VendorManagementList() {
                                 enabled={Boolean(vendor.id)}
                             >
                             <tr className="cursor-pointer border-t border-slate-100 hover:bg-slate-50">
-                                <td className={`${clipCell} font-medium text-slate-500`}>
-                                    <span className="block truncate" title={vendor.code || ''}>{vendor.code}</span>
+                                <td className={clipCell}>
+                                    <span className={`block truncate ${cellText}`} title={vendor.code || ''}>{vendor.code}</span>
                                 </td>
                                 <td className={nameExpanded ? 'px-2 py-2 align-middle' : clipCell}>
                                     <VendorName
@@ -629,10 +631,10 @@ export default function VendorManagementList() {
                                     />
                                 </td>
                                 <td className={clipCell}>
-                                    <span className="block truncate" title={displayValue(vendor.location)}>{displayValue(vendor.location)}</span>
+                                    <span className={`block truncate ${cellText}`} title={displayValue(vendor.location)}>{displayValue(vendor.location)}</span>
                                 </td>
                                 <td className={clipCell}>
-                                    <span className="block truncate" title={displayValue(vendor.contact)}>{displayValue(vendor.contact)}</span>
+                                    <span className={`block truncate ${cellText}`} title={displayValue(vendor.contact)}>{displayValue(vendor.contact)}</span>
                                 </td>
                                 <td className={clipCell}>
                                     <LimitedList
