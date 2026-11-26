@@ -24,6 +24,7 @@ import {
     listCategories,
     listCategoryImages,
     getStockApprovalContext,
+    listItemOptions,
     listItems,
     listSubcategories,
     listSubcategoryImages,

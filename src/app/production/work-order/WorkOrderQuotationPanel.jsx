@@ -102,6 +102,22 @@ const COLUMN_SIZE = {
     paymentTerms: { min: 120, max: 360, floor: 140 },
     actions: { min: 44, max: 80, floor: 52 },
 };
+const COLUMN_PERCENT = {
+    drag: 4,
+    category: 9,
+    subcategory: 9,
+    item: 8,
+    brand: 7,
+    modelNo: 8,
+    description: 14,
+    availableStock: 8,
+    quantity: 5,
+    unitPrice: 6,
+    total: 6,
+    vendorName: 8,
+    paymentTerms: 5,
+    actions: 3,
+};
 
 function fittedWidth(key, texts) {
     const limit = COLUMN_SIZE[key] || { min: 80, max: 320, floor: 100 };
@@ -940,8 +956,12 @@ function ActualBoqTable({ order, onSaved }) {
             if (!session) return;
             const delta = session.kind === 'col' ? event.clientX - session.startX : event.clientY - session.startY;
             const size = Math.max(session.min, Math.min(session.max, Math.round(session.startSize + delta)));
-            if (session.kind === 'col') setColWidths((current) => ({ ...current, [session.key]: size }));
-            else setRowHeights((current) => ({ ...current, [session.key]: size }));
+            if (session.kind === 'col') {
+                setColWidths((current) => ({
+                    ...(Object.keys(current).length ? current : (session.baseWidths || {})),
+                    [session.key]: size,
+                }));
+            } else setRowHeights((current) => ({ ...current, [session.key]: size }));
         };
         const stop = () => {
             if (!resizeRef.current) return;
@@ -1357,23 +1377,39 @@ function ActualBoqTable({ order, onSaved }) {
 
     const cell = 'relative break-words border border-slate-200 px-1 py-1 align-top font-normal';
     const head = 'relative break-words border border-slate-200 px-1 py-1 align-bottom font-semibold';
+    const customColumns = Object.keys(colWidths).length > 0;
     const tableWidth = Object.values(fitted).reduce((sum, width) => sum + width, 0);
+    const columnStyle = (key) => (customColumns ? { width: fitted[key] } : { width: `${COLUMN_PERCENT[key]}%` });
 
     const beginResize = (kind, key, event) => {
         event.preventDefault();
         event.stopPropagation();
         const limit = kind === 'col' ? (COLUMN_SIZE[key] || { min: 72, max: 640 }) : { min: 32, max: 720 };
-        const measured = kind === 'col'
-            ? fitted[key]
-            : (rowHeights[key] || event.currentTarget.parentElement?.getBoundingClientRect().height || 36);
+        let baseWidths = null;
+        let measured;
+        if (kind === 'col') {
+            const table = event.currentTarget.closest('table');
+            const headers = table ? [...table.querySelectorAll('thead th')] : [];
+            const keys = ['drag', ...ACTUAL_HEAD.map((column) => column.key), 'actions'];
+            if (headers.length === keys.length) {
+                baseWidths = {};
+                keys.forEach((columnKey, index) => {
+                    baseWidths[columnKey] = Math.round(headers[index].getBoundingClientRect().width);
+                });
+            }
+            measured = baseWidths?.[key] || colWidths[key] || fitted[key];
+        } else {
+            measured = rowHeights[key] || event.currentTarget.parentElement?.getBoundingClientRect().height || 36;
+        }
         resizeRef.current = {
             kind,
             key,
             startX: event.clientX,
             startY: event.clientY,
             startSize: measured,
-            min: limit.min,
+            min: Math.min(limit.min, measured || limit.min),
             max: limit.max,
+            baseWidths,
         };
         document.body.style.cursor = kind === 'col' ? 'col-resize' : 'row-resize';
         document.body.style.userSelect = 'none';
@@ -1428,17 +1464,17 @@ function ActualBoqTable({ order, onSaved }) {
                     </p>
                 ) : null}
                 <div className="max-w-full overflow-auto">
-                <table className="table-fixed border-collapse text-left text-[12px] leading-snug text-slate-700" style={{ width: tableWidth }}>
+                <table className={`border-collapse text-left text-[12px] leading-snug text-slate-700 table-fixed ${customColumns ? '' : 'w-full'}`} style={customColumns ? { width: tableWidth } : undefined}>
                     <colgroup>
-                        <col style={{ width: fitted.drag }} />
+                        <col style={columnStyle('drag')} />
                         {ACTUAL_HEAD.map((column) => (
-                            <col key={column.key} style={{ width: fitted[column.key] }} />
+                            <col key={column.key} style={columnStyle(column.key)} />
                         ))}
-                        <col style={{ width: fitted.actions }} />
+                        <col style={columnStyle('actions')} />
                     </colgroup>
                     <thead>
                         <tr className="bg-[#f4f7fb] text-[10px] uppercase tracking-wide text-slate-500">
-                            <th className={head} aria-label="Drag row" style={{ width: fitted.drag }}>
+                            <th className={head} aria-label="Drag row" style={columnStyle('drag')}>
                                 <ResizeHandle
                                     axis="col"
                                     title="Drag to change width. Double-click to fit the text."
@@ -1448,7 +1484,7 @@ function ActualBoqTable({ order, onSaved }) {
                             </th>
                             {ACTUAL_HEAD.map((column) => (
                                 column.key === 'description' ? (
-                                    <th key={column.key} className={head} style={{ width: fitted[column.key] }}>
+                                    <th key={column.key} className={head} style={columnStyle(column.key)}>
                                         <ResizeHandle
                                             axis="col"
                                             title="Drag to change width. Double-click to fit the text."
@@ -1478,7 +1514,7 @@ function ActualBoqTable({ order, onSaved }) {
                                         </div>
                                     </th>
                                 ) : (
-                                    <th key={column.key} className={`${head} ${column.align === 'right' ? 'text-right' : ''}`} style={{ width: fitted[column.key] }}>
+                                    <th key={column.key} className={`${head} ${column.align === 'right' ? 'text-right' : ''}`} style={columnStyle(column.key)}>
                                         <ResizeHandle
                                             axis="col"
                                             title="Drag to change width. Double-click to fit the text."
@@ -1489,7 +1525,7 @@ function ActualBoqTable({ order, onSaved }) {
                                     </th>
                                 )
                             ))}
-                            <th className={head} aria-label="Row actions" style={{ width: fitted.actions }}>
+                            <th className={head} aria-label="Row actions" style={columnStyle('actions')}>
                                 <ResizeHandle
                                     axis="col"
                                     title="Drag to change width. Double-click to fit the text."

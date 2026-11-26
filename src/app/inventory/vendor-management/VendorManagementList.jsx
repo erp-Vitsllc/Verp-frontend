@@ -38,7 +38,7 @@ function vendorListHref({ search, product, brand, paymentTerms, page, pageSize }
 const fieldClass = 'h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-slate-800 outline-none focus:border-blue-500';
 const primaryButtonClass = 'inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700';
 const quietButtonClass = 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40';
-const moreLinkClass = 'ml-1 whitespace-nowrap font-medium text-blue-600 hover:text-blue-700 hover:underline';
+const moreLinkClass = 'shrink-0 font-medium text-blue-600 hover:text-blue-700 hover:underline';
 
 function FilterSelect({ label, value, options, onChange }) {
     const [open, setOpen] = useState(false);
@@ -190,7 +190,8 @@ function money(amount, currency) {
 const NUMBER_HEADINGS = new Set(['Vendor Outstanding', 'Pending Bills', 'Open LPO']);
 const NAME_LIMIT = 15;
 const LIST_LIMIT = 2;
-const cellClass = 'whitespace-nowrap px-3 py-3 align-middle';
+const clipCell = 'max-w-0 overflow-hidden px-2 py-2 align-middle';
+const numCell = 'whitespace-nowrap px-2 py-2 text-right align-middle tabular-nums';
 
 function listItems(values) {
     return (values || []).map((value) => String(value || '').trim()).filter(Boolean);
@@ -200,11 +201,11 @@ function VendorName({ name, expanded, onToggle }) {
     const full = String(name || '').trim();
     if (!full) return 'N/A';
     if (full.length <= NAME_LIMIT || expanded) {
-        return <span className="font-medium text-slate-800">{full}</span>;
+        return <span className={`block font-medium text-slate-800 ${expanded ? 'whitespace-normal break-words' : 'truncate'}`} title={full}>{full}</span>;
     }
     return (
-        <span className="font-medium text-slate-800">
-            {full.slice(0, NAME_LIMIT).trimEnd()}
+        <span className="flex min-w-0 items-center gap-1">
+            <span className="min-w-0 truncate font-medium text-slate-800" title={full}>{full.slice(0, NAME_LIMIT).trimEnd()}</span>
             <button
                 type="button"
                 onClick={(event) => {
@@ -223,19 +224,22 @@ function VendorName({ name, expanded, onToggle }) {
 function LimitedList({ values, onSeeMore, label }) {
     const items = listItems(values);
     if (!items.length) return 'N/A';
+    const shown = items.slice(0, LIST_LIMIT).join(', ');
+    const title = items.join(', ');
+    if (items.length <= LIST_LIMIT) {
+        return <span className="block truncate" title={title}>{shown}</span>;
+    }
     return (
-        <span>
-            {items.slice(0, LIST_LIMIT).join(', ')}
-            {items.length > LIST_LIMIT ? (
-                <button
-                    type="button"
-                    onClick={onSeeMore}
-                    className={moreLinkClass}
-                    aria-label={`See more ${label}`}
-                >
-                    see more
-                </button>
-            ) : null}
+        <span className="flex min-w-0 items-center gap-1">
+            <span className="min-w-0 truncate" title={title}>{shown}</span>
+            <button
+                type="button"
+                onClick={onSeeMore}
+                className={moreLinkClass}
+                aria-label={`See more ${label}`}
+            >
+                ...
+            </button>
         </span>
     );
 }
@@ -330,7 +334,7 @@ function RowActions({ vendor, deleting, canEdit, canDelete, onEdit, onDelete }) 
                     });
                     setOpen((current) => !current);
                 }}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
             >
                 <MoreVertical size={16} />
             </button>
@@ -567,10 +571,16 @@ export default function VendorManagementList() {
 
             {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
 
-            <div className="mt-4 min-w-0 overflow-x-auto">
-                <table className="w-full min-w-[1080px] text-left text-sm">
+            <div className="mt-4 min-w-0">
+                <table className="w-full table-fixed text-left text-xs text-slate-700">
+                    <colgroup>
+                        {(showActions
+                            ? ['8%', '13%', '11%', '9%', '12%', '12%', '12%', '6%', '5%', '7%', '5%']
+                            : ['9%', '14%', '12%', '10%', '13%', '13%', '12%', '6%', '5%', '6%']
+                        ).map((width, index) => <col key={index} style={{ width }} />)}
+                    </colgroup>
                     <thead>
-                        <tr className="bg-[#F8FAFC] text-[11px] uppercase tracking-wide text-slate-400">
+                        <tr className="bg-[#F8FAFC] text-[10px] uppercase leading-tight tracking-wide text-slate-400">
                             {[
                                 'Vendor Code',
                                 'Vendor Name',
@@ -584,20 +594,22 @@ export default function VendorManagementList() {
                                 'Status',
                                 ...(showActions ? ['Actions'] : []),
                             ].map((heading) => (
-                                <th key={heading} className={`whitespace-nowrap px-3 py-3 font-medium ${NUMBER_HEADINGS.has(heading) || heading === 'Actions' ? 'text-right' : ''}`}>{heading}</th>
+                                <th key={heading} className={`px-2 py-2 font-medium ${NUMBER_HEADINGS.has(heading) || heading === 'Actions' ? 'text-right' : ''}`}>{heading}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={columnCount} className="px-3 py-8 text-center text-sm text-slate-400">Loading vendors...</td>
+                                <td colSpan={columnCount} className="px-2 py-8 text-center text-xs text-slate-400">Loading vendors...</td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={columnCount} className="px-3 py-8 text-center text-sm text-slate-400">{emptyLabel}</td>
+                                <td colSpan={columnCount} className="px-2 py-8 text-center text-xs text-slate-400">{emptyLabel}</td>
                             </tr>
-                        ) : rows.map((vendor) => (
+                        ) : rows.map((vendor) => {
+                            const nameExpanded = expandedNames.has(vendor.id);
+                            return (
                             <ListTableRowLink
                                 key={vendor.id || vendor.code}
                                 href={vendor.id ? `/inventory/vendor-management/${vendor.id}` : ''}
@@ -605,44 +617,48 @@ export default function VendorManagementList() {
                                 listReturnHref={listHref}
                                 enabled={Boolean(vendor.id)}
                             >
-                            <tr
-                                className="cursor-pointer border-t border-slate-100 text-sm text-slate-700 hover:bg-slate-50"
-                            >
-                                <td className={`${cellClass} font-medium text-slate-500`}>{vendor.code}</td>
-                                <td className={cellClass}>
+                            <tr className="cursor-pointer border-t border-slate-100 hover:bg-slate-50">
+                                <td className={`${clipCell} font-medium text-slate-500`}>
+                                    <span className="block truncate" title={vendor.code || ''}>{vendor.code}</span>
+                                </td>
+                                <td className={nameExpanded ? 'px-2 py-2 align-middle' : clipCell}>
                                     <VendorName
                                         name={vendor.name}
-                                        expanded={expandedNames.has(vendor.id)}
+                                        expanded={nameExpanded}
                                         onToggle={() => toggleName(vendor.id)}
                                     />
                                 </td>
-                                <td className={cellClass}>{displayValue(vendor.location)}</td>
-                                <td className={cellClass}>{displayValue(vendor.contact)}</td>
-                                <td className={cellClass}>
+                                <td className={clipCell}>
+                                    <span className="block truncate" title={displayValue(vendor.location)}>{displayValue(vendor.location)}</span>
+                                </td>
+                                <td className={clipCell}>
+                                    <span className="block truncate" title={displayValue(vendor.contact)}>{displayValue(vendor.contact)}</span>
+                                </td>
+                                <td className={clipCell}>
                                     <LimitedList
                                         values={vendor.listBrands}
                                         label="brands"
                                         onSeeMore={(event) => openVendorTab(event, vendor.id, 'Brands')}
                                     />
                                 </td>
-                                <td className={cellClass}>
+                                <td className={clipCell}>
                                     <LimitedList
                                         values={vendor.listCategories}
                                         label="products"
                                         onSeeMore={(event) => openVendorTab(event, vendor.id, 'Products')}
                                     />
                                 </td>
-                                <td className={`${cellClass} text-right tabular-nums`}>{money(vendor.outstandingPayment, vendor.currencyCode)}</td>
-                                <td className={`${cellClass} text-right tabular-nums`}>{Number(vendor.pendingBills) || 0}</td>
-                                <td className={`${cellClass} text-right tabular-nums`}>{Number(vendor.openLpos) || 0}</td>
-                                <td className={cellClass}>
-                                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(vendor.status)}`}>
+                                <td className={numCell}>{money(vendor.outstandingPayment, vendor.currencyCode)}</td>
+                                <td className={numCell}>{Number(vendor.pendingBills) || 0}</td>
+                                <td className={numCell}>{Number(vendor.openLpos) || 0}</td>
+                                <td className="whitespace-nowrap px-2 py-2 align-middle">
+                                    <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${statusClass(vendor.status)}`}>
                                         <span className={`h-1.5 w-1.5 rounded-full ${statusDot(vendor.status)}`} />
                                         {vendor.status}
                                     </span>
                                 </td>
                                 {showActions ? (
-                                    <td className={`${cellClass} text-right`} onClick={(event) => event.stopPropagation()}>
+                                    <td className="whitespace-nowrap px-1 py-2 text-right align-middle" onClick={(event) => event.stopPropagation()}>
                                         <RowActions
                                             vendor={vendor}
                                             deleting={deletingId === vendor.id}
@@ -655,7 +671,8 @@ export default function VendorManagementList() {
                                 ) : null}
                             </tr>
                             </ListTableRowLink>
-                        ))}
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
