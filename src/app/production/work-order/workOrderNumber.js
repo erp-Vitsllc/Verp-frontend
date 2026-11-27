@@ -10,6 +10,12 @@ export function dubaiDateKey(date = new Date()) {
     return new Intl.DateTimeFormat('en-CA', DUBAI_DATE).format(date);
 }
 
+/** End of the Dubai calendar day, so a date picker can block tomorrow onward. */
+export function dubaiDayEnd(date = new Date()) {
+    const [year, month, day] = dubaiDateKey(date).split('-').map(Number);
+    return new Date(year, month - 1, day, 23, 59, 59, 999);
+}
+
 export function formatWorkOrderDate(value) {
     const key = String(value || '').slice(0, 10);
     const match = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);

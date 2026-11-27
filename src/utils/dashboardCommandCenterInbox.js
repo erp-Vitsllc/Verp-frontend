@@ -156,7 +156,7 @@ export function resolveDashboardModuleCategory(item = {}) {
     if (COMPANY_MODULE_TYPES.has(type) || type === 'Document Expiry Reminder') return 'Company';
     if (EMPLOYEE_MODULE_TYPES.has(type)) return 'Employees';
     if (type === 'Inventory Bill Draft') return 'Inventory';
-    if (type === 'Work Order LPO' || type === 'Work Order LPO Attachment' || type === 'Work Order LPO Approval' || type === 'Work Order Actual BOQ' || type === 'Work Order Actual BOQ Update' || type === 'Work Order MR' || /^Work Order MR \d+$/.test(type)) return 'Other';
+    if (type === 'Work Order Project' || type === 'Work Order Checklist' || type === 'Work Order LPO' || type === 'Work Order LPO Attachment' || type === 'Work Order LPO Approval' || type === 'Work Order Actual BOQ' || type === 'Work Order Actual BOQ Update' || type === 'Work Order MR' || /^Work Order MR \d+$/.test(type)) return 'Other';
 
     if (low.includes('fine')) return 'Fine';
     if (low.includes('utility bill')) return 'Utility Bills';

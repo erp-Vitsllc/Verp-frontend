@@ -41,10 +41,12 @@ import {
     formatFineListAssigneePayment,
     formatFineListCompanyName,
     formatFineListEmpName,
-    formatFineListStatus,
+    formatFineListStatusLabel,
     formatFineListVendorPayment,
     formatFineListZohoNo,
-    isFineListCompleted,
+    FINE_LIST_STATUS_FILTERS,
+    matchesFineListStatusFilter,
+    normalizeFineListStatusFilter,
 } from '@/app/HRM/Fine/utils/fineListDisplay';
 import {
     AlertDialog,
@@ -105,7 +107,7 @@ function listStatusPillClass(label) {
     if (value === 'paid' || value === 'employee paid' || value === 'completed') {
         return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     }
-    if (value === 'pending') {
+    if (value === 'pending' || value.startsWith('pending with ')) {
         return 'bg-amber-50 text-amber-700 border-amber-200';
     }
     if (value === 'rejected' || value === 'cancelled') {
@@ -163,7 +165,7 @@ function FineManagementContent({
         return tab === 'group' || tab === 'individual' ? tab : 'individual';
     });
     const [selectedStatus, setSelectedStatus] = useState(() =>
-        embedded ? 'All' : (searchParams.get('status') || 'All'),
+        embedded ? 'All' : normalizeFineListStatusFilter(searchParams.get('status') || 'All'),
     );
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
@@ -183,7 +185,10 @@ function FineManagementContent({
     useLayoutEffect(() => {
         if (embedded) return;
         const status = searchParams.get('status');
-        if (status) setSelectedStatus((prev) => (prev === status ? prev : status));
+        if (status) {
+            const next = normalizeFineListStatusFilter(status);
+            setSelectedStatus((prev) => (prev === next ? prev : next));
+        }
         const tab = searchParams.get('tab');
         if (tab === 'group' || tab === 'individual') {
             setActiveTab((prev) => (prev === tab ? prev : tab));
@@ -466,20 +471,8 @@ function FineManagementContent({
 
         let result = fines;
 
-        // Filter by Status (default: All)
         if (selectedStatus !== 'All') {
-            if (selectedStatus === 'Paid to Vendor') {
-                result = result.filter(
-                    (fine) => String(fine.vendorBillStatus || '').toLowerCase() === 'paid',
-                );
-            } else if (selectedStatus === 'Pending') {
-                result = result.filter((fine) => formatFineListStatus(fine) === 'Pending');
-            } else if (selectedStatus === 'Completed') {
-                result = result.filter((fine) => isFineListCompleted(fine));
-            } else {
-                // Exact match for other statuses
-                result = result.filter(fine => fine.fineStatus === selectedStatus);
-            }
+            result = result.filter((fine) => matchesFineListStatusFilter(fine, selectedStatus));
         }
 
         // Filter by Fine Type or Category
@@ -544,7 +537,7 @@ function FineManagementContent({
                 case 'vendorPayment':
                     return formatFineListVendorPayment(fine);
                 case 'fineStatus':
-                    return formatFineListStatus(fine);
+                    return formatFineListStatusLabel(fine);
                 case 'zohoNo':
                     return formatFineListZohoNo(fine);
                 default:
@@ -930,26 +923,17 @@ function FineManagementContent({
                                     </button>
                                 )}
                                 {/* Status Filter Dropdown */}
-                                <div className="relative min-w-[140px] sm:min-w-[180px] flex-1 sm:flex-none">
+                                <div className="relative min-w-[180px] sm:min-w-[240px] flex-1 sm:flex-none">
                                     <select
                                         value={selectedStatus}
                                         onChange={(e) => setSelectedStatus(e.target.value)}
                                         className="w-full h-[34px] sm:h-[38px] px-3 sm:px-4 border border-gray-800/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none cursor-pointer shadow-sm transition-all font-medium"
                                     >
-                                        <option value="All">All Statuses</option>
-                                        <option value="Pending">Pending</option>
-                                        <option value="Pending Admin">Pending Admin Officer</option>
-                                        <option value="Pending HR">Pending HR</option>
-                                        <option value="Pending Accounts">Pending Accounts</option>
-                                        <option value="Pending Authorization">Pending Authorization</option>
-                                        <option value="Approved">Approved</option>
-                                        <option value="Active">Active</option>
-                                        <option value="Completed">Completed</option>
-                                        <option value="Paid">Paid</option>
-                                        <option value="Paid to Vendor">Paid to Vendor</option>
-                                        <option value="Rejected">Rejected</option>
-                                        <option value="Cancelled">Cancelled</option>
-                                        <option value="Draft">Draft</option>
+                                        {FINE_LIST_STATUS_FILTERS.map((option) => (
+                                            <option key={option.value} value={option.value}>
+                                                {option.label}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                                 {/* Fine Type Filter Dropdown */}
@@ -1219,7 +1203,7 @@ function FineManagementContent({
                                                             </td>
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
                                                                 <div className="relative z-10 pointer-events-none">
-                                                                    <FineListStatusPill label={formatFineListStatus(fine)} />
+                                                                    <FineListStatusPill label={formatFineListStatusLabel(fine)} />
                                                                 </div>
                                                             </td>
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm font-semibold tabular-nums text-gray-700">
@@ -1338,7 +1322,7 @@ function FineManagementContent({
                                                                 <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
                                                                     <FineListStatusPill
                                                                         compact
-                                                                        label={formatFineListStatus({
+                                                                        label={formatFineListStatusLabel({
                                                                             ...fine,
                                                                             ...member,
                                                                             zohoBillId: member.zohoBillId || fine.zohoBillId,

@@ -1,21 +1,22 @@
-/** Timestamp used for notification ordering (task arrival / creation). */
+/** When this notification arrived. Ignores document expiry and other subject dates. */
 export function getNotificationSortTime(item) {
+    const source = item?.raw && typeof item.raw === 'object' ? item.raw : item;
     const candidates = [
-        item?.createdAt,
+        source?.requestedDate,
+        source?.requestedAt,
+        source?.createdAt,
+        source?.leaveRequestedAt,
+        source?.appliedDate,
+        source?.actionedDate,
+        source?.updatedAt,
         item?.requestedDate,
-        item?.requestedAt,
-        item?.leaveRequestedAt,
-        item?.appliedDate,
-        item?.date,
-        item?.updatedAt,
     ];
-    let best = 0;
     for (const raw of candidates) {
         if (raw == null || raw === '') continue;
         const t = new Date(raw).getTime();
-        if (Number.isFinite(t) && t > best) best = t;
+        if (Number.isFinite(t) && t > 0) return t;
     }
-    return best;
+    return 0;
 }
 
 export function isPendingNotification(item) {
@@ -39,23 +40,7 @@ function getNotificationActionKey(item) {
     return String(item?.actionId ?? item?.dashboardActionId ?? item?._id ?? '');
 }
 
-function getNotificationSubjectKey(item) {
-    return [
-        item?.type,
-        item?.targetEmployeeId ?? item?.id,
-        item?.extra1,
-        item?.extra2,
-        item?.subjectName,
-    ]
-        .map((part) => String(part ?? '').trim().toLowerCase())
-        .join('|');
-}
-
 function compareNotificationItems(a, b) {
-    const pendingA = isPendingNotification(a) ? 1 : 0;
-    const pendingB = isPendingNotification(b) ? 1 : 0;
-    if (pendingA !== pendingB) return pendingB - pendingA;
-
     const timeA = getNotificationSortTime(a);
     const timeB = getNotificationSortTime(b);
     if (timeA !== timeB) return timeB - timeA;
@@ -68,11 +53,11 @@ function compareNotificationItems(a, b) {
     if (actionA && !actionB) return -1;
     if (!actionA && actionB) return 1;
 
-    return getNotificationSubjectKey(b).localeCompare(getNotificationSubjectKey(a));
+    return 0;
 }
 
 /**
- * Stack order: pending first, then newest on top.
+ * Newest notification on top, in every section.
  */
 export function sortNotificationsStackOrder(items = []) {
     return [...(items || [])].sort(compareNotificationItems);

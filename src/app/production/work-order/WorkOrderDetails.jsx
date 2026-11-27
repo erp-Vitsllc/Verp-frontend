@@ -10,7 +10,6 @@ import {
     ClipboardList,
     FileText,
     FolderOpen,
-    Gavel,
     History,
     Home,
     Info,
@@ -31,7 +30,8 @@ import {
     hrefsEquivalent,
     replaceNavigationUrl,
 } from '@/utils/listReturnNavigation';
-import { dubaiDateKey, formatAed, formatWorkOrderDate } from './workOrderNumber';
+import { DatePicker } from '@/components/ui/date-picker';
+import { dubaiDateKey, dubaiDayEnd, formatAed, formatWorkOrderDate } from './workOrderNumber';
 import { QUOTATION_VIEWS, WORK_ORDER_TAB_SLUGS, workOrderDetailsHref, workOrderTabSlug } from './workOrderPaths';
 import WorkOrderBudgetPanel from './WorkOrderBudgetPanel';
 import WorkOrderQuotationModal from './WorkOrderQuotationModal';
@@ -46,12 +46,14 @@ const LPO_MODES = [
     { id: 'received', label: 'LPO received' },
 ];
 
-const RULES = [
-    'One quotation and one LPO per Work Order',
-    'Multiple invoices allowed',
-    'Invoice total cannot exceed work order value',
-    'Standalone can later attach to a project',
-];
+function keepOrderFields(current, next) {
+    if (!next) return current;
+    if (!next.lpoAssigneeName && current?.lpoAssigneeName) next.lpoAssigneeName = current.lpoAssigneeName;
+    if (!Array.isArray(next.pendingTasks) && Array.isArray(current?.pendingTasks)) {
+        next.pendingTasks = current.pendingTasks;
+    }
+    return next;
+}
 
 function Skyline() {
     return (
@@ -88,20 +90,38 @@ function formatBytes(bytes) {
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function readFile(file) {
+const LPO_PDF_MAX_BYTES = 5 * 1024 * 1024;
+
+function lpoPdfError(file) {
+    if (!file) return '';
+    const mime = String(file.type || '').toLowerCase();
+    const pdfName = /\.pdf$/i.test(String(file.name || ''));
+    const mimeOk = !mime || mime === 'application/pdf' || mime === 'application/x-pdf' || mime === 'application/octet-stream';
+    if (!pdfName || !mimeOk) return 'Attachment must be a PDF.';
+    if (file.size > LPO_PDF_MAX_BYTES) return 'Attachment must be 5 MB or smaller.';
+    return '';
+}
+
+function readFile(file, { pdfOnly = false } = {}) {
     return new Promise((resolve, reject) => {
         if (!file) {
             resolve(null);
             return;
         }
-        if (file.size > 4 * 1024 * 1024) {
+        if (pdfOnly) {
+            const message = lpoPdfError(file);
+            if (message) {
+                reject(new Error(message));
+                return;
+            }
+        } else if (file.size > 4 * 1024 * 1024) {
             reject(new Error('Attachment must be 4 MB or smaller'));
             return;
         }
         const reader = new FileReader();
         reader.onload = () => resolve({
             name: file.name,
-            mime: file.type || 'application/octet-stream',
+            mime: pdfOnly ? 'application/pdf' : (file.type || 'application/octet-stream'),
             data: String(reader.result || ''),
         });
         reader.onerror = () => reject(new Error('Could not read the attachment'));
@@ -208,6 +228,131 @@ function historyAssignee(value) {
     return String(value || '').trim();
 }
 
+function historyTime(value) {
+    const text = String(value || '').trim();
+    if (!text) return 0;
+    const time = Date.parse(text.length === 10 ? `${text}T00:00:00` : text);
+    return Number.isFinite(time) ? time : 0;
+}
+
+function historyActivity(action, name, date, id) {
+    const when = formatWorkOrderDate(date);
+    const shownDate = when === '—' ? '' : when;
+    const who = String(name || '').trim();
+    let text = action;
+    if (who) text += ` by ${who}`;
+    if (shownDate) text += ` on ${shownDate}`;
+    return { id, text: `${text}.`, at: historyTime(date) };
+}
+
+function historyEvents(order) {
+    const events = [];
+    events.push(historyActivity(
+        'Work order created',
+        order?.createdByName,
+        order?.createdOn || order?.createdAt,
+        'created',
+    ));
+    if (order?.confirmationDate) {
+        events.push(historyActivity('Sales kick off confirmed', order?.salespersonName, order.confirmationDate, 'sales'));
+    }
+    if (order?.lpoAlert?.sentAt || order?.lpoAlert?.message) {
+        events.push(historyActivity(
+            order.lpoAlert.message || 'LPO follow-up sent',
+            order.lpoAlert.sentByName,
+            order.lpoAlert.sentAt,
+            'lpo-alert',
+        ));
+    }
+    lpoRows(order).forEach((row, index) => {
+        events.push(historyActivity(
+            `LPO ${row.lpoNo || 'received'} saved`,
+            '',
+            row.lpoDate,
+            `lpo-${row.lpoNo || index}`,
+        ));
+    });
+    if (order?.lpoApproval?.requestedAt) {
+        events.push(historyActivity('LPO sent for approval', order.lpoApproval.requestedByName, order.lpoApproval.requestedAt, 'lpo-approval'));
+    }
+    if (order?.actualBoq?.requestedAt) {
+        events.push(historyActivity(
+            order.actualBoq.status === 'draft' ? 'Actual BOQ saved as draft' : 'Actual BOQ submitted',
+            order.actualBoq.requestedByName,
+            order.actualBoq.requestedAt,
+            'boq-request',
+        ));
+    }
+    if (order?.actualBoq?.decidedAt) {
+        const decision = order.actualBoq.status === 'rejected' ? 'Actual BOQ rejected' : 'Actual BOQ approved';
+        events.push(historyActivity(decision, order.actualBoq.decidedByName, order.actualBoq.decidedAt, 'boq-decision'));
+    }
+    for (const [index, update] of (order?.actualBoq?.updates || []).entries()) {
+        if (update?.requestedAt) {
+            events.push(historyActivity(
+                `${update.title || 'Actual BOQ update'} submitted`,
+                update.requestedByName,
+                update.requestedAt,
+                `boq-update-${index}`,
+            ));
+        }
+        if (update?.decidedAt) {
+            events.push(historyActivity(
+                update.status === 'rejected' ? `${update.title || 'Actual BOQ update'} rejected` : `${update.title || 'Actual BOQ update'} approved`,
+                update.decidedByName,
+                update.decidedAt,
+                `boq-update-decision-${index}`,
+            ));
+        }
+    }
+    const material = order?.materialRequest;
+    if (material?.requestedAt || material?.createdAt) {
+        events.push(historyActivity('Material request created', material.requestedByName, material.requestedAt || material.createdAt, 'mr'));
+    }
+    if (material?.decidedAt) {
+        events.push(historyActivity(
+            material.status === 'rejected' ? 'Material request rejected' : 'Material request approved',
+            material.decidedByName,
+            material.decidedAt,
+            'mr-decision',
+        ));
+    }
+    for (const [index, batch] of (material?.batches || []).entries()) {
+        if (batch?.requestedAt) {
+            events.push(historyActivity(`${batch.title || `MR ${index + 1}`} submitted`, batch.requestedByName, batch.requestedAt, `mr-batch-${index}`));
+        }
+        if (batch?.decidedAt) {
+            events.push(historyActivity(
+                batch.status === 'rejected' ? `${batch.title || `MR ${index + 1}`} rejected` : `${batch.title || `MR ${index + 1}`} approved`,
+                batch.decidedByName,
+                batch.decidedAt,
+                `mr-batch-decision-${index}`,
+            ));
+        }
+    }
+    for (const [index, row] of (Array.isArray(order?.budgets) ? order.budgets : []).entries()) {
+        const action = row.action === 'rebudget' ? 'Budget re-budgeted' : row.action === 'resync' ? 'Budget re-synced from Zoho' : 'Budget converted';
+        events.push(historyActivity(action, row.savedByName, row.savedAt, `budget-${index}`));
+    }
+    for (const [index, row] of (Array.isArray(order?.invoices) ? order.invoices : []).entries()) {
+        events.push(historyActivity(`Invoice ${row.invoiceNo || 'added'} saved`, '', row.invoiceDate, `invoice-${row.invoiceNo || index}`));
+    }
+    for (const [index, document] of workOrderDocuments(order).entries()) {
+        events.push(historyActivity(
+            `${document.kind || 'Document'} ${document.name || 'file'} replaced`,
+            document.replacedByName,
+            document.replacedAt,
+            `document-${index}`,
+        ));
+    }
+    if (order?.status === 'Completed') {
+        events.push(historyActivity('Work order completed', '', order.updatedAt, 'completed'));
+    }
+    return events
+        .filter((event) => event.text && event.text !== 'Work order created.')
+        .sort((left, right) => (left.at || Number.MAX_SAFE_INTEGER) - (right.at || Number.MAX_SAFE_INTEGER));
+}
+
 function historySteps(order) {
     const budgets = Array.isArray(order?.budgets) ? order.budgets : [];
     const budgetSave = [...budgets].reverse().find((row) => row.action === 'convert' || row.action === 'rebudget');
@@ -255,6 +400,22 @@ function historySteps(order) {
             assignee: '',
         },
     ];
+}
+
+function checklistSteps(order) {
+    const live = historySteps(order);
+    const stored = Array.isArray(order?.checklist) ? order.checklist : [];
+    if (!stored.length) return live;
+    const byId = new Map(live.map((step) => [step.id, step]));
+    return stored.map((item) => {
+        const current = byId.get(item.id) || {};
+        return {
+            id: item.id,
+            label: item.label || current.label || 'Checklist',
+            done: Boolean(current.done),
+            assignee: current.assignee || '',
+        };
+    });
 }
 
 function lpoStatusLabel(mode) {
@@ -468,7 +629,7 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
         setVendorSaving(true);
         try {
             const response = await axiosInstance.patch(`/WorkOrder/${id}`, { vendorId }, { skipToast: true });
-            if (response.data?.workOrder) setOrder(response.data.workOrder);
+            if (response.data?.workOrder) setOrder((current) => keepOrderFields(current, response.data.workOrder));
             toast({
                 title: vendorId ? 'Vendor saved' : 'Vendor cleared',
                 description: vendorId ? 'This vendor was added in Vendor Management.' : 'The vendor was removed from this work order.',
@@ -488,7 +649,7 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
         setBudgetSaving(action);
         try {
             const response = await axiosInstance.post(`/WorkOrder/${id}/budget`, { action }, { skipToast: true, timeout: 30000 });
-            if (response.data?.workOrder) setOrder(response.data.workOrder);
+            if (response.data?.workOrder) setOrder((current) => keepOrderFields(current, response.data.workOrder));
             selectTab('Budget');
             toast({
                 title: action === 'convert' ? 'Converted to budget' : action === 'rebudget' ? 'Re budget saved' : 'Budget resynced',
@@ -511,7 +672,7 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
         setUpdatingQuote(true);
         try {
             const response = await axiosInstance.post(`/WorkOrder/${id}/quotation-changes`, {}, { skipToast: true, timeout: 30000 });
-            if (response.data?.workOrder) setOrder(response.data.workOrder);
+            if (response.data?.workOrder) setOrder((current) => keepOrderFields(current, response.data.workOrder));
             setQuoteSync({ canUpdate: true, changed: false, changes: [] });
             toast({
                 title: 'Quotation updated',
@@ -565,13 +726,7 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
         try {
             const response = await axiosInstance.patch(`/WorkOrder/${id}`, body);
             const next = response.data?.workOrder || null;
-            setOrder((current) => {
-                if (!next) return current;
-                if (!next.lpoAssigneeName && current?.lpoAssigneeName) {
-                    next.lpoAssigneeName = current.lpoAssigneeName;
-                }
-                return next;
-            });
+            setOrder((current) => keepOrderFields(current, next));
             if (next && Object.prototype.hasOwnProperty.call(next, 'viewerCanCompleteLpo')) {
                 setCanComplete(Boolean(next.viewerCanCompleteLpo));
             }
@@ -617,7 +772,7 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
         }
         let attachment = null;
         try {
-            attachment = await readFile(lpoFile);
+            attachment = await readFile(lpoFile, { pdfOnly: true });
         } catch (err) {
             setFormError(err.message);
             return;
@@ -719,7 +874,7 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
         };
         if (lpoFile) {
             try {
-                body.lpo.attachment = await readFile(lpoFile);
+                body.lpo.attachment = await readFile(lpoFile, { pdfOnly: true });
             } catch (err) {
                 setFormError(err.message);
                 return null;
@@ -854,7 +1009,7 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                     lpoNo: lpoNo.trim(),
                     lpoDate,
                     lpoValue: amount,
-                    attachment: await readFile(lpoFile),
+                    attachment: await readFile(lpoFile, { pdfOnly: true }),
                 };
             } catch (err) {
                 setFormError(err.message);
@@ -935,7 +1090,10 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
     const canEditLpo = viewerIsProjectManager || (!order.lpoLocked && !approvalPending);
     const canSubmitLpo = canEditLpo && (!order.lpoFollowUp || canComplete || viewerIsProjectManager);
     const mode = order.lpoFollowUp ? followMode : (choice || savedLpoMode);
-    const displayMode = mode;
+    const displayMode = savedLpoMode === 'received' ? 'received' : mode;
+    const lpoModeOptions = savedLpoMode === 'received'
+        ? LPO_MODES.filter((item) => item.id === 'received')
+        : LPO_MODES;
     const showLpo = tab === 'LPO';
     const showInvoice = tab === 'Invoices';
     const stacked = tab === 'Overview';
@@ -949,6 +1107,16 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
     const missingLpoFill = savedLpoMode === 'not_required'
         ? [!supportNote ? 'Reason' : '', !supportName ? 'Supporting document' : ''].filter(Boolean)
         : [];
+    const projectTask = order.projectTask || null;
+    const pendingTasks = [...(Array.isArray(order.pendingTasks) ? order.pendingTasks : [])]
+        .filter((task) => String(task?.line || '').trim())
+        .sort((left, right) => (Date.parse(left.at) || 0) - (Date.parse(right.at) || 0));
+    const openPendingTask = (task) => {
+        if (!task?.actionId) return;
+        const query = task.taskNumber ? `?no=${encodeURIComponent(task.taskNumber)}` : '';
+        router.push(`/task-manager/${encodeURIComponent(task.actionId)}${query}`);
+    };
+    const bellCount = (projectTask ? 1 : 0) + (missingLpoFill.length ? 1 : 0);
     const supportMime = order.supportingDocument?.name
         ? (order.supportingDocument.mime || '')
         : (order.lpoAlert?.attachmentMime || '');
@@ -1002,15 +1170,34 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                             className={`relative flex h-10 w-10 items-center justify-center rounded-xl border border-[#E6EDF5] bg-white text-slate-600 shadow-sm hover:bg-slate-50 ${FOCUS}`}
                         >
                             <Bell size={18} />
-                            {missingLpoFill.length ? (
+                            {bellCount ? (
                                 <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                                    1
+                                    {bellCount}
                                 </span>
                             ) : null}
                         </button>
                         {bellOpen ? (
                             <div className="absolute right-0 mt-2 w-80 overflow-hidden rounded-xl border border-[#E6EDF5] bg-white shadow-xl">
                                 <p className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">Notifications</p>
+                                {projectTask ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setBellOpen(false);
+                                            const query = projectTask.taskNumber ? `?no=${encodeURIComponent(projectTask.taskNumber)}` : '';
+                                            router.push(`/task-manager/${encodeURIComponent(projectTask.actionId)}${query}`);
+                                        }}
+                                        className={`block w-full border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50 ${FOCUS}`}
+                                    >
+                                        <p className="text-sm font-semibold text-slate-800">{projectTask.taskName || 'New work order created'}</p>
+                                        <p className="mt-1 text-[13px] text-slate-500">
+                                            {projectTask.taskNumber || order.workOrderNo} · {projectTask.status || 'Pending'} · Project Task
+                                        </p>
+                                        <p className="mt-1 text-[13px] text-slate-500">
+                                            Assigned to {projectTask.assignedTo || 'the project coordinator'}
+                                        </p>
+                                    </button>
+                                ) : null}
                                 {missingLpoFill.length ? (
                                     <button
                                         type="button"
@@ -1028,9 +1215,10 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                                             {missingLpoFill.map((item) => <li key={item}>{item}</li>)}
                                         </ul>
                                     </button>
-                                ) : (
+                                ) : null}
+                                {!projectTask && !missingLpoFill.length ? (
                                     <p className="px-4 py-6 text-sm text-slate-500">No notifications.</p>
-                                )}
+                                ) : null}
                             </div>
                         ) : null}
                     </div>
@@ -1276,7 +1464,7 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                                 <Paperclip size={16} className="text-[#2f6fed]" /> LPO Details
                             </h2>
                             <div role="radiogroup" aria-label="LPO option" className="inline-flex max-w-full flex-wrap gap-1 rounded-full bg-[#f4f7fb] p-1">
-                                {LPO_MODES.map((item) => {
+                                {lpoModeOptions.map((item) => {
                                     const active = displayMode === item.id;
                                     return (
                                         <button
@@ -1286,7 +1474,7 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                                             aria-checked={active}
                                             disabled={saving || !canSubmitLpo}
                                             onClick={() => {
-                                                if (!canSubmitLpo) return;
+                                                if (!canSubmitLpo || savedLpoMode === 'received') return;
                                                 setFormError('');
                                                 if (order.lpoFollowUp) {
                                                     setFollowMode(item.id);
@@ -1470,7 +1658,13 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                                                 </label>
                                                 <label htmlFor="lpo-date">
                                                     <FieldLabel required>LPO Date</FieldLabel>
-                                                    <input id="lpo-date" type="date" max={dubaiDateKey()} value={lpoDate} onChange={(event) => setLpoDate(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none ${FOCUS}`} />
+                                                    <DatePicker
+                                                        value={lpoDate}
+                                                        onChange={setLpoDate}
+                                                        placeholder="dd/MM/yyyy"
+                                                        disabledDays={{ after: dubaiDayEnd() }}
+                                                        className={`h-11 w-full justify-start rounded-xl border-[#e5edf6] bg-white px-3 text-sm font-normal shadow-none hover:bg-white ${FOCUS}`}
+                                                    />
                                                 </label>
                                                 <label htmlFor="lpo-value">
                                                     <FieldLabel required>LPO Value</FieldLabel>
@@ -1482,10 +1676,22 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                                                         id="lpo-file"
                                                         key={`lpo-${fileKey}`}
                                                         type="file"
-                                                        accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.txt,.csv"
-                                                        onChange={(event) => setLpoFile(event.target.files?.[0] || null)}
+                                                        accept="application/pdf,.pdf"
+                                                        onChange={(event) => {
+                                                            const file = event.target.files?.[0] || null;
+                                                            const message = lpoPdfError(file);
+                                                            if (message) {
+                                                                event.target.value = '';
+                                                                setLpoFile(null);
+                                                                setFormError(message);
+                                                                return;
+                                                            }
+                                                            setFormError('');
+                                                            setLpoFile(file);
+                                                        }}
                                                         className={`block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-[#f4f7fb] file:px-3 file:py-2 file:text-sm file:font-semibold ${FOCUS}`}
                                                     />
+                                                    <span className="mt-1 block text-[12px] text-slate-500">PDF only, maximum 5 MB</span>
                                                     {order.lpoApproval?.attachmentName ? (
                                                         <span className="mt-1 block text-[12px] text-slate-500">Saved file: {order.lpoApproval.attachmentName}</span>
                                                     ) : null}
@@ -1551,7 +1757,13 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                                         </label>
                                         <label htmlFor="lpo-date">
                                             <FieldLabel required>LPO Date</FieldLabel>
-                                            <input id="lpo-date" type="date" max={dubaiDateKey()} value={lpoDate} onChange={(event) => setLpoDate(event.target.value)} className={`h-11 w-full rounded-xl border border-[#e5edf6] px-3 text-sm outline-none disabled:bg-[#f4f7fb] ${FOCUS}`} />
+                                            <DatePicker
+                                                value={lpoDate}
+                                                onChange={setLpoDate}
+                                                placeholder="dd/MM/yyyy"
+                                                disabledDays={{ after: dubaiDayEnd() }}
+                                                className={`h-11 w-full justify-start rounded-xl border-[#e5edf6] bg-white px-3 text-sm font-normal shadow-none hover:bg-white disabled:bg-[#f4f7fb] ${FOCUS}`}
+                                            />
                                         </label>
                                         <label htmlFor="lpo-value">
                                             <FieldLabel required>LPO Value</FieldLabel>
@@ -1563,10 +1775,22 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                                                 id="lpo-file"
                                                 key={`lpo-${fileKey}`}
                                                 type="file"
-                                                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.txt,.csv"
-                                                onChange={(event) => setLpoFile(event.target.files?.[0] || null)}
+                                                accept="application/pdf,.pdf"
+                                                onChange={(event) => {
+                                                    const file = event.target.files?.[0] || null;
+                                                    const message = lpoPdfError(file);
+                                                    if (message) {
+                                                        event.target.value = '';
+                                                        setLpoFile(null);
+                                                        setFormError(message);
+                                                        return;
+                                                    }
+                                                    setFormError('');
+                                                    setLpoFile(file);
+                                                }}
                                                 className={`block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-[#f4f7fb] file:px-3 file:py-2 file:text-sm file:font-semibold ${FOCUS}`}
                                             />
+                                            <span className="mt-1 block text-[12px] text-slate-500">PDF only, maximum 5 MB</span>
                                             {order.lpoApproval?.attachmentName ? (
                                                 <span className="mt-1 block text-[12px] text-slate-500">Saved file: {order.lpoApproval.attachmentName}</span>
                                             ) : null}
@@ -1586,7 +1810,7 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                         <WorkOrderQuotationPanel
                             order={order}
                             onOpen={() => setQuoteOpen(true)}
-                            onSaved={setOrder}
+                            onSaved={(next) => setOrder((current) => keepOrderFields(current, next))}
                             onOpenBudget={() => selectTab('Budget')}
                             view={quotationView}
                             onViewChange={(next) => selectTab('Quotation', next)}
@@ -1690,10 +1914,32 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
 
                     {tab === 'Check list' ? (
                         <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
-                            <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
+                            <h2 className="mb-5 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
                                 <ClipboardList size={16} className="text-[#2f6fed]" /> Check list
                             </h2>
-                            <p className="text-sm text-slate-500">No checklist items yet.</p>
+                            <ol>
+                                {checklistSteps(order).map((step, index, steps) => (
+                                    <li key={step.id} className="relative flex gap-3 pb-5 last:pb-0">
+                                        {index < steps.length - 1 ? (
+                                            <span className="absolute bottom-0 left-[11px] top-6 w-px bg-[#d7e3f4]" aria-hidden="true" />
+                                        ) : null}
+                                        <input
+                                            type="checkbox"
+                                            checked={step.done}
+                                            readOnly
+                                            tabIndex={-1}
+                                            aria-label={step.label}
+                                            className="pointer-events-none relative z-10 mt-0.5 h-[22px] w-[22px] shrink-0 rounded border-[#c5d4e8] accent-[#2f6fed]"
+                                        />
+                                        <span className="min-w-0 pt-0.5">
+                                            <span className="block text-sm font-semibold text-slate-800">{step.label}</span>
+                                            {step.assignee ? (
+                                                <span className="mt-0.5 block text-[13px] text-slate-500">{step.assignee}</span>
+                                            ) : null}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ol>
                         </section>
                     ) : null}
 
@@ -1749,32 +1995,20 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
 
                     {tab === 'History' ? (
                         <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
-                            <h2 className="mb-5 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
+                            <h2 className="mb-4 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
                                 <History size={16} className="text-[#2f6fed]" /> History
                             </h2>
-                            <ol>
-                                {historySteps(order).map((step, index, steps) => (
-                                    <li key={step.id} className="relative flex gap-3 pb-5 last:pb-0">
-                                        {index < steps.length - 1 ? (
-                                            <span className="absolute bottom-0 left-[11px] top-6 w-px bg-[#d7e3f4]" aria-hidden="true" />
-                                        ) : null}
-                                        <input
-                                            type="checkbox"
-                                            checked={step.done}
-                                            readOnly
-                                            tabIndex={-1}
-                                            aria-label={step.label}
-                                            className="pointer-events-none relative z-10 mt-0.5 h-[22px] w-[22px] shrink-0 rounded border-[#c5d4e8] accent-[#2f6fed]"
-                                        />
-                                        <span className="min-w-0 pt-0.5">
-                                            <span className="block text-sm font-semibold text-slate-800">{step.label}</span>
-                                            {step.assignee ? (
-                                                <span className="mt-0.5 block text-[13px] text-slate-500">{step.assignee}</span>
-                                            ) : null}
-                                        </span>
-                                    </li>
-                                ))}
-                            </ol>
+                            {historyEvents(order).length ? (
+                                <ol className="space-y-4">
+                                    {historyEvents(order).map((event) => (
+                                        <li key={event.id} className="border-b border-slate-100 pb-4 text-sm text-slate-700 last:border-0 last:pb-0">
+                                            {event.text}
+                                        </li>
+                                    ))}
+                                </ol>
+                            ) : (
+                                <p className="text-sm text-slate-500">No history yet.</p>
+                            )}
                         </section>
                     ) : null}
 
@@ -1873,17 +2107,30 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                         </div>
                     </section>
                     <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)]">
-                        <h2 className="mb-3 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
-                            <Gavel size={16} className="text-[#2f6fed]" /> Business Rules
+                        <h2 className="mb-1 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
+                            <ClipboardList size={16} className="text-[#2f6fed]" /> Pending tasks
                         </h2>
-                        <ul className="space-y-2.5 rounded-xl bg-[#f4fbf6] px-3 py-3">
-                            {RULES.map((rule) => (
-                                <li key={rule} className="flex items-start gap-2 text-[13px] leading-5 text-slate-600">
-                                    <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-500" />
-                                    <span>{rule}</span>
-                                </li>
-                            ))}
-                        </ul>
+                        {pendingTasks.length ? (
+                            <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
+                                {pendingTasks.map((task) => (
+                                    <li key={task.id || task.line}>
+                                        {task.actionId ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => openPendingTask(task)}
+                                                className={`block w-full py-2 text-left text-[13px] leading-5 text-slate-700 hover:text-[#2f6fed] ${FOCUS}`}
+                                            >
+                                                {task.line}
+                                            </button>
+                                        ) : (
+                                            <p className="py-2 text-[13px] leading-5 text-slate-700">{task.line}</p>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <p className="py-2 text-[13px] text-slate-500">No pending tasks.</p>
+                        )}
                     </section>
                     <button type="button" onClick={leaveDetails} className={`inline-flex h-11 items-center gap-2 rounded-xl border border-[#e5edf6] bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50 ${FOCUS}`}>
                         <ChevronLeft size={16} /> Back to dashboard

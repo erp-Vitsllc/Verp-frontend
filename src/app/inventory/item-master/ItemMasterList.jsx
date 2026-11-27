@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Bell, Download, LayoutGrid, List, MoreVertical, Pencil, Plus, Receipt, Search, Trash2 } from 'lucide-react';
+import { Bell, ChevronDown, Download, LayoutGrid, List, MoreVertical, Pencil, Plus, Receipt, Search, Trash2 } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
@@ -24,6 +24,7 @@ import {
     listCategories,
     listCategoryImages,
     getStockApprovalContext,
+    listBoqNewItems,
     listItemOptions,
     listItems,
     listSubcategories,
@@ -288,6 +289,7 @@ export default function ItemMasterList() {
     const [addStockOpen, setAddStockOpen] = useState(() => searchParams.get('addStock') === '1' || Boolean(searchParams.get('stockEntry')));
     const [reviewEntryId, setReviewEntryId] = useState(() => searchParams.get('stockEntry') || '');
     const [stockApprovals, setStockApprovals] = useState({ isPurchaseOfficer: false, entries: [] });
+    const [boqNewItems, setBoqNewItems] = useState({ isPurchaseOfficer: false, items: [] });
     const [returnToSubcategory, setReturnToSubcategory] = useState(false);
     const [itemError, setItemError] = useState('');
     const [catalogError, setCatalogError] = useState('');
@@ -368,6 +370,15 @@ export default function ItemMasterList() {
                 setStockApprovals({
                     isPurchaseOfficer: Boolean(result?.isPurchaseOfficer),
                     entries: Array.isArray(result?.entries) ? result.entries : [],
+                });
+            })
+            .catch(() => {});
+        listBoqNewItems()
+            .then((result) => {
+                if (cancelled) return;
+                setBoqNewItems({
+                    isPurchaseOfficer: Boolean(result?.isPurchaseOfficer),
+                    items: Array.isArray(result?.items) ? result.items : [],
                 });
             })
             .catch(() => {});
@@ -870,6 +881,39 @@ export default function ItemMasterList() {
                 </div>
             ) : null}
 
+            {tab === 'items' && boqNewItems.isPurchaseOfficer && boqNewItems.items.length ? (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-900">
+                        <Bell size={16} />
+                        New items waiting for your approval
+                    </div>
+                    <ul className="space-y-1">
+                        {boqNewItems.items.map((entry) => (
+                            <li key={entry.id}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const next = new URLSearchParams();
+                                        next.set('boqWorkOrder', entry.workOrderId);
+                                        next.set('boqItem', entry.itemKey);
+                                        router.push(`/inventory/item-master/add?${next.toString()}`);
+                                    }}
+                                    className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left text-sm text-amber-950 hover:bg-amber-100"
+                                >
+                                    <span>
+                                        {entry.item || 'New item'}
+                                        {entry.modelNo ? ` · ${entry.modelNo}` : ''}
+                                        {entry.workOrderNo ? ` · ${entry.workOrderNo}` : ''}
+                                        {entry.status === 'rejected' ? ' · rejected' : ' · pending for purchaser'}
+                                    </span>
+                                    <span className="shrink-0 font-semibold text-amber-800">Review</span>
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ) : null}
+
             <div role="tablist" aria-label="Item Master" className="mb-4 flex gap-1 overflow-x-auto border-b border-[#E6EDF5]">
                 {TABS.map((item) => (
                     <button
@@ -910,29 +954,42 @@ export default function ItemMasterList() {
                 </div>
                 {tab === 'items' ? (
                     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-                        <Filter label="Category" value={categoryId} onChange={chooseCategory}>
-                            <option value="">All</option>
-                            {categories.map((row) => <option key={row._id} value={row._id}>{row.name}</option>)}
-                        </Filter>
-                        <Filter label="Subcategory" value={subcategoryId} onChange={chooseSubcategory}>
-                            <option value="">All</option>
-                            {subcategoryChoices.map((row) => <option key={row._id} value={row._id}>{row.name}</option>)}
-                        </Filter>
-                        <Filter label="Item" value={itemOptionId} onChange={chooseItem}>
-                            <option value="">All</option>
-                            {itemChoices.map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}
-                        </Filter>
-                        <Filter label="Brand" value={brandId} onChange={chooseBrand}>
-                            <option value="">All</option>
-                            {brands.map((row) => <option key={row._id} value={row._id}>{row.name}</option>)}
-                        </Filter>
-                        <Filter label="Stock Status" value={status} onChange={(value) => { setPage(1); setStatus(value); }}>
-                            <option value="All">All</option>
-                            {STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
-                        </Filter>
-                        <Filter label="Warehouse" value="" onChange={() => {}}>
-                            <option value="">All</option>
-                        </Filter>
+                        <Filter
+                            label="Category"
+                            value={categoryId}
+                            onChange={chooseCategory}
+                            options={filterOptions(categories)}
+                        />
+                        <Filter
+                            label="Subcategory"
+                            value={subcategoryId}
+                            onChange={chooseSubcategory}
+                            options={filterOptions(subcategoryChoices)}
+                        />
+                        <Filter
+                            label="Item"
+                            value={itemOptionId}
+                            onChange={chooseItem}
+                            options={[{ value: '', label: 'All' }, ...itemChoices.map((row) => ({ value: row.id, label: row.label }))]}
+                        />
+                        <Filter
+                            label="Brand"
+                            value={brandId}
+                            onChange={chooseBrand}
+                            options={filterOptions(brands)}
+                        />
+                        <Filter
+                            label="Stock Status"
+                            value={status}
+                            onChange={(value) => { setPage(1); setStatus(value); }}
+                            options={[{ value: 'All', label: 'All' }, ...STATUSES.map((value) => ({ value, label: value }))]}
+                        />
+                        <Filter
+                            label="Warehouse"
+                            value=""
+                            onChange={() => {}}
+                            options={[{ value: '', label: 'All' }]}
+                        />
                     </div>
                 ) : null}
             </div>
@@ -953,8 +1010,16 @@ export default function ItemMasterList() {
 
             {tab === 'items' ? (
                 <>
-                    <div className="overflow-x-auto">
-                        <table className="w-full min-w-[980px] text-left">
+                    <div className="overflow-x-hidden">
+                        <table className="w-full table-fixed text-left">
+                            <colgroup>
+                                {(showItemActions
+                                    ? ['9%', '14%', '8%', '12%', '18%', '9%', '9%', '5%', '8%', '8%']
+                                    : ['10%', '16%', '9%', '13%', '22%', '10%', '10%', '5%', '5%']
+                                ).map((width, index) => (
+                                    <col key={`${index}-${width}`} style={{ width }} />
+                                ))}
+                            </colgroup>
                             <thead>
                                 <tr className="bg-[#F8FAFC] text-[11px] uppercase tracking-wide text-slate-400">
                                     {itemHeadings.map((heading) => (
@@ -977,14 +1042,18 @@ export default function ItemMasterList() {
                                     <tr
                                         className="cursor-pointer border-t border-slate-100 text-sm text-slate-700 hover:bg-slate-50"
                                     >
-                                        <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-500">{row.itemCode}</td>
-                                        <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-800">{row.itemName}</td>
+                                        <td className="whitespace-nowrap px-3 py-3 align-top font-medium text-slate-500">{row.itemCode}</td>
+                                        <td className="px-3 py-3 align-top font-medium text-slate-800">
+                                            <p className="line-clamp-2 break-words leading-5" title={row.itemName || ''}>{row.itemName}</p>
+                                        </td>
                                         <ItemLinkCell
                                             name={row.brandName}
                                             label="brand"
                                             onOpen={row.brandId ? () => showItems({ caption: `brand ${row.brandName || ''}`.trim(), brandId: row.brandId }) : null}
                                         />
-                                        <td className="whitespace-nowrap px-3 py-3">{row.modelNumber}</td>
+                                        <td className="px-3 py-3 align-top">
+                                            <p className="line-clamp-2 break-words leading-5" title={row.modelNumber || ''}>{row.modelNumber}</p>
+                                        </td>
                                         <DescriptionCell row={row} />
                                         <ItemLinkCell
                                             name={row.categoryName}
@@ -996,14 +1065,14 @@ export default function ItemMasterList() {
                                             label="subcategory"
                                             onOpen={row.subcategoryId ? () => showItems({ caption: `subcategory ${row.subcategoryName || ''}`.trim(), subcategoryId: row.subcategoryId }) : null}
                                         />
-                                        <td className={`whitespace-nowrap px-3 py-3 font-semibold ${availableClass(row)}`}>{row.availableQuantity}</td>
-                                        <td className="whitespace-nowrap px-3 py-3">
+                                        <td className={`whitespace-nowrap px-3 py-3 align-top font-semibold ${availableClass(row)}`}>{row.availableQuantity}</td>
+                                        <td className="whitespace-nowrap px-3 py-3 align-top">
                                             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(row.status)}`}>
                                                 {row.status}
                                             </span>
                                         </td>
                                         {showItemActions ? (
-                                            <td className="whitespace-nowrap px-3 py-3" onClick={(event) => event.stopPropagation()}>
+                                            <td className="whitespace-nowrap px-3 py-3 align-top" onClick={(event) => event.stopPropagation()}>
                                                 <ItemActionMenu
                                                     deleting={deletingId === String(row._id)}
                                                     editLabel={`Edit ${row.itemCode || 'item'}`}
@@ -1200,30 +1269,31 @@ function DescriptionCell({ row }) {
     const secondary = descriptionLine([row?.brandName, row?.modelNumber]);
     const fallback = !primary && !secondary ? String(row?.description || '').trim() : '';
     return (
-        <td className="min-w-[240px] max-w-sm px-3 py-3 align-top">
+        <td className="px-3 py-3 align-top">
             <div className="flex flex-col gap-0.5">
                 {primary || fallback ? (
-                    <p className="text-sm leading-5 text-slate-700">{primary || fallback}</p>
+                    <p className="line-clamp-1 break-words text-sm leading-5 text-slate-700">{primary || fallback}</p>
                 ) : null}
-                {secondary ? <p className="text-sm leading-5 text-slate-700">{secondary}</p> : null}
+                {secondary ? <p className="line-clamp-1 break-words text-sm leading-5 text-slate-700">{secondary}</p> : null}
             </div>
         </td>
     );
 }
 
 function ItemLinkCell({ name, label, onOpen }) {
+    const text = <span className="line-clamp-2 break-words">{name || '—'}</span>;
     if (!onOpen) {
-        return <td className="whitespace-nowrap px-3 py-3">{name || '—'}</td>;
+        return <td className="px-3 py-3 align-top">{text}</td>;
     }
     return (
-        <td className="p-0" onClick={(event) => event.stopPropagation()}>
+        <td className="p-0 align-top" onClick={(event) => event.stopPropagation()}>
             <button
                 type="button"
                 onClick={onOpen}
-                className="w-full whitespace-nowrap px-3 py-3 text-left font-medium text-blue-700 hover:bg-blue-50 hover:underline"
+                className="w-full px-3 py-3 text-left font-medium text-blue-700 hover:bg-blue-50 hover:underline"
                 aria-label={`Show items for ${label} ${name || ''}`.trim()}
             >
-                {name || '—'}
+                {text}
             </button>
         </td>
     );
@@ -1549,14 +1619,207 @@ function ListPager({ from, to, total, noun, page, pages, pageSize, onPageChange,
     );
 }
 
-function Filter({ label, value, onChange, children }) {
+function filterOptions(rows) {
+    return [
+        { value: '', label: 'All' },
+        ...rows.map((row) => ({ value: String(row._id), label: row.name || '' })),
+    ];
+}
+
+function Filter({ label, value, onChange, options }) {
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const [active, setActive] = useState(0);
+    const [menu, setMenu] = useState(null);
+    const rootRef = useRef(null);
+    const menuRef = useRef(null);
+    const listRef = useRef(null);
+    const searchRef = useRef(null);
+    const optionsRef = useRef(options);
+    const valueRef = useRef(value);
+    const focusedRef = useRef(false);
+    optionsRef.current = options;
+    valueRef.current = value;
+    const selected = options.find((option) => option.value === String(value ?? ''));
+    const selectedLabel = selected?.label || 'All';
+    const filtered = useMemo(() => {
+        const needle = query.trim().toLowerCase();
+        if (!needle) return options;
+        return options.filter((option) => option.label.toLowerCase().includes(needle));
+    }, [options, query]);
+
+    const place = useCallback(() => {
+        const rect = rootRef.current?.querySelector('button')?.getBoundingClientRect();
+        if (!rect) return;
+        const width = Math.max(rect.width, 220);
+        const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8));
+        const openUp = window.innerHeight - rect.bottom < 280 && rect.top > 280;
+        const top = openUp ? rect.top - 4 : rect.bottom + 4;
+        setMenu((current) => {
+            if (current && current.top === top && current.left === left && current.width === width && current.openUp === openUp) return current;
+            return { top, left, width, openUp };
+        });
+    }, []);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        place();
+        const onPointerDown = (event) => {
+            if (rootRef.current?.contains(event.target)) return;
+            if (menuRef.current?.contains(event.target)) return;
+            setOpen(false);
+            setQuery('');
+        };
+        window.addEventListener('resize', place);
+        window.addEventListener('scroll', place, true);
+        document.addEventListener('mousedown', onPointerDown);
+        return () => {
+            window.removeEventListener('resize', place);
+            window.removeEventListener('scroll', place, true);
+            document.removeEventListener('mousedown', onPointerDown);
+        };
+    }, [open, place]);
+
+    useEffect(() => {
+        if (!open) return;
+        const index = optionsRef.current.findIndex((option) => option.value === String(valueRef.current ?? ''));
+        setActive(index >= 0 ? index : 0);
+    }, [open]);
+
+    useEffect(() => {
+        if (!open) {
+            focusedRef.current = false;
+            return undefined;
+        }
+        if (!menu || focusedRef.current) return undefined;
+        const frame = window.requestAnimationFrame(() => {
+            searchRef.current?.focus();
+            focusedRef.current = true;
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [open, menu]);
+
+    useEffect(() => {
+        setActive(0);
+    }, [query]);
+
+    useEffect(() => {
+        if (!open) return;
+        const list = listRef.current;
+        const node = list?.querySelector('[data-active="true"]');
+        if (!list || !node) return;
+        const top = node.offsetTop;
+        const bottom = top + node.offsetHeight;
+        if (top < list.scrollTop) list.scrollTop = top;
+        else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+    }, [active, open, query, menu]);
+
+    function close() {
+        setOpen(false);
+        setQuery('');
+    }
+
+    function choose(next) {
+        onChange(next);
+        close();
+    }
+
+    const menuNode = open && menu ? createPortal(
+        <div
+            ref={menuRef}
+            className="fixed z-[80] overflow-hidden rounded-lg border border-[#E2E8F0] bg-white shadow-lg"
+            style={{
+                top: menu.top,
+                left: menu.left,
+                width: menu.width,
+                transform: menu.openUp ? 'translateY(-100%)' : undefined,
+            }}
+        >
+            <div className="border-b border-[#E6EDF5] p-2">
+                <label className="relative block">
+                    <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                        ref={searchRef}
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                        placeholder="Search"
+                        aria-label={`Search ${label}`}
+                        className="h-9 w-full rounded-md border border-[#E2E8F0] bg-white pl-8 pr-3 text-sm text-slate-800 outline-none focus:border-blue-500"
+                        onKeyDown={(event) => {
+                            if (event.key === 'Escape') {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                close();
+                                return;
+                            }
+                            if (event.key === 'ArrowDown') {
+                                event.preventDefault();
+                                setActive((current) => Math.min(current + 1, Math.max(filtered.length - 1, 0)));
+                                return;
+                            }
+                            if (event.key === 'ArrowUp') {
+                                event.preventDefault();
+                                setActive((current) => Math.max(current - 1, 0));
+                                return;
+                            }
+                            if (event.key === 'Enter') {
+                                event.preventDefault();
+                                const option = filtered[active];
+                                if (option) choose(option.value);
+                            }
+                        }}
+                    />
+                </label>
+            </div>
+            <ul ref={listRef} role="listbox" aria-label={label} className="max-h-60 overflow-y-auto py-1">
+                {filtered.length === 0 ? (
+                    <li className="px-3 py-2 text-sm text-slate-400">No matches.</li>
+                ) : filtered.map((option, index) => {
+                    const picked = option.value === String(value ?? '');
+                    const highlighted = index === active;
+                    return (
+                        <li key={`${option.value}:${option.label}`}>
+                            <button
+                                type="button"
+                                role="option"
+                                aria-selected={picked}
+                                data-active={highlighted ? 'true' : 'false'}
+                                onMouseEnter={() => setActive(index)}
+                                onClick={() => choose(option.value)}
+                                className={`block w-full truncate px-3 py-2 text-left text-sm ${highlighted ? 'bg-slate-200 font-medium text-slate-900' : picked ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-700 hover:bg-slate-100'}`}
+                            >
+                                {option.label}
+                            </button>
+                        </li>
+                    );
+                })}
+            </ul>
+        </div>,
+        document.body,
+    ) : null;
+
     return (
-        <label className="block">
+        <div ref={rootRef} className="relative">
             <span className="mb-1 block whitespace-nowrap text-xs font-medium text-slate-500">{label}</span>
-            <select className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)}>
-                {children}
-            </select>
-        </label>
+            <button
+                type="button"
+                aria-label={label}
+                aria-haspopup="listbox"
+                aria-expanded={open}
+                onClick={() => (open ? close() : setOpen(true))}
+                onKeyDown={(event) => {
+                    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setOpen(true);
+                    }
+                }}
+                className={`${fieldClass} flex items-center justify-between gap-2 text-left ${open ? 'border-blue-500' : ''}`}
+            >
+                <span className="min-w-0 truncate text-slate-800">{selectedLabel}</span>
+                <ChevronDown size={16} className={`shrink-0 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
+            </button>
+            {menuNode}
+        </div>
     );
 }
 

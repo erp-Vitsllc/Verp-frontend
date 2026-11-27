@@ -30,6 +30,8 @@ import {
 import { formatFineVendorBillPaymentLabel } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
 import { resolveFineNetTotal } from '@/utils/finePayableAmount';
 import { sumEmployeeOutstandingOnFines } from '@/app/HRM/Fine/utils/employeeFineFinancials';
+import { isApprovedFineStatus } from '@/app/HRM/Fine/utils/fineApprovedEdit';
+import { fineWorkflowHolderName } from '@/app/HRM/Fine/utils/fineListDisplay';
 import VehicleServiceRequestSortHeader from '@/app/HRM/Asset/Vehicle/components/VehicleServiceRequestSortHeader';
 import {
     codeSortValue,
@@ -153,20 +155,34 @@ function vendorBillBadgeClass(label) {
     return 'bg-slate-100 text-slate-500';
 }
 
-function fineStatusBadgeClass(status) {
-    const lower = String(status || '').trim().toLowerCase();
-    if (lower === 'paid' || lower === 'completed' || lower === 'paid to vendor') {
-        return 'bg-emerald-100 text-emerald-800';
-    }
-    if (lower === 'approved' || lower === 'active') {
-        return 'bg-blue-100 text-blue-800';
-    }
-    if (lower.includes('pending') || lower === 'draft') {
-        return 'bg-amber-100 text-amber-800';
-    }
-    if (lower.includes('rejected') || lower.includes('cancelled')) {
-        return 'bg-slate-100 text-slate-600';
-    }
+function employeePaymentStatusLabel(fine) {
+    const outstanding = sumEmployeeOutstandingOnFines([fine]);
+    if (!(outstanding > 0.01)) return 'Paid';
+    const recordedPaid =
+        Number(fine?.paidAmount || 0) > 0.01
+        || (fine?.assignedEmployees || []).some((entry) => Number(entry?.paidAmount || 0) > 0.01);
+    return recordedPaid ? 'Partial' : 'Unpaid';
+}
+
+function employeePaymentBadgeClass(label) {
+    if (label === 'Paid') return 'bg-emerald-100 text-emerald-800';
+    if (label === 'Partial') return 'bg-amber-100 text-amber-800';
+    if (label === 'Unpaid') return 'bg-rose-100 text-rose-700';
+    return 'bg-slate-100 text-slate-700';
+}
+
+function fineWorkflowStatusLabel(fine) {
+    const steps = Array.isArray(fine?.workflow) ? fine.workflow : [];
+    const waiting = steps.some((step) => String(step?.status || '').trim().toLowerCase() === 'pending')
+        || !isApprovedFineStatus(String(fine?.fineStatus || '').trim());
+    if (!waiting) return 'Approved';
+    const name = fineWorkflowHolderName(fine);
+    return name ? `Pending with ${name}` : 'Pending';
+}
+
+function fineWorkflowBadgeClass(label) {
+    if (label === 'Approved') return 'bg-blue-100 text-blue-800';
+    if (String(label || '').toLowerCase().startsWith('pending')) return 'bg-amber-100 text-amber-800';
     return 'bg-slate-100 text-slate-700';
 }
 
@@ -213,7 +229,8 @@ const FINE_COLUMNS = [
     { key: 'offender', label: 'Offender', type: 'text' },
     { key: 'amount', label: 'Amount', type: 'number' },
     { key: 'awardedDate', label: 'Date', type: 'date' },
-    { key: 'fineStatus', label: 'Status', type: 'text' },
+    { key: 'fineWorkflow', label: 'Fine Status', type: 'text' },
+    { key: 'employeePay', label: 'Employee Payment Status', type: 'text' },
     { key: 'vendorPaid', label: 'Paid to Vendor', type: 'text' },
 ];
 
@@ -233,8 +250,10 @@ function fineSortValue(fine, key) {
             return numberSortValue(fineRowAmount(fine));
         case 'awardedDate':
             return dateSortValue(fine?.awardedDate);
-        case 'fineStatus':
-            return textSortValue(fine?.fineStatus);
+        case 'fineWorkflow':
+            return textSortValue(fineWorkflowStatusLabel(fine));
+        case 'employeePay':
+            return textSortValue(employeePaymentStatusLabel(fine));
         case 'vendorPaid':
             return textSortValue(formatFineVendorBillPaymentLabel(fine));
         default:
@@ -303,7 +322,7 @@ function FineTable({
 
     return (
         <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[1120px]">
+            <table className="w-full text-left border-collapse min-w-[1280px]">
                 <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     <tr>
                         {FINE_COLUMNS.map((column) => (
@@ -396,11 +415,28 @@ function FineTable({
                                     {fine.awardedDate ? new Date(fine.awardedDate).toLocaleDateString() : '—'}
                                 </td>
                                 <td className="px-6 py-4">
-                                    <span
-                                        className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${fineStatusBadgeClass(fine.fineStatus)}`}
-                                    >
-                                        {fine.fineStatus || '—'}
-                                    </span>
+                                    {(() => {
+                                        const workflowLabel = fineWorkflowStatusLabel(fine);
+                                        return (
+                                            <span
+                                                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${fineWorkflowBadgeClass(workflowLabel)}`}
+                                            >
+                                                {workflowLabel}
+                                            </span>
+                                        );
+                                    })()}
+                                </td>
+                                <td className="px-6 py-4">
+                                    {(() => {
+                                        const payLabel = employeePaymentStatusLabel(fine);
+                                        return (
+                                            <span
+                                                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${employeePaymentBadgeClass(payLabel)}`}
+                                            >
+                                                {payLabel}
+                                            </span>
+                                        );
+                                    })()}
                                 </td>
                                 <td className="px-6 py-4">
                                     {(() => {
@@ -444,7 +480,7 @@ function FineTable({
                         <td className="px-6 py-3 text-sm font-black text-rose-700 tabular-nums whitespace-nowrap">
                             {formatAed(unpaidTotal)}
                         </td>
-                        <td colSpan={3} className="px-6 py-3 text-xs text-rose-600/80">
+                        <td colSpan={4} className="px-6 py-3 text-xs text-rose-600/80">
                             {unpaidTotal > 0
                                 ? 'Employee still to pay (unpaid and partial)'
                                 : 'All employee shares paid'}
@@ -555,28 +591,23 @@ export default function VehicleAccessFinePanel({
         [vehicleFilteredFines, activeFineType],
     );
 
-    const payScopedFines = useMemo(
-        () => vehicleFilteredFines.filter((fine) => matchesEmployeePayFilter(fine, selectedPayFilter)),
-        [vehicleFilteredFines, selectedPayFilter],
-    );
-
+    // Box totals stay on the current vehicle scope. Picking a type or pay box filters the list only.
     const typeCounts = useMemo(() => {
-        const source = selectedPayFilter ? payScopedFines : vehicleFilteredFines;
-        const next = { all: source.length };
+        const next = { all: vehicleFilteredFines.length };
         for (const row of VEHICLE_ACCESS_FINE_TYPES) {
             if (row.key === 'all') continue;
-            next[row.key] = source.filter((fine) => matchesVehicleAccessFineType(fine, row.key)).length;
+            next[row.key] = vehicleFilteredFines.filter((fine) => matchesVehicleAccessFineType(fine, row.key)).length;
         }
         return next;
-    }, [vehicleFilteredFines, payScopedFines, selectedPayFilter]);
+    }, [vehicleFilteredFines]);
 
-    const payCounts = useMemo(() => {
-        const source = typeScopedFines;
-        return {
-            paid: source.filter((fine) => matchesEmployeePayFilter(fine, 'paid')).length,
-            unpaid: source.filter((fine) => matchesEmployeePayFilter(fine, 'unpaid')).length,
-        };
-    }, [typeScopedFines]);
+    const payCounts = useMemo(
+        () => ({
+            paid: vehicleFilteredFines.filter((fine) => matchesEmployeePayFilter(fine, 'paid')).length,
+            unpaid: vehicleFilteredFines.filter((fine) => matchesEmployeePayFilter(fine, 'unpaid')).length,
+        }),
+        [vehicleFilteredFines],
+    );
 
     const visibleFines = useMemo(
         () => typeScopedFines.filter((fine) => matchesEmployeePayFilter(fine, selectedPayFilter)),

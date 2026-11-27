@@ -29,7 +29,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { formatCommandCenterNotificationMessage } from '@/utils/dashboardCommandCenterInbox';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
-import { clusterWorkOrderTasks, listedTaskNumber, paginateWorkOrderBlocks, taskNumberCaption, tasksInBlocks } from '@/app/task-manager/workOrderTaskLabel';
+import { clusterWorkOrderTasks, listedTaskNumber, paginateWorkOrderBlocks, taskNameWithChecklistSection, tasksInBlocks, workOrderDisplayNumbers, workOrderPendingTitle } from '@/app/task-manager/workOrderTaskLabel';
 import { completionApprovalStatus, taskWaitingText } from '@/app/task-manager/pendingHoldLine';
 import { finishedWorkRoles, openTaskTabs, pinnedAssignee, taskHasReassignee, taskWaitingOnRequester, viewerRequestedTask } from '@/app/task-manager/taskInbox';
 import { toNextImageProfileSrc } from '@/utils/employeeProfileImage';
@@ -150,18 +150,21 @@ function taskIsOpenState(task) {
     return !taskIsClosedState(task);
 }
 
+/** Work-order tasks only. Bills and every other kind stay on the other tabs. */
 function isProjectTask(task) {
-    return displayTaskType(task?.taskCategory) === 'Project Task';
+    const requestType = String(task?.requestType || '').trim();
+    if (requestType === 'Inventory Bill Draft') return false;
+    if (/^Work Order\b/i.test(requestType)) return true;
+    return Boolean(String(task?.workOrderNo || '').trim());
 }
 
-/** Pending work, a bill or completion waiting on someone, or finished project work. */
+/** Pending work-order work, a step waiting on someone, or finished work-order work. */
 function projectTaskBucket(task) {
     if (!isProjectTask(task)) return '';
     if (taskIsClosedState(task)) return 'completed';
     if (task?.reviewPending || task?.completionPending || listStatus(task) === 'Pending Review') return 'approval';
     const note = `${task?.extra2 || ''} ${task?.description || ''} ${task?.taskName || ''}`.toLowerCase();
-    if (/for your approval|waiting for your approval|submitted this bill/.test(note)) return 'approval';
-    if (String(task?.requestType || '') === 'Inventory Bill Draft' && !/draft/.test(note)) return 'approval';
+    if (/for your approval|waiting for your approval/.test(note)) return 'approval';
     const requestType = String(task?.requestType || '');
     if (requestType === 'Work Order LPO Approval') return 'approval';
     if (requestType === 'Work Order Actual BOQ' && !/\bdraft\b/.test(note)) return 'approval';
@@ -224,6 +227,7 @@ function readTaskListFilters(params) {
 function taskDetailsHref(task, tab) {
     const query = new URLSearchParams();
     if (task?.taskNumber) query.set('no', task.taskNumber);
+    if (task?.displayTaskNumber) query.set('label', task.displayTaskNumber);
     if (tab) query.set('tab', tab);
     const suffix = query.toString() ? `?${query.toString()}` : '';
     return `/task-manager/${encodeURIComponent(task.actionId)}${suffix}`;
@@ -646,26 +650,31 @@ function SortableTh({ label, columnKey, sortKey, sortDirection, onSort, classNam
 }
 
 function notificationTitle(task) {
-    if (task?.manual) return task.taskName || task.requestType || 'Task';
+    if (task?.manual) return taskNameWithChecklistSection(task, task.taskName || task.requestType || 'Task');
     const specific = String(task?.taskName || '').trim();
     const type = String(task?.requestType || '').trim();
-    if (specific && specific.toLowerCase() !== type.toLowerCase()) return specific;
+    if (specific && specific.toLowerCase() !== type.toLowerCase()) return taskNameWithChecklistSection(task, specific);
     try {
         const formatted = formatCommandCenterNotificationMessage(task);
         const title = String(formatted?.title || '').trim();
-        if (title && title.toLowerCase() !== type.toLowerCase()) return title;
+        if (title && title.toLowerCase() !== type.toLowerCase()) return taskNameWithChecklistSection(task, title);
     } catch {
         /* Stored notification text is the fallback. */
     }
-    return specific || type || 'Notification';
+    return taskNameWithChecklistSection(task, specific || type || 'Notification');
 }
 
 function TaskNameList({ task, title }) {
     const lines = taskNameLines(task, title);
     const shown = listedTaskNameLines(task, lines);
+    const projectName = String(task?.projectName || '').trim();
+    const showProject = projectName && projectName.toLowerCase() !== String(shown[0] || '').trim().toLowerCase();
     return (
-        <div title={lines.join('\n')}>
+        <div title={[shown[0], showProject ? projectName : '', ...shown.slice(1)].filter(Boolean).join('\n')}>
             <p className="text-[13px] font-semibold leading-5 text-slate-800 break-words">{shown[0]}</p>
+            {showProject ? (
+                <p className="text-[12px] leading-4 text-slate-500 break-words">{projectName}</p>
+            ) : null}
             {shown.slice(1).map((line, index) => (
                 <p key={`${lines[index + 1]}-${index}`} className="text-[12px] leading-4 text-slate-500 break-words">{line}</p>
             ))}
@@ -808,7 +817,13 @@ function taskMatchesListFilters(task, options) {
     } = options;
     const shown = listStatus(task);
     if (scope === 'My Task' && !taskIsMine(task, viewer)) return false;
-    if (typeFilter !== 'All Types' && displayTaskType(task.taskCategory) !== typeFilter) return false;
+    if (typeFilter === 'Project Task') {
+        if (!isProjectTask(task)) return false;
+    } else if (isProjectTask(task)) {
+        return false;
+    } else if (typeFilter !== 'All Types' && displayTaskType(task.taskCategory) !== typeFilter) {
+        return false;
+    }
     const finished = shown === 'Completed' || shown === 'Closed';
     if (finished && status !== 'Completed' && status !== 'All Status') return false;
     if (includeStatus && !finished) {
@@ -837,7 +852,7 @@ function taskMatchesListFilters(task, options) {
     if (!needle) return true;
     const title = (titles.get(task.actionId) || task.taskName || '').toLowerCase();
     return [
-        listedTaskNumber(task),
+        options.workOrderNumbers?.get(task.actionId) || listedTaskNumber(task),
         task.workOrderNo,
         task.taskNumber,
         title,
@@ -1160,22 +1175,22 @@ function TaskManagerContent() {
     }
 
     const listReturnParams = useMemo(() => ({
-        ...(board !== 'mine' ? { board } : {}),
-        ...(board === 'completed' || stateFilter !== 'open' ? { state: stateFilter } : {}),
-        ...(typeFilter === 'Project Task' || scope !== (board === 'all' ? 'All Task' : 'My Task') ? { scope } : {}),
-        ...(typeFilter !== 'All Types' ? { type: typeFilter } : {}),
-        ...(query ? { q: query } : {}),
+        board: board !== 'mine' ? board : '',
+        state: board === 'completed' || stateFilter !== 'open' ? stateFilter : '',
+        scope: typeFilter === 'Project Task' || scope !== (board === 'all' ? 'All Task' : 'My Task') ? scope : '',
+        type: typeFilter !== 'All Types' ? typeFilter : '',
+        q: query || '',
         employee: '',
-        ...(requesterQuery ? { requester: requesterQuery } : {}),
-        ...(assigneeQuery ? { assignee: assigneeQuery } : {}),
-        ...(datePreset !== 'all' ? { date: datePreset } : {}),
-        ...(fromDate ? { from: fromDate } : {}),
-        ...(toDate ? { to: toDate } : {}),
-        ...(status !== 'Pending' ? { status } : {}),
-        ...(priority !== 'All Priority' ? { priority } : {}),
-        ...(projectBucket ? { project: projectBucket } : {}),
-        ...(page > 1 ? { page } : {}),
-        ...(pageSizeChoice !== '10' ? { size: pageSizeChoice } : {}),
+        requester: requesterQuery || '',
+        assignee: assigneeQuery || '',
+        date: datePreset !== 'all' ? datePreset : '',
+        from: fromDate || '',
+        to: toDate || '',
+        status: status !== 'Pending' ? status : '',
+        priority: priority !== 'All Priority' ? priority : '',
+        project: projectBucket || '',
+        page: page > 1 ? page : '',
+        size: pageSizeChoice !== '10' ? pageSizeChoice : '',
     }), [
         board,
         stateFilter,
@@ -1322,9 +1337,10 @@ function TaskManagerContent() {
     );
 
     const boardSummary = useMemo(() => {
-        const mine = tasks.filter((task) => taskInBoard(task, 'mine', viewer));
-        const requests = tasks.filter((task) => taskInBoard(task, 'requests', viewer));
-        const review = tasks.filter((task) => taskInBoard(task, 'review', viewer));
+        const otherTasks = tasks.filter((task) => !isProjectTask(task));
+        const mine = otherTasks.filter((task) => taskInBoard(task, 'mine', viewer));
+        const requests = otherTasks.filter((task) => taskInBoard(task, 'requests', viewer));
+        const review = otherTasks.filter((task) => taskInBoard(task, 'review', viewer));
         const projectTasks = tasks.filter((task) => (
             isProjectTask(task) && (seesAllProjectTasks || taskIsMine(task, viewer))
         ));
@@ -1332,19 +1348,21 @@ function TaskManagerContent() {
             mine: mine.length,
             requests: requests.length,
             review: review.length,
-            all: tasks.length,
+            all: otherTasks.length,
             high: mine.filter((task) => task.priority === 'High').length,
             medium: mine.filter((task) => task.priority === 'Medium').length,
             low: mine.filter((task) => task.priority === 'Low').length,
             mineChange: boardChange(mine, requestMonth),
             requestsChange: boardChange(requests, requestMonth),
             reviewChange: boardChange(review, requestMonth),
-            allChange: boardChange(tasks, requestMonth),
+            allChange: boardChange(otherTasks, requestMonth),
             projectPending: projectTasks.filter((task) => projectTaskBucket(task) === 'pending').length,
             projectApproval: projectTasks.filter((task) => projectTaskBucket(task) === 'approval').length,
             projectCompleted: projectTasks.filter((task) => projectTaskBucket(task) === 'completed').length,
         };
     }, [tasks, viewer, seesAllProjectTasks]);
+
+    const workOrderNumbers = useMemo(() => workOrderDisplayNumbers(tasks), [tasks]);
 
     const filtered = useMemo(() => {
         const searchAndType = {
@@ -1361,12 +1379,28 @@ function TaskManagerContent() {
             includeStatus: false,
         };
         const inProjectBucket = (task) => !projectBucket || projectTaskBucket(task) === projectBucket;
+        if (typeFilter === 'Project Task') {
+            return tasks
+                .filter((task) => (
+                    isProjectTask(task)
+                    && inProjectBucket(task)
+                    && (stateFilter === 'open' ? taskIsOpenState(task) : stateFilter === 'closed' ? taskIsClosedState(task) : true)
+                    && taskMatchesListFilters(task, {
+                        ...listFilter,
+                        scope: seesAllProjectTasks ? 'All Task' : 'My Task',
+                        typeFilter: 'Project Task',
+                        status: 'All Status',
+                        includeStatus: false,
+                        workOrderNumbers,
+                    })
+                ))
+                .map((task) => rowForViewer(task, viewer));
+        }
         if (board !== 'all') {
             return tasks
                 .filter((task) => (
                     taskOnBoard(task, board, viewer, stateFilter)
-                    && taskMatchesListFilters(task, searchAndType)
-                    && inProjectBucket(task)
+                    && taskMatchesListFilters(task, { ...searchAndType, workOrderNumbers })
                 ))
                 .map((task) => rowForViewer(task, viewer));
         }
@@ -1376,17 +1410,16 @@ function TaskManagerContent() {
         return tasks
             .filter((task) => (
                 taskOnBoard(task, board, viewer, stateFilter)
-                && taskMatchesListFilters(task, { ...listFilter, status: statusForList, includeStatus: true })
-                && inProjectBucket(task)
+                && taskMatchesListFilters(task, { ...listFilter, status: statusForList, includeStatus: true, workOrderNumbers })
             ))
             .map((task) => rowForViewer(task, viewer));
-    }, [tasks, board, viewer, listFilter, titles, typeFilter, query, stateFilter, status, priority, projectBucket]);
+    }, [tasks, board, viewer, seesAllProjectTasks, listFilter, titles, typeFilter, query, stateFilter, status, priority, projectBucket, workOrderNumbers]);
     const sorted = useMemo(
         () => sortTaskRows(filtered, sortKey, sortDirection, titles, viewer, board),
         [filtered, sortKey, sortDirection, titles, board, viewer],
     );
 
-    const workOrderBlocks = useMemo(() => clusterWorkOrderTasks(sorted), [sorted]);
+    const workOrderBlocks = useMemo(() => clusterWorkOrderTasks(sorted, tasks), [sorted, tasks]);
     const pageSize = pageSizeChoice === 'all' ? Math.max(sorted.length, 1) : Number(pageSizeChoice);
     const blockPages = useMemo(
         () => paginateWorkOrderBlocks(workOrderBlocks, pageSize),
@@ -1453,6 +1486,7 @@ function TaskManagerContent() {
         else if (next === 'all') setStateFilter('all');
         else if (next !== 'review') setStateFilter('open');
         setProjectBucket('');
+        setTypeFilter('All Types');
         if (next !== 'all') return;
         setScope('All Task');
         setRequesterQuery('');
@@ -1510,29 +1544,24 @@ function TaskManagerContent() {
         setClosedGroups((current) => ({ ...current, [workOrderNo]: !current[workOrderNo] }));
     };
 
-    const toggleGroupSelection = (members) => {
-        setSelected((prev) => {
-            const next = new Set(prev);
-            const allOn = members.every((row) => next.has(row.actionId));
-            members.forEach((row) => {
-                if (allOn) next.delete(row.actionId);
-                else next.add(row.actionId);
-            });
-            return next;
-        });
-    };
-
-    const renderTaskRow = (task, nested = false) => {
-        const title = titles.get(task.actionId) || task.taskName || 'Notification';
+    const renderTaskRow = (task, nested = false, tree = null) => {
+        const pendingTitle = workOrderPendingTitle(
+            task,
+            employeeListName(task.mainAssigneeName || task.assigneeName || ''),
+        );
+        const title = pendingTitle || titles.get(task.actionId) || task.taskName || 'Notification';
         return (
             <ListTableRowLink
                 key={task.actionId}
-                href={taskDetailsHref(task)}
+                href={taskDetailsHref({
+                    ...task,
+                    displayTaskNumber: workOrderNumbers.get(task.actionId) || '',
+                })}
                 router={router}
                 listReturnHref={listReturnHref}
             >
-                <tr className={`cursor-pointer border-b border-slate-50 hover:bg-slate-50/70 ${nested ? 'border-l-4 border-l-indigo-300 bg-slate-50/70' : ''}`}>
-                    <td className="px-4 py-3.5">
+                <tr className={`cursor-pointer border-b border-slate-50 hover:bg-slate-50/70 ${nested ? 'border-l-4 border-l-indigo-200 bg-indigo-50/40' : ''}`}>
+                    <td className={`py-3.5 ${nested ? 'pl-8 pr-4' : 'px-4'}`}>
                         <input
                             type="checkbox"
                             checked={selected.has(task.actionId)}
@@ -1540,13 +1569,27 @@ function TaskManagerContent() {
                             aria-label={`Select ${task.taskNumber}`}
                         />
                     </td>
-                    <td className={`px-3 py-3.5 ${nested ? 'pl-8' : ''}`}>
-                        <p className="text-[13px] font-semibold text-slate-700">{listedTaskNumber(task) || '—'}</p>
-                        {taskNumberCaption(task) ? (
-                            <p className="mt-0.5 max-w-[240px] text-[11px] font-normal lowercase leading-4 text-slate-500">
-                                {taskNumberCaption(task)}
-                            </p>
-                        ) : null}
+                    <td className={`px-3 py-3.5 ${nested ? 'pl-6' : ''}`}>
+                        <div className="flex items-center gap-1.5">
+                            {tree?.toggle ? (
+                                <button
+                                    type="button"
+                                    onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        tree.toggle();
+                                    }}
+                                    aria-expanded={tree.open}
+                                    aria-label={tree.open ? 'Hide tasks under this project' : 'Show tasks under this project'}
+                                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-500 hover:bg-slate-100"
+                                >
+                                    {tree.open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                                </button>
+                            ) : nested ? (
+                                <span className="inline-block h-px w-3 shrink-0 bg-indigo-300" aria-hidden="true" />
+                            ) : null}
+                            <p className="text-[13px] font-semibold text-slate-700">{workOrderNumbers.get(task.actionId) || listedTaskNumber(task) || '—'}</p>
+                        </div>
                     </td>
                     <td className="min-w-[200px] max-w-[280px] px-3 py-3.5">
                         <TaskNameList task={task} title={title} />
@@ -1722,7 +1765,7 @@ function TaskManagerContent() {
                     <div className="mb-4 flex flex-wrap items-center gap-3">
                         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Task lists">
                             {TASK_BOARDS.filter((item) => item.id !== 'completed').map((item) => {
-                                const active = board === item.id;
+                                const active = board === item.id && typeFilter !== 'Project Task';
                                 return (
                                     <button
                                         key={item.id}
@@ -1738,6 +1781,17 @@ function TaskManagerContent() {
                                     </button>
                                 );
                             })}
+                            <button
+                                type="button"
+                                role="tab"
+                                aria-selected={typeFilter === 'Project Task'}
+                                onClick={() => showProjectTasks(projectBucket)}
+                                className={typeFilter === 'Project Task'
+                                    ? 'h-9 rounded-lg bg-[#2563EB] px-4 text-sm font-semibold text-white'
+                                    : 'h-9 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50'}
+                            >
+                                Project Task
+                            </button>
                         </div>
                         <div className="flex min-w-[min(100%,320px)] flex-1 items-center gap-2">
                             <div className="relative min-w-0 flex-1">
@@ -1782,7 +1836,7 @@ function TaskManagerContent() {
                                 aria-label="Task type"
                                 className="h-9 w-[158px] shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700"
                             >
-                                {TYPE_FILTERS.map((item) => (
+                                {TYPE_FILTERS.filter((item) => item !== 'Project Task').map((item) => (
                                     <option key={item}>{item}</option>
                                 ))}
                             </select>
@@ -1964,36 +2018,15 @@ function TaskManagerContent() {
                                     )}
                                     {!loading &&
                                         pageBlocks.map((block) => {
-                                            if (block.type !== 'group') return renderTaskRow(block.task);
+                                            if (block.type !== 'tree') return renderTaskRow(block.task);
                                             const open = closedGroups[block.workOrderNo] !== true;
-                                            const groupSelected = block.tasks.every((row) => selected.has(row.actionId));
                                             return (
                                                 <Fragment key={`wo-${block.workOrderNo}`}>
-                                                    <tr className="border-b border-slate-200 bg-slate-100">
-                                                        <td className="px-4 py-3">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={groupSelected}
-                                                                onChange={() => toggleGroupSelection(block.tasks)}
-                                                                aria-label={`Select tasks for ${block.workOrderNo}`}
-                                                            />
-                                                        </td>
-                                                        <td className="px-3 py-3" colSpan={typeFilter === 'Project Task' ? 9 : 10}>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => toggleGroup(block.workOrderNo)}
-                                                                className="flex w-full items-center gap-2 text-left"
-                                                                aria-expanded={open}
-                                                            >
-                                                                {open ? <ChevronDown size={16} className="text-slate-500" /> : <ChevronRight size={16} className="text-slate-500" />}
-                                                                <span className="text-[13px] font-bold tracking-wide text-slate-800">{block.workOrderNo}</span>
-                                                                <span className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
-                                                                    {block.tasks.length} tasks
-                                                                </span>
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                    {open ? block.tasks.map((task) => renderTaskRow(task, true)) : null}
+                                                    {renderTaskRow(block.root, false, {
+                                                        open,
+                                                        toggle: () => toggleGroup(block.workOrderNo),
+                                                    })}
+                                                    {open ? block.leaves.map((task) => renderTaskRow(task, true)) : null}
                                                 </Fragment>
                                             );
                                         })}

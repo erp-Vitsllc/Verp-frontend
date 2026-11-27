@@ -109,6 +109,72 @@ export function formatFineListStatus(fine) {
     return isFineListCompleted(fine) ? 'Completed' : 'Pending';
 }
 
+function workflowPersonName(person) {
+    if (!person || typeof person !== 'object') return '';
+    return [person.firstName, person.lastName].filter(Boolean).join(' ').trim()
+        || String(person.name || '').trim();
+}
+
+/** Employee the open workflow step is waiting on. */
+export function fineWorkflowHolderName(fine) {
+    const steps = Array.isArray(fine?.workflow) ? fine.workflow : [];
+    const pending = steps.find((step) => String(step?.status || '').trim().toLowerCase() === 'pending');
+    const fromStep = workflowPersonName(pending?.assignedTo);
+    if (fromStep) return formatFineListEmpName(fromStep);
+    const fromSubmit = workflowPersonName(fine?.submittedTo);
+    if (fromSubmit) return formatFineListEmpName(fromSubmit);
+    return '';
+}
+
+/** Fine Status cell. Pending names the employee who still has the workflow. */
+export function formatFineListStatusLabel(fine) {
+    const status = formatFineListStatus(fine);
+    if (status !== 'Pending') return status;
+    const name = fineWorkflowHolderName(fine);
+    return name ? `Pending with ${name}` : 'Pending';
+}
+
+export const FINE_LIST_STATUS_FILTERS = [
+    { value: 'All', label: 'All Statuses' },
+    { value: 'fine-pending', label: 'Fine status pending' },
+    { value: 'fine-completed', label: 'Fine status completed' },
+    { value: 'vendor-pending', label: 'Vendor payment pending' },
+    { value: 'vendor-completed', label: 'Vendor payment completed' },
+    { value: 'employee-pending', label: 'Employee payment pending' },
+    { value: 'employee-completed', label: 'Employee payment completed' },
+    { value: 'cancelled', label: 'Cancelled' },
+    { value: 'draft', label: 'Draft' },
+];
+
+const FINE_LIST_STATUS_FILTER_VALUES = new Set(FINE_LIST_STATUS_FILTERS.map((row) => row.value));
+
+export function normalizeFineListStatusFilter(value) {
+    const raw = String(value || 'All').trim();
+    if (FINE_LIST_STATUS_FILTER_VALUES.has(raw)) return raw;
+    if (raw === 'Pending') return 'fine-pending';
+    if (raw === 'Completed') return 'fine-completed';
+    if (raw === 'Paid to Vendor') return 'vendor-completed';
+    if (raw === 'Cancelled' || raw === 'Withdrawn') return 'cancelled';
+    if (raw === 'Draft') return 'draft';
+    return 'All';
+}
+
+export function matchesFineListStatusFilter(fine, filterKey) {
+    const key = normalizeFineListStatusFilter(filterKey);
+    if (key === 'All') return true;
+    const workflow = formatFineListStatus(fine);
+    const stored = String(fine?.fineStatus || '').trim().toLowerCase();
+    if (key === 'fine-pending') return workflow === 'Pending' && stored !== 'draft';
+    if (key === 'fine-completed') return workflow === 'Completed';
+    if (key === 'vendor-pending') return formatFineListVendorPayment(fine) === 'Pending';
+    if (key === 'vendor-completed') return formatFineListVendorPayment(fine) === 'Paid';
+    if (key === 'employee-pending') return formatFineListAssigneePayment(fine) === 'Pending';
+    if (key === 'employee-completed') return formatFineListAssigneePayment(fine) === 'Employee paid';
+    if (key === 'cancelled') return workflow === 'Cancelled';
+    if (key === 'draft') return stored === 'draft';
+    return true;
+}
+
 export function formatFineListZohoNo(fine) {
     const zohoNo = resolveZohoDocumentNumber(fine);
     if (zohoNo) return zohoNo;

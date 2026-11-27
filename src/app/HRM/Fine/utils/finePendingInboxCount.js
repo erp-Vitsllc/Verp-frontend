@@ -23,6 +23,7 @@ export function isFinePendingInboxApprovalItem(item) {
     if (item.hubRequest) return true;
     const status = String(item?.fine?.fineStatus || '').trim();
     if (!status) return true;
+    if (status === 'Draft') return true;
     if (FINE_PENDING_APPROVAL_STATUSES.has(status)) return true;
     if (['Approved', 'Active'].includes(status) && !isFineAccountsSettlementDone(item?.fine)) {
         return true;

@@ -55,6 +55,8 @@ export const listStockEntries = (status) => axiosInstance.get(`${base}/stock-ent
 export const getStockEntry = (id) => axiosInstance.get(`${base}/stock-entries/${id}`).then(dataOf);
 export const saveStockEntry = (payload) => axiosInstance.post(`${base}/stock-entries`, payload).then(dataOf);
 export const getStockApprovalContext = () => axiosInstance.get(`${base}/stock-entries/approval-context`).then(dataOf);
+export const listBoqNewItems = () => axiosInstance.get(`${base}/boq-new-items`, { skipToast: true }).then(dataOf);
+export const decideBoqNewItem = (payload) => axiosInstance.post(`${base}/boq-new-items/decide`, payload).then(dataOf);
 export const approveStockEntry = (id) => axiosInstance.post(`${base}/stock-entries/${id}/approve`).then(dataOf);
 export const rejectStockEntry = (id) => axiosInstance.post(`${base}/stock-entries/${id}/reject`).then(dataOf);
 

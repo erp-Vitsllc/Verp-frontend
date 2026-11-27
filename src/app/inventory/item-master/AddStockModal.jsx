@@ -109,6 +109,51 @@ function stockItemForName(rows, name, { categoryId = '', subcategoryId = '', bra
     return preferredStockItem(matches);
 }
 
+function formItemStillFits(item, { categoryId = '', subcategoryId = '', brandId = '', itemName = '' } = {}) {
+    if (!item) return false;
+    if (categoryId && !sameId(item.categoryId, categoryId)) return false;
+    if (subcategoryId && !sameId(item.subcategoryId, subcategoryId)) return false;
+    if (brandId && !sameId(item.brandId, brandId)) return false;
+    if (itemName && !namesEqual(itemLabel(item), itemName)) return false;
+    return true;
+}
+
+function modelIsPrefix(stored, typed) {
+    const model = cleanText(stored).toLowerCase();
+    const needle = cleanText(typed).toLowerCase();
+    return Boolean(model && needle && model.startsWith(needle));
+}
+
+function existingItemForForm(rows, { itemId = '', itemText = '', categoryId = '', subcategoryId = '', brandId = '', modelNumber = '' } = {}) {
+    const model = cleanText(modelNumber);
+    const itemName = cleanText(itemText);
+    const filters = { categoryId, subcategoryId, brandId, itemName };
+    if (model) {
+        const owners = modelOwners(model, rows);
+        const owner = owners.find((row) => !row.pendingStock) || (owners.length === 1 ? owners[0] : null);
+        if (owner && namesEqual(owner.modelNumber, model)) {
+            return formItemStillFits(owner, filters) ? owner : null;
+        }
+    }
+    const held = rows.find((row) => sameId(row._id, itemId));
+    if (held && formItemStillFits(held, filters)) {
+        const heldModel = cleanText(held.modelNumber);
+        if (!model || !heldModel || namesEqual(heldModel, model) || modelIsPrefix(heldModel, model)) return held;
+    }
+    if (!itemName) return null;
+    const picked = stockItemForName(rows, itemName, { categoryId, subcategoryId, brandId, modelNumber: model });
+    if (!picked || !formItemStillFits(picked, filters)) return null;
+    const pickedModel = cleanText(picked.modelNumber);
+    if (model && pickedModel && !namesEqual(pickedModel, model) && !modelIsPrefix(pickedModel, model)) return null;
+    return picked;
+}
+
+function stockAmountLabel(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '0';
+    return (Math.round(number * 100) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
 function lineMarkedByError(message, line, index) {
     const text = String(message || '');
     if (!text) return false;
@@ -459,6 +504,19 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
         return [...values].sort((left, right) => left.localeCompare(right)).map((model) => ({ value: model, label: model }));
     }, [brandId, scopedItems]);
 
+    const existingStockItem = useMemo(
+        () => existingItemForForm(items, {
+            itemId,
+            itemText,
+            categoryId,
+            subcategoryId,
+            brandId,
+            modelNumber,
+        }),
+        [items, itemId, itemText, categoryId, subcategoryId, brandId, modelNumber],
+    );
+    const existingStockLabel = existingStockItem ? stockAmountLabel(existingStockItem.availableQuantity) : '';
+
     const keepOrClearItem = (nextCategory, nextSub, nextBrand) => {
         const selected = items.find((row) => sameId(row._id, itemId));
         if (!itemStillVisible(selected, nextCategory, nextSub)) {
@@ -584,8 +642,9 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
         setSubcategoryText(item.subcategoryName || rowById(subcategories, nextSub)?.name || '');
         setItemId(nextId);
         setItemText(itemLabel(item));
+        const itemModel = cleanText(item.modelNumber);
         const owner = ownedModel(modelNumber, items);
-        if (owner && !sameId(owner._id, nextId)) setModelNumber('');
+        if (!cleanText(modelNumber) || (owner && !sameId(owner._id, nextId))) setModelNumber(itemModel);
     };
 
     const typeItem = (text) => {
@@ -776,6 +835,14 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
             && namesEqual(itemLabel(selected), itemName)
             && (!typedModel || !cleanText(selected.modelNumber) || namesEqual(selected.modelNumber, typedModel));
         const model = typedModel || (sameTarget ? cleanText(selected.modelNumber) : '');
+        if (!cleanText(modelNumber)) {
+            setError('Model no is required.');
+            return;
+        }
+        if (!model) {
+            setError('This model no is already used on another item.');
+            return;
+        }
         if (!sameTarget && !access.canCreateItem) {
             setError('Item create permission is required to add an item.');
             return null;
@@ -844,6 +911,10 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
         }
         if (!itemName) {
             setError('Enter an item.');
+            return;
+        }
+        if (!model) {
+            setError('Model no is required.');
             return;
         }
         const next = {
@@ -1282,6 +1353,7 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                                 />
                                                 <TypeSuggest
                                                     label="Model No"
+                                                    required
                                                     text={modelNumber}
                                                     options={editingKey ? [] : modelOptions}
                                                     placeholder="Enter model no"
@@ -1289,7 +1361,18 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
                                                     onPick={editingKey ? (value) => setModelNumber(cleanText(value)) : chooseModel}
                                                     onCommit={editingKey ? (value) => setModelNumber(cleanText(value)) : commitModel}
                                                 />
-                                                <div className="flex items-end justify-end gap-2">
+                                                <label>
+                                                    <span className="mb-1.5 block text-sm font-medium text-slate-700">In Stock</span>
+                                                    <input
+                                                        value={existingStockLabel}
+                                                        readOnly
+                                                        tabIndex={-1}
+                                                        placeholder="—"
+                                                        aria-label="Current stock"
+                                                        className={`${fieldClass} cursor-default bg-slate-50`}
+                                                    />
+                                                </label>
+                                                <div className="flex items-end justify-end gap-2 lg:col-span-3">
                                                     <button type="button" onClick={resetItemFields} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600">
                                                         <RotateCcw size={16} /> Reset
                                                     </button>

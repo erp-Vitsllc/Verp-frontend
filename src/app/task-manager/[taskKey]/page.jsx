@@ -28,7 +28,7 @@ import { useRegisterErpBackHandler } from '@/contexts/ErpBackHandlerContext';
 import { handleNavigateFromTaskSectionClick } from '@/utils/listReturnNavigation';
 import LinkedText from '@/app/task-manager/linkedText';
 import { taskNameLines } from '@/app/task-manager/taskNameLines';
-import { listedTaskNumber, taskNumberCaption } from '@/app/task-manager/workOrderTaskLabel';
+import { listedTaskNumber, taskNameWithChecklistSection } from '@/app/task-manager/workOrderTaskLabel';
 import { completionApprovalStatus, taskWaitingText } from '@/app/task-manager/pendingHoldLine';
 import { pinnedAssignee, taskWaitingOnRequester, viewerRequestedTask } from '@/app/task-manager/taskInbox';
 import { deletedTaskToastDescription, refreshAfterTaskDelete } from '@/app/task-manager/refreshAfterTaskDelete';
@@ -262,6 +262,7 @@ function TaskDetailsPage() {
     useRegisterErpBackHandler(handleBackToList);
     const taskKey = decodeURIComponent(String(params?.taskKey || ''));
     const [taskNumber, setTaskNumber] = useState('');
+    const [listedNumber, setListedNumber] = useState('');
     const [tab, setTab] = useState('overview');
     const [task, setTask] = useState(null);
     const [error, setError] = useState('');
@@ -300,6 +301,7 @@ function TaskDetailsPage() {
     useEffect(() => {
         const query = new URLSearchParams(window.location.search);
         setTaskNumber(query.get('no') || '');
+        setListedNumber(query.get('label') || '');
         const requested = query.get('tab');
         if (requested === 'comments') setTab('updates');
         else if (TABS.some((item) => item.id === requested)) setTab(requested);
@@ -712,7 +714,7 @@ function TaskDetailsPage() {
         } : null))
         : null;
     const openSource = (event, path) => handleNavigateFromTaskSectionClick(event, router, path);
-    const nameLines = taskNameLines(task);
+    const nameLines = taskNameLines(task, taskNameWithChecklistSection(task, task.taskName));
     const shownStatus = statusLabel(task.displayStatus || task.status);
     const generalClosed = generalTask && (task.displayStatus === 'Closed' || task.status === 'Completed');
     const taskFinished = generalClosed || task.displayStatus === 'Closed' || task.displayStatus === 'Completed' || task.status === 'Completed' || task.status === 'Cancelled' || task.status === 'Rejected' || task.closeScheduled || task.completionPending || task.reviewPending;
@@ -739,8 +741,9 @@ function TaskDetailsPage() {
     const updates = Array.isArray(task.updates) ? task.updates : [];
     const comments = Array.isArray(task.comments) ? task.comments : [];
     const number = task.taskNumber || taskNumber || '';
-    const shownNumber = listedTaskNumber({ ...task, taskNumber: number }) || number;
-    const numberCaption = taskNumberCaption(task);
+    const shownNumber = listedNumber || listedTaskNumber({ ...task, taskNumber: number }) || number;
+    const projectName = String(task.projectName || '').trim();
+    const showProject = projectName && projectName.toLowerCase() !== String(nameLines[0] || '').trim().toLowerCase();
     const sentEmails = Array.isArray(task.emails) ? task.emails : [];
     const updateMails = sentEmails.length ? [] : [
         ...updates.filter((item) => item.emailSent).map((item) => ({ ...item, channel: 'Task updated' })),
@@ -767,14 +770,12 @@ function TaskDetailsPage() {
                         <div>
                             <div className="flex flex-wrap items-center gap-2">
                                 <h1 className="text-lg font-bold text-slate-900">{shownNumber || 'Task'}</h1>
-                                {numberCaption ? (
-                                    <p className="mt-0.5 text-[11px] font-normal lowercase leading-4 text-slate-500">{numberCaption}</p>
-                                ) : null}
                                 <span className={`max-w-full whitespace-normal rounded-full px-2 py-0.5 text-xs font-semibold leading-5 ${statusTone}`}>
                                     {statusText}
                                 </span>
                             </div>
                             <h2 className="mt-1 text-2xl font-bold text-slate-900">{nameLines[0]}</h2>
+                            {showProject ? <p className="text-sm text-slate-500">{projectName}</p> : null}
                             {nameLines.slice(1).map((line) => (
                                 <p key={line} className="text-sm text-slate-500">{line}</p>
                             ))}

@@ -7,11 +7,12 @@ import { useToast } from '@/hooks/use-toast';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import LinkedText from '@/app/task-manager/linkedText';
 
-const TASK_TYPES = ['General Task', 'Project Task'];
+const TASK_TYPES = ['General Task'];
 const TASK_TYPE = TASK_TYPES[0];
 
 function manualTaskType(value) {
     const type = value === 'Work Flow Task' ? 'Workflow Task' : String(value || '').trim();
+    if (type === 'Project Task') return 'Project Task';
     return TASK_TYPES.includes(type) ? type : TASK_TYPE;
 }
 const PRIORITIES = ['High', 'Medium', 'Low'];
@@ -318,7 +319,7 @@ export default function CreateTaskModal({ open, onClose, onCreated, initialTask 
                                 onChange={(event) => setField('taskType', event.target.value)}
                                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500"
                             >
-                                {TASK_TYPES.map((item) => (
+                                {(form.taskType === 'Project Task' ? ['Project Task'] : TASK_TYPES).map((item) => (
                                     <option key={item}>{item}</option>
                                 ))}
                             </select>

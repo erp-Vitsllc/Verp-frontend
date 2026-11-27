@@ -22,7 +22,8 @@ import {
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { dubaiDateKey, formatAed, formatWorkOrderDate, nextWorkOrderNo } from './workOrderNumber';
+import { DatePicker } from '@/components/ui/date-picker';
+import { dubaiDateKey, dubaiDayEnd, formatAed, formatWorkOrderDate, nextWorkOrderNo } from './workOrderNumber';
 
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f6fed]/40';
 
@@ -65,6 +66,18 @@ function sameCustomerName(left, right) {
     const a = normalize(left);
     const b = normalize(right);
     return Boolean(a) && a === b;
+}
+
+const LPO_PDF_MAX_BYTES = 5 * 1024 * 1024;
+
+function lpoPdfError(file) {
+    if (!file) return '';
+    const mime = String(file.type || '').toLowerCase();
+    const pdfName = /\.pdf$/i.test(String(file.name || ''));
+    const mimeOk = !mime || mime === 'application/pdf' || mime === 'application/x-pdf' || mime === 'application/octet-stream';
+    if (!pdfName || !mimeOk) return 'Attachment must be a PDF.';
+    if (file.size > LPO_PDF_MAX_BYTES) return 'Attachment must be 5 MB or smaller.';
+    return '';
 }
 
 function readLocalFile(file) {
@@ -445,6 +458,13 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
             setStep(1);
             return;
         }
+        if (lpoMode === 'received' && lpoFile) {
+            const message = lpoPdfError(lpoFile);
+            if (message) {
+                setStepError(message);
+                return;
+            }
+        }
         if (intent === 'create') {
             if (!salesperson || !quoteNumber.trim()) {
                 setStepError('Customer, salesperson and a quotation number are required.');
@@ -455,7 +475,7 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                 setStepError('Confirmation date, location and description are required.');
                 return;
             }
-            if (lpoFile && lpoFile.size > 4 * 1024 * 1024) {
+            if (lpoMode !== 'received' && lpoFile && lpoFile.size > 4 * 1024 * 1024) {
                 setStepError('Attachment must be 4 MB or smaller.');
                 return;
             }
@@ -860,7 +880,13 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                                     </label>
                                     <label htmlFor="wo-lpo-date">
                                         <FieldLabel required>LPO Date</FieldLabel>
-                                        <input id="wo-lpo-date" type="date" max={dubaiDateKey()} value={lpoDate} onChange={(event) => setLpoDate(event.target.value)} className={fieldClass} />
+                                        <DatePicker
+                                            value={lpoDate}
+                                            onChange={setLpoDate}
+                                            placeholder="dd/MM/yyyy"
+                                            disabledDays={{ after: dubaiDayEnd() }}
+                                            className={`h-12 w-full justify-start rounded-xl border-[#e5edf6] bg-white px-3.5 text-[15px] font-normal text-slate-900 shadow-none hover:bg-white ${FOCUS}`}
+                                        />
                                     </label>
                                     <label htmlFor="wo-lpo-value">
                                         <FieldLabel required>LPO Value</FieldLabel>
@@ -878,11 +904,23 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                                             <input
                                                 id="wo-lpo-file"
                                                 type="file"
-                                                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.txt,.csv"
-                                                onChange={(event) => setLpoFile(event.target.files?.[0] || null)}
+                                                accept="application/pdf,.pdf"
+                                                onChange={(event) => {
+                                                    const file = event.target.files?.[0] || null;
+                                                    const message = lpoPdfError(file);
+                                                    if (message) {
+                                                        event.target.value = '';
+                                                        setLpoFile(null);
+                                                        setStepError(message);
+                                                        return;
+                                                    }
+                                                    setStepError('');
+                                                    setLpoFile(file);
+                                                }}
                                                 className="sr-only"
                                             />
                                         </label>
+                                        <p className="mt-1 text-sm text-slate-500">PDF only, maximum 5 MB</p>
                                     </div>
                                 </div>
                             ) : null}

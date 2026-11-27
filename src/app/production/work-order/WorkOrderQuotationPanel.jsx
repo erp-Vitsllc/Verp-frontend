@@ -206,6 +206,20 @@ function itemMatches(item, line, skip) {
     ));
 }
 
+function existingCatalogName(items, line, field) {
+    const typed = String(line?.[field] || '').trim();
+    if (!typed) return false;
+    return (items || []).some((item) => {
+        if (field === 'category') return sameName(item.categoryName, typed);
+        if (field !== 'subcategory' || !sameName(item.subcategoryName, typed)) return false;
+        const categoryId = String(line?.categoryId || '');
+        const category = String(line?.category || '').trim();
+        if (categoryId) return String(item.categoryId || '') === categoryId;
+        if (category) return sameName(item.categoryName, category);
+        return true;
+    });
+}
+
 function catalogChoices(items, line, field) {
     const meta = CATALOG_FIELDS.find(([key]) => key === field);
     if (!meta) return [];
@@ -351,6 +365,8 @@ function lineFromSaved(line) {
         unitPrice: line?.unitPrice ?? '',
         vendorName: line?.vendorName || '',
         paymentTerms: paymentTermOption(line?.paymentTerms) || line?.paymentTerms || '',
+        purchaserItemStatus: ['pending', 'approved', 'rejected'].includes(line?.purchaserItemStatus) ? line.purchaserItemStatus : '',
+        newItemKey: line?.newItemKey || '',
     });
 }
 
@@ -394,15 +410,9 @@ function catalogItem(row) {
     };
 }
 
-function availableStockFor(line, catalog) {
-    const itemId = String(line?.itemId || '');
-    if (itemId) {
-        const match = (catalog || []).find((item) => item.id === itemId);
-        if (match) return match.availableStock;
-        return String(line?.item || line?.category || '').trim() ? 0 : '';
-    }
+function stockOwners(line, catalog) {
     const itemName = String(line?.item || '').trim();
-    if (!itemName) return '';
+    if (!itemName) return [];
     let owners = (catalog || []).filter((item) => sameName(item.itemName, itemName));
     const subId = String(line?.subcategoryId || '');
     const subName = String(line?.subcategory || '').trim();
@@ -414,6 +424,19 @@ function availableStockFor(line, catalog) {
     else if (brandName) owners = owners.filter((item) => sameName(item.brandName, brandName));
     const model = String(line?.modelNo || '').trim();
     if (model) owners = owners.filter((item) => sameName(item.modelNumber, model));
+    return owners;
+}
+
+function availableStockFor(line, catalog) {
+    const itemId = String(line?.itemId || '');
+    if (itemId) {
+        const match = (catalog || []).find((item) => item.id === itemId);
+        if (match) return match.availableStock;
+        return String(line?.item || line?.category || '').trim() ? 0 : '';
+    }
+    const itemName = String(line?.item || '').trim();
+    if (!itemName) return '';
+    const owners = stockOwners(line, catalog);
     if (!owners.length) return itemName ? 0 : '';
     return owners.reduce((sum, item) => sum + (Number(item.availableStock) || 0), 0);
 }
@@ -422,6 +445,23 @@ function stockText(line, catalog) {
     const stock = availableStockFor(line, catalog);
     if (stock === '' || stock == null) return '';
     return Number(stock) === 0 ? 'Out of Stock' : String(stock);
+}
+
+const PURCHASER_NEW_ITEM_MESSAGE = 'purchasor have a task on itemmaster new item is added approve that first';
+
+function isNewBoqItem(line, catalog) {
+    if (line?.kind === 'header') return false;
+    const status = String(line?.purchaserItemStatus || '');
+    if (status === 'pending' || status === 'rejected') return true;
+    if (status === 'approved') return false;
+    const itemName = String(line?.item || '').trim();
+    if (!itemName) return false;
+    const itemId = String(line?.itemId || '');
+    if (itemId) {
+        const listed = (catalog || []).some((item) => item.id === itemId);
+        if (listed || !(catalog || []).length) return false;
+    }
+    return stockOwners(line, catalog).length === 0;
 }
 
 function loadBoqCatalog() {
@@ -467,6 +507,12 @@ function blankBoqMessage(rows, catalog) {
         REQUIRED_LINE_COLUMNS.forEach(([key, label]) => {
             if (String(row?.[key] ?? '').trim() === '') missing.push(`Row ${rowNo}: ${label}`);
         });
+        if (String(row?.category || '').trim() && !existingCatalogName(catalog, row, 'category')) {
+            missing.push(`Row ${rowNo}: Category must already exist`);
+        }
+        if (String(row?.subcategory || '').trim() && !existingCatalogName(catalog, row, 'subcategory')) {
+            missing.push(`Row ${rowNo}: Subcategory must already exist`);
+        }
         const stock = availableStockFor(row, catalog);
         if (stock === '' || stock == null) missing.push(`Row ${rowNo}: Available stock`);
     });
@@ -652,7 +698,7 @@ async function downloadActualBoqPdf(order, tables, descriptionMode = 'new') {
         pdf.setFontSize(9);
         pdf.setTextColor(51, 65, 85);
         pdf.text(
-            `Cash: ${money(summary.cash)}    Credit: ${money(summary.credit)}    Vendor count: ${summary.vendorCount}    Total: ${money(summary.amount)}`,
+            `Cash: ${money(summary.cash)}    Credit: ${money(summary.credit)}    Vendor count: ${summary.vendorCount}    Total qty: ${quantityLabel(summary.quantity)}    Total count: ${summary.lineCount}    Total: ${money(summary.amount)}`,
             margin,
             y,
         );
@@ -663,24 +709,41 @@ async function downloadActualBoqPdf(order, tables, descriptionMode = 'new') {
     pdf.save(`${fileName}-actual-boq.pdf`);
 }
 
+function quantityLabel(value) {
+    const amount = Number(value);
+    const safe = Number.isFinite(amount) ? amount : 0;
+    return safe.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function lineIsFilled(row) {
+    return ['category', 'subcategory', 'item', 'brand', 'modelNo', 'quantity', 'unitPrice', 'vendorName']
+        .some((key) => String(row?.[key] ?? '').trim() !== '');
+}
+
 function tableSummary(rows) {
     const vendors = new Set();
     let cash = 0;
     let credit = 0;
     let amount = 0;
+    let quantity = 0;
+    let lineCount = 0;
     (Array.isArray(rows) ? rows : []).forEach((row) => {
         if (row?.kind === 'header') return;
         const raw = String(row?.total ?? '').trim();
         const lineTotal = raw === '' ? 0 : Number(raw);
         const total = Number.isFinite(lineTotal) ? lineTotal : 0;
         amount += total;
+        const qtyRaw = String(row?.quantity ?? '').trim();
+        const qty = qtyRaw === '' ? 0 : Number(qtyRaw);
+        if (Number.isFinite(qty)) quantity += qty;
+        if (lineIsFilled(row)) lineCount += 1;
         const kind = paymentKind(row?.paymentTerms);
         if (kind === 'cash') cash += total;
         if (kind === 'credit') credit += total;
         const vendor = String(row?.vendorName || '').trim().toLowerCase();
         if (vendor) vendors.add(vendor);
     });
-    return { cash, credit, vendorCount: vendors.size, amount };
+    return { cash, credit, vendorCount: vendors.size, amount, quantity, lineCount };
 }
 
 function useFitTextArea(value, fill, layoutKey) {
@@ -1215,7 +1278,10 @@ function ActualBoqTable({ order, onSaved }) {
     const boqStatus = order?.actualBoq?.status || '';
     const pending = boqStatus === 'pending';
     const approved = boqStatus === 'approved';
-    const canDecide = pending && Boolean(order?.viewerIsProjectManager);
+    const purchaserItemRows = rows.filter((row) => row?.kind !== 'header' && row?.purchaserItemStatus);
+    const purchaserGate = purchaserItemRows.length > 0;
+    const purchaserItemsOpen = purchaserItemRows.some((row) => row.purchaserItemStatus !== 'approved');
+    const canDecide = pending && (purchaserGate ? Boolean(order?.viewerIsPurchaseOfficer) : Boolean(order?.viewerIsProjectManager));
     const canSave = !pending && !approved;
     const canEditUpdate = approved && updateOpen && updateMeta.status !== 'pending';
     const canDecideUpdate = approved && updateMeta.status === 'pending' && Boolean(order?.viewerIsPurchaseOfficer);
@@ -1460,7 +1526,9 @@ function ActualBoqTable({ order, onSaved }) {
                 {title ? <h3 className="mb-2 text-sm font-semibold text-slate-900">{title}</h3> : null}
                 {!locked ? (
                     <p className="mb-2 text-[12px] leading-5 text-slate-500">
-                        Pick an existing category, subcategory, item, or brand, or type a new one. It is added on this BOQ now. After approval it is stored with the other items, and its stock is Out of Stock.
+                        {scope === 'main'
+                            ? 'Choose an existing category and subcategory. Item, brand, and model no can be new. A new item shows with a yellow border and stays pending for the purchaser until they approve it on Item Master. Its stock is Out of Stock.'
+                            : 'Choose an existing category and subcategory. Item, brand, and model no can be new. A new item is added on this BOQ now. After approval it is stored with the other items, and its stock is Out of Stock.'}
                     </p>
                 ) : null}
                 <div className="max-w-full overflow-auto">
@@ -1613,6 +1681,11 @@ function ActualBoqTable({ order, onSaved }) {
                                 );
                             }
                             const description = line[descriptionKey] || '';
+                            const purchaserStatus = scope === 'main' ? String(line.purchaserItemStatus || '') : '';
+                            const newItemRow = scope === 'main' && isNewBoqItem(line, catalog);
+                            const lineCell = newItemRow
+                                ? 'relative break-words border-2 border-yellow-400 bg-yellow-50 px-1 py-1 align-top font-normal'
+                                : cell;
                             return (
                                 <tr
                                     key={line.key}
@@ -1621,22 +1694,28 @@ function ActualBoqTable({ order, onSaved }) {
                                     onDragOver={(event) => onDragOver(event, rowIndex, scope)}
                                     onDrop={onDrop}
                                 >
-                                    <td className={`${cell} px-0.5 text-center`} style={rowStyle}>{dragHandle}{rowEdge}</td>
+                                    <td className={`${lineCell} px-0.5 text-center`} style={rowStyle}>{dragHandle}{rowEdge}</td>
                                     {CATALOG_FIELDS.map(([field]) => (
-                                        <td key={field} className={cell} style={rowStyle}>
+                                        <td key={field} className={lineCell} style={rowStyle}>
                                             {rowEdge}
                                             <CellSuggest
                                                 value={line[field] || ''}
                                                 options={catalogChoices(catalog, line, field)}
                                                 readOnly={locked}
-                                                allowNew
+                                                allowNew={field === 'item' || field === 'brand' || field === 'modelNo'}
                                                 fill={fill}
                                                 layoutKey={fitted[field]}
                                                 onPick={(value) => patchRow(scope, rowIndex, pickCatalogValue(line, field, value, catalog))}
                                             />
+                                            {field === 'item' && purchaserStatus === 'pending' ? (
+                                                <p className="px-0.5 pt-0.5 text-[10px] font-semibold leading-4 text-amber-700">Pending for purchaser</p>
+                                            ) : null}
+                                            {field === 'item' && purchaserStatus === 'rejected' ? (
+                                                <p className="px-0.5 pt-0.5 text-[10px] font-semibold leading-4 text-rose-700">Rejected</p>
+                                            ) : null}
                                         </td>
                                     ))}
-                                    <td className={cell} style={rowStyle}>
+                                    <td className={lineCell} style={rowStyle}>
                                         {rowEdge}
                                         <GrowText
                                             value={description}
@@ -1647,14 +1726,14 @@ function ActualBoqTable({ order, onSaved }) {
                                             onChange={(value) => patchRow(scope, rowIndex, { ...line, [descriptionKey]: value })}
                                         />
                                     </td>
-                                    <td className={cell} style={rowStyle}>
+                                    <td className={lineCell} style={rowStyle}>
                                         {rowEdge}
                                         <p className={`px-0.5 py-1 text-right text-[12px] font-medium tabular-nums ${stockText(line, catalog) === 'Out of Stock' ? 'text-red-600' : 'text-slate-700'}`}>
                                             {stockText(line, catalog)}
                                         </p>
                                     </td>
                                     {['quantity', 'unitPrice'].map((field) => (
-                                        <td key={field} className={cell} style={rowStyle}>
+                                        <td key={field} className={lineCell} style={rowStyle}>
                                             {rowEdge}
                                             <GrowText
                                                 value={line[field] ?? ''}
@@ -1667,7 +1746,7 @@ function ActualBoqTable({ order, onSaved }) {
                                             />
                                         </td>
                                     ))}
-                                    <td className={cell} style={rowStyle}>
+                                    <td className={lineCell} style={rowStyle}>
                                         {rowEdge}
                                         <GrowText
                                             value={line.total ?? ''}
@@ -1679,7 +1758,7 @@ function ActualBoqTable({ order, onSaved }) {
                                             label="Total"
                                         />
                                     </td>
-                                    <td className={cell} style={rowStyle}>
+                                    <td className={lineCell} style={rowStyle}>
                                         {rowEdge}
                                         <CellSuggest
                                             value={line.vendorName || ''}
@@ -1697,7 +1776,7 @@ function ActualBoqTable({ order, onSaved }) {
                                             }}
                                         />
                                     </td>
-                                    <td className={cell} style={rowStyle}>
+                                    <td className={lineCell} style={rowStyle}>
                                         {rowEdge}
                                         <select
                                             value={paymentTermOption(line.paymentTerms) || line.paymentTerms || ''}
@@ -1712,7 +1791,7 @@ function ActualBoqTable({ order, onSaved }) {
                                             ))}
                                         </select>
                                     </td>
-                                    <td className={`${cell} text-center`} style={rowStyle}>{rowEdge}{plusButton}</td>
+                                    <td className={`${lineCell} text-center`} style={rowStyle}>{rowEdge}{plusButton}</td>
                                 </tr>
                             );
                         })}
@@ -1730,6 +1809,8 @@ function ActualBoqTable({ order, onSaved }) {
                     <span>Cash: <span className="font-medium tabular-nums text-slate-800">{money(summary.cash)}</span></span>
                     <span>Credit: <span className="font-medium tabular-nums text-slate-800">{money(summary.credit)}</span></span>
                     <span>Vendor count: <span className="font-medium tabular-nums text-slate-800">{summary.vendorCount}</span></span>
+                    <span>Total qty: <span className="font-medium tabular-nums text-slate-800">{quantityLabel(summary.quantity)}</span></span>
+                    <span>Total count: <span className="font-medium tabular-nums text-slate-800">{summary.lineCount}</span></span>
                 </p>
                 </div>
                 </div>
@@ -1832,14 +1913,22 @@ function ActualBoqTable({ order, onSaved }) {
                     <p className="text-sm text-slate-600">Draft saved. The task and notification are assigned to you.</p>
                 ) : null}
                 {pending && !canDecide ? (
-                    <p className="text-sm text-amber-800">Waiting for {order?.projectManagerName || 'the project manager'}. Their notification opens this actual BOQ, where they can approve or reject.</p>
+                    <p className="text-sm text-amber-800">
+                        {purchaserGate
+                            ? `Waiting for ${order?.purchaseOfficerName || 'the purchaser'}. New items stay pending for the purchaser until they are approved on Item Master.`
+                            : `Waiting for ${order?.projectManagerName || 'the project manager'}. Their notification opens this actual BOQ, where they can approve or reject.`}
+                    </p>
                 ) : null}
                 {boqStatus === 'rejected' && order?.actualBoq?.reason ? (
                     <p className="text-sm text-rose-700">Rejected: {order.actualBoq.reason}</p>
                 ) : null}
                 {canDecide ? (
                     <div className="flex flex-col gap-2">
-                        <p className="text-sm text-slate-600">Approve this actual BOQ, or reject it with a description.</p>
+                        {purchaserItemsOpen ? (
+                            <p className="text-sm text-amber-800">{PURCHASER_NEW_ITEM_MESSAGE}</p>
+                        ) : (
+                            <p className="text-sm text-slate-600">Approve this actual BOQ, or reject it with a description.</p>
+                        )}
                         <textarea
                             value={rejectNote}
                             onChange={(event) => setRejectNote(event.target.value)}

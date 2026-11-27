@@ -480,6 +480,10 @@ export function buildUnderstandableNotificationTitle(item = {}) {
             if (/is complete leave take action/i.test(leaveTitle)) return leaveTitle;
             return type || 'Asset Leave';
         }
+        case 'Work Order Project':
+            return sanitizeNotificationText(item.extra1 || '') || 'New work order created';
+        case 'Work Order Checklist':
+            return sanitizeNotificationText(item.extra1 || '') || 'Work order checklist';
         case 'Work Order LPO':
         case 'Work Order LPO Attachment':
         case 'Work Order LPO Approval':
@@ -490,6 +494,12 @@ export function buildUnderstandableNotificationTitle(item = {}) {
             return sanitizeNotificationText(item.extra1 || '') || 'Actual BOQ update';
         case 'Inventory Bill Draft':
             return sanitizeNotificationText(item.extra1 || item.subjectName || '') || 'Draft bill';
+        case 'Fine':
+        case 'Group Fine Request': {
+            const hint = sanitizeNotificationText(item.extra2 || '');
+            if (/draft/i.test(hint)) return hint;
+            return sanitizeNotificationText(item.extra1 || '') || type;
+        }
         default:
             return expiryTitle || type || 'Request';
     }
@@ -587,6 +597,12 @@ function buildUtilityCategoryLine(item = {}) {
     }
     if (type === 'Asset Leave' && /is complete leave take action/i.test(e1)) {
         return e2 && e2 !== e1 ? e2 : '';
+    }
+    if (type === 'Work Order Project') {
+        return e2 || 'A project task is waiting for the project coordinator.';
+    }
+    if (type === 'Work Order Checklist') {
+        return e2 || 'Open the work order checklist.';
     }
     if (type === 'Work Order LPO' || type === 'Work Order LPO Attachment' || type === 'Work Order LPO Approval') {
         return e2 || 'LPO number, date and value were left empty.';
