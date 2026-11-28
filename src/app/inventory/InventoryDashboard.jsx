@@ -271,13 +271,13 @@ function Donut({ data, center, caption, empty }) {
     );
 }
 
-function QuantityGraph({ icon: Icon, iconClass, title, subtitle, rows, totalLabel, accent, track }) {
+function QuantityGraph({ icon: Icon, iconClass, title, subtitle, rows, totalLabel, accent }) {
     const list = Array.isArray(rows) ? rows : [];
     const max = list.reduce((peak, row) => Math.max(peak, Number(row.value) || 0), 0);
     const total = list.reduce((sum, row) => sum + (Number(row.value) || 0), 0);
     return (
         <section className="flex min-w-0 flex-col rounded-xl border border-[#E6EDF5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-            <div className="mb-4 flex items-center gap-3">
+            <div className="mb-5 flex items-center gap-3">
                 <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconClass}`}>
                     <Icon size={18} />
                 </span>
@@ -287,26 +287,30 @@ function QuantityGraph({ icon: Icon, iconClass, title, subtitle, rows, totalLabe
                 </div>
             </div>
             {list.length ? (
-                <ul className="space-y-3">
-                    {list.map((row) => (
-                        <li key={row.name} className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_3.4rem] items-center gap-2.5">
-                            <span className="truncate text-[13px] text-slate-700" title={row.name}>{row.name}</span>
-                            <span className={`h-3 overflow-hidden rounded-full ${track}`}>
-                                <span
-                                    className="block h-full rounded-full"
-                                    style={{ width: `${max ? Math.max((Number(row.value) / max) * 100, 3) : 0}%`, backgroundColor: accent }}
-                                />
-                            </span>
-                            <span className="text-right text-[13px] font-semibold tabular-nums" style={{ color: accent }}>{formatCount(row.value)}</span>
-                        </li>
-                    ))}
+                <ul className="space-y-3.5">
+                    {list.map((row) => {
+                        const amount = Number(row.value) || 0;
+                        const width = max > 0 && amount > 0 ? (amount / max) * 100 : 0;
+                        return (
+                            <li key={row.name} className="grid grid-cols-[minmax(0,7.2rem)_minmax(0,1fr)_auto] items-center gap-3">
+                                <span className="truncate text-[13px] font-normal text-slate-600" title={row.name}>{row.name}</span>
+                                <span className="h-[18px] overflow-hidden rounded-md bg-[#F1F5F9]">
+                                    <span
+                                        className="block h-full rounded-md"
+                                        style={{ width: `${width}%`, backgroundColor: accent }}
+                                    />
+                                </span>
+                                <span className="min-w-[4.75rem] text-right text-[13px] font-normal tabular-nums text-slate-500">{formatMoney(amount)}</span>
+                            </li>
+                        );
+                    })}
                 </ul>
             ) : (
-                <p className="flex min-h-[140px] flex-1 items-center justify-center text-center text-[12px] text-slate-400">No quantity in this period.</p>
+                <p className="flex min-h-[140px] flex-1 items-center justify-center text-center text-[12px] text-slate-400">No categories yet.</p>
             )}
             <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
                 <span className="text-[13px] font-semibold text-slate-800">{totalLabel}</span>
-                <span className="text-[18px] font-bold tabular-nums" style={{ color: accent }}>{formatCount(total)}</span>
+                <span className="text-[18px] font-bold tabular-nums" style={{ color: accent }}>{formatMoney(total)}</span>
             </div>
         </section>
     );
@@ -688,31 +692,28 @@ export default function InventoryDashboard() {
                         icon={Warehouse}
                         iconClass="bg-blue-50 text-blue-600"
                         title="Graph 1: Stock"
-                        subtitle="Current available quantity"
+                        subtitle="Amount of quantity on hand"
                         rows={data?.stockGraph}
-                        totalLabel="Total Stock Quantity"
+                        totalLabel="Total Stock Amount"
                         accent="#3B82F6"
-                        track="bg-slate-100"
                     />
                     <QuantityGraph
                         icon={ShoppingCart}
                         iconClass="bg-orange-50 text-orange-500"
                         title="Graph 2: Purchase"
-                        subtitle="Total purchased quantity"
+                        subtitle="Amount of quantity purchased"
                         rows={data?.purchaseGraph}
-                        totalLabel="Total Purchase Quantity"
+                        totalLabel="Total Purchase Amount"
                         accent="#F59E0B"
-                        track="bg-orange-50"
                     />
                     <QuantityGraph
                         icon={Truck}
                         iconClass="bg-emerald-50 text-emerald-600"
                         title="Graph 3: Delivery"
-                        subtitle="Total delivered quantity"
+                        subtitle="Amount of quantity delivered"
                         rows={data?.deliveryGraph}
-                        totalLabel="Total Delivery Quantity"
+                        totalLabel="Total Delivery Amount"
                         accent="#22C55E"
-                        track="bg-emerald-50"
                     />
                 </div>
 
