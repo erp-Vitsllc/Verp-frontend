@@ -294,9 +294,9 @@ function QuantityGraph({ icon: Icon, iconClass, title, subtitle, rows, totalLabe
                         return (
                             <li key={row.name} className="grid grid-cols-[minmax(0,7.2rem)_minmax(0,1fr)_auto] items-center gap-3">
                                 <span className="truncate text-[13px] font-normal text-slate-600" title={row.name}>{row.name}</span>
-                                <span className="h-[18px] overflow-hidden bg-[#F1F5F9]">
+                                <span className="h-[18px] overflow-hidden rounded-[4px] bg-[#F1F5F9]">
                                     <span
-                                        className="block h-full"
+                                        className="block h-full rounded-[4px]"
                                         style={{ width: `${width}%`, backgroundColor: accent }}
                                     />
                                 </span>
