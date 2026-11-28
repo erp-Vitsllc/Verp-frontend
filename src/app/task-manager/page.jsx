@@ -169,6 +169,7 @@ function projectTaskBucket(task) {
     if (requestType === 'Work Order LPO Approval') return 'approval';
     if (requestType === 'Work Order Actual BOQ' && !/\bdraft\b/.test(note)) return 'approval';
     if (requestType === 'Work Order Actual BOQ Update' && !/\bdraft\b/.test(note)) return 'approval';
+    if (requestType === 'Work Order MOM') return 'approval';
     if (/^Work Order MR(?: \d+)?$/.test(requestType) && /for your approval/.test(note)) return 'approval';
     return 'pending';
 }
@@ -1589,6 +1590,14 @@ function TaskManagerContent() {
                                 <span className="inline-block h-px w-3 shrink-0 bg-indigo-300" aria-hidden="true" />
                             ) : null}
                             <p className="text-[13px] font-semibold text-slate-700">{workOrderNumbers.get(task.actionId) || listedTaskNumber(task) || '—'}</p>
+                            {tree?.count > 0 ? (
+                                <span
+                                    className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-indigo-50 px-1.5 text-[11px] font-semibold text-indigo-700"
+                                    title={`${tree.count} task${tree.count === 1 ? '' : 's'} under this work order`}
+                                >
+                                    {tree.count}
+                                </span>
+                            ) : null}
                         </div>
                     </td>
                     <td className="min-w-[200px] max-w-[280px] px-3 py-3.5">
@@ -1626,7 +1635,7 @@ function TaskManagerContent() {
                     </td>
                     <td className="px-3 py-3.5 text-right">
                         <div className="inline-flex items-center justify-end gap-1">
-                            {task.canDelete || task.deleteBlockedByAssignee ? (
+                            {task.taskCategory !== 'Project Task' && (task.canDelete || task.deleteBlockedByAssignee) ? (
                                 <button
                                     type="button"
                                     disabled={!task.canDelete}
@@ -2024,6 +2033,7 @@ function TaskManagerContent() {
                                                 <Fragment key={`wo-${block.workOrderNo}`}>
                                                     {renderTaskRow(block.root, false, {
                                                         open,
+                                                        count: block.leaves.length,
                                                         toggle: () => toggleGroup(block.workOrderNo),
                                                     })}
                                                     {open ? block.leaves.map((task) => renderTaskRow(task, true)) : null}

@@ -36,6 +36,8 @@ import { QUOTATION_VIEWS, WORK_ORDER_TAB_SLUGS, workOrderDetailsHref, workOrderT
 import WorkOrderBudgetPanel from './WorkOrderBudgetPanel';
 import WorkOrderQuotationModal from './WorkOrderQuotationModal';
 import WorkOrderQuotationPanel from './WorkOrderQuotationPanel';
+import WorkOrderMomPanel from './WorkOrderMomPanel';
+import WorkOrderWorkflowPanel from './WorkOrderWorkflowPanel';
 
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f6fed]/40';
 const PANEL = 'flex h-full min-w-0 flex-col rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5';
@@ -224,10 +226,6 @@ function lpoRows(order) {
     return Array.isArray(order?.lpos) ? order.lpos : [];
 }
 
-function historyAssignee(value) {
-    return String(value || '').trim();
-}
-
 function historyTime(value) {
     const text = String(value || '').trim();
     if (!text) return 0;
@@ -353,71 +351,6 @@ function historyEvents(order) {
         .sort((left, right) => (left.at || Number.MAX_SAFE_INTEGER) - (right.at || Number.MAX_SAFE_INTEGER));
 }
 
-function historySteps(order) {
-    const budgets = Array.isArray(order?.budgets) ? order.budgets : [];
-    const budgetSave = [...budgets].reverse().find((row) => row.action === 'convert' || row.action === 'rebudget');
-    const budgetReview = [...budgets].reverse().find((row) => row.action === 'rebudget' || row.action === 'resync');
-    const lpoSent = lpoRows(order).length > 0 || Boolean(String(order?.lpoNo || '').trim());
-    return [
-        {
-            id: 'create',
-            label: 'Work order create',
-            done: Boolean(order?.createdOn),
-            assignee: historyAssignee(order?.createdByName),
-        },
-        {
-            id: 'sales',
-            label: 'Sales kick off',
-            done: Boolean(order?.confirmationDate),
-            assignee: historyAssignee(order?.salespersonName),
-        },
-        { id: 'mom', label: 'MOM', done: false, assignee: '' },
-        { id: 'boq', label: 'Actual BOQ', done: order?.actualBoq?.status === 'approved', assignee: historyAssignee(order?.actualBoq?.status === 'draft' ? order?.actualBoq?.requestedByName : (order?.actualBoq?.status ? order?.projectManagerName : '')) },
-        {
-            id: 'budget',
-            label: 'Budget',
-            done: Boolean(order?.budgeted) || budgets.length > 0,
-            assignee: historyAssignee(budgetSave?.savedByName),
-        },
-        { id: 'lpo', label: 'LPO to vendor', done: lpoSent, assignee: '' },
-        { id: 'delivery', label: 'Delivery', done: false, assignee: '' },
-        {
-            id: 'bill',
-            label: 'Bill entry',
-            done: Array.isArray(order?.invoices) && order.invoices.length > 0,
-            assignee: '',
-        },
-        {
-            id: 'review',
-            label: 'Budget review',
-            done: Boolean(budgetReview),
-            assignee: historyAssignee(budgetReview?.savedByName),
-        },
-        {
-            id: 'completion',
-            label: 'Completion',
-            done: order?.status === 'Completed',
-            assignee: '',
-        },
-    ];
-}
-
-function checklistSteps(order) {
-    const live = historySteps(order);
-    const stored = Array.isArray(order?.checklist) ? order.checklist : [];
-    if (!stored.length) return live;
-    const byId = new Map(live.map((step) => [step.id, step]));
-    return stored.map((item) => {
-        const current = byId.get(item.id) || {};
-        return {
-            id: item.id,
-            label: item.label || current.label || 'Checklist',
-            done: Boolean(current.done),
-            assignee: current.assignee || '',
-        };
-    });
-}
-
 function lpoStatusLabel(mode) {
     if (mode === 'received') return 'Received';
     if (mode === 'not_required') return 'Not required';
@@ -497,7 +430,8 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
     const { toast } = useToast();
     const router = useRouter();
     const pathname = usePathname();
-    const tab = WORK_ORDER_TAB_SLUGS[tabSlug] || 'Overview';
+    const resolvedSlug = tabSlug === 'check-list' ? 'mom' : tabSlug === 'activity' ? 'workflow' : tabSlug;
+    const tab = WORK_ORDER_TAB_SLUGS[resolvedSlug] || 'Overview';
     const quotationView = QUOTATION_VIEWS.includes(viewSlug) ? viewSlug : 'proposed';
     const leaveDetails = useCallback(() => router.push('/production/work-order'), [router]);
     const handleBack = useListReturnBack(leaveDetails);
@@ -1234,43 +1168,10 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                 <Summary icon={FileText} tint="bg-orange-50 text-orange-500" label="Balance" value={formatAed(balance)} />
             </div>
 
-            {order.lpoAlert?.message ? (
-                <div className="mb-4 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950">
-                    <p className="font-semibold">{lpoCopy.status}</p>
-                    <p className="mt-1">{lpoCopy.description}</p>
-                    {order.lpoAlert.message && order.lpoAlert.message !== lpoCopy.description ? (
-                        <p className="mt-1">{order.lpoAlert.message}</p>
-                    ) : null}
-                    <p className="mt-1 text-[12px] text-orange-800">
-                        {order.lpoAlert.emailed
-                            ? `Email sent to ${order.lpoAlert.emailTo || order.salespersonName || 'the salesperson'}.`
-                            : 'The salesperson notification is saved.'}
-                        {order.lpoAlert.attachmentName ? ` Attachment: ${order.lpoAlert.attachmentName}` : ''}
-                    </p>
-                    {order.lpoAlert.attachmentData ? (
-                        <button
-                            type="button"
-                            onClick={() => downloadAttachment(order.lpoAlert.attachmentName, order.lpoAlert.attachmentMime, order.lpoAlert.attachmentData)}
-                            className={`mt-2 text-[13px] font-semibold text-[#2f6fed] hover:underline ${FOCUS}`}
-                        >
-                            Download attachment
-                        </button>
-                    ) : null}
-                </div>
-            ) : null}
-
             {order.lpoApproval?.status === 'draft' ? (
                 <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
                     <p className="font-semibold">LPO draft</p>
                     <p className="mt-1">The status stays {lpoCopy.status} until Submit. The project manager can update this draft.</p>
-                </div>
-            ) : null}
-            {approvalPending ? (
-                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                    <p className="font-semibold">Waiting for project manager approval</p>
-                    <p className="mt-1">
-                        The LPO status stays {lpoCopy.status} until {order.projectManagerName || 'the project manager'} approves.
-                    </p>
                 </div>
             ) : null}
             {approvalRejected && order.lpoApproval?.reason ? (
@@ -1313,7 +1214,7 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
             <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
                 <div className="space-y-4">
                     <div className="flex gap-1 overflow-x-auto rounded-2xl border border-[#e6eef6] bg-white p-1.5">
-                        {['Overview', 'LPO', 'Quotation', 'Invoices', 'BOQ', 'Budget', 'Check list', 'Material', 'Delivery', 'Activity', 'History', 'Old documents'].map((item) => (
+                        {['Overview', 'LPO', 'Quotation', 'Invoices', 'BOQ', 'Budget', 'MOM', 'Material', 'Delivery', 'Workflow', 'History', 'Old documents'].map((item) => (
                             <button
                                 key={item}
                                 type="button"
@@ -1912,35 +1813,11 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                         </div>
                     ) : null}
 
-                    {tab === 'Check list' ? (
-                        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
-                            <h2 className="mb-5 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
-                                <ClipboardList size={16} className="text-[#2f6fed]" /> Check list
-                            </h2>
-                            <ol>
-                                {checklistSteps(order).map((step, index, steps) => (
-                                    <li key={step.id} className="relative flex gap-3 pb-5 last:pb-0">
-                                        {index < steps.length - 1 ? (
-                                            <span className="absolute bottom-0 left-[11px] top-6 w-px bg-[#d7e3f4]" aria-hidden="true" />
-                                        ) : null}
-                                        <input
-                                            type="checkbox"
-                                            checked={step.done}
-                                            readOnly
-                                            tabIndex={-1}
-                                            aria-label={step.label}
-                                            className="pointer-events-none relative z-10 mt-0.5 h-[22px] w-[22px] shrink-0 rounded border-[#c5d4e8] accent-[#2f6fed]"
-                                        />
-                                        <span className="min-w-0 pt-0.5">
-                                            <span className="block text-sm font-semibold text-slate-800">{step.label}</span>
-                                            {step.assignee ? (
-                                                <span className="mt-0.5 block text-[13px] text-slate-500">{step.assignee}</span>
-                                            ) : null}
-                                        </span>
-                                    </li>
-                                ))}
-                            </ol>
-                        </section>
+                    {tab === 'MOM' ? (
+                        <WorkOrderMomPanel
+                            order={order}
+                            onSaved={(next) => setOrder((current) => keepOrderFields(current, next))}
+                        />
                     ) : null}
 
                     {tab === 'Material' ? (
@@ -1982,15 +1859,11 @@ export default function WorkOrderDetails({ id, tabSlug = '', viewSlug = '' }) {
                         </section>
                     ) : null}
 
-                    {tab === 'Activity' ? (
-                        <section className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)] sm:p-5">
-                            <h2 className="mb-4 text-[15px] font-semibold text-slate-800">Activity</h2>
-                            <ul className="space-y-3 text-sm text-slate-600">
-                                <li>Created {formatWorkOrderDate(order.createdOn)}{order.createdByName ? ` by ${order.createdByName}` : ''}.</li>
-                                <li>Status is {order.status}.</li>
-                                {order.lpoAlert?.message ? <li>{order.lpoAlert.message}</li> : null}
-                            </ul>
-                        </section>
+                    {tab === 'Workflow' ? (
+                        <WorkOrderWorkflowPanel
+                            order={order}
+                            onSaved={(next) => setOrder((current) => keepOrderFields(current, next))}
+                        />
                     ) : null}
 
                     {tab === 'History' ? (

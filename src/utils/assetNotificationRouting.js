@@ -642,7 +642,7 @@ export function buildAssetNotificationPath(rawItem) {
             : '';
     }
 
-    if (type.includes('vehicle assignment photo review')) {
+    if (type.includes('vehicle handover images missing') || type.includes('vehicle assignment photo review')) {
         if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
         const vehicleId = meta?.vehicleMongoId || meta?.vehicleId || assetId;
         const historyId = meta?.historyId;

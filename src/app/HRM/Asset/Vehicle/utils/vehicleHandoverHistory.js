@@ -3,6 +3,41 @@ import {
     getHandoverEscalationDayInfo,
 } from './vehicleHandoverEscalationUi';
 
+const HANDOVER_BODY_PHOTO_KEYS = [
+    'frontView',
+    'backView',
+    'frontRightCorner',
+    'backRightCorner',
+    'frontLeftCorner',
+    'backLeftCorner',
+    'frontRightDoor',
+    'backRightDoor',
+    'frontLeftDoor',
+    'backLeftDoor',
+    'frontInsideView',
+    'backInsideView',
+    'frontDashBoard',
+    'carTopView',
+];
+
+function historyBodyPhotoAdded(photo) {
+    if (!photo) return false;
+    if (typeof photo === 'string') return Boolean(photo.trim());
+    if (typeof photo === 'object') return Boolean(photo.url || photo.publicId || photo.data || photo.path);
+    return false;
+}
+
+function historyBodyPhotosAdded(entry) {
+    const details = entry?.details || {};
+    if (details.bodyConditionCompleted === true) return true;
+    const source = details.bodyConditionReport || details.bodyCondition;
+    if (!source || typeof source !== 'object') return false;
+    return HANDOVER_BODY_PHOTO_KEYS.every((key) => {
+        const row = source[key];
+        return historyBodyPhotoAdded(row?.photo || row?.image);
+    });
+}
+
 const HANDOVER_HISTORY_ACTIONS = new Set([
     'Assigned',
     'Returned',
@@ -367,9 +402,13 @@ export function getHandoverHistoryStatus(entry, vehicle = null, options = {}) {
     const dayInfo = getHandoverEscalationDayInfo(vehicle, entry, options);
     if (!dayInfo) return status;
 
+    const dayLabel = formatHandoverEscalationDayLabel(dayInfo);
+    const imagesRequired = dayInfo.autoAcceptDue && !historyBodyPhotosAdded(entry);
     return {
         ...status,
-        label: `${status.label} · ${formatHandoverEscalationDayLabel(dayInfo)}`,
+        label: imagesRequired
+            ? `${status.label} · ${dayLabel} · images required`
+            : `${status.label} · ${dayLabel}`,
     };
 }
 

@@ -137,6 +137,17 @@ export function isUnpaidUtilityBill(bill) {
     return true;
 }
 
+/** Paid in ERP, or already prepaid and closed in Zoho. */
+export function utilityBillIsPaidOrPrepaid(bill) {
+    if (!bill) return false;
+    if (String(bill.status || '').trim() === 'Paid') return true;
+    const zoho = String(bill.zohoBillStatus || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '_');
+    return zoho === 'paid' || zoho === 'fully_paid';
+}
+
 /**
  * Statuses that occupy an entry for a bill month (Approved displays as Not Paid).
  * Pending / Rejected do not occupy — those rows still appear in Add Bills.

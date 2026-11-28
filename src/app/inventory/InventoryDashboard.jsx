@@ -15,6 +15,7 @@ import {
     Truck,
     Users,
     Warehouse,
+    X,
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, Tooltip, XAxis, YAxis } from 'recharts';
 import RechartsBox from '@/components/charts/RechartsBox';
@@ -27,7 +28,6 @@ const MODES = [
     { id: 'months', label: 'Months' },
     { id: 'custom', label: 'Custom' },
 ];
-const CATEGORY_COLORS = ['#3B82F6', '#8B5CF6', '#F59E0B', '#22C55E', '#EAB308', '#EC4899', '#14B8A6', '#6366F1'];
 const STOCK_COLORS = {
     'Stock In': '#22C55E',
     'Low Stock': '#F59E0B',
@@ -37,6 +37,17 @@ const BILL_COLORS = {
     Draft: '#94A3B8',
     Pending: '#F59E0B',
     Approved: '#22C55E',
+};
+const AGE_DOTS = [
+    { id: 'normal', color: '#22C55E', range: '0–28 Days', label: 'Normal Stock' },
+    { id: 'nonMoving', color: '#EAB308', range: '29–56 Days', label: 'Non-Moving Stock' },
+    { id: 'slow', color: '#F97316', range: '57–84 Days', label: 'Slow-Moving Alert' },
+    { id: 'critical', color: '#EF4444', range: 'Over 84 Days', label: 'Critical Non-Moving Stock' },
+];
+const IDLE_CLASS = {
+    nonMoving: 'text-amber-500',
+    slow: 'text-orange-500',
+    critical: 'text-red-500',
 };
 const STATUS_CLASS = {
     'Low Stock': 'bg-orange-50 text-orange-600',
@@ -162,16 +173,6 @@ function formatMoney(value) {
     })}`;
 }
 
-function compactNumber(value) {
-    const amount = Number(value) || 0;
-    const absolute = Math.abs(amount);
-    const scaled = absolute >= 1_000_000 ? amount / 1_000_000 : amount / 1_000;
-    const text = String(Math.round(scaled * 10) / 10).replace(/\.0$/, '');
-    if (absolute >= 1_000_000) return `${text}M`;
-    if (absolute >= 1_000) return `${text}K`;
-    return Math.round(amount).toLocaleString('en-US');
-}
-
 function formatDate(value) {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
     if (!match) return '—';
@@ -197,15 +198,6 @@ function changeClass(stat, change) {
 function shortName(value) {
     const text = String(value || '');
     return text.length > 14 ? `${text.slice(0, 13)}…` : text;
-}
-
-function packCategorySlices(rows) {
-    return (rows || []).map((row, index) => ({
-        name: row.name,
-        value: row.value,
-        label: formatMoney(row.value),
-        color: row.name === 'Others' ? '#94A3B8' : CATEGORY_COLORS[index % CATEGORY_COLORS.length],
-    }));
 }
 
 function countSlices(rows, colors) {
@@ -275,6 +267,182 @@ function Donut({ data, center, caption, empty }) {
                     </li>
                 ))}
             </ul>
+        </div>
+    );
+}
+
+function QuantityGraph({ icon: Icon, iconClass, title, subtitle, rows, totalLabel, accent, track }) {
+    const list = Array.isArray(rows) ? rows : [];
+    const max = list.reduce((peak, row) => Math.max(peak, Number(row.value) || 0), 0);
+    const total = list.reduce((sum, row) => sum + (Number(row.value) || 0), 0);
+    return (
+        <section className="flex min-w-0 flex-col rounded-xl border border-[#E6EDF5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <div className="mb-4 flex items-center gap-3">
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconClass}`}>
+                    <Icon size={18} />
+                </span>
+                <div className="min-w-0">
+                    <h3 className="text-[14px] font-semibold text-slate-800">{title}</h3>
+                    <p className="text-[12px] text-slate-400">{subtitle}</p>
+                </div>
+            </div>
+            {list.length ? (
+                <ul className="space-y-3">
+                    {list.map((row) => (
+                        <li key={row.name} className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_3.4rem] items-center gap-2.5">
+                            <span className="truncate text-[13px] text-slate-700" title={row.name}>{row.name}</span>
+                            <span className={`h-3 overflow-hidden rounded-full ${track}`}>
+                                <span
+                                    className="block h-full rounded-full"
+                                    style={{ width: `${max ? Math.max((Number(row.value) / max) * 100, 3) : 0}%`, backgroundColor: accent }}
+                                />
+                            </span>
+                            <span className="text-right text-[13px] font-semibold tabular-nums" style={{ color: accent }}>{formatCount(row.value)}</span>
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <p className="flex min-h-[140px] flex-1 items-center justify-center text-center text-[12px] text-slate-400">No quantity in this period.</p>
+            )}
+            <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                <span className="text-[13px] font-semibold text-slate-800">{totalLabel}</span>
+                <span className="text-[18px] font-bold tabular-nums" style={{ color: accent }}>{formatCount(total)}</span>
+            </div>
+        </section>
+    );
+}
+
+function AgeDots() {
+    return (
+        <div className="mt-4 flex items-center gap-1">
+            {AGE_DOTS.map((dot, index) => (
+                <span key={dot.id} className="group relative">
+                    <button
+                        type="button"
+                        className="flex h-6 w-6 items-center justify-center rounded-full"
+                        aria-label={`${dot.range}. ${dot.label}`}
+                    >
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dot.color }} />
+                    </button>
+                    <span className={`pointer-events-none absolute bottom-full z-30 mb-1 hidden items-center gap-4 whitespace-nowrap rounded-lg border border-[#E6EDF5] bg-white px-3 py-2 text-[12px] shadow-md group-hover:flex group-focus-within:flex ${index < 2 ? 'left-0' : 'right-0'}`}>
+                        <span className="inline-flex items-center gap-2 font-semibold text-slate-800">
+                            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dot.color }} />
+                            {dot.range}
+                        </span>
+                        <span className="text-slate-400">{dot.label}</span>
+                    </span>
+                </span>
+            ))}
+        </div>
+    );
+}
+
+function NonMovingPanel({ report, onOpen }) {
+    const categories = Array.isArray(report?.categories) ? report.categories : [];
+    const max = categories.reduce((peak, row) => Math.max(peak, Number(row.value) || 0), 0);
+    return (
+        <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-[#E6EDF5] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                    <p className="text-[13px] text-slate-500">Non-Moving Quantity</p>
+                    <p className="mt-1 text-[22px] font-bold leading-tight text-red-500">{formatCount(report?.quantity)} Units</p>
+                </div>
+                <div className="rounded-xl border border-[#E6EDF5] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                    <p className="text-[13px] text-slate-500">Non-Moving Stock Value</p>
+                    <p className="mt-1 text-[22px] font-bold leading-tight text-red-500">{formatMoney(report?.value)}</p>
+                </div>
+            </div>
+            <section className="rounded-xl border border-[#E6EDF5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                {categories.length ? (
+                    <ul className="space-y-2">
+                        {categories.map((row) => (
+                            <li key={row.name}>
+                                <button
+                                    type="button"
+                                    onClick={() => onOpen(row.name)}
+                                    className="grid w-full grid-cols-[minmax(0,9.5rem)_minmax(0,1fr)_3.2rem] items-center gap-3 rounded-lg px-1 py-1 text-left hover:bg-slate-50"
+                                    aria-label={`Open non-moving items in ${row.name}`}
+                                >
+                                    <span className="truncate text-[13px] text-slate-700" title={row.name}>{row.name}</span>
+                                    <span className="h-3 overflow-hidden rounded-full bg-slate-100">
+                                        <span
+                                            className="block h-full rounded-full bg-red-500"
+                                            style={{ width: `${max ? Math.max((Number(row.value) / max) * 100, 3) : 0}%` }}
+                                        />
+                                    </span>
+                                    <span className="text-right text-[13px] font-semibold tabular-nums text-red-500">{formatCount(row.value)}</span>
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p className="py-8 text-center text-[12px] text-slate-400">No stock has been idle for more than 28 days.</p>
+                )}
+                <AgeDots />
+            </section>
+        </div>
+    );
+}
+
+function NonMovingList({ category, items, onClose }) {
+    const rows = (items || []).filter((row) => row.category === category);
+    useEffect(() => {
+        const onKey = (event) => {
+            if (event.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="non-moving-title"
+                className="flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-xl"
+                onClick={(event) => event.stopPropagation()}
+            >
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                    <div>
+                        <h3 id="non-moving-title" className="text-[16px] font-semibold text-slate-900">Non-Moving Material List</h3>
+                        <p className="mt-0.5 text-[12px] text-slate-400">{category} category · Over 28 days</p>
+                    </div>
+                    <button type="button" onClick={onClose} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" aria-label="Close">
+                        <X size={16} />
+                    </button>
+                </div>
+                <div className="overflow-auto px-5 py-2">
+                    <table className="w-full text-left">
+                        <thead className="sticky top-0 bg-white">
+                            <tr className="text-[12px] text-slate-400">
+                                <th className="py-2 font-medium">Model No.</th>
+                                <th className="py-2 font-medium">Stock Qty.</th>
+                                <th className="py-2 font-medium">Last Delivery</th>
+                                <th className="py-2 font-medium">Idle Days</th>
+                                <th className="py-2 text-right font-medium">Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows.map((row) => (
+                                <tr key={row.id} className="border-t border-slate-100 text-[13px] text-slate-700">
+                                    <td className="py-3 pr-3 font-medium text-slate-800">
+                                        <Link href={`/inventory/item-master/${row.id}`} className="hover:text-blue-600 hover:underline">{row.model}</Link>
+                                    </td>
+                                    <td className="py-3 tabular-nums">{formatCount(row.quantity)}</td>
+                                    <td className="py-3 text-slate-500">{formatDate(row.lastDelivery)}</td>
+                                    <td className={`py-3 font-semibold tabular-nums ${IDLE_CLASS[row.band] || 'text-slate-700'}`}>{formatCount(row.idleDays)}</td>
+                                    <td className="py-3 text-right tabular-nums">{formatPrice(row.value)}</td>
+                                </tr>
+                            ))}
+                            {!rows.length ? (
+                                <tr>
+                                    <td colSpan={5} className="py-8 text-center text-[12px] text-slate-400">No non-moving items in this category.</td>
+                                </tr>
+                            ) : null}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     );
 }
@@ -354,6 +522,7 @@ export default function InventoryDashboard() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [nonMovingCategory, setNonMovingCategory] = useState('');
     const monthsKey = months.join(',');
     const rangeIncomplete = mode === 'custom' && (!start || !end);
     const rangeError = mode === 'custom' && start && end && start > end ? 'The start date must be on or before the end date.' : '';
@@ -406,9 +575,6 @@ export default function InventoryDashboard() {
 
     const stats = data?.stats || {};
     const previous = data?.previous || {};
-    const categories = packCategorySlices(data?.categories);
-    const categoryTotal = categories.reduce((sum, row) => sum + row.value, 0);
-    const vendors = (data?.vendors || []).map((row) => ({ ...row, label: compactNumber(row.value) }));
     const stockStatus = countSlices(data?.stockStatus, STOCK_COLORS);
     const billStatus = countSlices(data?.billStatus, BILL_COLORS);
     const stockTotal = stockStatus.reduce((sum, row) => sum + row.value, 0);
@@ -517,46 +683,40 @@ export default function InventoryDashboard() {
                     })}
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-                    <Card title="Inventory Value by Category">
-                        <Donut data={categories} center="AED" caption={compactNumber(categoryTotal)} empty="No inventory value in this period." />
-                    </Card>
-                    <Card
-                        title="Monthly Purchase Value"
-                        action={(
-                            <span className="rounded-md border border-[#E6EDF5] bg-white px-2 py-1 text-[11px] text-slate-500">
-                                {data?.range?.label || '—'}
-                            </span>
-                        )}
-                    >
-                        <RechartsBox height={188} minHeight={188}>
-                            <BarChart data={data?.monthly || []} barSize={16} margin={{ top: 8, right: 4, left: -8, bottom: 0 }}>
-                                <CartesianGrid vertical={false} stroke="#EEF2F7" />
-                                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} interval={0} />
-                                <YAxis tickFormatter={compactNumber} tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={36} />
-                                <Tooltip content={(props) => <ChartTooltip {...props} money />} />
-                                <Bar dataKey="value" fill="#3B82F6" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </RechartsBox>
-                    </Card>
-                    <Card title="Top Vendors by Purchase Value" action={<ViewAll href="/inventory/vendor-management" />}>
-                        {vendors.length ? (
-                            <RechartsBox height={210} minHeight={210}>
-                                <BarChart data={vendors} barSize={28} margin={{ top: 22, right: 8, left: 0, bottom: 4 }}>
-                                    <CartesianGrid vertical={false} stroke="#EEF2F7" />
-                                    <XAxis dataKey="name" interval={0} angle={-28} textAnchor="end" height={72} tickFormatter={shortName} tick={{ fontSize: 10, fill: '#64748B' }} axisLine={false} tickLine={false} />
-                                    <YAxis tickFormatter={compactNumber} tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={36} />
-                                    <Tooltip content={(props) => <ChartTooltip {...props} money />} />
-                                    <Bar dataKey="value" fill="#3B82F6" radius={[4, 4, 0, 0]}>
-                                        <LabelList dataKey="label" position="top" style={{ fontSize: 10, fill: '#334155', fontWeight: 600 }} />
-                                    </Bar>
-                                </BarChart>
-                            </RechartsBox>
-                        ) : (
-                            <EmptyNote>No vendor purchases in this period.</EmptyNote>
-                        )}
-                    </Card>
+                <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-3">
+                    <QuantityGraph
+                        icon={Warehouse}
+                        iconClass="bg-blue-50 text-blue-600"
+                        title="Graph 1: Stock"
+                        subtitle="Current available quantity"
+                        rows={data?.stockGraph}
+                        totalLabel="Total Stock Quantity"
+                        accent="#3B82F6"
+                        track="bg-slate-100"
+                    />
+                    <QuantityGraph
+                        icon={ShoppingCart}
+                        iconClass="bg-orange-50 text-orange-500"
+                        title="Graph 2: Purchase"
+                        subtitle="Total purchased quantity"
+                        rows={data?.purchaseGraph}
+                        totalLabel="Total Purchase Quantity"
+                        accent="#F59E0B"
+                        track="bg-orange-50"
+                    />
+                    <QuantityGraph
+                        icon={Truck}
+                        iconClass="bg-emerald-50 text-emerald-600"
+                        title="Graph 3: Delivery"
+                        subtitle="Total delivered quantity"
+                        rows={data?.deliveryGraph}
+                        totalLabel="Total Delivery Quantity"
+                        accent="#22C55E"
+                        track="bg-emerald-50"
+                    />
                 </div>
+
+                <NonMovingPanel report={data?.nonMoving} onOpen={setNonMovingCategory} />
 
                 <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
                     <Card title="Low Stock Items" action={<ViewAll href="/inventory/item-master?status=Low%20Stock" />}>
@@ -690,6 +850,13 @@ export default function InventoryDashboard() {
                         <Donut data={billStatus} center={formatCount(billTotal)} caption="Bills" empty="No bills in this period." />
                     </Card>
                 </div>
+                {nonMovingCategory ? (
+                    <NonMovingList
+                        category={nonMovingCategory}
+                        items={data?.nonMoving?.items}
+                        onClose={() => setNonMovingCategory('')}
+                    />
+                ) : null}
                 </>
                 ) : null}
             </main>

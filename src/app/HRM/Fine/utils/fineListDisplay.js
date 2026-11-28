@@ -110,20 +110,116 @@ export function formatFineListStatus(fine) {
 }
 
 function workflowPersonName(person) {
-    if (!person || typeof person !== 'object') return '';
-    return [person.firstName, person.lastName].filter(Boolean).join(' ').trim()
-        || String(person.name || '').trim();
+    if (!person) return '';
+    if (typeof person === 'string') return String(person).trim();
+    if (typeof person !== 'object') return '';
+    const named = String(person.name || '').trim();
+    if (named) return named;
+    return [person.firstName, person.lastName].filter(Boolean).join(' ').trim();
 }
 
-/** Employee the open workflow step is waiting on. */
-export function fineWorkflowHolderName(fine) {
-    const steps = Array.isArray(fine?.workflow) ? fine.workflow : [];
-    const pending = steps.find((step) => String(step?.status || '').trim().toLowerCase() === 'pending');
-    const fromStep = workflowPersonName(pending?.assignedTo);
-    if (fromStep) return formatFineListEmpName(fromStep);
-    const fromSubmit = workflowPersonName(fine?.submittedTo);
-    if (fromSubmit) return formatFineListEmpName(fromSubmit);
+function usablePersonName(value) {
+    const named = String(value || '').trim();
+    if (!named || /^(unknown|system|n\/a|accounts|accounts officer)$/i.test(named)) return '';
+    return named;
+}
+
+/** Skip trailing initials so "Mohammed Ramees K A" shortens to "Mohammed Ram". */
+function shortHolderName(fullName) {
+    const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length <= 2) return formatFineListEmpName(fullName);
+    const meaningful = parts.filter((part, index) => index === 0 || part.replace(/\./g, '').length > 1);
+    const trimmed = meaningful.length >= 2
+        ? `${meaningful[0]} ${meaningful[meaningful.length - 1]}`
+        : fullName;
+    return formatFineListEmpName(trimmed);
+}
+
+const OPEN_APPROVAL_STATUSES = new Set([
+    'Draft',
+    'Pending',
+    'Pending Admin',
+    'Pending HR',
+    'Pending Review',
+    'Pending Accounts',
+    'Pending Finance',
+    'Pending Authorization',
+    'Pending Management',
+]);
+
+function normalizeWorkflowRole(role) {
+    const value = String(role || '').trim();
+    if (value === 'CEO') return 'Management';
+    return value;
+}
+
+function expectedRoleForOpenStatus(status, steps) {
+    if (status === 'Pending Admin') return 'Admin Officer';
+    if (status === 'Pending HR' || status === 'Pending Review') return 'HR';
+    if (status === 'Pending Accounts' || status === 'Pending Finance') return 'Accounts';
+    if (status === 'Pending Authorization' || status === 'Pending Management') return 'Management';
+    if (status === 'Pending') {
+        const pending = steps.find((step) => String(step?.status || '').trim().toLowerCase() === 'pending');
+        return normalizeWorkflowRole(pending?.role) || 'HR';
+    }
     return '';
+}
+
+function stepMatchesRole(step, role) {
+    const stepRole = normalizeWorkflowRole(step?.role);
+    if (role === 'Management') return stepRole === 'Management';
+    return stepRole === role;
+}
+
+/**
+ * Person who still has to act on Make Payment.
+ * Same order as the fine history "Action by" line: payer, live Accounts holder, then the Accounts step.
+ * submittedTo is not used here — after Management approves it still points at that approver.
+ */
+function makePaymentHolderFullName(fine) {
+    const fromPayer = usablePersonName(workflowPersonName(fine?.accountsPaymentBy));
+    if (fromPayer) return fromPayer;
+    const hod = usablePersonName(fine?.accountsHODName);
+    if (hod) return hod;
+    const steps = Array.isArray(fine?.workflow) ? fine.workflow : [];
+    const accountsStep = steps.find((step) => normalizeWorkflowRole(step?.role) === 'Accounts');
+    const fromStep = usablePersonName(workflowPersonName(accountsStep?.assignedTo));
+    if (fromStep) return fromStep;
+    return usablePersonName(workflowPersonName(fine?.accountsApprovedBy));
+}
+
+function openApprovalHolderFullName(fine) {
+    const status = String(fine?.fineStatus || '').trim();
+    const steps = Array.isArray(fine?.workflow) ? fine.workflow : [];
+    const role = expectedRoleForOpenStatus(status, steps);
+    const pendingSteps = steps.filter((step) => String(step?.status || '').trim().toLowerCase() === 'pending');
+    const pending = role
+        ? pendingSteps.find((step) => stepMatchesRole(step, role))
+        : pendingSteps[0];
+    const fromPending = usablePersonName(workflowPersonName(pending?.assignedTo));
+    if (fromPending) return fromPending;
+    return usablePersonName(workflowPersonName(fine?.submittedTo));
+}
+
+/**
+ * Full name of the employee the fine is waiting on right now.
+ * After Management approval this is the Accounts person on Make Payment, not the approver who already finished.
+ */
+export function fineCurrentHolderName(fine) {
+    if (!fine || isClosedWorkflowStatus(fine.fineStatus)) return '';
+    const status = String(fine.fineStatus || '').trim();
+    if (['Approved', 'Active'].includes(status)) {
+        if (isFineAccountsSettlementDone(fine)) return '';
+        return makePaymentHolderFullName(fine);
+    }
+    if (!OPEN_APPROVAL_STATUSES.has(status)) return '';
+    return openApprovalHolderFullName(fine);
+}
+
+/** Short list name for the employee the open stage is waiting on. */
+export function fineWorkflowHolderName(fine) {
+    const full = fineCurrentHolderName(fine);
+    return full ? shortHolderName(full) : '';
 }
 
 /** Fine Status cell. Pending names the employee who still has the workflow. */

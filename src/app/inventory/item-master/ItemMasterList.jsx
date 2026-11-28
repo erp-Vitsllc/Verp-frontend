@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Bell, ChevronDown, Download, LayoutGrid, List, MoreVertical, Pencil, Plus, Receipt, Search, Trash2 } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
+import { SortHeading, sortRowsByColumn, useColumnSort } from '@/components/ListColumnSort';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
 import PageSizeSelect from '../PageSizeSelect';
@@ -273,6 +274,7 @@ export default function ItemMasterList() {
     const [itemOptions, setItemOptions] = useState([]);
     const [brands, setBrands] = useState([]);
     const [rows, setRows] = useState([]);
+    const itemSort = useColumnSort('availableQuantity', 'desc');
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(() => pageParam(searchParams));
     const [pageSize, setPageSize] = useState(() => pageSizeParam(searchParams));
@@ -299,6 +301,7 @@ export default function ItemMasterList() {
     const [deletingId, setDeletingId] = useState('');
     const [draft, setDraft] = useState(null);
     const [brandView, setBrandView] = useState('thumbnail');
+    const [brandStock, setBrandStock] = useState('instock');
     const [imageTokens, setImageTokens] = useState({ category: 0, subcategory: 0, brand: 0 });
 
     const listHref = useMemo(() => itemListHref({
@@ -447,6 +450,8 @@ export default function ItemMasterList() {
             itemOptionId,
             brandId,
             status: status !== DEFAULT_STOCK_STATUS ? status : '',
+            sort: itemSort.sortKey,
+            dir: itemSort.sortDir,
         })
             .then((result) => {
                 if (cancelled) return;
@@ -463,7 +468,7 @@ export default function ItemMasterList() {
         return () => {
             cancelled = true;
         };
-    }, [access.ready, access.canViewItems, page, pageSize, appliedSearch, categoryId, subcategoryId, itemOptionId, brandId, status, reloadToken]);
+    }, [access.ready, access.canViewItems, page, pageSize, appliedSearch, categoryId, subcategoryId, itemOptionId, brandId, status, reloadToken, itemSort.sortKey, itemSort.sortDir]);
 
     const { pageCount: pages, currentPage, from, to } = pageWindow(total, page, pageSize);
     const catalogQuery = catalogSearch.trim().toLowerCase();
@@ -473,6 +478,10 @@ export default function ItemMasterList() {
     const visibleCategories = categoryScope.filter((row) => matchesName(row, catalogQuery));
     const visibleSubcategories = subcategoryScope.filter((row) => matchesName(row, catalogQuery));
     const visibleBrands = brandScope.filter((row) => matchesName(row, catalogQuery));
+    const thumbnailBrands = visibleBrands
+        .filter((row) => (brandStock === 'out' ? !row.inStock : Boolean(row.inStock)))
+        .slice()
+        .sort((left, right) => countOf(right.stockQuantity) - countOf(left.stockQuantity) || String(left.name || '').localeCompare(String(right.name || '')));
     const categoryImageKey = useMemo(
         () => (tab === 'category' ? pageIdKey(visibleCategories, page, pageSize) : ''),
         [page, pageSize, tab, visibleCategories],
@@ -482,8 +491,8 @@ export default function ItemMasterList() {
         [page, pageSize, tab, visibleSubcategories],
     );
     const brandImageKey = useMemo(
-        () => (tab === 'brand' && brandView === 'thumbnail' ? pageIdKey(visibleBrands, page, thumbPageLimit(pageSize)) : ''),
-        [brandView, page, pageSize, tab, visibleBrands],
+        () => (tab === 'brand' && brandView === 'thumbnail' ? pageIdKey(thumbnailBrands, page, thumbPageLimit(pageSize)) : ''),
+        [brandView, page, pageSize, tab, thumbnailBrands],
     );
     const imagesEnabled = Boolean(access.ready && access.canViewItems);
     const categoryPics = usePagedImages({
@@ -516,7 +525,7 @@ export default function ItemMasterList() {
             ? visibleCategories.length
             : tab === 'subcategory'
                 ? visibleSubcategories.length
-                : visibleBrands.length;
+                : (brandView === 'thumbnail' ? thumbnailBrands.length : visibleBrands.length);
         const pagingSize = tab === 'brand' && brandView === 'thumbnail' ? thumbPageLimit(pageSize) : pageSize;
         const { pageCount } = pageWindow(count, page, pagingSize);
         if (page > pageCount) setPage(pageCount);
@@ -529,6 +538,7 @@ export default function ItemMasterList() {
         pages,
         tab,
         visibleBrands.length,
+        thumbnailBrands.length,
         visibleCategories.length,
         visibleSubcategories.length,
     ]);
@@ -797,8 +807,21 @@ export default function ItemMasterList() {
     const itemChoices = itemFilterChoices(itemOptions, subcategories, categoryId, subcategoryId);
     const showItemActions = access.canEditItem || access.canDeleteItem;
     const itemColumnCount = showItemActions ? 10 : 9;
-    const itemHeadings = ['Item Code', 'Item Name', 'Brand', 'Model', 'Description', 'Category', 'Subcategory', 'Qty', 'Status'];
-    if (showItemActions) itemHeadings.push('Actions');
+    const itemColumns = [
+        { label: 'Item Code', key: 'itemCode' },
+        { label: 'Item Name', key: 'itemName' },
+        { label: 'Brand', key: 'brandName' },
+        { label: 'Model', key: 'modelNumber' },
+        { label: 'Description', key: 'description' },
+        { label: 'Category', key: 'categoryName' },
+        { label: 'Subcategory', key: 'subcategoryName' },
+        { label: 'Qty', key: 'availableQuantity' },
+        { label: 'Status', key: 'status' },
+        ...(showItemActions ? [{ label: 'Actions', key: '' }] : []),
+    ];
+    const sortedItemRows = sortRowsByColumn(rows, itemSort.sortKey, itemSort.sortDir, (row, key) => (
+        key === 'availableQuantity' ? countOf(row.availableQuantity) : (row[key] ?? '')
+    ));
 
     return (
         <div className="rounded-2xl border border-[#E6EDF5] bg-white p-5 shadow-sm">
@@ -948,6 +971,20 @@ export default function ItemMasterList() {
                             }}
                         />
                     </div>
+                    {tab === 'brand' && brandView === 'thumbnail' ? (
+                        <select
+                            aria-label="Brand stock"
+                            value={brandStock}
+                            onChange={(event) => {
+                                setBrandStock(event.target.value);
+                                setPage(1);
+                            }}
+                            className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-slate-700"
+                        >
+                            <option value="instock">In stock</option>
+                            <option value="out">Out of stock</option>
+                        </select>
+                    ) : null}
                     {tab === 'brand' ? (
                         <BrandViewSwitch value={brandView} onChange={setBrandView} />
                     ) : null}
@@ -1022,8 +1059,20 @@ export default function ItemMasterList() {
                             </colgroup>
                             <thead>
                                 <tr className="bg-[#F8FAFC] text-[11px] uppercase tracking-wide text-slate-400">
-                                    {itemHeadings.map((heading) => (
-                                        <th key={heading} className="px-3 py-3 font-medium">{heading}</th>
+                                    {itemColumns.map((column) => (
+                                        <SortHeading
+                                            key={column.label}
+                                            label={column.label}
+                                            columnKey={column.key}
+                                            sortKey={itemSort.sortKey}
+                                            sortDir={itemSort.sortDir}
+                                            onSort={(key) => {
+                                                itemSort.onSort(key);
+                                                setPage(1);
+                                            }}
+                                            className="px-3 py-3 font-medium"
+                                            align={column.key === 'availableQuantity' ? 'right' : 'left'}
+                                        />
                                     ))}
                                 </tr>
                             </thead>
@@ -1032,7 +1081,7 @@ export default function ItemMasterList() {
                                     <tr><td colSpan={itemColumnCount} className="px-3 py-8 text-center text-sm text-slate-400">Loading items...</td></tr>
                                 ) : rows.length === 0 ? (
                                     <tr><td colSpan={itemColumnCount} className="px-3 py-8 text-center text-sm text-slate-400">{search || categoryId || subcategoryId || itemOptionId || brandId || status !== DEFAULT_STOCK_STATUS ? 'No items match this filter.' : 'No items yet.'}</td></tr>
-                                ) : rows.map((row) => (
+                                ) : sortedItemRows.map((row) => (
                                     <ListTableRowLink
                                         key={row._id}
                                         href={`/inventory/item-master/${row._id}`}
@@ -1121,6 +1170,7 @@ export default function ItemMasterList() {
                         { label: 'Item', key: 'itemCount', count: true },
                     ]}
                     onOpen={(columnKey, row) => openCount('category', columnKey, row)}
+                    onRow={(row) => showCatalog('subcategory', { caption: `category ${row.name || ''}`.trim(), categoryId: row._id })}
                     onEdit={access.canEditCategory ? (row) => openEdit('category', row) : null}
                     onDelete={access.canDeleteCategory ? (row) => removeCatalog('category', row) : null}
                     deleteLocked={(row) => countOf(row.stockQuantity) > 0}
@@ -1148,6 +1198,11 @@ export default function ItemMasterList() {
                         { label: 'Item', key: 'itemCount', count: true },
                     ]}
                     onOpen={(columnKey, row) => openCount('subcategory', columnKey, row)}
+                    onRow={(row) => showItems({
+                        caption: `subcategory ${row.name || ''}`.trim(),
+                        categoryId: row.categoryId || '',
+                        subcategoryId: row._id,
+                    })}
                     onEdit={access.canEditSubcategory ? (row) => openEdit('subcategory', row) : null}
                     onDelete={access.canDeleteSubcategory ? (row) => removeCatalog('subcategory', row) : null}
                     deleteLocked={(row) => countOf(row.stockQuantity) > 0}
@@ -1174,6 +1229,7 @@ export default function ItemMasterList() {
                             { label: 'Item', key: 'itemCount', count: true },
                         ]}
                         onOpen={(columnKey, row) => openCount('brand', columnKey, row)}
+                        onRow={(row) => showItems({ caption: `brand ${row.name || ''}`.trim(), brandId: row._id })}
                         onEdit={access.canEditBrand ? (row) => openEdit('brand', row) : null}
                         onDelete={access.canDeleteBrand ? (row) => removeCatalog('brand', row) : null}
                         deletingId={deletingId}
@@ -1184,9 +1240,11 @@ export default function ItemMasterList() {
                     />
                 ) : (
                     <BrandThumbnailGrid
-                        rows={visibleBrands}
+                        rows={thumbnailBrands}
                         loading={catalogLoading && brands.length === 0}
-                        empty={catalogEmpty(catalogError, brands, brandScope, catalogQuery, 'Brands could not be loaded.', 'No brands yet.', 'No brands match your search.', linkedList)}
+                        empty={visibleBrands.length > 0 && thumbnailBrands.length === 0
+                            ? (brandStock === 'out' ? 'No brands are out of stock.' : 'No brands are in stock.')
+                            : catalogEmpty(catalogError, brands, brandScope, catalogQuery, 'Brands could not be loaded.', 'No brands yet.', 'No brands match your search.', linkedList)}
                         images={brandPics.images}
                         imagesLoading={brandPics.loading}
                         page={page}
@@ -1479,12 +1537,23 @@ function CatalogImage({ src, pending, name }) {
     );
 }
 
-function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onDelete, deleteLocked = null, deletingId, page, pageSize, onPageChange, onPageSizeChange, serial = false, images = null, imagesLoading = false }) {
+function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onRow = null, onEdit, onDelete, deleteLocked = null, deletingId, page, pageSize, onPageChange, onPageSizeChange, serial = false, images = null, imagesLoading = false }) {
     const showActions = Boolean(onEdit || onDelete);
     const showImage = images != null;
     const columnCount = columns.length + (showActions ? 1 : 0) + (serial ? 1 : 0) + (showImage ? 1 : 0);
-    const range = pageWindow(rows.length, page, pageSize);
-    const pageRows = slicePage(rows, range.currentPage, pageSize);
+    const sort = useColumnSort();
+    const valueOf = (row, key) => {
+        const column = columns.find((item) => item.key === key);
+        if (column?.count) return countOf(row[key]);
+        return row[key] ?? '';
+    };
+    const byStock = rows.slice().sort((left, right) => (
+        countOf(right.stockQuantity) - countOf(left.stockQuantity)
+        || String(left.name || '').localeCompare(String(right.name || ''))
+    ));
+    const sortedRows = sort.sortKey ? sortRowsByColumn(rows, sort.sortKey, sort.sortDir, valueOf) : byStock;
+    const range = pageWindow(sortedRows.length, page, pageSize);
+    const pageRows = slicePage(sortedRows, range.currentPage, pageSize);
     const countWidth = showImage || serial ? '13%' : '15%';
     const nameWidth = showImage ? '36%' : (serial ? '45%' : '47%');
     const actionWidth = '8%';
@@ -1505,12 +1574,16 @@ function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onD
                             {serial ? <th className="whitespace-nowrap rounded-lg bg-[#F8FAFC] px-4 py-3 font-medium">Sl No</th> : null}
                             {showImage ? <th className="whitespace-nowrap rounded-lg bg-[#F8FAFC] px-4 py-3 font-medium">Image</th> : null}
                             {columns.map((column) => (
-                                <th
+                                <SortHeading
                                     key={column.key}
+                                    label={column.label}
+                                    columnKey={column.key}
+                                    sortKey={sort.sortKey}
+                                    sortDir={sort.sortDir}
+                                    onSort={sort.onSort}
                                     className={`whitespace-nowrap rounded-lg bg-[#F8FAFC] px-4 py-3 font-medium ${column.count ? 'text-right' : ''}`}
-                                >
-                                    {column.label}
-                                </th>
+                                    align={column.count ? 'right' : 'left'}
+                                />
                             ))}
                             {showActions ? <th className="whitespace-nowrap rounded-lg bg-[#F8FAFC] px-4 py-3 font-medium">Actions</th> : null}
                         </tr>
@@ -1521,7 +1594,11 @@ function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onD
                         ) : rows.length === 0 ? (
                             <tr><td colSpan={columnCount} className="px-4 py-8 text-center text-sm text-slate-400">{empty}</td></tr>
                         ) : pageRows.map((row, index) => (
-                            <tr key={row._id} className="text-sm text-slate-700">
+                            <tr
+                                key={row._id}
+                                className={`text-sm text-slate-700 ${onRow ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+                                onClick={onRow ? () => onRow(row) : undefined}
+                            >
                                 {serial ? (
                                     <td className="border-b border-slate-100 px-4 py-3 tabular-nums text-slate-500">{range.from + index}</td>
                                 ) : null}
@@ -1548,7 +1625,10 @@ function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onD
                                         <td key={column.key} className="border-b border-slate-100 p-0 text-right">
                                             <button
                                                 type="button"
-                                                onClick={() => onOpen(column.key, row)}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    onOpen(column.key, row);
+                                                }}
                                                 className="w-full px-4 py-3 text-right font-semibold tabular-nums text-blue-700 hover:bg-blue-50 hover:underline"
                                                 aria-label={action}
                                                 title={action}
@@ -1559,7 +1639,7 @@ function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onEdit, onD
                                     );
                                 })}
                                 {showActions ? (
-                                    <td className="whitespace-nowrap border-b border-slate-100 px-4 py-3">
+                                    <td className="whitespace-nowrap border-b border-slate-100 px-4 py-3" onClick={(event) => event.stopPropagation()}>
                                         <ItemActionMenu
                                             align="start"
                                             deleting={String(deletingId) === String(row._id)}

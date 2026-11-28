@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
@@ -9,8 +9,27 @@ import { workOrderDetailsHref } from './workOrderPaths';
 import WorkOrderQuotationModal from './WorkOrderQuotationModal';
 import { handleNavigateFromListClick } from '@/utils/listReturnNavigation';
 import { ClipboardList, MoreHorizontal } from 'lucide-react';
+import { SortHeading, sortRowsByColumn, useColumnSort } from '@/components/ListColumnSort';
 
-const COLUMNS = ['Work Order No', 'Customer', 'Quotation Ref', 'LPO No', 'Status', 'Type', 'Value (AED)', 'Action'];
+const COLUMNS = [
+    { label: 'Work Order No', key: 'no' },
+    { label: 'Customer', key: 'customer' },
+    { label: 'Quotation Ref', key: 'quote' },
+    { label: 'LPO No', key: 'lpo' },
+    { label: 'Status', key: 'status' },
+    { label: 'Type', key: 'type' },
+    { label: 'Value (AED)', key: 'value' },
+    { label: 'Action', key: '' },
+];
+
+function orderSortValue(order, key) {
+    if (key === 'value') {
+        const amount = Number(String(order.value || '').replace(/[^0-9.-]/g, ''));
+        return Number.isFinite(amount) ? amount : 0;
+    }
+    const value = order[key];
+    return value === '—' ? '' : (value || '');
+}
 const PAGE_SIZES = ['10', '20', '40', '50', 'all'];
 
 const STATUS_CLASS = {
@@ -85,6 +104,7 @@ export default function WorkOrderList() {
     const [pageSize, setPageSize] = useState('10');
     const [leaving, setLeaving] = useState(false);
     const [quotePreview, setQuotePreview] = useState(null);
+    const columnSort = useColumnSort();
 
     const loadOrders = useCallback(async () => {
         setLoading(true);
@@ -122,8 +142,12 @@ export default function WorkOrderList() {
         handleNavigateFromListClick(event, router, workOrderDetailsHref(orderId));
     };
 
-    const range = pageWindow(orders.length, page, pageSize);
-    const visibleOrders = slicePage(orders, range.currentPage, pageSize);
+    const sortedOrders = useMemo(
+        () => sortRowsByColumn(orders, columnSort.sortKey, columnSort.sortDir, orderSortValue),
+        [orders, columnSort.sortKey, columnSort.sortDir],
+    );
+    const range = pageWindow(sortedOrders.length, page, pageSize);
+    const visibleOrders = slicePage(sortedOrders, range.currentPage, pageSize);
     const numbers = pageNumbers(range.currentPage, range.pageCount);
 
     return (
@@ -158,9 +182,16 @@ export default function WorkOrderList() {
                     <thead>
                         <tr className="border-b border-slate-100 text-[11px] font-medium text-slate-400">
                             {COLUMNS.map((column) => (
-                                <th key={column} className="px-2 py-2 font-medium whitespace-nowrap">
-                                    {column}
-                                </th>
+                                <SortHeading
+                                    key={column.label}
+                                    label={column.label}
+                                    columnKey={column.key}
+                                    sortKey={columnSort.sortKey}
+                                    sortDir={columnSort.sortDir}
+                                    onSort={columnSort.onSort}
+                                    className="whitespace-nowrap px-2 py-2 font-medium"
+                                    align={column.key === 'value' ? 'right' : 'left'}
+                                />
                             ))}
                         </tr>
                     </thead>

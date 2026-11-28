@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronDown, ChevronLeft, ChevronRight, Download, MoreVertical, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
+import { SortHeading, sortRowsByColumn, useColumnSort } from '@/components/ListColumnSort';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref, navigateFromList } from '@/utils/listReturnNavigation';
 import PageSizeSelect from '../PageSizeSelect';
@@ -188,6 +189,33 @@ function money(amount, currency) {
 }
 
 const NUMBER_HEADINGS = new Set(['Vendor Outstanding', 'Pending Bills', 'Open LPO']);
+
+function vendorSortValue(vendor, key) {
+    if (key === 'code') return vendor.code || '';
+    if (key === 'name') return vendor.name || '';
+    if (key === 'location') return vendor.location || '';
+    if (key === 'contact') return vendor.contact || '';
+    if (key === 'brands') return (vendor.listBrands || []).join(', ');
+    if (key === 'products') return (vendor.listCategories || []).join(', ');
+    if (key === 'outstanding') return Number(vendor.outstandingPayment) || 0;
+    if (key === 'pendingBills') return Number(vendor.pendingBills) || 0;
+    if (key === 'openLpos') return Number(vendor.openLpos) || 0;
+    if (key === 'status') return vendor.status || '';
+    return '';
+}
+
+const VENDOR_COLUMNS = [
+    { label: 'Vendor Code', key: 'code' },
+    { label: 'Vendor Name', key: 'name' },
+    { label: 'Location', key: 'location' },
+    { label: 'Primary Contact', key: 'contact' },
+    { label: 'Brands', key: 'brands' },
+    { label: 'Products', key: 'products' },
+    { label: 'Vendor Outstanding', key: 'outstanding' },
+    { label: 'Pending Bills', key: 'pendingBills' },
+    { label: 'Open LPO', key: 'openLpos' },
+    { label: 'Status', key: 'status' },
+];
 const NAME_LIMIT = 15;
 const LIST_LIMIT = 2;
 const clipCell = 'max-w-0 overflow-hidden px-2 py-2 align-middle';
@@ -357,6 +385,7 @@ export default function VendorManagementList() {
     const searchKey = searchParams.toString();
     const appliedSearchKey = useRef(searchKey);
     const access = useInventoryAccess();
+    const columnSort = useColumnSort();
     const [editor, setEditor] = useState(null);
     const [reloadKey, setReloadKey] = useState(0);
     const [query, setQuery] = useState(() => textParam(searchParams, 'search'));
@@ -423,6 +452,8 @@ export default function VendorManagementList() {
             product,
             brand,
             paymentTerms,
+            sort: columnSort.sortKey,
+            dir: columnSort.sortDir,
         })
             .then((data) => {
                 if (cancelled) return;
@@ -446,7 +477,7 @@ export default function VendorManagementList() {
         return () => {
             cancelled = true;
         };
-    }, [brand, debouncedQuery, page, pageSize, paymentTerms, product, reloadKey]);
+    }, [brand, debouncedQuery, page, pageSize, paymentTerms, product, reloadKey, columnSort.sortKey, columnSort.sortDir]);
 
     const { pageCount, currentPage, from, to } = pageWindow(total, page, pageSize);
 
@@ -454,6 +485,10 @@ export default function VendorManagementList() {
         if (loading || page <= pageCount) return;
         setPage(pageCount);
     }, [loading, page, pageCount]);
+    const sortedRows = useMemo(
+        () => sortRowsByColumn(rows, columnSort.sortKey, columnSort.sortDir, vendorSortValue),
+        [rows, columnSort.sortKey, columnSort.sortDir],
+    );
     const emptyLabel = query || product || brand || paymentTerms
         ? 'No vendors match this search.'
         : 'No vendors yet.';
@@ -584,19 +619,22 @@ export default function VendorManagementList() {
                     <thead>
                         <tr className="bg-[#F8FAFC] text-[10px] uppercase leading-tight tracking-wide text-slate-400">
                             {[
-                                'Vendor Code',
-                                'Vendor Name',
-                                'Location',
-                                'Primary Contact',
-                                'Brands',
-                                'Products',
-                                'Vendor Outstanding',
-                                'Pending Bills',
-                                'Open LPO',
-                                'Status',
-                                ...(showActions ? ['Actions'] : []),
-                            ].map((heading) => (
-                                <th key={heading} className={`px-2 py-2 font-medium ${NUMBER_HEADINGS.has(heading) || heading === 'Actions' ? 'text-right' : ''}`}>{heading}</th>
+                                ...VENDOR_COLUMNS,
+                                ...(showActions ? [{ label: 'Actions', key: '' }] : []),
+                            ].map((column) => (
+                                <SortHeading
+                                    key={column.label}
+                                    label={column.label}
+                                    columnKey={column.key}
+                                    sortKey={columnSort.sortKey}
+                                    sortDir={columnSort.sortDir}
+                                    onSort={(key) => {
+                                        columnSort.onSort(key);
+                                        setPage(1);
+                                    }}
+                                    className={`px-2 py-2 font-medium ${NUMBER_HEADINGS.has(column.label) || column.label === 'Actions' ? 'text-right' : ''}`}
+                                    align={NUMBER_HEADINGS.has(column.label) ? 'right' : 'left'}
+                                />
                             ))}
                         </tr>
                     </thead>
@@ -609,7 +647,7 @@ export default function VendorManagementList() {
                             <tr>
                                 <td colSpan={columnCount} className="px-2 py-8 text-center text-xs text-slate-400">{emptyLabel}</td>
                             </tr>
-                        ) : rows.map((vendor) => {
+                        ) : sortedRows.map((vendor) => {
                             const nameExpanded = expandedNames.has(vendor.id);
                             return (
                             <ListTableRowLink

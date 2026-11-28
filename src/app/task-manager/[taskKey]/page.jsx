@@ -992,7 +992,7 @@ function TaskDetailsPage() {
                                     Reject
                                 </button>
                             )}
-                            {(task.canDelete || task.deleteBlockedByAssignee) && (
+                            {task.taskCategory !== 'Project Task' && (task.canDelete || task.deleteBlockedByAssignee) && (
                                 <button
                                     type="button"
                                     disabled={busy || deleting || !task.canDelete}

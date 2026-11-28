@@ -597,10 +597,10 @@ export default function NotificationInboxModal({
                                                                         {receivedLabel ? (
                                                                             <span
                                                                                 className="inline-flex items-center gap-1"
-                                                                                title="Notification date"
+                                                                                title="Created date"
                                                                             >
                                                                                 <CalendarDays size={12} className="text-sky-600" />
-                                                                                {receivedLabel}
+                                                                                Created {receivedLabel}
                                                                             </span>
                                                                         ) : null}
                                                                         {startLabel ? (

@@ -4,8 +4,10 @@ import { getMonthlyRentalAmount, isEntryActive, normalizePaymentDay, entryRequir
 import {
     billDisplayStatus,
     entryAvailableFromMonth,
+    isUnpaidUtilityBill,
     normalizeBillMonthKey,
     openUtilityBillMonthKey,
+    utilityBillIsPaidOrPrepaid,
     utilityCalendarMonthKey,
     shiftUtilityMonthKey,
 } from './utilityBillStats';
@@ -198,28 +200,6 @@ function isPaidOverviewMonth(billMonth, refDate = new Date()) {
     return ym ? paidOverviewMonthKeys(refDate).has(ym) : false;
 }
 
-/** Every YYYY-MM from entry availability through the last closed bill month (opens on next month 1st). */
-function billMonthsThroughCurrentForEntry(entry, refDate = new Date()) {
-    const endYm = openUtilityBillMonthKey(refDate);
-    const fromYm = entryAvailableFromMonth(entry);
-    if (!fromYm || fromYm > endYm) return [];
-
-    const months = [];
-    let year = Number(fromYm.slice(0, 4));
-    let month = Number(fromYm.slice(5, 7));
-    const [endYear, endMonth] = endYm.split('-').map(Number);
-
-    while (year < endYear || (year === endYear && month <= endMonth)) {
-        months.push(`${year}-${String(month).padStart(2, '0')}`);
-        month += 1;
-        if (month > 12) {
-            month = 1;
-            year += 1;
-        }
-    }
-    return months;
-}
-
 function formatExpiryDate(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value || '');
@@ -235,7 +215,7 @@ function mapBillToOverviewRow(bill, entry = null) {
           }`
         : '';
     const rawStatus = String(bill?.status || '').trim();
-    const billMonth = String(bill?.billMonth || '').trim();
+    const billMonth = normalizeBillMonthKey(bill?.billMonth) || String(bill?.billMonth || '').trim();
     const paymentDay = resolvePaymentDay(bill, entry);
     const overdue = isPayableDatePassed(billMonth, paymentDay);
     let statusLabel =
@@ -286,56 +266,34 @@ export function buildPaidBillRows({ bills = [], refDate = new Date() } = {}) {
 }
 
 /**
- * Bill Pending rows: months where no ERP bill has been created yet
- * (from each account’s available month through the last payable month).
- * Created bills (Draft / Pending / Approved / Paid) are excluded — Zoho is not required.
- * Rejected does not cover the month (account can create again).
+ * Header pending rows are real bills that still need payment.
+ * A month is left out when the number was not created yet, the month is Not Updated
+ * (no bill), or the bill is already paid or prepaid.
+ * The number is included only when its create month is that month or earlier.
  */
 export function buildUnpaidBillRows({ bills = [], entries = [], refDate = new Date() } = {}) {
-    const list = Array.isArray(bills) ? bills : [];
-
-    const billsByEntryMonth = new Set();
-    for (const bill of list) {
-        const status = String(bill?.status || '').trim();
-        if (!status || status === 'Rejected') continue;
-        const entryId = String(bill?.entryId || '').trim();
-        const ym = normalizeBillMonthKey(bill?.billMonth);
-        if (!entryId || !ym) continue;
-        billsByEntryMonth.add(`${entryId}::${ym}`);
-    }
-
-    const missingBillRows = [];
+    const endYm = openUtilityBillMonthKey(refDate);
+    const entriesById = new Map();
     for (const entry of Array.isArray(entries) ? entries : []) {
-        if (!isEntryActive(entry)) continue;
-        if (!entryRequiresMonthlyBill(entry)) continue;
-        const entryId = String(entry?.id || '').trim();
-        if (!entryId) continue;
-        const paymentDay = resolvePaymentDay(null, entry);
-        if (!paymentDay) continue;
-
-        for (const ym of billMonthsThroughCurrentForEntry(entry, refDate)) {
-            if (billsByEntryMonth.has(`${entryId}::${ym}`)) continue;
-            const overdue = isPayableDatePassed(ym, paymentDay, refDate);
-            missingBillRows.push({
-                id: `missing-${entryId}-${ym}`,
-                entryId,
-                batchId: '',
-                type: String(entry?.type || ''),
-                title: String(entry?.values?.provider || entry?.type || 'Utility').trim(),
-                subtitle: [entry?.values?.accountNumber, ym].filter(Boolean).join(' · '),
-                amount: getMonthlyRentalAmount(entry),
-                status: overdue ? 'Overdue · Bill not created' : 'Bill not created',
-                rawStatus: 'missing',
-                billMonth: ym,
-                paymentDay,
-                isOverdue: overdue,
-                href: `/HRM/Asset/UtilityBills/details/${encodeURIComponent(entryId)}`,
-                isMissingBill: true,
-            });
-        }
+        const id = String(entry?.id || entry?._id || '').trim();
+        if (id) entriesById.set(id, entry);
     }
 
-    return missingBillRows.sort(sortOverviewBillRows);
+    const rows = [];
+    for (const bill of Array.isArray(bills) ? bills : []) {
+        if (!isUnpaidUtilityBill(bill) || utilityBillIsPaidOrPrepaid(bill)) continue;
+        const ym = normalizeBillMonthKey(bill?.billMonth);
+        if (!ym || !endYm || ym > endYm) continue;
+        const entryId = String(bill?.entryId || bill?.entry?._id || bill?.entry || '').trim();
+        const entry = entriesById.get(entryId) || null;
+        if (entry) {
+            const created = entryAvailableFromMonth(entry);
+            if (created && created > ym) continue;
+        }
+        rows.push(mapBillToOverviewRow(bill, entry));
+    }
+
+    return rows.sort(sortOverviewBillRows);
 }
 
 /** Active (not expired) contracts with an end date, soonest end first. */
@@ -447,7 +405,8 @@ function sumOverviewRows(rows = []) {
 /**
  * Pending bills split into:
  * - current: last closed bill month (opens on the 1st of this calendar month)
- * - previous: account created month → month before that
+ * - previous: earlier months that have a real unpaid bill
+ * Not Updated, not-yet-created, and prepaid months are omitted.
  */
 export function buildPendingBillOverview({ bills = [], entries = [], refDate = new Date() } = {}) {
     const unpaid = buildUnpaidBillRows({ bills, entries, refDate });

@@ -60,6 +60,30 @@ const LPO_OPTIONS = [
 ];
 
 const QUOTE_CUSTOMER_MISMATCH = 'Customer not matching for this quote, please verify your details.';
+const QUOTE_NOT_APPROVED = 'This quote is not approved.';
+const QUOTE_OLDER_THAN_THREE_MONTHS = 'This quote is more than 3 months.';
+
+function shiftCalendarMonths(dateKey, months) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey || ''));
+    if (!match) return '';
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const shifted = new Date(Date.UTC(year, month - 1 + months, 1));
+    const lastDay = new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, 0)).getUTCDate();
+    const clamped = Math.min(day, lastDay);
+    const result = new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), clamped));
+    const y = result.getUTCFullYear();
+    const m = String(result.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(result.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function quoteOlderThanThreeMonths(dateText) {
+    const date = String(dateText || '').slice(0, 10);
+    const oldest = shiftCalendarMonths(dubaiDateKey(), -3);
+    return !/^\d{4}-\d{2}-\d{2}$/.test(date) || !oldest || date < oldest;
+}
 
 function sameCustomerName(left, right) {
     const normalize = (value) => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -381,6 +405,18 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
                 setQuoteMessage('No Zoho quotation found for that number.');
                 return;
             }
+            if (String(row.status || '').trim().toLowerCase() !== 'approved') {
+                setQuote(null);
+                setQuoteMessageError(true);
+                setQuoteMessage(QUOTE_NOT_APPROVED);
+                return;
+            }
+            if (quoteOlderThanThreeMonths(row.date)) {
+                setQuote(null);
+                setQuoteMessageError(true);
+                setQuoteMessage(QUOTE_OLDER_THAN_THREE_MONTHS);
+                return;
+            }
             if (!sameCustomerName(row.customerName, customer?.name)) {
                 setQuote(null);
                 setQuoteMessageError(true);
@@ -407,8 +443,10 @@ export default function CreateWorkOrderFlow({ existingNumbers, onClose, onSaved 
             setQuoteMessageError(false);
         } catch (error) {
             setQuote(null);
-            setQuoteMessageError(false);
-            setQuoteMessage(error?.response?.data?.message || 'Zoho quotation could not be imported.');
+            const message = error?.response?.data?.message || 'Zoho quotation could not be imported.';
+            const status = error?.response?.status;
+            setQuoteMessageError(status === 400);
+            setQuoteMessage(message);
         } finally {
             setImporting(false);
         }

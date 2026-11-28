@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
 import ItemMasterShell from '../ItemMasterShell';
@@ -8,15 +8,6 @@ import ItemForm from '../ItemForm';
 import { useInventoryAccess } from '../itemMasterAccess';
 import { apiMessage, createItem, decideBoqNewItem, listBoqNewItems } from '../itemMasterApi';
 import { useToast } from '@/hooks/use-toast';
-
-function detail(label, value) {
-    return (
-        <div>
-            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-            <dd className="mt-1 text-sm text-slate-800">{value || '—'}</dd>
-        </div>
-    );
-}
 
 function BoqItemReview({ workOrderId, itemKey }) {
     const router = useRouter();
@@ -48,16 +39,41 @@ function BoqItemReview({ workOrderId, itemKey }) {
         };
     }, [itemKey, workOrderId]);
 
-    const decide = async (decision) => {
+    const initial = useMemo(() => {
+        if (!item) return null;
+        const unit = item.unitOfMeasure;
+        return {
+            categoryId: item.categoryId || '',
+            categoryName: item.category || '',
+            subcategoryId: item.subcategoryId || '',
+            subcategoryName: item.subcategory || '',
+            itemOptionId: item.itemOptionId || '',
+            itemName: item.item || '',
+            brandId: item.brandId || '',
+            brandName: item.brand || '',
+            modelNumber: item.modelNo || '',
+            unitOfMeasure: unit === 'Box' || unit === 'Metre' || unit === 'Quantity' ? unit : 'None',
+            manufacturerPartNumber: item.manufacturerPartNumber || '',
+            reservationQuantity: Number(item.reservationQuantity) || 0,
+            hsCode: item.hsCode || '',
+            countryOfOrigin: item.countryOfOrigin || '',
+        };
+    }, [item]);
+
+    const run = async (decision, extra, titles) => {
         if (saving) return;
         setSaving(true);
         try {
-            await decideBoqNewItem({ workOrderId, itemKey, decision });
-            toast({ title: decision === 'approve' ? 'Item approved' : 'Item rejected' });
+            const result = await decideBoqNewItem({ workOrderId, itemKey, decision, ...extra });
+            toast({ title: titles.ok, description: titles.detail });
+            if (decision === 'save' && result?.item) {
+                setItem(result.item);
+                return;
+            }
             router.push('/inventory/item-master');
         } catch (err) {
             toast({
-                title: decision === 'approve' ? 'Could not approve' : 'Could not reject',
+                title: titles.fail,
                 description: apiMessage(err, 'Try again.'),
                 variant: 'destructive',
             });
@@ -67,55 +83,33 @@ function BoqItemReview({ workOrderId, itemKey }) {
     };
 
     if (loading) return <p className="text-sm text-slate-500">Loading item…</p>;
-    if (missing || !item) {
+    if (missing || !item || !initial) {
         return <p className="rounded-2xl border border-[#E6EDF5] bg-white p-5 text-sm text-slate-500">This new item is no longer waiting for approval.</p>;
     }
 
+    const note = `${item.status === 'rejected' ? 'Rejected' : 'Pending for purchaser'}${item.workOrderNo ? ` · ${item.workOrderNo}` : ''}. Save updates the BOQ. Approve stores the item. Reject removes this row.`;
+
     return (
-        <section className="rounded-2xl border border-yellow-300 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-900">New item</h1>
-                    <p className="mt-1 text-sm text-amber-800">
-                        {item.status === 'rejected' ? 'Rejected' : 'Pending for purchaser'}
-                        {item.workOrderNo ? ` · ${item.workOrderNo}` : ''}
-                    </p>
-                </div>
-                <button
-                    type="button"
-                    onClick={() => router.push('/inventory/item-master')}
-                    className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700"
-                >
-                    Back
-                </button>
-            </div>
-            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {detail('Category', item.category)}
-                {detail('Subcategory', item.subcategory)}
-                {detail('Item', item.item)}
-                {detail('Brand', item.brand)}
-                {detail('Model no', item.modelNo)}
-                {detail('Description', item.description)}
-            </dl>
-            <div className="mt-5 flex flex-wrap gap-2">
-                <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => decide('approve')}
-                    className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-60"
-                >
-                    {saving ? 'Saving…' : 'Approve'}
-                </button>
-                <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => decide('reject')}
-                    className="h-10 rounded-lg border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-700 disabled:opacity-60"
-                >
-                    Reject
-                </button>
-            </div>
-        </section>
+        <ItemForm
+            initial={initial}
+            saving={saving}
+            pendingNote={note}
+            onSubmit={(payload) => run('save', { item: payload }, {
+                ok: 'BOQ updated',
+                detail: 'The work order row now uses these details. The item is stored when you approve.',
+                fail: 'Could not save',
+            })}
+            onApprove={(payload) => run('approve', { item: payload }, {
+                ok: 'Item approved',
+                detail: 'It is stored on Item Master and the BOQ was updated.',
+                fail: 'Could not approve',
+            })}
+            onReject={(reason) => run('reject', { reason }, {
+                ok: 'Item rejected',
+                detail: 'That BOQ row was removed.',
+                fail: 'Could not reject',
+            })}
+        />
     );
 }
 

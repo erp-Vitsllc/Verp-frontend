@@ -207,7 +207,16 @@ function NameSuggest({ label, text, options, placeholder, onText, onPick, onComm
     );
 }
 
-export default function ItemForm({ initial, onSubmit, onCancel, saving, requireChange = false }) {
+export default function ItemForm({
+    initial,
+    onSubmit,
+    onCancel,
+    saving,
+    requireChange = false,
+    pendingNote = '',
+    onApprove,
+    onReject,
+}) {
     const router = useRouter();
     const [form, setForm] = useState(() => ({ ...emptyForm, ...(initial || {}) }));
     const [categories, setCategories] = useState([]);
@@ -215,6 +224,8 @@ export default function ItemForm({ initial, onSubmit, onCancel, saving, requireC
     const [brands, setBrands] = useState([]);
     const [itemOptions, setItemOptions] = useState([]);
     const [error, setError] = useState('');
+    const [rejectOpen, setRejectOpen] = useState(false);
+    const [rejectReason, setRejectReason] = useState('');
     const countries = useMemo(() => Country.getAllCountries().map((country) => country.name), []);
 
     useEffect(() => {
@@ -448,45 +459,73 @@ export default function ItemForm({ initial, onSubmit, onCancel, saving, requireC
         else setForm((current) => ({ ...current, itemName: name, itemOptionId: '' }));
     };
 
-    const submit = (event) => {
-        event.preventDefault();
+    const payloadFromForm = () => {
         const categoryName = cleanText(form.categoryName);
         const subcategoryName = cleanText(form.subcategoryName);
         const itemName = cleanText(form.itemName);
         const brandName = cleanText(form.brandName);
         if (!categoryName || !subcategoryName || !itemName || !brandName) {
-            setError('Category, sub category, item, and brand are required.');
-            return;
+            return { error: 'Category, sub category, item, and brand are required.' };
         }
         if (knownSubcategory && subcategoryOwner && !namesEqual(subcategoryOwner.name, categoryName)) {
-            setError('This sub category belongs to another category.');
-            return;
+            return { error: 'This sub category belongs to another category.' };
         }
         if (!form.unitOfMeasure || form.unitOfMeasure === 'None') {
-            setError('Choose a unit of measure.');
-            return;
+            return { error: 'Choose a unit of measure.' };
         }
         if (requireChange && copySnapshot(form) === copySnapshot(initial || emptyForm)) {
-            setError('Change something before saving. The original item is not changed.');
+            return { error: 'Change something before saving. The original item is not changed.' };
+        }
+        return {
+            payload: {
+                categoryId: form.categoryId,
+                categoryName,
+                subcategoryId: form.subcategoryId,
+                subcategoryName,
+                itemOptionId: form.itemOptionId,
+                itemName,
+                brandId: form.brandId,
+                brandName,
+                modelNumber: form.modelNumber,
+                unitOfMeasure: form.unitOfMeasure,
+                manufacturerPartNumber: form.manufacturerPartNumber,
+                reservationQuantity: Number(form.reservationQuantity || 0),
+                hsCode: form.hsCode,
+                countryOfOrigin: form.countryOfOrigin,
+            },
+        };
+    };
+
+    const submit = (event) => {
+        event.preventDefault();
+        const result = payloadFromForm();
+        if (result.error) {
+            setError(result.error);
             return;
         }
         setError('');
-        onSubmit({
-            categoryId: form.categoryId,
-            categoryName,
-            subcategoryId: form.subcategoryId,
-            subcategoryName,
-            itemOptionId: form.itemOptionId,
-            itemName,
-            brandId: form.brandId,
-            brandName,
-            modelNumber: form.modelNumber,
-            unitOfMeasure: form.unitOfMeasure,
-            manufacturerPartNumber: form.manufacturerPartNumber,
-            reservationQuantity: Number(form.reservationQuantity || 0),
-            hsCode: form.hsCode,
-            countryOfOrigin: form.countryOfOrigin,
-        });
+        onSubmit(result.payload);
+    };
+
+    const approve = () => {
+        const result = payloadFromForm();
+        if (result.error) {
+            setError(result.error);
+            return;
+        }
+        setError('');
+        onApprove?.(result.payload);
+    };
+
+    const reject = () => {
+        const reason = cleanText(rejectReason);
+        if (!rejectOpen || !reason) {
+            setRejectOpen(true);
+            setError('A reason is required to reject this item.');
+            return;
+        }
+        setError('');
+        onReject?.(reason);
     };
 
     const unchanged = requireChange && copySnapshot(form) === copySnapshot(initial || emptyForm);
@@ -501,19 +540,46 @@ export default function ItemForm({ initial, onSubmit, onCancel, saving, requireC
     return (
         <form onSubmit={submit} className="rounded-2xl border border-[#E6EDF5] bg-white p-5 shadow-sm">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                <h1 className="text-2xl font-bold text-slate-900">Add / Edit Item</h1>
-                <div className="flex items-center gap-2">
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-900">Add / Edit Item</h1>
+                    {pendingNote ? <p className="mt-1 text-sm text-amber-800">{pendingNote}</p> : null}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
                     <button type="button" onClick={leave} className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700">
                         Back
                     </button>
                     <button type="submit" disabled={saving || unchanged} className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-60">
                         {saving ? 'Saving...' : 'Save'}
                     </button>
-                    <button type="button" onClick={leave} className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700">
-                        Cancel
-                    </button>
+                    {onApprove ? (
+                        <button type="button" onClick={approve} disabled={saving} className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-60">
+                            Approve
+                        </button>
+                    ) : null}
+                    {onReject ? (
+                        <button type="button" onClick={reject} disabled={saving} className="h-9 rounded-lg border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-700 disabled:opacity-60">
+                            Reject
+                        </button>
+                    ) : null}
+                    {onApprove ? null : (
+                        <button type="button" onClick={leave} className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-slate-700">
+                            Cancel
+                        </button>
+                    )}
                 </div>
             </div>
+            {onReject && rejectOpen ? (
+                <label className="mb-4 block">
+                    <span className={labelClass}>Reason <span className="text-red-500">*</span></span>
+                    <textarea
+                        value={rejectReason}
+                        onChange={(event) => setRejectReason(event.target.value)}
+                        rows={3}
+                        placeholder="Why is this item rejected?"
+                        className={`${fieldClass} h-auto py-2`}
+                    />
+                </label>
+            ) : null}
 
             {requireChange ? (
                 <p className="mb-4 text-sm text-slate-500">

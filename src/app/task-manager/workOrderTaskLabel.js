@@ -79,9 +79,8 @@ export function workOrderDisplayNumbers(rows = []) {
         const base = tail ? `${order}-${tail}` : order;
         const rootKey = taskKey(root);
         if (rootKey) numbers.set(rootKey, base);
-        const leaves = group
-            .filter((task) => task !== root)
-            .sort(byCreatedOrder);
+        const ordered = group.filter((task) => task !== root).sort(byCreatedOrder);
+        const leaves = visibleWorkOrderLeaves(ordered, group.some((task) => !taskIsClosed(task)));
         leaves.forEach((task, index) => {
             const key = taskKey(task);
             if (key) numbers.set(key, `${base}-${String(index + 1).padStart(3, '0')}`);
@@ -97,6 +96,7 @@ const CHECKLIST_SECTION_BY_TYPE = {
     'Work Order LPO Approval': 'LPO to vendor',
     'Work Order Actual BOQ': 'Actual BOQ',
     'Work Order Actual BOQ Update': 'Actual BOQ',
+    'Work Order MOM': 'MOM',
 };
 
 /** Checklist section added onto a work-order task name. Checklist rows already use the section as the name. */
@@ -120,9 +120,27 @@ const PENDING_STEP = {
     'Work Order LPO Approval': 'LPO approval',
     'Work Order Actual BOQ': 'BOQ',
     'Work Order Actual BOQ Update': 'BOQ update',
+    'Work Order MOM': 'MOM',
 };
 
-const CLOSED_TASK = new Set(['Completed', 'Closed', 'Rejected', 'Cancelled']);
+const CLOSED_TASK = new Set(['Completed', 'Closed', 'Rejected', 'Cancelled', 'Dismissed']);
+
+function taskIsClosed(task) {
+    const shown = String(task?.displayStatus || '').trim();
+    const raw = String(task?.status || '').trim();
+    return CLOSED_TASK.has(shown) || CLOSED_TASK.has(raw);
+}
+
+/**
+ * Under a work order, list the steps that are still pending.
+ * Finished steps stay out while the list still has an open task for that work order.
+ * A list that is only finished tasks keeps those rows, so a Cancelled filter still works.
+ */
+export function visibleWorkOrderLeaves(leaves = [], listHasOpenTask = true) {
+    const openLeaves = leaves.filter((task) => !taskIsClosed(task));
+    if (!listHasOpenTask) return leaves;
+    return openLeaves;
+}
 
 function pendingStepLabel(task) {
     const type = String(task?.requestType || '').trim();
@@ -191,9 +209,12 @@ export function clusterWorkOrderTasks(rows = [], catalog = rows) {
         const tasks = groups.get(block.workOrderNo) || [];
         const created = roots.get(block.workOrderNo) || null;
         const root = tasks.find(isProjectRootTask) || created || [...tasks].sort(byCreatedOrder)[0];
-        const leaves = tasks
-            .filter((task) => taskKey(task) !== taskKey(root))
-            .sort(byCreatedOrder);
+        const leaves = visibleWorkOrderLeaves(
+            tasks
+                .filter((task) => taskKey(task) !== taskKey(root))
+                .sort(byCreatedOrder),
+            tasks.some((task) => !taskIsClosed(task)),
+        );
         if (!leaves.length) return { type: 'task', task: root };
         return {
             type: 'tree',

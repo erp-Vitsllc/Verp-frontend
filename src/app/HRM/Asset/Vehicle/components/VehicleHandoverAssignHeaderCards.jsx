@@ -25,6 +25,7 @@ import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import VehicleHandoverAssignActions from './VehicleHandoverAssignActions';
 import VehicleInspectionHandoverActions from './VehicleInspectionHandoverActions';
 import { formatVehicleProfilePendingStatusText, resolveHandoverDetailPendingItem } from '../utils/resolveVehicleProfilePendingItems';
+import { handoverBodyPhotosAdded } from '../utils/vehicleHandoverBodyCondition';
 
 const COMPACT_BOX =
     'p-2 rounded-lg border flex items-center justify-between px-4 min-h-[44px] transition-all break-words gap-2';
@@ -211,9 +212,13 @@ export default function VehicleHandoverAssignHeaderCards({
                                                 <span className="text-xs font-semibold ml-1.5 opacity-80">
                                                     ({dayInfo.daysLeft} day{dayInfo.daysLeft === 1 ? '' : 's'} left)
                                                 </span>
-                                            ) : (
+                                            ) : handoverBodyPhotosAdded(historyEntry) ? (
                                                 <span className="text-xs font-semibold ml-1.5 opacity-80">
                                                     (auto-forward to HR today)
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs font-semibold ml-1.5 opacity-80">
+                                                    (add images before it can continue)
                                                 </span>
                                             )}
                                         </span>

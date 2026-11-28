@@ -433,6 +433,17 @@ export function isBodyConditionMarkedDone(historyEntry) {
     return historyEntry?.details?.bodyConditionCompleted === true;
 }
 
+/** Same gate as the day-10 job: every body view has a photo, or the report was completed. */
+export function handoverBodyPhotosAdded(historyEntry) {
+    if (isBodyConditionMarkedDone(historyEntry)) return true;
+    const source = resolveBodyConditionSource(historyEntry);
+    if (!source) return false;
+    return BODY_CONDITION_VIEW_FIELDS.every((field) => {
+        const block = pickViewBlock(source, field.key);
+        return hasAssessmentPhoto(block.photo);
+    });
+}
+
 export function mergeBodyConditionCompletedIntoEntry(historyEntry) {
     if (!historyEntry) return historyEntry;
     return {

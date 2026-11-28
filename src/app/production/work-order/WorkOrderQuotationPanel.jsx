@@ -166,9 +166,27 @@ function emptyActualRow() {
     };
 }
 
-function shownDescription(row, mode) {
-    const key = mode === 'old' ? 'descriptionOld' : 'descriptionNew';
-    return String(row?.[key] || '').trim();
+/** Brand, item, model no, then subcategory. Same order as the item description. */
+function liveItemDescription(line) {
+    if (!line || line.kind === 'header') return '';
+    return [line.brand, line.item, line.modelNo, line.subcategory]
+        .map((part) => String(part || '').trim())
+        .filter(Boolean)
+        .join(' ');
+}
+
+function withLiveDescription(line) {
+    if (!line || line.kind === 'header') return line;
+    const description = liveItemDescription(line);
+    const previous = String(line.descriptionNew || '').trim();
+    let descriptionOld = String(line.descriptionOld || '').trim();
+    if (!descriptionOld && previous && previous !== description) descriptionOld = previous;
+    if (!descriptionOld) descriptionOld = description;
+    return { ...line, descriptionNew: description, descriptionOld };
+}
+
+function shownDescription(row) {
+    return liveItemDescription(row);
 }
 
 function sameName(left, right) {
@@ -239,7 +257,22 @@ function catalogDescription(item) {
         .join('\n');
 }
 
+/** Saved unit price of an item that already exists. A new item has none. */
+function catalogUnitPrice(item) {
+    if (!item || item.pendingStock) return '';
+    const price = Number(item.lastStockPrice);
+    if (!Number.isFinite(price) || price <= 0) return '';
+    return String(Math.round(price * 100) / 100);
+}
+
+function pricesMatch(left, right) {
+    const a = Number(String(left ?? '').replace(/,/g, ''));
+    const b = Number(String(right ?? '').replace(/,/g, ''));
+    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.001;
+}
+
 function applyCatalogItem(line, item) {
+    const price = catalogUnitPrice(item);
     const next = {
         ...line,
         kind: 'line',
@@ -254,6 +287,7 @@ function applyCatalogItem(line, item) {
         brand: item.brandName || '',
         modelNo: item.modelNumber || '',
         descriptionNew: catalogDescription(item) || line.descriptionNew || '',
+        ...(price ? { unitPrice: price } : {}),
     };
     return syncLineTotal(next);
 }
@@ -280,7 +314,13 @@ function pickCatalogValue(line, field, value, items) {
     if (field === 'modelNo') {
         const owners = items.filter((item) => sameName(item.modelNumber, typed));
         const owner = owners.find((item) => !item.pendingStock) || owners[0];
-        return owner ? applyCatalogItem(next, owner) : next;
+        if (owner) return applyCatalogItem(next, owner);
+        const previous = items.find((item) => sameName(item.modelNumber, line?.modelNo) && !item.pendingStock);
+        const previousPrice = catalogUnitPrice(previous);
+        if (previousPrice && pricesMatch(line?.unitPrice, previousPrice)) {
+            return syncLineTotal({ ...next, unitPrice: '' });
+        }
+        return next;
     }
     const ids = new Set();
     items.forEach((item) => {
@@ -367,6 +407,11 @@ function lineFromSaved(line) {
         paymentTerms: paymentTermOption(line?.paymentTerms) || line?.paymentTerms || '',
         purchaserItemStatus: ['pending', 'approved', 'rejected'].includes(line?.purchaserItemStatus) ? line.purchaserItemStatus : '',
         newItemKey: line?.newItemKey || '',
+        unitOfMeasure: ['Box', 'Metre', 'Quantity'].includes(line?.unitOfMeasure) ? line.unitOfMeasure : '',
+        manufacturerPartNumber: line?.manufacturerPartNumber || '',
+        hsCode: line?.hsCode || '',
+        countryOfOrigin: line?.countryOfOrigin || '',
+        reservationQuantity: Number(line?.reservationQuantity) || 0,
     });
 }
 
@@ -484,8 +529,7 @@ const REQUIRED_LINE_COLUMNS = [
     ['item', 'Item'],
     ['brand', 'Brand'],
     ['modelNo', 'Model no'],
-    ['descriptionNew', 'Description (New)'],
-    ['descriptionOld', 'Description (Old)'],
+    ['descriptionNew', 'Description'],
     ['quantity', 'Qty'],
     ['unitPrice', 'Unit price'],
     ['total', 'Total'],
@@ -505,7 +549,10 @@ function blankBoqMessage(rows, catalog) {
             return;
         }
         REQUIRED_LINE_COLUMNS.forEach(([key, label]) => {
-            if (String(row?.[key] ?? '').trim() === '') missing.push(`Row ${rowNo}: ${label}`);
+            const value = key === 'descriptionNew'
+                ? (liveItemDescription(row) || row?.[key])
+                : row?.[key];
+            if (String(value ?? '').trim() === '') missing.push(`Row ${rowNo}: ${label}`);
         });
         if (String(row?.category || '').trim() && !existingCatalogName(catalog, row, 'category')) {
             missing.push(`Row ${rowNo}: Category must already exist`);
@@ -528,7 +575,13 @@ function rowPayload(row) {
         return title ? { kind: 'header', title } : null;
     }
     const { key, ...rest } = row;
-    return { ...rest, kind: 'line' };
+    const description = liveItemDescription(row);
+    return {
+        ...rest,
+        kind: 'line',
+        descriptionNew: description,
+        descriptionOld: String(row.descriptionOld || '').trim() || description,
+    };
 }
 
 const PAYMENT_TERM_OPTIONS = ['Cash', 'Due on receipt', '30 days', '60 days', '45 days', '90 days'];
@@ -570,12 +623,10 @@ function printAmount(value) {
 }
 
 function printDescription(row) {
-    const current = String(row?.descriptionOld || '').trim();
-    if (current) return current;
-    return String(row?.descriptionNew || '').trim();
+    return liveItemDescription(row) || String(row?.descriptionNew || '').trim();
 }
 
-async function downloadActualBoqPdf(order, tables, descriptionMode = 'new') {
+async function downloadActualBoqPdf(order, tables) {
     const { jsPDF } = await import('jspdf');
     const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
     const pageW = pdf.internal.pageSize.getWidth();
@@ -655,7 +706,7 @@ async function downloadActualBoqPdf(order, tables, descriptionMode = 'new') {
                 return;
             }
             const cells = [
-                shownDescription(row, descriptionMode),
+                shownDescription(row),
                 printAmount(row.quantity),
                 printAmount(row.unitPrice),
                 String(row.vendorName || '').trim(),
@@ -984,7 +1035,6 @@ function ActualBoqTable({ order, onSaved }) {
     const [printing, setPrinting] = useState(false);
     const [saving, setSaving] = useState(false);
     const [rejectNote, setRejectNote] = useState('');
-    const [descriptionMode, setDescriptionMode] = useState('new');
     const [headerAsk, setHeaderAsk] = useState(null);
     const [dropAt, setDropAt] = useState(null);
     const [dropScope, setDropScope] = useState('');
@@ -999,7 +1049,7 @@ function ActualBoqTable({ order, onSaved }) {
                 .filter((row) => row.kind !== 'header')
                 .map((row) => (
                     key === 'description'
-                        ? shownDescription(row, descriptionMode)
+                        ? shownDescription(row)
                         : key === 'availableStock'
                             ? stockText(row, catalog)
                             : row[key]
@@ -1011,7 +1061,7 @@ function ActualBoqTable({ order, onSaved }) {
             map[key] = colWidths[key] || fittedWidth(key, textsOf(key));
         });
         return map;
-    }, [rows, descriptionMode, colWidths, catalog]);
+    }, [rows, colWidths, catalog]);
 
     useEffect(() => {
         const move = (event) => {
@@ -1497,7 +1547,7 @@ function ActualBoqTable({ order, onSaved }) {
         if (printing || !rows.length) return;
         setPrinting(true);
         try {
-            await downloadActualBoqPdf(order, [{ title: '', rows }], descriptionMode);
+            await downloadActualBoqPdf(order, [{ title: '', rows }]);
         } finally {
             setPrinting(false);
         }
@@ -1519,7 +1569,6 @@ function ActualBoqTable({ order, onSaved }) {
             {(() => {
                 const renderSheet = (sheetRows, locked, scope, title) => {
                 const summary = tableSummary(sheetRows);
-                const descriptionKey = descriptionMode === 'old' ? 'descriptionOld' : 'descriptionNew';
                 const totalIndex = ACTUAL_HEAD.findIndex((column) => column.key === 'total');
                 return (
                 <div>
@@ -1551,47 +1600,15 @@ function ActualBoqTable({ order, onSaved }) {
                                 />
                             </th>
                             {ACTUAL_HEAD.map((column) => (
-                                column.key === 'description' ? (
-                                    <th key={column.key} className={head} style={columnStyle(column.key)}>
-                                        <ResizeHandle
-                                            axis="col"
-                                            title="Drag to change width. Double-click to fit the text."
-                                            onResize={(event) => beginResize('col', column.key, event)}
-                                            onReset={(event) => resetSize('col', column.key, event)}
-                                        />
-                                        <div className="text-center">Description</div>
-                                        <div className="mt-1 flex justify-center gap-1 normal-case tracking-normal">
-                                            <button
-                                                type="button"
-                                                onClick={() => setDescriptionMode('new')}
-                                                className={descriptionMode === 'new'
-                                                    ? 'rounded border border-[#2f6fed] bg-[#e8f1ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#2f6fed]'
-                                                    : 'rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500'}
-                                            >
-                                                New
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setDescriptionMode('old')}
-                                                className={descriptionMode === 'old'
-                                                    ? 'rounded border border-[#2f6fed] bg-[#e8f1ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#2f6fed]'
-                                                    : 'rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500'}
-                                            >
-                                                Old
-                                            </button>
-                                        </div>
-                                    </th>
-                                ) : (
-                                    <th key={column.key} className={`${head} ${column.align === 'right' ? 'text-right' : ''}`} style={columnStyle(column.key)}>
-                                        <ResizeHandle
-                                            axis="col"
-                                            title="Drag to change width. Double-click to fit the text."
-                                            onResize={(event) => beginResize('col', column.key, event)}
-                                            onReset={(event) => resetSize('col', column.key, event)}
-                                        />
-                                        {column.label}
-                                    </th>
-                                )
+                                <th key={column.key} className={`${head} ${column.align === 'right' ? 'text-right' : ''}`} style={columnStyle(column.key)}>
+                                    <ResizeHandle
+                                        axis="col"
+                                        title="Drag to change width. Double-click to fit the text."
+                                        onResize={(event) => beginResize('col', column.key, event)}
+                                        onReset={(event) => resetSize('col', column.key, event)}
+                                    />
+                                    {column.label}
+                                </th>
                             ))}
                             <th className={head} aria-label="Row actions" style={columnStyle('actions')}>
                                 <ResizeHandle
@@ -1680,7 +1697,7 @@ function ActualBoqTable({ order, onSaved }) {
                                     </tr>
                                 );
                             }
-                            const description = line[descriptionKey] || '';
+                            const description = shownDescription(line);
                             const purchaserStatus = scope === 'main' ? String(line.purchaserItemStatus || '') : '';
                             const newItemRow = scope === 'main' && isNewBoqItem(line, catalog);
                             const lineCell = newItemRow
@@ -1705,7 +1722,7 @@ function ActualBoqTable({ order, onSaved }) {
                                                 allowNew={field === 'item' || field === 'brand' || field === 'modelNo'}
                                                 fill={fill}
                                                 layoutKey={fitted[field]}
-                                                onPick={(value) => patchRow(scope, rowIndex, pickCatalogValue(line, field, value, catalog))}
+                                                onPick={(value) => patchRow(scope, rowIndex, withLiveDescription(pickCatalogValue(line, field, value, catalog)))}
                                             />
                                             {field === 'item' && purchaserStatus === 'pending' ? (
                                                 <p className="px-0.5 pt-0.5 text-[10px] font-semibold leading-4 text-amber-700">Pending for purchaser</p>
@@ -1719,11 +1736,10 @@ function ActualBoqTable({ order, onSaved }) {
                                         {rowEdge}
                                         <GrowText
                                             value={description}
-                                            readOnly={locked}
+                                            readOnly
                                             fill={fill}
-                                            layoutKey={`${fitted.description}:${descriptionMode}`}
+                                            layoutKey={fitted.description}
                                             label="Description"
-                                            onChange={(value) => patchRow(scope, rowIndex, { ...line, [descriptionKey]: value })}
                                         />
                                     </td>
                                     <td className={lineCell} style={rowStyle}>

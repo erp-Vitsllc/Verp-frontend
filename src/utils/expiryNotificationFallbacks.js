@@ -238,7 +238,7 @@ export function collectCompanyLiveExpiryNotifications(companies = []) {
             actionId: null,
             type: 'Document Expiry Reminder',
             requestedBy: 'System',
-            requestedDate: d.toISOString(),
+            requestedDate: null,
             status: 'Pending',
             extra1: `Expiry follow-up required: ${label} (Exp: ${expLabel})`,
             extra2: `${company?.name || ''} (${company?.companyId || ''})`,
@@ -312,7 +312,7 @@ export function collectEmployeeLiveExpiryNotifications(employees = []) {
             actionId: null,
             type: 'Employee Document Expiry Reminder',
             requestedBy: 'System',
-            requestedDate: d.toISOString(),
+            requestedDate: null,
             status: 'Pending',
             extra1: `Expiry follow-up required: ${label} (Exp: ${expLabel})`,
             extra2: `${subjectName} (${eid})`,
@@ -782,6 +782,29 @@ function expiryNoticeWasDeleted(item) {
     return keys.some((key) => suppressedExpiryKeys.has(key));
 }
 
+function expiryIdentityKeys(item) {
+    const type = String(item?.type || item?.requestType || '').trim();
+    const label = extractExpiryReminderLabel(item?.extra1 || '')
+        .replace(/\s*\(exp:\s*[^)]+\)\s*$/i, '')
+        .trim()
+        .toLowerCase();
+    const ids = [item?.targetEmployeeId, item?.subjectEmployeeId, item?.id]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean);
+    return [...new Set(ids.map((id) => `${type}|${id}|${label}`))];
+}
+
+/** Live scans must not replace the day the notification was created with the document expiry. */
+function withNotificationCreatedDate(live, api) {
+    if (!api) return live;
+    return {
+        ...live,
+        requestedDate: api.requestedDate || api.createdAt || null,
+        createdAt: api.createdAt || null,
+        actionId: live.actionId || api.actionId || null,
+    };
+}
+
 /**
  * Merge API expiry rows with live scans.
  * When entity lists are provided, drop reminders whose live card is no longer within ≤10 days.
@@ -804,6 +827,12 @@ export function mergeExpiryNotificationDedupe(apiItems = [], fallbackItems = [],
 
     let apiFiltered = (apiItems || []).filter(shouldKeepExpiryNotification).filter((item) => !expiryNoticeWasDeleted(item));
     apiFiltered = filterExpiryRemindersAgainstLiveEntities(apiFiltered, { employees, companies });
+    const createdByIdentity = new Map();
+    apiFiltered.forEach((item) => {
+        expiryIdentityKeys(item).forEach((key) => {
+            if (!createdByIdentity.has(key)) createdByIdentity.set(key, item);
+        });
+    });
     if (preferTypes.size > 0) {
         apiFiltered = apiFiltered.filter((item) => !preferTypes.has(String(item?.type || '').trim()));
     }
@@ -818,9 +847,13 @@ export function mergeExpiryNotificationDedupe(apiItems = [], fallbackItems = [],
     const merged = Array.from(apiBest.values());
     liveFiltered.forEach((x) => {
         const key = mergeDedupeKey(x);
+        const prior = expiryIdentityKeys(x)
+            .map((identity) => createdByIdentity.get(identity))
+            .find(Boolean);
+        const stamped = withNotificationCreatedDate(x, prior);
         if (!seen.has(key)) {
             seen.add(key);
-            merged.push(x);
+            merged.push(stamped);
         }
     });
     return sortNotificationsStackOrder(

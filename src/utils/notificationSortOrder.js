@@ -1,22 +1,9 @@
-/** When this notification arrived. Ignores document expiry and other subject dates. */
+import { notificationCreatedAt } from '@/utils/notificationCreatedDate';
+
+/** When this notification was created. Ignores document expiry and when the activity was completed. */
 export function getNotificationSortTime(item) {
-    const source = item?.raw && typeof item.raw === 'object' ? item.raw : item;
-    const candidates = [
-        source?.requestedDate,
-        source?.requestedAt,
-        source?.createdAt,
-        source?.leaveRequestedAt,
-        source?.appliedDate,
-        source?.actionedDate,
-        source?.updatedAt,
-        item?.requestedDate,
-    ];
-    for (const raw of candidates) {
-        if (raw == null || raw === '') continue;
-        const t = new Date(raw).getTime();
-        if (Number.isFinite(t) && t > 0) return t;
-    }
-    return 0;
+    const created = notificationCreatedAt(item);
+    return created ? created.getTime() : 0;
 }
 
 export function isPendingNotification(item) {

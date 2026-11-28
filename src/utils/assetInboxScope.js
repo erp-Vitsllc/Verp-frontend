@@ -16,6 +16,7 @@ const VEHICLE_ONLY_TYPES = new Set([
     'Vehicle Disposition Request',
     'Vehicle Document Expiry Reminder',
     'Vehicle Access Fuel Reminder',
+    'Vehicle Handover Images Missing',
 ]);
 
 const FLEET_SHARED_TYPES = new Set(['Asset Approval', 'Asset Assignment', 'Asset Return']);

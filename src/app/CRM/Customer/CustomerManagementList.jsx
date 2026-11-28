@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronDown, ChevronLeft, ChevronRight, Download, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
+import { SortHeading, sortRowsByColumn, useColumnSort } from '@/components/ListColumnSort';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { buildListReturnHref } from '@/utils/listReturnNavigation';
 import PageSizeSelect from '@/app/inventory/PageSizeSelect';
@@ -206,6 +207,29 @@ function MoreListCell({ values, open, onToggle, label }) {
     );
 }
 
+function customerSortValue(customer, key) {
+    if (key === 'code') return customer.code || '';
+    if (key === 'name') return customer.name || '';
+    if (key === 'location') return customer.location || '';
+    if (key === 'contact') return customer.contact || '';
+    if (key === 'brands') return (customer.listBrands || []).join(', ');
+    if (key === 'products') return customer.products == null ? '' : Number(customer.products) || 0;
+    if (key === 'outstanding') return Number(customer.outstandingPayment) || 0;
+    if (key === 'status') return customer.status || '';
+    return '';
+}
+
+const CUSTOMER_COLUMNS = [
+    { label: 'Customer Code', key: 'code' },
+    { label: 'Customer Name', key: 'name' },
+    { label: 'Location', key: 'location' },
+    { label: 'Primary Contact', key: 'contact' },
+    { label: 'Brands', key: 'brands' },
+    { label: 'Products', key: 'products', align: 'right' },
+    { label: 'Outstanding Receivables', key: 'outstanding', align: 'right' },
+    { label: 'Status', key: 'status' },
+];
+
 function csvCell(value) {
     const text = String(value ?? '');
     if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
@@ -218,6 +242,7 @@ export default function CustomerManagementList() {
     const searchKey = searchParams.toString();
     const appliedSearchKey = useRef(searchKey);
     const access = useCrmAccess();
+    const columnSort = useColumnSort();
     const [editor, setEditor] = useState(null);
     const [reloadKey, setReloadKey] = useState(0);
     const [query, setQuery] = useState(() => textParam(searchParams, 'search'));
@@ -284,6 +309,8 @@ export default function CustomerManagementList() {
             product,
             brand,
             paymentTerms,
+            sort: columnSort.sortKey,
+            dir: columnSort.sortDir,
         })
             .then((data) => {
                 if (cancelled) return;
@@ -308,7 +335,7 @@ export default function CustomerManagementList() {
         return () => {
             cancelled = true;
         };
-    }, [brand, debouncedQuery, page, pageSize, paymentTerms, product, reloadKey]);
+    }, [brand, debouncedQuery, page, pageSize, paymentTerms, product, reloadKey, columnSort.sortKey, columnSort.sortDir]);
 
     const { pageCount, currentPage, from, to } = pageWindow(total, page, pageSize);
 
@@ -317,6 +344,10 @@ export default function CustomerManagementList() {
         setPage(pageCount);
     }, [loading, page, pageCount]);
 
+    const sortedRows = useMemo(
+        () => sortRowsByColumn(rows, columnSort.sortKey, columnSort.sortDir, customerSortValue),
+        [rows, columnSort.sortKey, columnSort.sortDir],
+    );
     const emptyLabel = query || product || brand || paymentTerms
         ? 'No customers match this search.'
         : 'No customers yet.';
@@ -432,17 +463,22 @@ export default function CustomerManagementList() {
                     <thead>
                         <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
                             {[
-                                'Customer Code',
-                                'Customer Name',
-                                'Location',
-                                'Primary Contact',
-                                'Brands',
-                                'Products',
-                                'Outstanding Receivables',
-                                'Status',
-                                ...(showActions ? ['Action'] : []),
-                            ].map((heading) => (
-                                <th key={heading} className={`whitespace-nowrap px-4 py-3 font-medium ${heading === 'Outstanding Receivables' || heading === 'Products' ? 'text-right' : ''}`}>{heading}</th>
+                                ...CUSTOMER_COLUMNS,
+                                ...(showActions ? [{ label: 'Action', key: '' }] : []),
+                            ].map((column) => (
+                                <SortHeading
+                                    key={column.label}
+                                    label={column.label}
+                                    columnKey={column.key}
+                                    sortKey={columnSort.sortKey}
+                                    sortDir={columnSort.sortDir}
+                                    onSort={(key) => {
+                                        columnSort.onSort(key);
+                                        setPage(1);
+                                    }}
+                                    className={`whitespace-nowrap px-4 py-3 font-medium ${column.align === 'right' ? 'text-right' : ''}`}
+                                    align={column.align === 'right' ? 'right' : 'left'}
+                                />
                             ))}
                         </tr>
                     </thead>
@@ -455,7 +491,7 @@ export default function CustomerManagementList() {
                             <tr>
                                 <td colSpan={columnCount} className="px-4 py-10 text-center text-slate-500">{emptyLabel}</td>
                             </tr>
-                        ) : rows.map((customer) => (
+                        ) : sortedRows.map((customer) => (
                             <ListTableRowLink
                                 key={customer.id || customer.code}
                                 href={customer.id ? `/CRM/Customer/${customer.id}` : ''}

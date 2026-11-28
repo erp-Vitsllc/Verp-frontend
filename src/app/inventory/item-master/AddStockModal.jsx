@@ -495,14 +495,23 @@ export default function AddStockModal({ onClose, onSaved, reviewEntryId = '', ed
     );
 
     const modelOptions = useMemo(() => {
+        const name = cleanText(itemText);
+        const held = items.find((row) => sameId(row._id, itemId));
+        const itemName = held && (!name || namesEqual(itemLabel(held), name))
+            ? itemLabel(held)
+            : (name && scopedItems.some((item) => namesEqual(itemLabel(item), name)) ? name : '');
+        const typedBrand = cleanText(brandText);
+        const brandName = !brandId && brands.some((row) => namesEqual(row.name, typedBrand)) ? typedBrand : '';
         const values = new Set();
         scopedItems.forEach((item) => {
             if (brandId && !sameId(item.brandId, brandId)) return;
+            if (brandName && !namesEqual(item.brandName, brandName)) return;
+            if (itemName && !namesEqual(itemLabel(item), itemName)) return;
             const model = cleanText(item.modelNumber);
             if (model) values.add(model);
         });
         return [...values].sort((left, right) => left.localeCompare(right)).map((model) => ({ value: model, label: model }));
-    }, [brandId, scopedItems]);
+    }, [brandId, brandText, brands, itemId, itemText, items, scopedItems]);
 
     const existingStockItem = useMemo(
         () => existingItemForForm(items, {

@@ -4,12 +4,15 @@
 
 import { parseExpiryLabelToDate } from '@/utils/expiryNotificationFallbacks';
 import { getDaysUntil } from '@/utils/documentExpiryReminderStages';
+import { notificationCreatedAt } from '@/utils/notificationCreatedDate';
 
 function asDate(value) {
     if (!value) return null;
     const d = value instanceof Date ? value : new Date(value);
     return Number.isNaN(d.getTime()) ? null : d;
 }
+
+export { notificationCreatedAt };
 
 const EXPIRY_REMINDER_TYPES = new Set([
     'Employee Document Expiry Reminder',
@@ -99,11 +102,7 @@ function applyReassignedTaskNotice(row, item = {}) {
 }
 
 export function formatNotificationTime(requestedDate, raw) {
-    const d =
-        asDate(requestedDate) ||
-        asDate(raw?.requestedDate) ||
-        asDate(raw?.createdAt) ||
-        asDate(raw?.actionedDate);
+    const d = notificationCreatedAt({ ...(raw || {}), requestedDate: requestedDate || raw?.requestedDate });
     if (!d) return '';
     return d.toLocaleString('en-GB', {
         day: '2-digit',
@@ -117,10 +116,7 @@ export function formatNotificationTime(requestedDate, raw) {
 export function formatNotificationPendingSince(requestedDate, raw, status) {
     const s = String(status || raw?.status || '').toLowerCase();
     if (s && s !== 'pending') return '';
-    const d =
-        asDate(requestedDate) ||
-        asDate(raw?.requestedDate) ||
-        asDate(raw?.createdAt);
+    const d = notificationCreatedAt({ ...(raw || {}), requestedDate: requestedDate || raw?.requestedDate });
     if (!d) return '';
     const mins = Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
     if (mins < 60) return `${mins}m`;
@@ -148,12 +144,7 @@ export function formatNotificationDateShort(value) {
 export function getNotificationTimelineDates(row) {
     const raw = row?.raw ?? row;
     const meta = parseExtra3(raw?.extra3);
-    const received =
-        asDate(row?.requestedDate) ||
-        asDate(raw?.requestedDate) ||
-        asDate(raw?.createdAt) ||
-        asDate(raw?.updatedAt) ||
-        null;
+    const received = notificationCreatedAt(row);
     const start =
         asDate(meta?.startDate) ||
         asDate(meta?.fromDate) ||
@@ -201,13 +192,12 @@ export function groupNotificationsByDate(rows = []) {
     yesterday.setDate(yesterday.getDate() - 1);
 
     (rows || []).forEach((row) => {
-        const raw = row?.raw ?? row;
-        const d =
-            asDate(row?.requestedDate) ||
-            asDate(raw?.requestedDate) ||
-            asDate(raw?.createdAt) ||
-            asDate(raw?.leaveRequestedAt) ||
-            new Date();
+        const d = notificationCreatedAt(row);
+        if (!d) {
+            if (!groups.has(-1)) groups.set(-1, { label: 'No created date', items: [] });
+            groups.get(-1).items.push(row);
+            return;
+        }
         const day = new Date(d);
         day.setHours(0, 0, 0, 0);
         const dayKey = day.getTime();
@@ -463,6 +453,11 @@ export function buildUnderstandableNotificationTitle(item = {}) {
             const title = e1 || 'Vehicle Service Request';
             return appendVehicleServiceStageToTitle(title, item);
         }
+        case 'Vehicle Handover Images Missing':
+            return (
+                sanitizeNotificationText(item.extra2 || item.extra1 || '') ||
+                'Images were not added. This handover cannot go to the next step. Do not update without images.'
+            );
         case 'Vehicle Access Fuel Reminder': {
             const e1 = sanitizeNotificationText(item.extra1 || '');
             return e1 || 'Assigned vehicles have to add this month monthly limit';
@@ -492,6 +487,8 @@ export function buildUnderstandableNotificationTitle(item = {}) {
             return sanitizeNotificationText(item.extra1 || '') || 'Actual BOQ';
         case 'Work Order Actual BOQ Update':
             return sanitizeNotificationText(item.extra1 || '') || 'Actual BOQ update';
+        case 'Work Order MOM':
+            return sanitizeNotificationText(item.extra1 || '') || 'MOM approval';
         case 'Inventory Bill Draft':
             return sanitizeNotificationText(item.extra1 || item.subjectName || '') || 'Draft bill';
         case 'Fine':
@@ -522,8 +519,8 @@ function baseRow(item = {}, index = 0) {
     const key = stableActionId
         ? `${String(stableActionId)}:${type}${serviceHint ? `:${serviceHint}` : ''}`
         : `${String(subjectId || 'row')}:${type}:${serviceHint || extraHint}:${index}`;
-    const requestedDate =
-        item.requestedDate || item.createdAt || item.updatedAt || item.actionedDate || null;
+    const created = notificationCreatedAt(item);
+    const requestedDate = created ? created.toISOString() : null;
 
     return {
         key,
@@ -612,6 +609,9 @@ function buildUtilityCategoryLine(item = {}) {
     }
     if (type === 'Work Order Actual BOQ Update') {
         return e2 || 'Open the notification to approve or reject this update.';
+    }
+    if (type === 'Work Order MOM') {
+        return e2 || 'Open the notification to approve or reject the MOM.';
     }
     if (type === 'Work Order MR' || /^Work Order MR \d+$/.test(type)) {
         return e2 || 'Open the notification to approve or reject the material request.';

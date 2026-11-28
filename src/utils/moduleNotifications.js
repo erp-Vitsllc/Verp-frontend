@@ -919,6 +919,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         'Vehicle Profile Incomplete',
         'Vehicle Inspection',
         'Vehicle Assignment Photo Review',
+        'Vehicle Handover Images Missing',
         'Vehicle Mortgage Close',
         'Vehicle Disposition Request',
         'Vehicle Document Expiry Reminder',

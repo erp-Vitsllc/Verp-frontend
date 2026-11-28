@@ -34,6 +34,7 @@ export const VEHICLE_MODULE_TYPES = new Set([
     'Vehicle Profile Incomplete',
     'Vehicle Inspection',
     'Vehicle Assignment Photo Review',
+    'Vehicle Handover Images Missing',
     'Vehicle Mortgage Close',
     'Vehicle Disposition Request',
     'Vehicle Document Expiry Reminder',
@@ -156,7 +157,7 @@ export function resolveDashboardModuleCategory(item = {}) {
     if (COMPANY_MODULE_TYPES.has(type) || type === 'Document Expiry Reminder') return 'Company';
     if (EMPLOYEE_MODULE_TYPES.has(type)) return 'Employees';
     if (type === 'Inventory Bill Draft') return 'Inventory';
-    if (type === 'Work Order Project' || type === 'Work Order Checklist' || type === 'Work Order LPO' || type === 'Work Order LPO Attachment' || type === 'Work Order LPO Approval' || type === 'Work Order Actual BOQ' || type === 'Work Order Actual BOQ Update' || type === 'Work Order MR' || /^Work Order MR \d+$/.test(type)) return 'Other';
+    if (type === 'Work Order Project' || type === 'Work Order Checklist' || type === 'Work Order LPO' || type === 'Work Order LPO Attachment' || type === 'Work Order LPO Approval' || type === 'Work Order Actual BOQ' || type === 'Work Order Actual BOQ Update' || type === 'Work Order MR' || type === 'Work Order MOM' || /^Work Order MR \d+$/.test(type)) return 'Other';
 
     if (low.includes('fine')) return 'Fine';
     if (low.includes('utility bill')) return 'Utility Bills';
@@ -365,6 +366,7 @@ export function formatCommandCenterSubtype(item = {}) {
     if (type === 'Document Expiry Reminder') return 'Company Document Expiry';
     if (type === 'Vehicle Document Expiry Reminder') return 'Vehicle Document Expiry';
     if (type === 'Vehicle Access Fuel Reminder') return 'Access Fuel';
+    if (type === 'Vehicle Handover Images Missing') return 'Handover images missing';
     if (type === 'Asset Overdue') return 'Service overdue';
     if (type === 'Group Fine Request') return 'Group Fine';
     if (type === 'Fine') return 'Fine Request';

@@ -5,10 +5,10 @@ export const WORK_ORDER_TAB_SLUGS = {
     invoices: 'Invoices',
     boq: 'BOQ',
     budget: 'Budget',
-    'check-list': 'Check list',
+    mom: 'MOM',
     material: 'Material',
     delivery: 'Delivery',
-    activity: 'Activity',
+    workflow: 'Workflow',
     history: 'History',
     'old-documents': 'Old documents',
 };

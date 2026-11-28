@@ -61,6 +61,7 @@ import {
 import { canUserActOnFineStage } from '@/utils/fineStageAuth';
 import { useInheritedTaskAction } from '@/app/task-manager/useInheritedTaskAction';
 import { notifyFinePendingInboxChanged } from '../utils/finePendingInboxCount';
+import { fineCurrentHolderName } from '../utils/fineListDisplay';
 import { resolveFinePartiesZohoGate } from '../utils/finePartiesZohoGate';
 import { APPROVED_FINE_STATUSES, deriveFineScheduleMonthYears } from '../utils/fineScheduleUtils';
 import { buildEmployeeFinancials } from '../utils/employeeFineFinancials';
@@ -2139,10 +2140,13 @@ function FineDetailsPageContent() {
                                                         if (['Completed', 'Paid'].includes(s)) return null;
                                                         if (['Approved', 'Active'].includes(s)) {
                                                             if (!accountsPaymentPending) return null;
+                                                            const paymentHolder = fineCurrentHolderName(fine);
                                                             return (
                                                                 <div className="w-full">
                                                                     <span className="text-[11px] font-black uppercase tracking-wider px-4 py-2.5 rounded-lg border shadow-sm w-full block text-center bg-amber-50 text-amber-700 border-amber-200">
-                                                                        Payment pending — Accounts
+                                                                        {paymentHolder
+                                                                            ? `Payment pending — ${paymentHolder}`
+                                                                            : 'Payment pending — Accounts'}
                                                                     </span>
                                                                 </div>
                                                             );
