@@ -1091,9 +1091,9 @@ export default function ItemMasterList() {
                                     <tr
                                         className="cursor-pointer border-t border-slate-100 text-[13px] font-normal leading-5 text-slate-600 hover:bg-slate-50"
                                     >
-                                        <td className="whitespace-nowrap px-3 py-3 align-top">{row.itemCode}</td>
+                                        <td className="whitespace-nowrap px-3 py-3 align-top text-[13px] font-normal leading-5">{row.itemCode}</td>
                                         <td className="px-3 py-3 align-top">
-                                            <p className="line-clamp-2 break-words" title={row.itemName || ''}>{row.itemName}</p>
+                                            <p className="line-clamp-2 break-words text-[13px] font-normal leading-5 text-slate-600" title={row.itemName || ''}>{row.itemName}</p>
                                         </td>
                                         <ItemLinkCell
                                             name={row.brandName}
@@ -1101,8 +1101,8 @@ export default function ItemMasterList() {
                                             small
                                             onOpen={row.brandId ? () => showItems({ caption: `brand ${row.brandName || ''}`.trim(), brandId: row.brandId }) : null}
                                         />
-                                        <td className="px-3 py-3 align-top text-xs leading-4 text-slate-500">
-                                            <p className="line-clamp-2 break-words" title={row.modelNumber || ''}>{row.modelNumber}</p>
+                                        <td className="px-3 py-3 align-top">
+                                            <p className="line-clamp-2 break-words text-xs font-normal leading-4 text-slate-500" title={row.modelNumber || ''}>{row.modelNumber}</p>
                                         </td>
                                         <DescriptionCell row={row} />
                                         <ItemLinkCell
@@ -1328,12 +1328,12 @@ function DescriptionCell({ row }) {
     const secondary = descriptionLine([row?.brandName, row?.modelNumber]);
     const fallback = !primary && !secondary ? String(row?.description || '').trim() : '';
     return (
-        <td className="px-3 py-3 align-top text-xs font-normal leading-4 text-slate-500">
+        <td className="px-3 py-3 align-top">
             <div className="flex flex-col gap-0.5">
                 {primary || fallback ? (
-                    <p className="line-clamp-1 break-words">{primary || fallback}</p>
+                    <p className="line-clamp-1 break-words text-xs font-normal leading-4 text-slate-500">{primary || fallback}</p>
                 ) : null}
-                {secondary ? <p className="line-clamp-1 break-words">{secondary}</p> : null}
+                {secondary ? <p className="line-clamp-1 break-words text-xs font-normal leading-4 text-slate-500">{secondary}</p> : null}
             </div>
         </td>
     );
@@ -1341,7 +1341,7 @@ function DescriptionCell({ row }) {
 
 function ItemLinkCell({ name, label, onOpen, small = false }) {
     const textClass = small ? 'text-xs font-normal leading-4' : 'text-[13px] font-normal leading-5';
-    const text = <span className={`line-clamp-2 break-words ${textClass}`}>{name || '—'}</span>;
+    const text = <span className={`line-clamp-2 break-words font-normal ${textClass}`}>{name || '—'}</span>;
     if (!onOpen) {
         return <td className={`px-3 py-3 align-top ${small ? 'text-slate-500' : 'text-slate-600'}`}>{text}</td>;
     }
