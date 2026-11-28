@@ -216,39 +216,19 @@ const VENDOR_COLUMNS = [
     { label: 'Open LPO', key: 'openLpos' },
     { label: 'Status', key: 'status' },
 ];
-const NAME_LIMIT = 15;
 const LIST_LIMIT = 2;
 const clipCell = 'max-w-0 overflow-hidden px-2 py-2 align-middle';
-const cellText = 'text-xs font-normal text-slate-700';
+const cellText = 'text-[13px] font-normal leading-5 text-slate-600';
 const numCell = 'whitespace-nowrap px-2 py-2 text-right align-middle tabular-nums';
 
 function listItems(values) {
     return (values || []).map((value) => String(value || '').trim()).filter(Boolean);
 }
 
-function VendorName({ name, expanded, onToggle }) {
+function VendorName({ name }) {
     const full = String(name || '').trim();
     if (!full) return 'N/A';
-    if (full.length <= NAME_LIMIT || expanded) {
-        return <span className={`block ${cellText} ${expanded ? 'whitespace-normal break-words' : 'truncate'}`} title={full}>{full}</span>;
-    }
-    return (
-        <span className="flex min-w-0 items-center gap-1">
-            <span className={`min-w-0 overflow-hidden whitespace-nowrap ${cellText}`} title={full}>{full.slice(0, NAME_LIMIT).trimEnd()}</span>
-            <button
-                type="button"
-                onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onToggle();
-                }}
-                className={moreLinkClass}
-                aria-label="See full vendor name"
-            >
-                ...
-            </button>
-        </span>
-    );
+    return <span className={`block whitespace-normal break-words ${cellText}`}>{full}</span>;
 }
 
 function LimitedList({ values, onSeeMore, label }) {
@@ -401,7 +381,6 @@ export default function VendorManagementList() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [deletingId, setDeletingId] = useState('');
-    const [expandedNames, setExpandedNames] = useState(() => new Set());
     const showActions = access.canEditVendor || access.canDeleteVendor;
     const columnCount = showActions ? 11 : 10;
 
@@ -492,15 +471,6 @@ export default function VendorManagementList() {
     const emptyLabel = query || product || brand || paymentTerms
         ? 'No vendors match this search.'
         : 'No vendors yet.';
-
-    function toggleName(id) {
-        setExpandedNames((current) => {
-            const next = new Set(current);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
-    }
 
     function openVendorTab(event, vendorId, tab) {
         event.preventDefault();
@@ -609,7 +579,7 @@ export default function VendorManagementList() {
             {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
 
             <div className="mt-4 min-w-0">
-                <table className="w-full table-fixed text-left text-xs text-slate-700">
+                <table className="w-full table-fixed text-left text-[13px] font-normal text-slate-600">
                     <colgroup>
                         {(showActions
                             ? ['8%', '13%', '11%', '9%', '12%', '12%', '12%', '6%', '5%', '7%', '5%']
@@ -647,9 +617,7 @@ export default function VendorManagementList() {
                             <tr>
                                 <td colSpan={columnCount} className="px-2 py-8 text-center text-xs text-slate-400">{emptyLabel}</td>
                             </tr>
-                        ) : sortedRows.map((vendor) => {
-                            const nameExpanded = expandedNames.has(vendor.id);
-                            return (
+                        ) : sortedRows.map((vendor) => (
                             <ListTableRowLink
                                 key={vendor.id || vendor.code}
                                 href={vendor.id ? `/inventory/vendor-management/${vendor.id}` : ''}
@@ -661,12 +629,8 @@ export default function VendorManagementList() {
                                 <td className={clipCell}>
                                     <span className={`block truncate ${cellText}`} title={vendor.code || ''}>{vendor.code}</span>
                                 </td>
-                                <td className={nameExpanded ? 'px-2 py-2 align-middle' : clipCell}>
-                                    <VendorName
-                                        name={vendor.name}
-                                        expanded={nameExpanded}
-                                        onToggle={() => toggleName(vendor.id)}
-                                    />
+                                <td className="px-2 py-2 align-top">
+                                    <VendorName name={vendor.name} />
                                 </td>
                                 <td className={clipCell}>
                                     <span className={`block truncate ${cellText}`} title={displayValue(vendor.location)}>{displayValue(vendor.location)}</span>
@@ -711,8 +675,7 @@ export default function VendorManagementList() {
                                 ) : null}
                             </tr>
                             </ListTableRowLink>
-                            );
-                        })}
+                        ))}
                     </tbody>
                 </table>
             </div>

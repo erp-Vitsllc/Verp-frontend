@@ -109,7 +109,7 @@ function csvCell(value) {
 function availableClass(row) {
     if (row.availableQuantity === 0 || row.status === 'Out of Stock') return 'text-red-500';
     if (row.status === 'Low Stock') return 'text-orange-500';
-    return 'text-slate-800';
+    return 'text-slate-600';
 }
 
 function textParam(params, key) {
@@ -1089,19 +1089,20 @@ export default function ItemMasterList() {
                                         listReturnHref={listHref}
                                     >
                                     <tr
-                                        className="cursor-pointer border-t border-slate-100 text-sm text-slate-700 hover:bg-slate-50"
+                                        className="cursor-pointer border-t border-slate-100 text-[13px] font-normal leading-5 text-slate-600 hover:bg-slate-50"
                                     >
-                                        <td className="whitespace-nowrap px-3 py-3 align-top font-medium text-slate-500">{row.itemCode}</td>
-                                        <td className="px-3 py-3 align-top font-medium text-slate-800">
-                                            <p className="line-clamp-2 break-words leading-5" title={row.itemName || ''}>{row.itemName}</p>
+                                        <td className="whitespace-nowrap px-3 py-3 align-top">{row.itemCode}</td>
+                                        <td className="px-3 py-3 align-top">
+                                            <p className="line-clamp-2 break-words" title={row.itemName || ''}>{row.itemName}</p>
                                         </td>
                                         <ItemLinkCell
                                             name={row.brandName}
                                             label="brand"
+                                            small
                                             onOpen={row.brandId ? () => showItems({ caption: `brand ${row.brandName || ''}`.trim(), brandId: row.brandId }) : null}
                                         />
-                                        <td className="px-3 py-3 align-top">
-                                            <p className="line-clamp-2 break-words leading-5" title={row.modelNumber || ''}>{row.modelNumber}</p>
+                                        <td className="px-3 py-3 align-top text-xs leading-4 text-slate-500">
+                                            <p className="line-clamp-2 break-words" title={row.modelNumber || ''}>{row.modelNumber}</p>
                                         </td>
                                         <DescriptionCell row={row} />
                                         <ItemLinkCell
@@ -1114,7 +1115,7 @@ export default function ItemMasterList() {
                                             label="subcategory"
                                             onOpen={row.subcategoryId ? () => showItems({ caption: `subcategory ${row.subcategoryName || ''}`.trim(), subcategoryId: row.subcategoryId }) : null}
                                         />
-                                        <td className={`whitespace-nowrap px-3 py-3 align-top font-semibold ${availableClass(row)}`}>{row.availableQuantity}</td>
+                                        <td className={`whitespace-nowrap px-3 py-3 align-top ${availableClass(row)}`}>{row.availableQuantity}</td>
                                         <td className="whitespace-nowrap px-3 py-3 align-top">
                                             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(row.status)}`}>
                                                 {row.status}
@@ -1327,28 +1328,29 @@ function DescriptionCell({ row }) {
     const secondary = descriptionLine([row?.brandName, row?.modelNumber]);
     const fallback = !primary && !secondary ? String(row?.description || '').trim() : '';
     return (
-        <td className="px-3 py-3 align-top">
+        <td className="px-3 py-3 align-top text-xs font-normal leading-4 text-slate-500">
             <div className="flex flex-col gap-0.5">
                 {primary || fallback ? (
-                    <p className="line-clamp-1 break-words text-sm leading-5 text-slate-700">{primary || fallback}</p>
+                    <p className="line-clamp-1 break-words">{primary || fallback}</p>
                 ) : null}
-                {secondary ? <p className="line-clamp-1 break-words text-sm leading-5 text-slate-700">{secondary}</p> : null}
+                {secondary ? <p className="line-clamp-1 break-words">{secondary}</p> : null}
             </div>
         </td>
     );
 }
 
-function ItemLinkCell({ name, label, onOpen }) {
-    const text = <span className="line-clamp-2 break-words">{name || '—'}</span>;
+function ItemLinkCell({ name, label, onOpen, small = false }) {
+    const textClass = small ? 'text-xs font-normal leading-4' : 'text-[13px] font-normal leading-5';
+    const text = <span className={`line-clamp-2 break-words ${textClass}`}>{name || '—'}</span>;
     if (!onOpen) {
-        return <td className="px-3 py-3 align-top">{text}</td>;
+        return <td className={`px-3 py-3 align-top ${small ? 'text-slate-500' : 'text-slate-600'}`}>{text}</td>;
     }
     return (
         <td className="p-0 align-top" onClick={(event) => event.stopPropagation()}>
             <button
                 type="button"
                 onClick={onOpen}
-                className="w-full px-3 py-3 text-left font-medium text-blue-700 hover:bg-blue-50 hover:underline"
+                className={`w-full px-3 py-3 text-left text-blue-700 hover:bg-blue-50 hover:underline ${textClass}`}
                 aria-label={`Show items for ${label} ${name || ''}`.trim()}
             >
                 {text}
@@ -1596,7 +1598,7 @@ function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onRow = nul
                         ) : pageRows.map((row, index) => (
                             <tr
                                 key={row._id}
-                                className={`text-sm text-slate-700 ${onRow ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+                                className={`text-[13px] font-normal leading-5 text-slate-600 ${onRow ? 'cursor-pointer hover:bg-slate-50' : ''}`}
                                 onClick={onRow ? () => onRow(row) : undefined}
                             >
                                 {serial ? (
@@ -1614,7 +1616,7 @@ function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onRow = nul
                                 {columns.map((column) => {
                                     if (!column.count) {
                                         return (
-                                            <td key={column.key} className="truncate border-b border-slate-100 px-4 py-3 font-medium text-slate-800" title={row.name}>
+                                            <td key={column.key} className="whitespace-normal break-words border-b border-slate-100 px-4 py-3" title={row.name}>
                                                 {row.name}
                                             </td>
                                         );
@@ -1629,7 +1631,7 @@ function CatalogTable({ noun, rows, loading, empty, columns, onOpen, onRow = nul
                                                     event.stopPropagation();
                                                     onOpen(column.key, row);
                                                 }}
-                                                className="w-full px-4 py-3 text-right font-semibold tabular-nums text-blue-700 hover:bg-blue-50 hover:underline"
+                                                className="w-full px-4 py-3 text-right text-[13px] font-normal tabular-nums text-blue-700 hover:bg-blue-50 hover:underline"
                                                 aria-label={action}
                                                 title={action}
                                             >

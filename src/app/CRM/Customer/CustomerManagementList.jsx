@@ -459,7 +459,7 @@ export default function CustomerManagementList() {
             {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
 
             <div className="mt-5 overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
+                <table className="min-w-full text-left text-[13px] font-normal text-slate-600">
                     <thead>
                         <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
                             {[
@@ -501,7 +501,7 @@ export default function CustomerManagementList() {
                             >
                                 <tr className="cursor-pointer border-b border-slate-100 text-slate-700 hover:bg-slate-50">
                                     <td className="whitespace-nowrap px-4 py-3.5">{customer.code || 'N/A'}</td>
-                                    <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{customer.name}</td>
+                                    <td className="whitespace-nowrap px-4 py-3.5">{customer.name}</td>
                                     <td className="whitespace-nowrap px-4 py-3.5">{displayValue(customer.location)}</td>
                                     <td className="whitespace-nowrap px-4 py-3.5">{displayValue(customer.contact)}</td>
                                     <MoreListCell

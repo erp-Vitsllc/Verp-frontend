@@ -297,7 +297,7 @@ export default function BillsBoard() {
                 </div>
             ) : null}
             <div className="mt-5 overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
+                <table className="min-w-full text-left text-[13px] font-normal text-slate-600">
                     <thead>
                         <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
                             {COLUMNS.map((column) => (
@@ -336,8 +336,8 @@ export default function BillsBoard() {
                                 className={`border-b border-slate-100 text-slate-700 ${isDraft || openForDecision ? 'cursor-pointer hover:bg-slate-50' : ''}`}
                             >
                                 <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-slate-500">{index + 1}</td>
-                                <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{shown(bill.billNo)}</td>
-                                <td className="max-w-[220px] truncate px-4 py-3.5">
+                                <td className="whitespace-nowrap px-4 py-3.5">{shown(bill.billNo)}</td>
+                                <td className="max-w-[220px] px-4 py-3.5 align-top">
                                     {bill.vendorId ? (
                                         <button
                                             type="button"
@@ -345,11 +345,11 @@ export default function BillsBoard() {
                                                 event.stopPropagation();
                                                 router.push(`/inventory/vendor-management/${bill.vendorId}`);
                                             }}
-                                            className="max-w-full truncate font-medium text-indigo-600 hover:underline"
+                                            className="whitespace-normal break-words text-left text-indigo-600 hover:underline"
                                         >
                                             {shown(bill.vendorName)}
                                         </button>
-                                    ) : shown(bill.vendorName)}
+                                    ) : <span className="whitespace-normal break-words">{shown(bill.vendorName)}</span>}
                                 </td>
                                 <td className="max-w-[180px] truncate px-4 py-3.5">{shown(bill.paymentTerms)}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5">{shown(formatPurchaseDate(bill.purchaseDate))}</td>

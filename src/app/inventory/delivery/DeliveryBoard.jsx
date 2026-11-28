@@ -310,7 +310,7 @@ export default function DeliveryBoard() {
             ) : null}
 
             <div className="mt-5 overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
+                <table className="min-w-full text-left text-[13px] font-normal text-slate-600">
                     <thead>
                         <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
                             {DELIVERY_COLUMNS.map((column) => (
@@ -345,7 +345,7 @@ export default function DeliveryBoard() {
                                 }}
                                 className="cursor-pointer border-b border-slate-100 text-slate-700 hover:bg-slate-50"
                             >
-                                <td className="whitespace-nowrap px-4 py-3.5 font-medium text-slate-800">{row.deliveryNo}</td>
+                                <td className="whitespace-nowrap px-4 py-3.5">{row.deliveryNo}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5">{formatDoDate(row.doDate)}</td>
                                 <td className="whitespace-nowrap px-4 py-3.5">{row.deliveryType}</td>
                                 <td className="max-w-[220px] truncate px-4 py-3.5">{row.projectName || '—'}</td>
@@ -357,7 +357,7 @@ export default function DeliveryBoard() {
                                                 event.stopPropagation();
                                                 router.push(`/CRM/Customer/${row.customerId}`);
                                             }}
-                                            className="max-w-full truncate font-medium text-[#7C3AED] hover:underline"
+                                            className="max-w-full truncate text-[#7C3AED] hover:underline"
                                         >
                                             {row.customerName || '—'}
                                         </button>

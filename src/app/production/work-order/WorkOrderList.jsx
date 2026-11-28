@@ -216,18 +216,18 @@ export default function WorkOrderList() {
                                     <Link
                                         href={workOrderDetailsHref(order.id)}
                                         onClick={(event) => openOrder(event, order.id)}
-                                        className={`text-[13px] font-semibold text-[#2f6fed] hover:underline ${FOCUS}`}
+                                        className={`text-[13px] font-normal text-[#2f6fed] hover:underline ${FOCUS}`}
                                     >
                                         {order.no}
                                     </Link>
                                 </td>
-                                <td className="px-2 py-3 text-[13px] text-slate-700 whitespace-nowrap">{order.customer}</td>
+                                <td className="px-2 py-3 text-[13px] font-normal text-slate-600 whitespace-nowrap">{order.customer}</td>
                                 <td className="px-2 py-3 whitespace-nowrap">
                                     {order.quote && order.quote !== '—' ? (
                                         <button
                                             type="button"
                                             onClick={() => setQuotePreview(order)}
-                                            className={`text-[13px] font-semibold text-[#2f6fed] hover:underline ${FOCUS}`}
+                                            className={`text-[13px] font-normal text-[#2f6fed] hover:underline ${FOCUS}`}
                                         >
                                             {order.quote}
                                         </button>
@@ -242,7 +242,7 @@ export default function WorkOrderList() {
                                 <td className="px-2 py-3 whitespace-nowrap">
                                     <Pill className={TYPE_CLASS[order.type] || 'bg-stone-100 text-stone-600'}>{order.type}</Pill>
                                 </td>
-                                <td className="px-2 py-3 text-[13px] font-medium text-slate-700 whitespace-nowrap tabular-nums">
+                                <td className="px-2 py-3 text-[13px] font-normal text-slate-600 whitespace-nowrap tabular-nums">
                                     {order.value}
                                 </td>
                                 <td className="px-2 py-3">
